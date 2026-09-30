@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Validate the gate-2 contract examples, and prove the schemas can fail.
+
+    python3 schemas/check_examples.py            # exit 0 only if every check below holds
+
+1. Every schemas/*.schema.json is a valid Draft 2020-12 schema.
+2. Every schemas/examples/<name>.* validates against schemas/<name>.schema.json
+   (the schema is the file-name prefix up to the first dot; .jsonl = one document per line).
+3. Every schemas/examples/invalid/<name>.* FAILS, and fails for the reason its
+   first line names (`# expect-error: <text>` must appear in an error message).
+   This is the negative control for step 2 (PR6).
+4. verdicts.tsv files follow the row contract: 5 tab-separated fields, each row
+   valid against result-bundle#/$defs/verdict_row, nonce equal to the paired
+   provenance's run_nonce, timestamp inside [started_at, finished_at] (D5).
+
+YAML is loaded with timestamps left as strings and duplicate keys rejected: a
+registry file with a repeated key is an error, never a silent overwrite.
+
+Needs: jsonschema >= 4.18 (with `referencing`) and PyYAML.
+"""
+import glob
+import json
+import os
+import sys
+
+import yaml
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EX = os.path.join(HERE, "examples")
+BAD = os.path.join(EX, "invalid")
+
+
+class StrictLoader(yaml.SafeLoader):
+    """SafeLoader without the timestamp resolver, rejecting duplicate keys."""
+
+
+StrictLoader.yaml_implicit_resolvers = {
+    k: [(tag, rx) for tag, rx in v if tag != "tag:yaml.org,2002:timestamp"]
+    for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _no_dup_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                None, None, "duplicate key %r" % (key,), key_node.start_mark)
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
+
+
+def load_schemas():
+    schemas, resources = {}, []
+    for path in sorted(glob.glob(os.path.join(HERE, "*.schema.json"))):
+        with open(path) as f:
+            doc = json.load(f)
+        Draft202012Validator.check_schema(doc)
+        name = os.path.basename(path)[: -len(".schema.json")]
+        schemas[name] = doc
+        resources.append((doc["$id"], Resource.from_contents(doc, default_specification=DRAFT202012)))
+    return schemas, Registry().with_resources(resources)
+
+
+def docs_in(path):
+    """Yield (label, document) for a .json, .jsonl or .yaml file."""
+    with open(path) as f:
+        text = f.read()
+    if path.endswith(".jsonl"):
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.strip():
+                yield "%s:%d" % (os.path.basename(path), n), json.loads(line)
+    elif path.endswith(".json"):
+        yield os.path.basename(path), json.loads(text)
+    else:
+        yield os.path.basename(path), yaml.load(text, Loader=StrictLoader)
+
+
+def schema_for(path):
+    return os.path.basename(path).split(".", 1)[0]
+
+
+def errors(validator, doc):
+    return sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
+
+
+def validator_for(schemas, registry, name, pointer=None):
+    schema = schemas[name]
+    if pointer:
+        schema = {"$ref": schema["$id"] + "#" + pointer}
+    return Draft202012Validator(schema, registry=registry)
+
+
+def check_tsv(path, row_validator, nonce, t_start, t_end):
+    """Return a list of problems with a verdicts.tsv file (empty = conforms)."""
+    problems = []
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    if not lines:
+        return ["no rows: an empty verdicts.tsv is rejected (D5)"]
+    for n, line in enumerate(lines, 1):
+        fields = line.split("\t")
+        if len(fields) != 5:
+            problems.append("line %d: expected 5 tab-separated fields, got %d" % (n, len(fields)))
+            continue
+        row = dict(zip(["utc", "status", "gate", "detail", "nonce"], fields))
+        for e in row_validator.iter_errors(row):
+            problems.append("line %d: %s" % (n, e.message))
+        if row["nonce"] != nonce:
+            problems.append("line %d: nonce %s does not match run_nonce %s" % (n, row["nonce"], nonce))
+        if not (t_start <= row["utc"] <= t_end):
+            problems.append("line %d: %s is outside the job window %s..%s" % (n, row["utc"], t_start, t_end))
+    return problems
+
+
+TSV_EXPECT = {
+    "result-bundle.verdicts.four-columns.tsv": "expected 5 tab-separated fields",
+    "result-bundle.verdicts.foreign-nonce.tsv": "does not match run_nonce",
+}
+
+
+def main():
+    schemas, registry = load_schemas()
+    print("schemas: %d, all valid Draft 2020-12" % len(schemas))
+    ok = fail = 0
+
+    def report(good, label, msg=""):
+        nonlocal ok, fail
+        if good:
+            ok += 1
+            print("  ok    %s%s" % (label, ("  " + msg) if msg else ""))
+        else:
+            fail += 1
+            print("  FAIL  %s  %s" % (label, msg))
+
+    prov_path = os.path.join(EX, "result-bundle.provenance.example.json")
+    with open(prov_path) as f:
+        prov = json.load(f)
+    row_v = validator_for(schemas, registry, "result-bundle", "/$defs/verdict_row")
+
+    print("valid examples (must pass):")
+    covered = set()
+    for path in sorted(glob.glob(os.path.join(EX, "*.*"))):
+        if path.endswith(".tsv"):
+            probs = check_tsv(path, row_v, prov["run_nonce"], prov["started_at"], prov["finished_at"])
+            report(not probs, os.path.basename(path), "; ".join(probs))
+            continue
+        name = schema_for(path)
+        v = validator_for(schemas, registry, name)
+        covered.add(name)
+        for label, doc in docs_in(path):
+            errs = errors(v, doc)
+            report(not errs, label, "; ".join("%s: %s" % ("/".join(map(str, e.absolute_path)), e.message) for e in errs[:3]))
+
+    print("invalid examples (must fail, for the named reason):")
+    bad_covered = set()
+    for path in sorted(glob.glob(os.path.join(BAD, "*.*"))):
+        base = os.path.basename(path)
+        if path.endswith(".tsv"):
+            probs = check_tsv(path, row_v, prov["run_nonce"], prov["started_at"], prov["finished_at"])
+            want = TSV_EXPECT.get(base)
+            hit = bool(want) and any(want in p for p in probs)
+            report(hit, base, "expected %r, got %s" % (want, probs) if not hit else "rejected: " + probs[0])
+            continue
+        name = schema_for(path)
+        bad_covered.add(name)
+        with open(path) as f:
+            first = f.readline()
+        want = first.split("expect-error:", 1)[1].strip() if "expect-error:" in first else None
+        if not want:
+            report(False, base, "first line must be '# expect-error: <text>'")
+            continue
+        v = validator_for(schemas, registry, name)
+        for label, doc in docs_in(path):
+            msgs = [e.message for e in v.iter_errors(doc)]
+            # descend into oneOf/anyOf/if-then contexts so a nested reason is visible
+            for e in v.iter_errors(doc):
+                msgs.extend(c.message for c in e.context or [])
+            hit = any(want in m for m in msgs)
+            report(hit, label, ("rejected: " + next(m for m in msgs if want in m)) if hit
+                   else "expected %r; got %s" % (want, msgs[:3] or "NO ERROR (the schema cannot fail here)"))
+
+    doc_schemas = set(schemas) - {"defs"}
+    missing_valid = sorted(doc_schemas - covered)
+    missing_bad = sorted(doc_schemas - bad_covered)
+    if missing_valid:
+        report(False, "coverage", "no valid example for: " + ", ".join(missing_valid))
+    if missing_bad:
+        report(False, "coverage", "no invalid example for: " + ", ".join(missing_bad))
+    print("%d ok, %d failed" % (ok, fail))
+    return 1 if fail else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

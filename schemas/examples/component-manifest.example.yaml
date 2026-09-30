@@ -1,0 +1,21 @@
+# nanosoc-component.yaml for nanoSoC-Arch-Tech, as it could look in Phase 3 (C11).
+# ILLUSTRATIVE: no repo carries a manifest yet. The version follows the agreed first tag
+# (arch_tech v0.1.0 on 490d6d0, not yet created). Every command below is a PLACEHOLDER: the real
+# per-repo entry points are unverified and each repo's owner supplies them.
+schema: 1
+id: nanosoc_arch_tech
+class: arch_tech
+version: "0.1.0"
+canonical: https://github.com/SoC-Labs/nanoSoC-Arch-Tech.git
+provides:
+  - {name: nanosoc-flist-layout, version: 1}
+requires:
+  - {id: nanosoc_gen, path: nanosoc_gen, range: "^0.1"}
+  - {id: socdebug_tech, path: rtl/socdebug_tech, range: "^0.1"}
+reexports: [nanosoc_gen]            # C6: consumers call nanosoc_arch_tech/nanosoc_gen directly
+variants:
+  sim: {flist: "make flist-sim"}    # PLACEHOLDER
+generated: {dir: build_soc, committed: false}
+tests:
+  t0: {run: "make -C ci t0", control: "make -C ci t0-control"}   # PLACEHOLDER
+  t1: {run: "make lint", control: "make lint-control"}           # PLACEHOLDER

@@ -1,0 +1,5 @@
+# expect-error: 'commit' is a required property
+# B5: a frozen (here silicon) configuration must be fixed by commit, not only by a movable tag.
+schema: 1
+configurations:
+  - {id: eth-rc4, component: nanosoc-ethernet-chiplet, ref: {tag: v1.0.0}, frozen: true, silicon: {chip: eth-chiplet, revision: r0p0}}

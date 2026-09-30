@@ -1,0 +1,50 @@
+# registry/defects/SL-DEF-0001.yaml: the cpu_ss_hsel case (F1 done-when).
+# OBSERVED 2026-09-30 (GitLab/GitHub read APIs): every commit below resolves as a full id;
+#   036d381 -> f1c435b -> adbb9ab are ancestors in that order on nanosoc_gen main;
+#   hsel_lint's usage line is from soc_model/backends/hsel_lint.py at adbb9ab.
+# NOT RE-CHECKED: the netlist pattern D2 and the effect-to-port mapping (from the design proposal, sec. 6.4);
+#   effect texts are to be imported from the QuickStart cpu_ss_hsel write-up (F5).
+# KNOWN T0 RESULT: regression_test.commit 6aafc94 exists only in a local checkout (GitHub answers 422),
+#   so t0.registry.refs-resolve FAILS on this record until it is pushed. That is F3 working.
+schema: 1
+id: SL-DEF-0001
+title: AHB link forwards HTRANS not qualified by HSEL (phantom transfers)
+component: nanosoc_gen
+origin:
+  - {component: nanosoc_arch_tech, commit: "49a6c252c34cbc6bcd5b715b5f37bae176417a12"}  # 2026-03-22, initial arch_tech RTL
+  - {component: nanosoc_gen, commit: "b0a606960c349aeac4a00f67b3dbd13f55cb5f24"}        # 2026-04-01, "Adding subsystem generator"
+forms:
+  - id: A
+    name: cpu_ss link
+    variant: all
+    fixed_in:
+      - {component: nanosoc_gen, commit: "036d3811e630c89b2344b56aa617b40a99cd652b"}  # qualify the cpu_ss link HTRANS by cpu_ss_hsel
+  - id: B
+    name: initiator boundary (ETH_SS_SLAVE)
+    variant: all
+    fixed_in:
+      - {component: nanosoc_gen, commit: "adbb9abfaa81350e6f40d3b5c4e20f1f87b8002d"}  # completes f1c435b (child-subsystem links) for top-level passthroughs
+trigger: >-
+  A: two or more of {DMA, debug port, admin port} reach CPU-local memory through CPU_SS close together.
+  B: a DMA master on ETH_SS.
+detectors:
+  - id: D1
+    kind: generated-rtl
+    forms: [A, B]
+    command: "python -m soc_model.backends.hsel_lint {dir}"
+    source: {component: nanosoc_gen, commit: "adbb9abfaa81350e6f40d3b5c4e20f1f87b8002d"}
+  - id: D2
+    kind: netlist
+    forms: [A]
+    pattern: '\.cpu_ss_hsel\(UNCONNECTED_'
+effects:
+  - {id: E1, forms: [A], port: cpu_ss_1_slave}
+  - {id: E2, forms: [B], port: eth_ss_slave}
+  - {id: E3, forms: [B], port: eth_ss_slave}
+  - {id: E4, forms: [B], port: eth_ss_slave}
+  - {id: E5, forms: [A, B]}
+regression_test:
+  component: nanosoc-ethernet-chiplet
+  commit: "6aafc943f2750be92e80b31be99f0cd60f8927e4"   # branch test/cpu-ss-hsel-regression, not pushed
+  path: verif/cpu_ss_hsel
+  expect: {shipped: defect, gated: clean}

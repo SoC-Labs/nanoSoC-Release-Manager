@@ -1,0 +1,19 @@
+# expect-error: 'outputs' is a required property
+# G3: a silicon release records the GDS and netlist hashes.
+schema: 1
+release: {component: nanosoc-ethernet-chiplet, configuration: eth-rc4, version: "1.0.0", tag: v1.0.0, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e", silicon: {chip: eth-chiplet, revision: r0p0, tag: silicon/eth-chiplet-r0p0}}
+generated_at: "2026-09-30T17:38:49Z"
+generated_by: {tool: nanosoc-release-manager, version: "0.0.0"}
+sources: [{kind: derived, command: nanosoc-rm lock eth-rc4}]
+pins:
+  - {parent: {repo: {host: github, path: SoC-Labs/NanoSoC-Ethernet-Chiplet}, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"}, path: tidechart, tree_paths: [tidechart], depth: 1, component: tidechart, repo: {host: gitlab, path: soclabs/tidechart}, commit: "4b4b89820ab1d87a123a1eac5c221b8527673def", state: PROTECTED_BY_TAG, url_kind: https, tags: [keep/eth-rc4/tidechart], effective: true}
+waivers: []
+generated_rtl:
+  committed: false
+  generator: {component: nanosoc_gen, commit: "d04de2ec25d79c1fc3223f853ddb6725cbf2831c", tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen}
+  archive: {store: disk, path: build_soc.tar.gz, md5: "80eb7ce7e81fee653b52c6821cea3942"}
+  manifest: {store: disk, path: build_soc.md5, md5: "819bfff2ee8821c2675740306e1445a0"}
+  files: 332
+errata: {file: ERRATA.md, revision: 1}
+gate_ledger: {file: GATES.md}
+artefacts: []

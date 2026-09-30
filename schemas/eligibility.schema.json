@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/eligibility.schema.json",
+  "title": "Configurations and eligibility (registry/eligibility.yaml)",
+  "description": "Which SoC configurations are registered (walked, T0-tested nightly, shown on the dashboard), which are frozen or silicon, and (Phase 4) which default branches the bot may auto-merge into. Changed only through a merge request to the registry's protected main. Owner: registry loader. B2, B5, D2, H1, E3, E5.",
+  "type": "object",
+  "required": ["schema", "configurations"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "configurations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/configuration" }
+    },
+    "auto_merge": {
+      "description": "Phase 4 (E2, E3, E5). Component id -> change classes the bot may auto-merge into that component's default branch, once shadow mode has ended. Absent or empty in v1.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "enum": ["fix", "feature"] }
+      }
+    }
+  },
+  "$defs": {
+    "configuration": {
+      "type": "object",
+      "required": ["id", "component", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "defs.schema.json#/$defs/configuration_id",
+          "description": "B2. Also the <config> segment of keep/<config>/<component> tags (C10)."
+        },
+        "component": {
+          "$ref": "defs.schema.json#/$defs/component_id",
+          "description": "B2: must be a catalogue component of class soc_ref or example."
+        },
+        "ref": {
+          "$ref": "defs.schema.json#/$defs/git_ref",
+          "description": "B2: the branch or tag on the component's canonical host."
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha",
+          "description": "Required when frozen. B5 and T0 use this commit even if the tag moves; a tag that stops peeling to it raises an alert (C10)."
+        },
+        "frozen": {
+          "type": "boolean",
+          "default": false,
+          "description": "B5 (frozen tree), E5 (never auto-merged)."
+        },
+        "silicon": {
+          "description": "B5, F1, F4, C10 (silicon/<chip>-rNpM). A silicon configuration is always frozen.",
+          "type": "object",
+          "required": ["chip", "revision"],
+          "additionalProperties": false,
+          "properties": {
+            "chip": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+            "revision": { "type": "string", "pattern": "^r[0-9]+p[0-9]+$" }
+          }
+        },
+        "upgrade_from": {
+          "$ref": "defs.schema.json#/$defs/git_ref",
+          "description": "D2 upgrade-path clone: the previous release to upgrade from. Absent -> gate t0.clone.upgrade-path records SKIP with the reason."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["silicon"] },
+          "then": { "required": ["frozen"], "properties": { "frozen": { "const": true } } }
+        },
+        {
+          "if": { "required": ["frozen"], "properties": { "frozen": { "const": true } } },
+          "then": { "required": ["commit"] }
+        }
+      ]
+    }
+  }
+}

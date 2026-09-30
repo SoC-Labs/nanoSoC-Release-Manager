@@ -1,0 +1,13 @@
+# expect-error: does not match '^[0-9a-f]{40}$'
+# F3: a cited commit must be a full id, so T0 can prove it exists.
+schema: 1
+id: SL-DEF-0001
+title: AHB link forwards HTRANS not qualified by HSEL (phantom transfers)
+component: nanosoc_gen
+origin: [{component: nanosoc_gen, commit: "b0a606960c349aeac4a00f67b3dbd13f55cb5f24"}]
+forms:
+  - {id: A, name: cpu_ss link, variant: all, fixed_in: [{component: nanosoc_gen, commit: "036d381"}]}
+trigger: two initiators reach CPU-local memory through CPU_SS close together
+detectors: []
+effects: [{id: E1, forms: [A]}]
+regression_test: null

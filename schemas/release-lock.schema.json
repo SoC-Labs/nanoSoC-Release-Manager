@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/release-lock.schema.json",
+  "title": "Release lock (release.lock.yaml, a SoC release artefact)",
+  "description": "Generated, never hand-written. Lists every nested pin with its host and state, the generated-RTL archive, and for silicon the GDS and netlist hashes and the generator that produced the gitignored RTL. Phase 5 (G3, G7); the format is fixed now because B2's walker output feeds it. Owner: lock writer. A3, B7, C10, G2, G3, G7.",
+  "type": "object",
+  "required": ["schema", "release", "generated_at", "generated_by", "sources", "pins", "waivers", "generated_rtl", "errata", "gate_ledger", "artefacts"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "release": {
+      "type": "object",
+      "required": ["component", "configuration", "version", "tag", "commit"],
+      "additionalProperties": false,
+      "properties": {
+        "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "version": { "$ref": "defs.schema.json#/$defs/semver" },
+        "tag": {
+          "description": "C10: vX.Y.Z on the canonical host.",
+          "type": "string",
+          "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "silicon": {
+          "type": "object",
+          "required": ["chip", "revision", "tag"],
+          "additionalProperties": false,
+          "properties": {
+            "chip": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+            "revision": { "type": "string", "pattern": "^r[0-9]+p[0-9]+$" },
+            "tag": {
+              "description": "C10: silicon/<chip>-rNpM on the same commit.",
+              "type": "string",
+              "pattern": "^silicon/[a-z0-9][a-z0-9-]*-r[0-9]+p[0-9]+$"
+            }
+          }
+        }
+      }
+    },
+    "generated_at": { "$ref": "defs.schema.json#/$defs/utc" },
+    "generated_by": {
+      "type": "object",
+      "required": ["tool", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "const": "nanosoc-release-manager" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "sources": {
+      "description": "A3: the commands that produced the pin states.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "defs.schema.json#/$defs/source" }
+    },
+    "pins": {
+      "description": "G3: every nested pin (rc4: 44). The writer refuses to emit a pin without a state.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/pin" }
+    },
+    "waivers": {
+      "description": "G2: pins released without a release tag, with the reason. A waived pin in a silicon release must be PROTECTED_BY_TAG.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tree_paths", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "tree_paths": {
+            "description": "Tree paths covered, or [\"*\"] for every untagged pin.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "generated_rtl": {
+      "description": "G3, G7: the exact generated RTL, archived with an md5 manifest, and (G3) the generator that produced it when it is not committed.",
+      "type": "object",
+      "required": ["committed", "generator", "archive", "manifest", "files"],
+      "additionalProperties": false,
+      "properties": {
+        "committed": { "type": "boolean" },
+        "generator": {
+          "type": "object",
+          "required": ["component", "commit", "tree_path"],
+          "additionalProperties": false,
+          "properties": {
+            "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+            "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+            "tree_path": { "type": "string", "minLength": 1 }
+          }
+        },
+        "archive": {
+          "allOf": [{ "$ref": "defs.schema.json#/$defs/store_ref" }, { "required": ["md5"] }]
+        },
+        "manifest": {
+          "allOf": [{ "$ref": "defs.schema.json#/$defs/store_ref" }, { "required": ["md5"] }]
+        },
+        "files": {
+          "description": "Regular files listed in the md5 manifest.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "outputs": {
+      "description": "G3: silicon only. Hashes of what went to the foundry.",
+      "type": "object",
+      "required": ["gds", "pnr_netlist"],
+      "additionalProperties": false,
+      "properties": {
+        "gds": { "$ref": "#/$defs/hashed_file" },
+        "pnr_netlist": { "$ref": "#/$defs/hashed_file" }
+      }
+    },
+    "errata": {
+      "description": "G3, F4: ERRATA.md for this release and its document revision.",
+      "type": "object",
+      "required": ["file", "revision"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "gate_ledger": {
+      "description": "G2, G3: the signed gate ledger.",
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artefacts": {
+      "description": "G3: file lists, bitstreams, logs, source archive. Each was vendor-scanned before upload (D11).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "store", "path", "md5"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["flists", "bitstream", "logs", "source-archive"] },
+          "store": { "enum": ["artifactory", "disk", "ci"] },
+          "path": { "type": "string", "minLength": 1 },
+          "md5": { "$ref": "defs.schema.json#/$defs/md5" },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "release": { "required": ["silicon"] } } },
+      "then": { "required": ["outputs"] }
+    }
+  ],
+  "$defs": {
+    "pin": {
+      "type": "object",
+      "required": ["parent", "path", "tree_paths", "depth", "component", "repo", "commit", "state", "url_kind", "tags", "effective"],
+      "additionalProperties": false,
+      "properties": {
+        "parent": {
+          "type": "object",
+          "required": ["repo", "commit"],
+          "additionalProperties": false,
+          "properties": {
+            "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+            "commit": { "$ref": "defs.schema.json#/$defs/sha" }
+          }
+        },
+        "path": { "type": "string", "minLength": 1 },
+        "tree_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "depth": { "type": "integer", "minimum": 1 },
+        "component": {
+          "description": "Catalogue component or external id.",
+          "$ref": "defs.schema.json#/$defs/component_id"
+        },
+        "repo": {
+          "description": "G3 host: the repo the pinned URL names, after alias normalisation.",
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "state": {
+          "description": "G3, B3: state on the pinned host at generated_at.",
+          "$ref": "defs.schema.json#/$defs/pin_state"
+        },
+        "lag": { "type": "integer", "minimum": 0 },
+        "url_kind": { "enum": ["https", "ssh", "local", "other"] },
+        "tags": {
+          "description": "Tags on the pinned host that point at or contain the commit.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "effective": {
+          "description": "B7.",
+          "enum": [true, false, "unknown"]
+        }
+      }
+    },
+    "hashed_file": {
+      "type": "object",
+      "required": ["file", "md5"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "md5": { "$ref": "defs.schema.json#/$defs/md5" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}

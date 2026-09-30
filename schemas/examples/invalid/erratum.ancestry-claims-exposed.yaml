@@ -1,0 +1,14 @@
+# expect-error: 'detector' is a required property
+# F2: ancestry alone can only give probably-exposed; `exposed` needs a detector run on the built output.
+schema: 1
+id: ETH-R0P0-ERR-001
+defect: SL-DEF-0001
+configuration: eth-rc4
+forms_present: [A, B]
+effects_present: [E1]
+exposure: {level: exposed, method: ancestry, evidence: both generator pins contain the origin}
+category: null
+conditions: DMA-250 present
+workaround: null
+status: permanent
+doc_revision: 1

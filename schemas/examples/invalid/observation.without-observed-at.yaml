@@ -1,0 +1,7 @@
+# expect-error: 'observed_at' is a required property
+# A3: every fact carries when it was observed.
+schema: 1
+kind: mirror_status
+subject: "mirror_status:gitlab:soclabs/ahb_qspi"
+sources: [{kind: git, command: "git -C mirrors/ahb_qspi.git fetch"}]
+fact: {repo: {host: gitlab, path: soclabs/ahb_qspi}, component: ahb_qspi, ok: true, last_success_at: "2026-09-30T17:34:48Z", error: null}

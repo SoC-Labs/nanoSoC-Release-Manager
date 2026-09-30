@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/result-bundle.schema.json",
+  "title": "CI result bundle: provenance.json and the verdicts.tsv row contract",
+  "description": "A bundle is the directory rm-bundle/ in one CI job's artifacts: provenance.json (this schema), verdicts.tsv (rows per $defs/verdict_row) and optional logs/. The job writes it; the service pulls it by job id, checks it against the CI API's own record of the job, scans it, and only then reads it (D5, D11). Nothing is ever pushed to the service. Owner: T0 runner (writer), CI fetch/verify (reader). A4, D2, D4, D5, D6, D7, D11, PR9.",
+  "type": "object",
+  "required": ["schema", "tier", "run_nonce", "request", "ci", "started_at", "finished_at", "captured", "tools", "scan"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "tier": {
+      "description": "D1. v1 runs t0 only.",
+      "enum": ["t0", "t1", "t2", "t3", "t4", "t5", "t6"]
+    },
+    "run_nonce": {
+      "$ref": "#/$defs/nonce",
+      "description": "D5: issued by the service when it triggers the run, passed in the RM_REQUEST pipeline variable, and stamped on every verdicts.tsv row."
+    },
+    "request": {
+      "description": "D5: what the service asked for. Must equal the RM_REQUEST variable the CI API reports for this pipeline.",
+      "type": "object",
+      "required": ["configuration", "repo", "commit", "upgrade_from", "canonical_urls"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "description": "A configuration id, or @registry for the registry job (F3).",
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/configuration_id" }, { "const": "@registry" }]
+        },
+        "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "upgrade_from": {
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }]
+        },
+        "canonical_urls": {
+          "description": "D2: pinned URL (as .gitmodules writes it) -> anonymous HTTPS URL of the component's canonical repo, only for pins whose canonical repo is NOT the one the URL names (copies, aliases). Every other pin's canonical repo is its own URL, with ssh rewritten to https. Lets the job check canonical-host reachability without registry access or any credential.",
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^https://[^\\s]+$" }
+        }
+      }
+    },
+    "ci": {
+      "description": "D5, A4: the job as the job saw itself. The service trusts only the CI API's copy of these values; this copy must match it.",
+      "type": "object",
+      "required": ["project", "pipeline_id", "job_id", "job_name", "ref", "harness_sha"],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$" },
+        "pipeline_id": { "type": "integer", "minimum": 1 },
+        "job_id": { "type": "integer", "minimum": 1 },
+        "job_name": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "harness_sha": {
+          "$ref": "defs.schema.json#/$defs/sha",
+          "description": "The CI project's commit (CI_COMMIT_SHA): the pinned grader."
+        }
+      }
+    },
+    "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
+    "finished_at": { "$ref": "defs.schema.json#/$defs/utc" },
+    "captured": {
+      "description": "D4, D5: taken AFTER the tests ran. superproject_commit must equal request.commit or the bundle is rejected (D5). A nested pin that differs from the walker's pin makes the run UNVERIFIED (D4).",
+      "type": "object",
+      "required": ["superproject_commit", "pins"],
+      "additionalProperties": false,
+      "properties": {
+        "superproject_commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "pins": {
+          "description": "`git submodule status --recursive` after the run, one entry per checked-out submodule.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tree_path", "commit"],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": { "type": "string", "minLength": 1 },
+              "commit": {
+                "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }],
+                "description": "null = not checked out (could not be fetched)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "description": "D4: tool versions. Phase 2 adds EDA tools.",
+      "type": "object",
+      "required": ["git", "python", "nanosoc_rm"],
+      "additionalProperties": { "type": "string" },
+      "properties": {
+        "git": { "type": "string" },
+        "python": { "type": "string" },
+        "nanosoc_rm": { "type": "string", "description": "Version of the T0 runner package." }
+      }
+    },
+    "host": {
+      "description": "D4, D7 (Phase 2): load at start and end, used to call a timeout INFRA rather than FAIL.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpus": { "type": "integer", "minimum": 1 },
+        "load_start": { "type": "number", "minimum": 0 },
+        "load_end": { "type": "number", "minimum": 0 }
+      }
+    },
+    "ip_hash": {
+      "description": "D4 (Phase 2): sha256 over the IP files the file lists resolved.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scan": {
+      "description": "D11: the job's own vendor scan of rm-bundle/ before artifact upload. The service scans again and trusts only its own result.",
+      "type": "object",
+      "required": ["tool", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "verdict": { "enum": ["clean", "finding", "unverified"] }
+      }
+    }
+  },
+  "$defs": {
+    "nonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "verdict_row": {
+      "description": "One verdicts.tsv line, parsed. Wire format, one line per row, UTF-8, LF: <utc>\\t<STATUS>\\t<gate id>\\t<detail>\\t<nonce>. The first four fields are exactly what the toolkit's ci/lib.sh _ci_record writes and ci/collect-results.py read_verdicts parses (it ignores a fifth field). The fifth, the run nonce, is new. No header line. PR9, D5.",
+      "type": "object",
+      "required": ["utc", "status", "gate", "detail", "nonce"],
+      "additionalProperties": false,
+      "properties": {
+        "utc": {
+          "description": "`date -u +%Y-%m-%dT%H:%M:%SZ`, as lib.sh writes it.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "status": {
+          "description": "lib.sh's five (PASS, FAIL, UNVERIFIED, WARN, SKIP) plus INFRA (D7): an infrastructure failure, never counted as FAIL. A row G.negctl with PASS means gate G's negative control FIRED (G went red on its broken input); FAIL means it did not.",
+          "enum": ["PASS", "FAIL", "UNVERIFIED", "WARN", "SKIP", "INFRA"]
+        },
+        "gate": { "$ref": "defs.schema.json#/$defs/gate_id" },
+        "detail": {
+          "type": "string",
+          "pattern": "^[^\\t\\n]*$"
+        },
+        "nonce": { "$ref": "#/$defs/nonce" }
+      }
+    },
+    "gate_verdict": {
+      "description": "The service's verdict for one gate after reading the rows and the control. FLAKY, XFAIL and XPASS arrive in Phase 2 (D8).",
+      "enum": ["PASS", "FAIL", "UNVERIFIED", "NOT-RUN", "INFRA", "FLAKY", "XFAIL", "XPASS"]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+# registry/eligibility.yaml example.
+# OBSERVED: eth-rc4's commit and tags (v1.0.0, silicon/eth-chiplet-r0p0 and candidate/rc4-20260829
+#   all peel to ab73e40, GET repos/SoC-Labs/NanoSoC-Ethernet-Chiplet/git/tags/<sha>, 2026-09-30).
+# JUDGEMENT: which configurations to register, and eth-main's upgrade_from.
+schema: 1
+configurations:
+  - id: eth-rc4                       # the <config> in keep/eth-rc4/* (C10)
+    component: nanosoc-ethernet-chiplet
+    ref: {tag: v1.0.0}
+    commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"
+    frozen: true
+    silicon: {chip: eth-chiplet, revision: r0p0}
+  - id: eth-main
+    component: nanosoc-ethernet-chiplet
+    ref: {branch: main}
+    upgrade_from: {tag: v1.0.0}       # D2 upgrade-path clone: rc4 -> main
+  - id: multicore-master              # B3 done-when hand-checks rc4 and multicore
+    component: nanosoc-multicore-system
+    ref: {branch: master}
+auto_merge: {}                        # Phase 4 (E2, E3); empty until shadow mode ends

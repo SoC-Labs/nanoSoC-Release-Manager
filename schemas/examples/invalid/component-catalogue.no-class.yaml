@@ -1,0 +1,5 @@
+# expect-error: 'class' is a required property
+# B1: every catalogue entry has one class.
+schema: 1
+components:
+  - {id: tidechart, canonical: {host: gitlab, path: soclabs/tidechart}}

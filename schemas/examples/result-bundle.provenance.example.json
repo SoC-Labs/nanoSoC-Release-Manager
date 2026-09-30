@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "tier": "t0",
+  "run_nonce": "9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c",
+  "request": {
+    "configuration": "eth-rc4",
+    "repo": { "host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet" },
+    "commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e",
+    "upgrade_from": null,
+    "canonical_urls": {
+      "https://<gitlab-host>/soclabs/nanosoc-m0/nanosoc_arch_tech.git": "https://github.com/SoC-Labs/nanoSoC-Arch-Tech.git",
+      "https://<gitlab-host>/soclabs/ahb_qspi.git": "https://github.com/SoC-Labs/AHB-QSPI.git",
+      "https://<gitlab-host>/soclabs/asic_flow.git": "https://github.com/SoC-Labs/ASIC-Flow.git"
+    }
+  },
+  "ci": {
+    "project": "soclabs/nanosoc-compat-ci",
+    "pipeline_id": 1000,
+    "job_id": 2000,
+    "job_name": "t0",
+    "ref": "main",
+    "harness_sha": "0000000000000000000000000000000000000001"
+  },
+  "started_at": "2026-10-01T02:03:30Z",
+  "finished_at": "2026-10-01T02:05:02Z",
+  "captured": {
+    "superproject_commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e",
+    "pins": [
+      { "tree_path": "tidechart", "commit": "4b4b89820ab1d87a123a1eac5c221b8527673def" },
+      { "tree_path": "tidelink", "commit": null },
+      { "tree_path": "nanosoc-multicore-system", "commit": "f60449b491d54b617c92f1ccf0538c187cd8f34a" },
+      { "tree_path": "nanosoc-multicore-system/nanosoc_arch_tech", "commit": "ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3" },
+      { "tree_path": "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen", "commit": "d04de2ec25d79c1fc3223f853ddb6725cbf2831c" },
+      { "tree_path": "ASIC/asic-flows", "commit": "3824aaaf9cee33b647d149b5f00b55d44022b488" },
+      { "tree_path": "ASIC/asic-toolkit", "commit": null }
+    ]
+  },
+  "tools": { "git": "2.43.0", "python": "3.11.9", "nanosoc_rm": "0.1.0" },
+  "scan": { "tool": "nanosoc-rm scan bundle (vendor-guard rules + arm.banner)", "verdict": "clean" }
+}

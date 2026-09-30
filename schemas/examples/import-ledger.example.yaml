@@ -1,0 +1,14 @@
+# registry/imports.yaml example (F5).
+# OBSERVED: the source document, its commit (on GitHub, not on main) and its item headings.
+# Dispositions are left `pending`: deciding them is the import work itself.
+# Not yet importable: eth docs/tapeout/67-rc4-issue-register.md and the QuickStart cpu_ss_hsel
+#   write-up are untracked, so they have no commit to cite (F3). Commit and push them first.
+schema: 1
+sources:
+  - doc: {component: nanosoc-ethernet-chiplet, commit: "66a2f698d6650e6e4e5beba1434b22231846696a", path: docs/tapeout/11-known-issues.md}
+    items:
+      - {key: "a)", title: "329 PG opens reported by check_connectivity", disposition: pending}
+      - {key: "b)", title: "Bond-pad OBS DRC: 318 PG shorts", disposition: pending}
+  - doc: {component: nanosoc-ethernet-chiplet, commit: "66a2f698d6650e6e4e5beba1434b22231846696a", path: docs/tapeout/16-open-defects.md}
+    items:
+      - {key: "1", title: "Clock source latency is asymmetric in the hold view", disposition: pending}

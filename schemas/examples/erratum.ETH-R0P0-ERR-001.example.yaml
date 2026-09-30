@@ -1,0 +1,29 @@
+# registry/errata/eth-rc4/ERR-001.yaml: SL-DEF-0001 on the eth chiplet silicon r0p0.
+# OBSERVED 2026-09-30 (GitLab merge_base API): both nanosoc_gen pins in rc4's tree contain the origin
+#   b0a6069 and contain neither 036d381 nor adbb9ab. multicore 57d2c76 (PL230 -> DMA-250) is contained in
+#   rc4's multicore pin f60449b. 7a87e20 exists only on branch feat/soc-completeness-gate.
+# NOT YET DONE: detector D1 has not been run on rc4's archived build_soc, so exposure is `probably-exposed`
+#   by ancestry (F2). Running D1 on the archive would make it `exposed` with method `detector`.
+# ILLUSTRATIVE: doc_revision (no errata document exists yet; F4 is Phase 5). category is undecided.
+schema: 1
+id: ETH-R0P0-ERR-001
+defect: SL-DEF-0001
+configuration: eth-rc4
+forms_present: [A, B]
+effects_present: [E1, E2, E3, E4, E5]
+exposure:
+  level: probably-exposed
+  method: ancestry
+  evidence: >-
+    nanosoc_gen d04de2e (nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen) and 1d7772d
+    (nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen) both contain origin
+    b0a6069 and neither contains 036d381 (form A fix) or adbb9ab (form B fix). Not yet run: D1 on the rc4
+    build_soc archive (md5 80eb7ce7e81fee653b52c6821cea3942).
+category: null            # A, B or C once the firmware rules are proven or not
+conditions: DMA-250 in the multicore system (multicore 57d2c76, contained in rc4's pin f60449b).
+workaround:
+  rules: DMA-250 channel 0 only; no linked commands; no auto-restart; no commands from CPU1.
+  implementations:
+    - {component: nanosoc-multicore-system, commit: "7a87e20051d6335abd3de690cde332bf3bd935a9", merged: false}
+status: permanent         # silicon: never fixed, never yanked
+doc_revision: 1

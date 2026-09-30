@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/component-manifest.schema.json",
+  "title": "Component manifest (nanosoc-component.yaml at a repo's root)",
+  "description": "Hand-written by each repo. The tool reads dependencies, variants and tests from it instead of guessing. Phase 3 (C11); validated by T0 gate t0.manifest.valid from v1 on, which records SKIP while no repo carries one. Eligibility (silicon, frozen, auto-merge) is NOT here: it lives in the registry, where the target repo cannot change it. C1, C6, C7, C11, D1, D6, E1, E3, I2.",
+  "type": "object",
+  "required": ["schema", "id", "class", "version", "canonical", "provides", "requires", "reexports", "variants", "tests"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "id": {
+      "$ref": "defs.schema.json#/$defs/component_id",
+      "description": "C11: equals the registry catalogue id."
+    },
+    "class": {
+      "$ref": "defs.schema.json#/$defs/component_class",
+      "description": "C11: equals the catalogue class (loader checks)."
+    },
+    "version": {
+      "$ref": "defs.schema.json#/$defs/semver",
+      "description": "C1, C11. On a release commit it equals the tag, unless the tag is grandfathered (C10)."
+    },
+    "canonical": {
+      "description": "C11: canonical clone URL. HTTPS only, so a stranger can clone it (D2).",
+      "type": "string",
+      "pattern": "^https://[^\\s]+$"
+    },
+    "provides": {
+      "description": "C11: named interfaces this repo offers, each with an integer interface version.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "requires": {
+      "description": "C11, E1: direct submodule dependencies with the version range this repo accepts. `path` is the gitlink path.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "range"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "defs.schema.json#/$defs/component_id" },
+          "path": { "type": "string", "minLength": 1 },
+          "range": {
+            "description": "Cargo-style range, e.g. \"^0.1\" or \">=0.1.0, <0.3.0\".",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "reexports": {
+      "description": "C6: component ids this repo passes through to its users. Its change class is at least theirs.",
+      "type": "array",
+      "items": { "$ref": "defs.schema.json#/$defs/component_id" }
+    },
+    "variants": {
+      "description": "C7: per build variant, the command that prints the resolved file list. The build-affecting flag is computed from diffs of these lists.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "sim": { "$ref": "#/$defs/flist" },
+        "fpga": { "$ref": "#/$defs/flist" },
+        "asic": { "$ref": "#/$defs/flist" }
+      }
+    },
+    "generated": {
+      "description": "DEC10 b, G7: where generated RTL is written and whether it is committed. build_soc/ stays gitignored, so releases archive it.",
+      "type": "object",
+      "required": ["dir", "committed"],
+      "additionalProperties": false,
+      "properties": {
+        "dir": { "type": "string", "minLength": 1 },
+        "committed": { "type": "boolean" }
+      }
+    },
+    "tests": {
+      "description": "C11, D1: test entry point per tier. Exit code 0 PASS, 1 FAIL, 2 NOT-RUN. `control` is the negative control for the same tier (D6): it must exit 1.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "enum": ["t0", "t1", "t2", "t3", "t4", "t5", "t6"] },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["run", "control"],
+        "additionalProperties": false,
+        "properties": {
+          "run": { "type": "string", "minLength": 1 },
+          "control": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "workarounds": {
+      "description": "E3 (Phase 4): local workaround files, and the upstream commit whose arrival retires each one. A bump that retires one goes to a person.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "retires_when"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "retires_when": { "$ref": "defs.schema.json#/$defs/commit_ref" }
+        }
+      }
+    },
+    "fork_contract": {
+      "description": "I2 (Phase 5, example projects): the upstream and the paths users own.",
+      "type": "object",
+      "required": ["upstream", "user_paths"],
+      "additionalProperties": false,
+      "properties": {
+        "upstream": { "type": ["string", "null"], "pattern": "^https://[^\\s]+$" },
+        "user_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$defs": {
+    "flist": {
+      "type": "object",
+      "required": ["flist"],
+      "additionalProperties": false,
+      "properties": {
+        "flist": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

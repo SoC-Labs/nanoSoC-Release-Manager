@@ -1,0 +1,7 @@
+# expect-error: 'reason' is a required property
+# F5: a dismissed issue says why, or it is not dismissed.
+schema: 1
+sources:
+  - doc: {component: nanosoc-ethernet-chiplet, commit: "66a2f698d6650e6e4e5beba1434b22231846696a", path: docs/tapeout/11-known-issues.md}
+    items:
+      - {key: "a)", title: "329 PG opens reported by check_connectivity", disposition: dismissed}

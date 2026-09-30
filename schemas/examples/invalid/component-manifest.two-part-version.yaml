@@ -1,0 +1,12 @@
+# expect-error: does not match
+# C1: versions are SemVer X.Y.Z.
+schema: 1
+id: nanosoc_arch_tech
+class: arch_tech
+version: "0.1"
+canonical: https://github.com/SoC-Labs/nanoSoC-Arch-Tech.git
+provides: []
+requires: []
+reexports: []
+variants: {sim: {flist: make flist-sim}}
+tests: {t0: {run: make t0, control: make t0-control}}

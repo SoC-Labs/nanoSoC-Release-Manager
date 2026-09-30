@@ -1,0 +1,900 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/observation.schema.json",
+  "title": "Observation: the envelope of every fact the tool shows",
+  "description": "Every module output that reaches a page, the JSON API or a CLI --json stream is one of these. The envelope carries where the fact came from (sources: the exact command or API call) and when (observed_at), so each page can show data age and link each fact to its command. The latest observation per `subject` is the current value; older ones are history. The SQLite database stores these and can be rebuilt from mirrors, registry and CI. Owner: each producing module; storage by db. A3, H1, H6.",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "subject",
+    "observed_at",
+    "sources",
+    "fact"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "pin_state",
+        "host_compare",
+        "containment",
+        "silicon_protection",
+        "rewrite_alert",
+        "mirror_status",
+        "repo_inventory",
+        "t0_result"
+      ]
+    },
+    "subject": {
+      "description": "<kind>:<key>, starting with this document's kind. Keys per kind are listed in docs/contracts/README.md.",
+      "type": "string",
+      "pattern": "^[a-z0-9_]+:.+$"
+    },
+    "observed_at": {
+      "$ref": "defs.schema.json#/$defs/utc",
+      "description": "A3: the oldest observation time of any input, so the envelope never looks fresher than its data."
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "defs.schema.json#/$defs/source"
+      }
+    },
+    "fact": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "pin_state"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "pin-state.schema.json#/$defs/fact"
+          },
+          "subject": {
+            "pattern": "^pin_state:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "host_compare"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/host_compare"
+          },
+          "subject": {
+            "pattern": "^host_compare:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "containment"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/containment"
+          },
+          "subject": {
+            "pattern": "^containment:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "silicon_protection"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/silicon_protection"
+          },
+          "subject": {
+            "pattern": "^silicon_protection:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "rewrite_alert"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/rewrite_alert"
+          },
+          "subject": {
+            "pattern": "^rewrite_alert:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "mirror_status"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/mirror_status"
+          },
+          "subject": {
+            "pattern": "^mirror_status:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "repo_inventory"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/repo_inventory"
+          },
+          "subject": {
+            "pattern": "^repo_inventory:"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "t0_result"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/t0_result"
+          },
+          "subject": {
+            "pattern": "^t0_result:"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "branch_head": {
+      "type": "object",
+      "required": [
+        "repo",
+        "default_branch",
+        "head"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "default_branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "head": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        }
+      }
+    },
+    "host_compare": {
+      "description": "B6: a component's canonical default branch against one copy's. AHEAD = the canonical has commits the copy lacks and the copy has none of its own. Counts come from one object store holding both hosts' refs, never from one host's API alone (which cannot see the other host's commits).",
+      "type": "object",
+      "required": [
+        "component",
+        "canonical",
+        "copy",
+        "relation",
+        "canonical_only",
+        "copy_only"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "defs.schema.json#/$defs/component_id"
+        },
+        "canonical": {
+          "$ref": "#/$defs/branch_head"
+        },
+        "copy": {
+          "$ref": "#/$defs/branch_head"
+        },
+        "relation": {
+          "enum": [
+            "SAME",
+            "AHEAD",
+            "BEHIND",
+            "DIVERGED",
+            "UNRELATED",
+            "UNKNOWN"
+          ]
+        },
+        "canonical_only": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "copy_only": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "DIVERGED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical_only": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "copy_only": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "AHEAD"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical_only": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "copy_only": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "SAME"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical_only": {
+                "const": 0
+              },
+              "copy_only": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "containment": {
+      "description": "B4: does one configuration contain commit X of one component, on one host? Counts only commits reachable from that host's branches and tags. `no` requires both commits proven to exist there; otherwise the answer is `unknown`, never `no`.",
+      "type": "object",
+      "required": [
+        "query",
+        "configuration",
+        "host",
+        "answer",
+        "pins"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "$ref": "defs.schema.json#/$defs/commit_ref"
+        },
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "host": {
+          "$ref": "defs.schema.json#/$defs/host"
+        },
+        "answer": {
+          "description": "yes = every pin of the component contains X; partial = some do (a split tree, B7); no = none do; absent = the component is not in this tree; unknown = at least one pin could not be decided.",
+          "enum": [
+            "yes",
+            "partial",
+            "no",
+            "absent",
+            "unknown"
+          ]
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tree_path",
+              "commit",
+              "contains",
+              "reason"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "$ref": "defs.schema.json#/$defs/sha"
+              },
+              "contains": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "reason": {
+                "description": "Required when contains is null: which commit could not be proven to exist on this host.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "contains": {
+                  "type": "null"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "silicon_protection": {
+      "description": "B5: one commit in a silicon or frozen tree that its component's default branch cannot reach on the pinned host, and whether a tag covers it.",
+      "type": "object",
+      "required": [
+        "configuration",
+        "component",
+        "repo",
+        "commit",
+        "tree_paths",
+        "default_branch",
+        "branches",
+        "covering_tags",
+        "covered"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "component": {
+          "$ref": "defs.schema.json#/$defs/component_id"
+        },
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "tree_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "default_branch": {
+          "type": "string"
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "covering_tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "covered": {
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": {
+          "covered": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "covering_tags": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "covering_tags": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "rewrite_alert": {
+      "description": "B8: a default branch moved to a commit that does not descend from its previous head (a force-push).",
+      "type": "object",
+      "required": [
+        "component",
+        "repo",
+        "branch",
+        "old_head",
+        "new_head",
+        "lost_commits",
+        "pinned_lost"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "defs.schema.json#/$defs/component_id"
+        },
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "old_head": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "new_head": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "lost_commits": {
+          "description": "Commits reachable from old_head and from no current branch or tag on this host.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "pinned_lost": {
+          "description": "Registered pins whose commit is among the lost ones.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "configuration",
+              "tree_path",
+              "commit"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "configuration": {
+                "$ref": "defs.schema.json#/$defs/configuration_id"
+              },
+              "tree_path": {
+                "type": "string"
+              },
+              "commit": {
+                "$ref": "defs.schema.json#/$defs/sha"
+              }
+            }
+          }
+        }
+      }
+    },
+    "mirror_status": {
+      "description": "H6: one mirror fetch. The page shows now - last_success_at as the mirror's age.",
+      "type": "object",
+      "required": [
+        "repo",
+        "component",
+        "ok",
+        "last_success_at",
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "component": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/component_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "last_success_at": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "repo_inventory": {
+      "description": "A1: one repo found by listing the GitHub org and the GitLab group. `unclassified` = in no catalogue entry, and is flagged.",
+      "type": "object",
+      "required": [
+        "repo",
+        "component",
+        "role",
+        "visibility",
+        "default_branch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "component": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/component_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "enum": [
+            "canonical",
+            "copy",
+            "alias",
+            "external",
+            "unclassified"
+          ]
+        },
+        "visibility": {
+          "enum": [
+            "public",
+            "private",
+            "internal"
+          ]
+        },
+        "default_branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "t0_result": {
+      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle. A2: every run records who or what started it.",
+      "type": "object",
+      "required": [
+        "configuration",
+        "commit",
+        "run",
+        "acceptance",
+        "reason",
+        "verdict",
+        "gates",
+        "bundle"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/configuration_id"
+            },
+            {
+              "const": "@registry"
+            }
+          ]
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "run": {
+          "type": "object",
+          "required": [
+            "nonce",
+            "trigger",
+            "triggered_by",
+            "triggered_at",
+            "pipeline_id",
+            "job_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "nonce": {
+              "$ref": "result-bundle.schema.json#/$defs/nonce"
+            },
+            "trigger": {
+              "enum": [
+                "schedule",
+                "manual"
+              ]
+            },
+            "triggered_by": {
+              "description": "A2, H2: the GitHub login that pressed Run, or `schedule`.",
+              "type": "string",
+              "minLength": 1
+            },
+            "triggered_at": {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            "pipeline_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            },
+            "job_id": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "acceptance": {
+          "description": "pending: triggered, not fetched. accepted: bundle verified (D5) and scanned clean (D11). rejected: verification failed (D5). refused: the vendor scan found something or could not run (D11); the bundle is not stored. no-bundle: the job ended without a bundle; INFRA when the CI API gives an infrastructure cause (D7), else UNVERIFIED.",
+          "enum": [
+            "pending",
+            "accepted",
+            "rejected",
+            "refused",
+            "no-bundle"
+          ]
+        },
+        "reason": {
+          "description": "Why a bundle was rejected or refused, or why the run is INFRA.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verdict": {
+          "description": "Worst gate verdict, ordered FAIL > UNVERIFIED > INFRA > PASS; NOT-RUN gates are counted and shown but do not set the run verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNVERIFIED",
+            "INFRA",
+            null
+          ]
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "verdict",
+              "control",
+              "detail"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "defs.schema.json#/$defs/gate_id"
+              },
+              "verdict": {
+                "$ref": "result-bundle.schema.json#/$defs/gate_verdict"
+              },
+              "control": {
+                "description": "D6: fired / not-fired / missing. A PASS gate whose control did not fire, or is missing, is UNVERIFIED.",
+                "enum": [
+                  "fired",
+                  "not-fired",
+                  "missing"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "if": {
+              "properties": {
+                "verdict": {
+                  "const": "PASS"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "control": {
+                  "const": "fired"
+                }
+              }
+            }
+          }
+        },
+        "bundle": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/store_ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "pending"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "enum": [
+                  "rejected",
+                  "refused"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": "UNVERIFIED"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "no-bundle"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "INFRA",
+                  "UNVERIFIED"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "UNVERIFIED",
+                  "INFRA"
+                ]
+              },
+              "bundle": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

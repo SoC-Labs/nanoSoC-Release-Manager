@@ -1,0 +1,11 @@
+# expect-error: 'run_nonce' is a required property
+# D5: a bundle without the service-issued nonce cannot be matched to the run that asked for it.
+schema: 1
+tier: t0
+request: {configuration: eth-rc4, repo: {host: github, path: SoC-Labs/NanoSoC-Ethernet-Chiplet}, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e", upgrade_from: null, canonical_urls: {}}
+ci: {project: soclabs/nanosoc-compat-ci, pipeline_id: 1000, job_id: 2000, job_name: t0, ref: main, harness_sha: "0000000000000000000000000000000000000001"}
+started_at: "2026-10-01T02:03:30Z"
+finished_at: "2026-10-01T02:05:02Z"
+captured: {superproject_commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e", pins: []}
+tools: {git: "2.43.0", python: "3.11.9", nanosoc_rm: "0.1.0"}
+scan: {tool: nanosoc-rm scan bundle, verdict: clean}

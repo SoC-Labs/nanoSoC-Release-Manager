@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/component-catalogue.schema.json",
+  "title": "Component catalogue (registry/catalogue.yaml)",
+  "description": "Every nanoSoC-related repo on both hosts, grouped into components, each with exactly one canonical host. Owner: registry loader. A1, B1, B6, B9. Cross-file rules the loader enforces (not expressible here) are listed in docs/contracts/README.md.",
+  "type": "object",
+  "required": ["schema", "components"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "components": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "external": {
+      "description": "Third-party repos pinned inside registered trees (e.g. picotcp). Not components: no class, never tested, not counted in A1. Listing one here stops B9 flagging its URL as unknown.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/external" }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["id", "class", "canonical"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "defs.schema.json#/$defs/component_id",
+          "description": "A1."
+        },
+        "class": {
+          "$ref": "defs.schema.json#/$defs/component_class",
+          "description": "B1. `legacy` = watch-only: listed, never tested."
+        },
+        "canonical": {
+          "$ref": "defs.schema.json#/$defs/repo",
+          "description": "A1: the one canonical host. Release tags are made only here (C10)."
+        },
+        "copies": {
+          "description": "B6: independent repos holding the same history on another host or group. Compared every poll (SAME / AHEAD n / DIVERGED); never assumed to be mirrors.",
+          "type": "array",
+          "items": { "$ref": "defs.schema.json#/$defs/repo" }
+        },
+        "aliases": {
+          "description": "B9: other names of the SAME repo (host redirects after a move or rename). A pinned URL that resolves to an alias belongs to this component.",
+          "type": "array",
+          "items": { "$ref": "defs.schema.json#/$defs/repo" }
+        },
+        "known_rewrites": {
+          "description": "B3/B8: default-branch rewrites that happened before the tool watched this repo. A pinned commit listed in `lost` is REWRITTEN, not MISSING. Rewrites seen by the tool itself are recorded as rewrite_alert observations, not here.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "branch", "date", "lost"],
+            "additionalProperties": false,
+            "properties": {
+              "host": { "$ref": "defs.schema.json#/$defs/host" },
+              "branch": { "type": "string", "minLength": 1 },
+              "date": { "$ref": "defs.schema.json#/$defs/date" },
+              "lost": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "defs.schema.json#/$defs/sha" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "external": {
+      "type": "object",
+      "required": ["id", "repo"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "repo": { "$ref": "defs.schema.json#/$defs/repo" }
+      }
+    }
+  }
+}

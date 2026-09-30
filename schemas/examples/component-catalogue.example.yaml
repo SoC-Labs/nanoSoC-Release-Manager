@@ -1,0 +1,38 @@
+# Registry catalogue example: every component in rc4's tree, plus one legacy repo.
+# OBSERVED: repo paths, copies and aliases (walk 2026-09-30; GitLab reports soclabs/nanosoc-m0/slcorem0p_tech
+#   as a redirect to soclabs/slcorem0p_tech).
+# JUDGEMENT, for the registry owner to confirm: every `class`, and the canonical host of ahb_qspi and
+#   asic-flow (both DIVERGED; set here by the rule 'public components are canonical on GitHub').
+schema: 1
+components:
+  - {"id": "ahb-wb-bridges", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ahb-wb-bridges"}}
+  - {"id": "ahb_qspi", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/AHB-QSPI"}, "copies": [{"host": "gitlab", "path": "soclabs/ahb_qspi"}]}
+  - {"id": "asic-flow", "class": "toolkit", "canonical": {"host": "github", "path": "SoC-Labs/ASIC-Flow"}, "copies": [{"host": "gitlab", "path": "soclabs/asic_flow"}]}
+  - {"id": "asic-toolkit", "class": "toolkit", "canonical": {"host": "github", "path": "SoC-Labs/nanoSoC-ASIC-Toolkit"}}
+  - {"id": "axi-chiplet-controller", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/chiplets/axi-chiplet-controller"}}
+  - {"id": "ethernet-mac-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ethernet-mac-ahb"}}
+  - {"id": "ethernet-subsystem-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ethernet-subsystem-ahb"}}
+  - {"id": "extio8x4-axis", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/extio8x4-axis"}}
+  - {"id": "hostio4", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/hostio4"}}
+  - {"id": "inter-processor-communications-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/inter-processor-communications-ahb"}}
+  - {"id": "nanosoc-ethernet-chiplet", "class": "soc_ref", "canonical": {"host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet"}}
+  - {"id": "nanosoc-multicore-system", "class": "soc_ref", "canonical": {"host": "gitlab", "path": "soclabs/nanosoc-multicore-system"}}
+  - {"id": "nanosoc_arch_tech", "class": "arch_tech", "canonical": {"host": "github", "path": "SoC-Labs/nanoSoC-Arch-Tech"}, "copies": [{"host": "gitlab", "path": "soclabs/nanosoc-m0/nanosoc_arch_tech"}]}
+  - {"id": "nanosoc_gen", "class": "generator", "canonical": {"host": "gitlab", "path": "soclabs/nanosoc_gen"}}
+  - {"id": "ptp-hardware-clock-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ptp-hardware-clock-ahb"}}
+  - {"id": "sl_ams_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/sl_ams_tech"}}
+  - {"id": "slcorem0_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/slcorem0_tech"}}
+  - {"id": "slcorem0p_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/slcorem0p_tech"}, "aliases": [{"host": "gitlab", "path": "soclabs/nanosoc-m0/slcorem0p_tech"}]}
+  - {"id": "sldma230_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/sldma230_tech"}}
+  - {"id": "sldma350_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/sldma350_tech"}}
+  - {"id": "socdebug_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/socdebug_tech"}}
+  - {"id": "soctools_flow", "class": "toolkit", "canonical": {"host": "gitlab", "path": "soclabs/soctools_flow"}}
+  - {"id": "synopsys_28nm_slm_integration", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/synopsys_28nm_slm_integration"}}
+  - {"id": "tidechart", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/tidechart"}}
+  - {"id": "tidelink", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/TideLink-Chiplet-Interconnect-AHB"}, "copies": [{"host": "gitlab", "path": "soclabs/tidelink"}]}
+  - {"id": "tidelink-gpio-phy", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/TideLink-Chiplet-GPIO-PHY"}}
+  - {"id": "secworks-sha256-project", "class": "legacy", "canonical": {"host": "gitlab", "path": "soclabs/secworks-sha256-project"}}  # watch-only (B1)
+external:  # third-party repos pinned in rc4's tree (B9)
+  - {"id": "core_dbg_bridge", "repo": {"host": "github", "path": "ultraembedded/core_dbg_bridge"}}
+  - {"id": "picotcp", "repo": {"host": "github", "path": "tass-belgium/picotcp"}}
+  - {"id": "libtelnet", "repo": {"host": "github", "path": "seanmiddleditch/libtelnet"}}

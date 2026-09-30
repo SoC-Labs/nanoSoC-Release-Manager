@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/erratum.schema.json",
+  "title": "Erratum record (registry/errata/<configuration>/ERR-NNN.yaml)",
+  "description": "The effect of one defect on one registered configuration (a SoC release or a silicon revision): forms present, exposure and how it was established, category, conditions, workaround, status and errata-document revision. Owner: registry loader. F1, F2, F3, F4.",
+  "type": "object",
+  "required": ["schema", "id", "defect", "configuration", "forms_present", "effects_present", "exposure", "category", "conditions", "workaround", "status", "doc_revision"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*-ERR-[0-9]{3}$"
+    },
+    "defect": { "type": "string", "pattern": "^SL-DEF-[0-9]{4}$" },
+    "configuration": {
+      "$ref": "defs.schema.json#/$defs/configuration_id",
+      "description": "F1: exactly one configuration from registry/eligibility.yaml."
+    },
+    "forms_present": {
+      "description": "F1: ids of the defect's forms present in this configuration.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z]$" }
+    },
+    "effects_present": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^E[0-9]+$" }
+    },
+    "exposure": {
+      "description": "F2: how exposure was established. Only a detector run on the configuration's built output (generated RTL or netlist) can prove `exposed`, `affected` or `not-affected`; ancestry or reading the source gives at most `probably-exposed` (amber).",
+      "type": "object",
+      "required": ["level", "method", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "enum": ["exposed", "affected", "probably-exposed", "not-affected"] },
+        "method": { "enum": ["detector", "ancestry", "source-inferred"] },
+        "detector": {
+          "type": "string",
+          "pattern": "^D[0-9]+$",
+          "description": "Id of the detector in the defect record."
+        },
+        "evidence": {
+          "description": "What was checked, where, and the result, in one line. For a detector: the input (archive, netlist) and its md5.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "level": { "enum": ["exposed", "affected", "not-affected"] } } },
+          "then": {
+            "required": ["detector"],
+            "properties": { "method": { "const": "detector" } }
+          }
+        }
+      ]
+    },
+    "category": {
+      "description": "F1: A, B or C (Arm SDEN style); null while undecided.",
+      "enum": ["A", "B", "C", null]
+    },
+    "conditions": {
+      "description": "F1: what must hold in this configuration for the defect to bite.",
+      "type": "string",
+      "minLength": 1
+    },
+    "workaround": {
+      "description": "F1. null = none known.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["rules", "implementations"],
+          "additionalProperties": false,
+          "properties": {
+            "rules": { "type": "string", "minLength": 1 },
+            "implementations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["component", "commit", "merged"],
+                "additionalProperties": false,
+                "properties": {
+                  "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+                  "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+                  "merged": {
+                    "type": "boolean",
+                    "description": "Reachable from the component's default branch when last checked."
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "status": {
+      "description": "F1. `permanent` is for silicon configurations only (checked by the loader).",
+      "enum": ["open", "fixed", "wont-fix", "permanent", "not-affected"]
+    },
+    "doc_revision": {
+      "description": "F1, F4: the revision of this configuration's errata document in which this record last changed.",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "not-affected" } } },
+      "then": { "properties": { "exposure": { "properties": { "level": { "const": "not-affected" } } } } }
+    }
+  ]
+}
