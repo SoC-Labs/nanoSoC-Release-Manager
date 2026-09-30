@@ -1,0 +1,25 @@
+# expect-error: not at /fact/hosts
+# B3 (contracts review m8): a pin is cloned through exactly one URL, so exactly one host is `pinned`.
+schema: 1
+kind: pin_state
+subject: "pin_state:eth-rc4:tidelink"
+observed_at: "2026-09-30T17:31:59Z"
+sources: [{kind: github_api, command: "GET repos/SoC-Labs/NanoSoC-Ethernet-Chiplet/contents/tidelink?ref=ab73e40924317e45e7b3b941f52a7ed35f20832e"}]
+snapshot: {id: "pin_state:eth-rc4@2026-09-30T17:31:59Z", scope: "pin_state:eth-rc4"}
+fact:
+  configuration: eth-rc4
+  parent: {component: nanosoc-ethernet-chiplet, repo: {host: github, path: SoC-Labs/NanoSoC-Ethernet-Chiplet}, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"}
+  path: tidelink
+  url: "git@github.com:SoC-Labs/TideLink-Chiplet-Interconnect-AHB.git"
+  url_kind: ssh
+  branch_field: null
+  entry_type: commit
+  state: null
+  child: {component: tidelink, catalogued_as: component, repo: {host: github, path: SoC-Labs/TideLink-Chiplet-Interconnect-AHB}, commit: "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed"}
+  tree_paths: [tidelink]
+  depth: 1
+  split: false
+  effective: true
+  hosts:
+    github: {repo: {host: github, path: SoC-Labs/TideLink-Chiplet-Interconnect-AHB}, role: canonical, pinned: true, state: TAGGED, default_branch: main, lag: 5, branches: [main], tags: [v0.90], observed_at: "2026-09-30T17:38:49Z", sources: [{kind: git, command: "git ls-remote --tags https://github.com/SoC-Labs/TideLink-Chiplet-Interconnect-AHB.git"}]}
+    gitlab: {repo: {host: gitlab, path: soclabs/tidelink}, role: copy, pinned: true, state: MISSING, default_branch: main, lag: null, branches: [], tags: [], observed_at: "2026-09-30T18:00:47Z", sources: [{kind: gitlab_api, command: "GET projects/soclabs%2Ftidelink/repository/commits/5e8bdb5"}]}

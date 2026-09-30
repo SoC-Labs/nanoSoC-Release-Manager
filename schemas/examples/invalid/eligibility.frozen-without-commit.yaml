@@ -1,4 +1,4 @@
-# expect-error: 'commit' is a required property
+# expect-error: required at /configurations/0 ~ 'commit'
 # B5: a frozen (here silicon) configuration must be fixed by commit, not only by a movable tag.
 schema: 1
 configurations:

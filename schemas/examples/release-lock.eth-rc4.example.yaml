@@ -1,7 +1,8 @@
 # release.lock.yaml for rc4, as the Phase 5 lock writer would emit it (G3, G7).
 # OBSERVED: every pin row, state, tag and lag (read-only walk of ab73e40, 2026-09-30,
 #   walk.py with full SHAs + git ls-remote --tags + compare APIs); generated_rtl (P1 archive);
-#   outputs (md5 of the files on disk under the eth ASIC build rc4-20260829/outputs/).
+#   outputs (md5 and size of the rc4 GDS and P&R netlist; the file names and the store path are placeholders
+#   in this public repo).
 # ILLUSTRATIVE: errata, gate_ledger (F4/G2 are Phase 5; neither exists yet), generated_by.version.
 # 6 components are split (B7): asic-flow, hostio4, nanosoc_arch_tech, nanosoc_gen, socdebug_tech, tidelink-gpio-phy.
 schema: 1
@@ -70,12 +71,12 @@ waivers:  # G2
 generated_rtl:  # G3 generator + G7 archive (Phase 0 action P1)
   committed: false
   generator: {component: nanosoc_gen, commit: "d04de2ec25d79c1fc3223f853ddb6725cbf2831c", tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen}
-  archive: {store: artifactory, path: asic-record/ethchip/nanosoc_eth_chiplet_pads/rc4-20260829/source/build_soc.tar.gz, md5: "80eb7ce7e81fee653b52c6821cea3942", bytes: 620423}
-  manifest: {store: artifactory, path: asic-record/ethchip/nanosoc_eth_chiplet_pads/rc4-20260829/source/build_soc.md5sums.txt, md5: "819bfff2ee8821c2675740306e1445a0"}
+  archive: {store: artifactory, path: "<release store path>/eth-rc4/build_soc.tar.gz", md5: "80eb7ce7e81fee653b52c6821cea3942", bytes: 620423}
+  manifest: {store: artifactory, path: "<release store path>/eth-rc4/build_soc.md5sums.txt", md5: "819bfff2ee8821c2675740306e1445a0"}
   files: 332
 outputs:  # G3, silicon only
-  gds: {file: nanosoc_eth_chiplet_pads_rc4_logo.gds, md5: "6b0833c4216bdb683ed2427cd0deba75", bytes: 303996534}
-  pnr_netlist: {file: nanosoc_eth_chiplet_pads_rc4_pnr.v, md5: "1899a304623cbf9df16e1af5a06c7a65", bytes: 43265528, note: "not byte-matched to the GDS; see the eth rc4 issue register"}
+  gds: {file: eth-chiplet-r0p0.gds, md5: "6b0833c4216bdb683ed2427cd0deba75", bytes: 303996534}      # file name is a placeholder
+  pnr_netlist: {file: eth-chiplet-r0p0.pnr.v, md5: "1899a304623cbf9df16e1af5a06c7a65", bytes: 43265528}  # file name is a placeholder
 errata: {file: ERRATA.md, revision: 1}  # ILLUSTRATIVE: F4 is Phase 5; no errata document exists yet
 gate_ledger: {file: GATES.md}  # ILLUSTRATIVE: G2 is Phase 5
 artefacts: []  # no artefact has gone through the tool yet

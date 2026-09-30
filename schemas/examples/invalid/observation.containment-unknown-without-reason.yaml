@@ -1,10 +1,11 @@
-# expect-error: None is not of type 'string'
+# expect-error: type at /fact/pins/0/reason
 # B4: an undecided pin must say which commit could not be proven to exist; it never silently reads as "no".
 schema: 1
 kind: containment
 subject: "containment:nanosoc_gen:036d3811e630c89b2344b56aa617b40a99cd652b:eth-rc4:gitlab"
 observed_at: "2026-09-30T18:05:02Z"
 sources: [{kind: gitlab_api, command: "GET projects/soclabs%2Fnanosoc_gen/repository/merge_base?refs[]=036d381&refs[]=d04de2e"}]
+snapshot: {id: "containment:nanosoc_gen:036d3811e630c89b2344b56aa617b40a99cd652b@2026-09-30T18:05:02Z", scope: "containment:nanosoc_gen:036d3811e630c89b2344b56aa617b40a99cd652b"}
 fact:
   query: {component: nanosoc_gen, commit: "036d3811e630c89b2344b56aa617b40a99cd652b"}
   configuration: eth-rc4

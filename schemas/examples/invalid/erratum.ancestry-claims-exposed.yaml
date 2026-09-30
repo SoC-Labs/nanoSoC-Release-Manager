@@ -1,4 +1,4 @@
-# expect-error: 'detector' is a required property
+# expect-error: required at /exposure ~ 'detector'
 # F2: ancestry alone can only give probably-exposed; `exposed` needs a detector run on the built output.
 schema: 1
 id: ETH-R0P0-ERR-001

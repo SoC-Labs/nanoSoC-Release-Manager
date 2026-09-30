@@ -1,0 +1,42 @@
+# A7: the entry gate of every phase after v1, written down before v1 is built (proposal-rev2 section 9).
+# A phase starts only when a person has checked its gate: status gate-met, with checked.at and checked.by.
+# An implementation commit (one that changes src/) naming a requirement of a phase must come after that
+# phase's checked.at (AT-A7). Format: docs/contracts/interfaces.md section 17.6.
+# Status on 2026-09-30: no later phase has met its gate.
+phases:
+  - phase: Phase 2
+    capabilities: [D3, D4, D7, D8, D9, D12]
+    entry_gate:
+      - criterion: The generator is deterministic; the proposal measured 3 files that differ between two identical regenerations.
+        check: Regenerate one registered configuration's build_soc/ twice on the CI runner and compare the md5 manifests; evidence is the two manifests, identical.
+      - criterion: The CI runner is ephemeral, with a fresh HOME and TMPDIR per job.
+        check: t0.runner.hardened is PASS with its control fired on 7 consecutive nightly T0 runs (nanosoc-rm t0 runs --json).
+      - criterion: A CPU-budgeted host exists for T1 to T3.
+        check: The host's CPU quota is recorded in the private registry and the runner_settings observation names that host's runner.
+    status: not-met
+    checked: {}
+  - phase: Phase 3
+    capabilities: [C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12, F6, G1, G5, G6]
+    entry_gate:
+      - criterion: The Phase 2 consumer corpus runs nightly.
+        check: Every pinned matrix cell has a result on 7 consecutive nights (nanosoc-rm matrix --json).
+    status: not-met
+    checked: {}
+  - phase: Phase 4
+    capabilities: [E1, E2, E3, E4, E5, E6, E7]
+    entry_gate:
+      - criterion: The four operations items the design review named as this gate (OPS-1, OPS-3, OPS-4, OPS-6) are closed.
+        check: Each item's closing evidence is recorded in the private registry and signed by David.
+      - criterion: The generator is deterministic (the Phase 2 criterion still holds).
+        check: The Phase 2 manifest comparison, re-run within the last 30 days.
+      - criterion: The Phase 3 change classifier is running.
+        check: Every tool release since Phase 3 started carries a class computed by the classifier (nanosoc-rm changelog --json).
+    status: not-met
+    checked: {}
+  - phase: Phase 5
+    capabilities: [F4, G2, G3, G4, G7, I1, I2]
+    entry_gate:
+      - criterion: Phase 3 is complete.
+        check: David accepted the Phase 3 live demo (gate 3); the record is in the private registry.
+    status: not-met
+    checked: {}

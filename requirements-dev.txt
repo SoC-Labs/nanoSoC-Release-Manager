@@ -1,0 +1,10 @@
+# Test and contract-check dependencies (tests/acceptance, schemas/check_examples.py).
+# Checked on 2026-09-30 with:
+#   Python 3.8.17:  pytest 8.3.5, jsonschema 4.19.1, PyYAML 6.0.1
+#   Python 3.11.13: pytest 9.1.1, jsonschema 4.26.0, PyYAML 6.0.3
+pytest>=8.3,<10
+jsonschema>=4.18,<5     # 4.18 added the `referencing` registry the checker uses
+PyYAML>=6.0,<7
+# Needed by the web acceptance tests once the package exists (Python >= 3.11):
+fastapi>=0.110
+httpx>=0.27

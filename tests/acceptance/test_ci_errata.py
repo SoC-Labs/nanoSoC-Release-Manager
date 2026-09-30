@@ -5,11 +5,16 @@ each with its negative control (PR6). The Given/When/Then, fixtures, and the rea
 cannot pass vacuously are in docs/acceptance/ci_errata.md. The AT id in each docstring points
 there.
 
-Every test is skipped ("not implemented: gate 2") until the module it exercises exists. The
-assertions are written against the gate-2 contracts (docs/contracts/, schemas/). A name marked
-PROPOSED (Gn) is not in the contracts yet; see "Contract gaps" in the doc.
+Every acceptance test carries NOT_BUILT (xfail, raises=ImportError, strict): XFAIL until the module
+it exercises exists, red on any other error, red as XPASS(strict) once it passes, so its builder
+removes the marker (tests/conftest.py, interfaces.md section 17.4). The assertions are written against
+the gate-2 contracts (docs/contracts/, schemas/). A name marked PROPOSED (Gn) was a gap in the first
+draft; interfaces.md section 17.7 says where each one is now contracted.
 
-Markers (tests/conftest.py must register them, gap G13):
+test_selfcheck_* are not acceptance tests of the tool. They run now and prove each negative control's
+input is what the AT claims, with an oracle that shares no tool code (PR6 at checker level).
+
+Markers (registered in tests/conftest.py):
     requirement("<ID>")  the requirement this test accepts
     live                 needs the lab network, the service's data or the registry checkout;
                          the integrator's end-to-end run (PR5)
@@ -32,13 +37,14 @@ import json
 import os
 import shutil
 import subprocess
-from html import escape as html_escape
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
 
 GATE2 = "not implemented: gate 2"
+NOT_BUILT = pytest.mark.xfail(raises=ImportError, strict=True, reason=GATE2)
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMAS = ROOT / "schemas"
@@ -54,8 +60,27 @@ RC4_PIN_COUNT = 44
 RC4_SSH_PINS = ("tidelink", "ASIC/asic-toolkit")            # the only ssh URLs in rc4's tree
 RC4_BELOW_TIDELINK = 5                                      # pins below tidelink, never reached anonymously
 TIDELINK_PIN = "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed"   # = v0.90 on GitHub; MISSING on the GitLab copy
-AHB_QSPI_GITLAB_ONLY = "e908ac843845d5b293616265f93a802804555540"
-GEN_PINS_RC4 = ("d04de2ec25d79c1fc3223f853ddb6725cbf2831c",  # builds rc4's RTL
+AHB_QSPI_GITLAB_ONLY = "e908ac843845d5b293616265f93a802804555540"  # rc4's ahb_qspi pin; GitHub answers 422
+AHB_QSPI_GITHUB_ONLY = "71f8d1ce46dfa76e9f1e16f7ab186e51d1b31520"  # GitHub master; GitLab answers 404
+ASIC_FLOW_GITHUB_ONLY = "3824aaaf9cee33b647d149b5f00b55d44022b488"  # rc4's ASIC/asic-flows pin; GitHub
+                                                                   # lpddr4-pll (its default) only
+# rc4's other two asic-flow pins, 46c88d3 and 69500ef, are on main on both hosts.
+# rc4's arch_tech pin ecf76aa: keep tag on the GitLab copy only; on GitHub (canonical) it is reachable
+# only from branch wip/uncommitted-2026-08-18. One branch deletion from failing t0.pins.reachable.
+ARCH_TECH_GITHUB_BRANCH_ONLY = "ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3"
+# The 11 rc4 pins that were branch-only and are now PROTECTED_BY_TAG by keep/eth-rc4/* (pinned host).
+RC4_KEEP_TAG_PINS = (
+    "tidechart", "tidelink/deps/axi-chiplet-controller", "tidelink/deps/tidelink-gpio-phy",
+    "tidelink/deps/tidelink-phy", "nanosoc-multicore-system",
+    "nanosoc-multicore-system/ethernet-subsystem-ahb",
+    "nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb",
+    "nanosoc-multicore-system/nanosoc_arch_tech",
+    "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen",
+    "nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4", "ASIC/asic-toolkit",
+)
+# Third-party repos pinned in rc4's tree (catalogue `external`, all on GitHub): their own repo is canonical.
+RC4_EXTERNALS = ("core_dbg_bridge", "picotcp", "libtelnet")
+GEN_PINS_RC4 =("d04de2ec25d79c1fc3223f853ddb6725cbf2831c",  # builds rc4's RTL
                 "1d7772dd0cd0e135f86f7d9906f4852883c4670e")  # nested under ethernet-subsystem-ahb
 ORIGIN_ARCH = "49a6c252c34cbc6bcd5b715b5f37bae176417a12"    # nanosoc_arch_tech, on GitHub main
 ORIGIN_GEN = "b0a606960c349aeac4a00f67b3dbd13f55cb5f24"     # nanosoc_gen, on main
@@ -66,6 +91,8 @@ WORKAROUND_BRANCH_ONLY = "7a87e20051d6335abd3de690cde332bf3bd935a9"  # multicore
 IMPORT_DOCS_COMMIT = "66a2f698d6650e6e4e5beba1434b22231846696a"      # eth; not on main; ancestor of rc4
 QS_WRITEUP_LOCAL_ONLY = "1f2f06e4303de5eaa7316caf965ec0b070a89028"  # QuickStart; GitHub answers 422
 RC4_BUILD_SOC_MD5 = "80eb7ce7e81fee653b52c6821cea3942"     # P1 archive, 332 files
+MULTICORE_DMA250 = "57d2c762aab6f6b403e9747c7a390e11c3c4dcac"  # PL230 -> DMA-250; ancestor of f60449b and master
+MULTICORE_RC4_PIN = "f60449b491d54b617c92f1ccf0538c187cd8f34a"  # rc4's multicore pin; keep/eth-rc4 tag
 
 ETH_REPO = ("github", "SoC-Labs/NanoSoC-Ethernet-Chiplet")
 COMPUTE_REPO = ("github", "SoC-Labs/NanoSoC-Compute-Chiplet")
@@ -104,11 +131,11 @@ CONFIG_GATES = (
 )
 REGISTRY_GATES = ("t0.registry.schema", "t0.registry.refs-resolve")
 
-# Control state for a NOT-RUN gate. PROPOSED (G6): the schema offers only fired/not-fired/missing.
+# Control state for a NOT-RUN gate (observation schema: control `not-applicable` iff verdict NOT-RUN).
 NOT_RUN_CONTROL = "not-applicable"
 
-# The golden rc4 roll-up (README section 6 applied to result-bundle.verdicts.example.tsv, with the
-# two t0.runner.hardened rows the example lacks added; G6).
+# The golden rc4 roll-up (README section 6 applied to result-bundle.verdicts.example.tsv, which now
+# carries the two t0.runner.hardened rows; G6).
 EXPECTED_RC4_ROLLUP = {
     "t0.infra.probe": ("PASS", "fired"),
     "t0.runner.hardened": ("PASS", "fired"),
@@ -283,8 +310,11 @@ def format_rows(rows):
 
 
 def with_runner_hardened(tsv, nonce):
-    """The golden example has no t0.runner.hardened rows (G6). Add the two a real run writes."""
+    """The two t0.runner.hardened rows a real run writes. The golden example carries them since the
+    gate-2 revision (G6), so this adds them only when absent; it never doubles a row."""
     rows = parse_rows(tsv)
+    if any(r["gate"] == "t0.runner.hardened" for r in rows):
+        return format_rows(rows)
     rows[2:2] = [
         dict(utc="2026-10-01T02:03:43Z", status="PASS", gate="t0.runner.hardened",
              detail="protected ref; HOME and TMPDIR empty at start; user is the service account",
@@ -455,12 +485,262 @@ def nightly_runs(window_hours=24):
     return by_cfg
 
 
+# --------------------------------------------------------------------------------------------
+# Hermetic git fixtures for the D2 gates rc4 cannot exercise (coverage review High 2)
+# --------------------------------------------------------------------------------------------
+FX_WEB = "https://github.com/SoC-Labs/%s.git"
+FX_DATE = "2026-09-30T12:00:00Z"
+
+
+def _fx_env(extra=None):
+    env = dict(os.environ, GIT_AUTHOR_NAME="rm-test", GIT_AUTHOR_EMAIL="rm-test@example.invalid",
+               GIT_COMMITTER_NAME="rm-test", GIT_COMMITTER_EMAIL="rm-test@example.invalid",
+               GIT_AUTHOR_DATE=FX_DATE, GIT_COMMITTER_DATE=FX_DATE, GIT_CONFIG_GLOBAL=os.devnull,
+               GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+    env.update(extra or {})
+    return env
+
+
+def _fx_git(*args, env=None, input=None, check=True, cwd=None):
+    p = subprocess.run(["git", *[str(a) for a in args]], env=env or _fx_env(), input=input, cwd=cwd,
+                       capture_output=True, text=True, timeout=300)
+    if check and p.returncode:
+        raise RuntimeError("git %s: %s" % (" ".join(map(str, args)), p.stderr.strip()))
+    return p
+
+
+def fx_commit(repo, *, files=None, gitlinks=None, gitmodules=None, parents=(), ref=None):
+    """One commit written with plumbing into bare `repo` (created on first use); moves `ref` if given."""
+    repo = Path(repo)
+    if not repo.exists():
+        _fx_git("init", "-q", "--bare", repo)
+    index = repo / "fx-index"
+    if index.exists():
+        index.unlink()
+    env = _fx_env({"GIT_INDEX_FILE": str(index)})
+    entries = dict(files or {})
+    if gitmodules:
+        entries[".gitmodules"] = "".join('[submodule "%s"]\n\tpath = %s\n\turl = %s\n' % (m, m, u)
+                                         for m, u in gitmodules.items())
+    args = []
+    for name, text in sorted(entries.items()):
+        blob = _fx_git("--git-dir", repo, "hash-object", "-w", "--stdin", env=env, input=text).stdout.strip()
+        args += ["--cacheinfo", "100644,%s,%s" % (blob, name)]
+    for name, sha in sorted((gitlinks or {}).items()):
+        args += ["--cacheinfo", "160000,%s,%s" % (sha, name)]
+    if args:
+        _fx_git("--git-dir", repo, "update-index", "--add", *args, env=env)
+    tree = _fx_git("--git-dir", repo, "write-tree", env=env).stdout.strip()
+    sha = _fx_git("--git-dir", repo, "commit-tree", tree, *[a for p in parents for a in ("-p", p)], "-m", "fixture",
+                  env=env).stdout.strip()
+    if ref:
+        _fx_git("--git-dir", repo, "update-ref", ref, sha)
+    return sha
+
+
+def fx_publish(src, dst, commit, branch="main"):
+    """A second 'host' repo holding exactly the history of `commit` (objects reachable from it)."""
+    if not Path(dst).exists():
+        _fx_git("init", "-q", "--bare", dst)
+    _fx_git("--git-dir", src, "push", "-q", str(dst), "%s:refs/heads/%s" % (commit, branch))
+
+
+def fx_insteadof(url_map):
+    """git -c options that route each fixture https URL to its local bare repo (raw-git oracle only)."""
+    opts = ["-c", "protocol.file.allow=always"]
+    for url, path in sorted(url_map.items()):
+        opts += ["-c", "url.%s.insteadOf=%s" % (Path(path).resolve().as_uri(), url)]
+    return opts
+
+
+def hermetic_gate_fixtures(root, arm_specimen):
+    """Good and broken inputs for t0.manifest.valid, t0.clone.upgrade-path, t0.vendor.no-arm-ip and
+    t0.registry.schema. Returns {"cases": [(gate id, good ctx kwargs, bad ctx kwargs)], "url_map", "commits"}.
+    Every https URL resolves through url_map to a local bare repo: no network (interfaces.md section 9)."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    bare = lambda name: root / ("%s.git" % name)
+    url_map = {}
+
+    def host(name):
+        url_map[FX_WEB % name] = str(bare(name))
+        return FX_WEB % name
+
+    # A submodule with three commits; the "old host" of the bad pair serves only the first two.
+    s1 = fx_commit(bare("fx-sub-src"), files={"rtl/sub.v": "module sub; endmodule\n"})
+    s2 = fx_commit(bare("fx-sub-src"), files={"rtl/sub.v": "module sub(input a); endmodule\n"}, parents=[s1])
+    s3 = fx_commit(bare("fx-sub-src"), files={"rtl/sub.v": "module sub(input a, b); endmodule\n"}, parents=[s2],
+                   ref="refs/heads/main")
+    fx_publish(bare("fx-sub-src"), bare("fx-sub-serving"), s3)   # old host that still serves every commit
+    fx_publish(bare("fx-sub-src"), bare("fx-sub-frozen"), s2)    # old host frozen before s3
+    fx_publish(bare("fx-sub-src"), bare("fx-sub-new"), s3)       # the new host
+    old_ok, old_frozen, new = host("fx-sub-serving"), host("fx-sub-frozen"), host("fx-sub-new")
+
+    def superproject(name, old_url):
+        """upgrade_from pins s1 at old_url; commit moves the submodule to the new host and pins s3."""
+        u1 = fx_commit(bare(name), files={"README": "v1\n"}, gitlinks={"sub": s1}, gitmodules={"sub": old_url})
+        u2 = fx_commit(bare(name), files={"README": "v2\n"}, gitlinks={"sub": s3}, gitmodules={"sub": new},
+                       parents=[u1], ref="refs/heads/main")
+        host(name)
+        return u1, u2
+
+    ug1, ug2 = superproject("fx-upgrade-good", old_ok)      # a host move while the old host still serves: fix (C8)
+    ub1, ub2 = superproject("fx-upgrade-bad", old_frozen)   # the old host lacks s3: an upgrade without sync fails
+
+    manifest = (EX / "component-manifest.example.yaml").read_text()
+    two_part = manifest.replace('version: "0.1.0"', 'version: "1.0"')
+    assert two_part != manifest
+    mg = fx_commit(bare("fx-manifest-good"), files={"nanosoc-component.yaml": manifest}, gitlinks={"sub": s2},
+                   gitmodules={"sub": old_ok}, ref="refs/heads/main")
+    mb = fx_commit(bare("fx-manifest-bad"), files={"nanosoc-component.yaml": two_part}, gitlinks={"sub": s2},
+                   gitmodules={"sub": old_ok}, ref="refs/heads/main")
+    host("fx-manifest-good"), host("fx-manifest-bad")
+
+    vc = fx_commit(bare("fx-vendor-clean"), files={"rtl/top.v": "module top; endmodule\n"}, ref="refs/heads/main")
+    vp = fx_commit(bare("fx-vendor-planted"), files={"rtl/top.v": "module top; endmodule\n",
+                                                     "rtl/leaked.v": arm_specimen + "\nmodule leaked; endmodule\n"},
+                   ref="refs/heads/main")
+    host("fx-vendor-clean"), host("fx-vendor-planted")
+
+    reg_good = example_registry(root / "registry-good")
+    reg_bad = example_registry(root / "registry-bad")
+    shutil.copyfile(BAD / "component-catalogue.no-class.yaml", reg_bad / "catalogue.yaml")
+
+    def req(name, commit, upgrade_from=None):
+        return {"configuration": "fx-" + name, "repo": {"host": "github", "path": "SoC-Labs/" + name},
+                "commit": commit, "upgrade_from": upgrade_from, "canonical_urls": {}}
+
+    ctx = lambda request: {"request": request, "url_map": dict(url_map)}
+    cases = [
+        ("t0.manifest.valid", ctx(req("fx-manifest-good", mg)), ctx(req("fx-manifest-bad", mb))),
+        ("t0.clone.upgrade-path", ctx(req("fx-upgrade-good", ug2, ug1)), ctx(req("fx-upgrade-bad", ub2, ub1))),
+        ("t0.vendor.no-arm-ip", ctx(req("fx-vendor-clean", vc)), ctx(req("fx-vendor-planted", vp))),
+        ("t0.registry.schema", {"registry_dir": reg_good}, {"registry_dir": reg_bad}),
+    ]
+    return {"cases": cases, "url_map": url_map,
+            "commits": {"s1": s1, "s2": s2, "s3": s3, "ug1": ug1, "ug2": ug2, "ub1": ub1, "ub2": ub2,
+                        "mg": mg, "mb": mb, "vc": vc, "vp": vp},
+            "registries": (reg_good, reg_bad)}
+
+
+# --------------------------------------------------------------------------------------------
+# Reference oracles (README section 6, interfaces.md section 10 Verify). They share no tool code:
+# the self-checks use them to prove each negative control's input is what the AT claims.
+# --------------------------------------------------------------------------------------------
+MAY_SKIP = frozenset({"t0.manifest.valid", "t0.clone.upgrade-path"})
+
+
+def reference_rollup(rows, declared):
+    """README section 6 applied to verdicts.tsv rows: {gate: (verdict, control)}."""
+    out = {}
+    for gid in declared:
+        main = [r for r in rows if r["gate"] == gid]
+        ctl = [r for r in rows if r["gate"] == gid + ".negctl"]
+        control = "missing" if not ctl else ("fired" if len(ctl) == 1 and ctl[0]["status"] == "PASS" else "not-fired")
+        if len(main) != 1:
+            verdict = "UNVERIFIED"
+        else:
+            status = main[0]["status"]
+            verdict = {"PASS": "PASS" if control == "fired" else "UNVERIFIED", "FAIL": "FAIL",
+                       "UNVERIFIED": "UNVERIFIED", "WARN": "UNVERIFIED", "INFRA": "INFRA",
+                       "SKIP": "NOT-RUN" if gid in MAY_SKIP else "UNVERIFIED"}[status]
+        if verdict == "NOT-RUN":
+            control = NOT_RUN_CONTROL
+        out[gid] = (verdict, control)
+    return out
+
+
+def reference_run_verdict(items):
+    """(run verdict, NOT-RUN count). PASS needs at least one PASS gate (README section 6)."""
+    verdicts = [v for v, _c in items.values()]
+    not_run = verdicts.count("NOT-RUN")
+    if "FAIL" in verdicts:
+        return "FAIL", not_run
+    if "UNVERIFIED" in verdicts or "PASS" not in verdicts:
+        return "UNVERIFIED", not_run
+    if "INFRA" in verdicts:
+        return "INFRA", not_run
+    return "PASS", not_run
+
+
+def reference_verify(case, ce):
+    """The first verify check (1..6) the case fails, or None (interfaces.md section 10)."""
+    run, prov, pipeline, job, variables = case.run, case.prov, case.pipeline, case.job, case.variables
+    if (pipeline["project_id"] != CI_PROJECT_ID or job["pipeline"]["project_id"] != CI_PROJECT_ID
+            or pipeline.get("source") != "trigger" or pipeline["ref"] not in ("main",) or job["name"] != "t0"
+            or pipeline["id"] != run["pipeline_id"] or job["runner"]["id"] not in (RUNNER_ID,)):
+        return 1
+    var = {v["key"]: v["value"] for v in variables}.get("RM_REQUEST")
+    if var is None or var.encode() != run["request"]:
+        return 2
+    schemas, registry = ce.load_schemas()
+    if list(ce.validator_for(schemas, registry, "result-bundle").iter_errors(prov)):
+        return 3
+    stored = json.loads(run["request"])
+    if (prov["run_nonce"] != run["nonce"] or prov["request"] != {k: v for k, v in stored.items() if k not in ("schema", "nonce")}
+            or prov["ci"]["pipeline_id"] != pipeline["id"] or prov["ci"]["job_id"] != job["id"]
+            or prov["ci"]["harness_sha"] != pipeline["sha"]):
+        return 4
+    if prov["captured"]["superproject_commit"] != stored["commit"]:
+        return 5
+    lo = (utc(job["started_at"]) - dt.timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    hi = (utc(job["finished_at"]) + dt.timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row_v = ce.validator_for(schemas, registry, "result-bundle", "/$defs/verdict_row")
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".tsv", delete=False) as fh:
+        fh.write(case.verdicts)
+    try:
+        if ce.check_tsv(fh.name, row_v, run["nonce"], lo, hi):
+            return 6
+    finally:
+        os.unlink(fh.name)
+    return None
+
+
+def job_env(root, name, env_changes=None, home_file=False, tmp_file=False):
+    """A fresh job environment for AT-D10: HOME and TMPDIR directories, optionally with a leftover."""
+    home, tmp = Path(root) / name / "home", Path(root) / name / "tmp"
+    for d in (home, tmp):
+        d.mkdir(parents=True)
+    if home_file:
+        (home / ".gitconfig").write_text("[user]\n\tname = left by a previous job\n")
+    if tmp_file:
+        (tmp / "previous-job.log").write_text("left by a previous job\n")
+    env = {"CI_COMMIT_REF_PROTECTED": "true", "HOME": str(home), "TMPDIR": str(tmp), "USER": SERVICE_ACCOUNT}
+    env.update(env_changes or {})
+    return env
+
+
+def reference_hardened(env, service_account):
+    """What t0.runner.hardened checks, as names of the variables that break it (interfaces.md section 9)."""
+    bad = []
+    if env.get("CI_COMMIT_REF_PROTECTED") != "true":
+        bad.append("CI_COMMIT_REF_PROTECTED")
+    for var in ("HOME", "TMPDIR"):
+        if any(Path(env[var]).iterdir()):
+            bad.append(var)
+    if env.get("USER") != service_account:
+        bad.append("USER")
+    bad += sorted(k for k in env if k.startswith("CI_") and ("TOKEN" in k or "PASSWORD" in k or k.startswith("CI_JOB_JWT")))
+    return bad
+
+
+def synthetic_netlists(root):
+    """Two netlist files for SL-DEF-0001's D2 pattern: one with the defect's shape, one without."""
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    fired, clean = root / "fired.v", root / "clean.v"
+    fired.write_text("module top;\n  cpu_ss u_cpu_ss (.HCLK(clk), .cpu_ss_hsel(UNCONNECTED_12), .HREADY(r));\nendmodule\n")
+    clean.write_text("module top;\n  cpu_ss u_cpu_ss (.HCLK(clk), .cpu_ss_hsel(cpu_ss_hsel_w), .HREADY(r));\nendmodule\n")
+    return fired, clean
+
+
 # ============================================================================================
 # AT-D1  Every tier has a command and a budget
 # ============================================================================================
 @pytest.mark.requirement("D1")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D1():
     """AT-D1: all 7 tiers have a budget; every configuration has a T0 command; every accepted
     nightly T0 finished inside the 2-minute budget."""
@@ -509,7 +789,7 @@ def test_AT_D1():
 
 
 @pytest.mark.requirement("D1")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D1_negative_control():
     """AT-D1 control: an over-budget T0 is flagged; a tier with no budget fails validation."""
     from nanosoc_rm.t0 import tiers                      # PROPOSED (G1)
@@ -535,17 +815,27 @@ def test_AT_D1_negative_control():
 # ============================================================================================
 @pytest.mark.requirement("D2")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D2(tmp_path):
     """AT-D2: every configuration and @registry has tonight's accepted T0 report; rc4 goes red
-    on exactly its 3 known real gates; tidelink is judged on its canonical host."""
-    from nanosoc_rm.registry import load_registry
+    on its known real gates; every pin is judged on its canonical host (TideLink drift, keep tags)."""
+    from nanosoc_rm.registry import Repo, load_registry
     from nanosoc_rm.t0 import gates
 
     # Given: the live registry and one completed night
     reg = load_registry(Path(require_env("NANOSOC_RM_REGISTRY")))
     expected = sorted([as_doc(c)["id"] for c in reg.configurations()] + ["@registry"])
     canonical = {as_doc(c)["id"]: as_doc(c)["canonical"]["host"] for c in reg.components()}
+    # Question 2 (canonical host of the two diverged repos) decides two rc4 rows. Read the
+    # decision from the catalogue; never guess the component ids.
+    qspi, _ = reg.resolve_repo(Repo(host="gitlab", path="soclabs/ahb_qspi"))
+    flow, _ = reg.resolve_repo(Repo(host="github", path="SoC-Labs/ASIC-Flow"))
+    assert qspi and flow, "ahb_qspi or asic-flow is not catalogued"
+    expected_unreachable = set()
+    if canonical[qspi] == "github":
+        expected_unreachable.add("nanosoc-multicore-system/ahb_qspi")     # e908ac8 is GitLab-only
+    if canonical[flow] == "gitlab":
+        expected_unreachable.add("ASIC/asic-flows")                       # 3824aaa is GitHub-only
 
     # When: the night's runs are read
     by_cfg = nightly_runs()
@@ -562,8 +852,13 @@ def test_AT_D2(tmp_path):
     for cfg, (f,) in by_cfg.items():
         want = REGISTRY_GATES if cfg == "@registry" else CONFIG_GATES
         assert sorted(g["id"] for g in f["gates"]) == sorted(want), cfg
-        assert all(g["control"] in ("fired", "not-fired", "missing", NOT_RUN_CONTROL)
-                   for g in f["gates"])
+        for g in f["gates"]:   # D6: every gate that ran fired its control; only a NOT-RUN gate has none
+            want_ctl = NOT_RUN_CONTROL if g["verdict"] == "NOT-RUN" else "fired"
+            assert g["control"] == want_ctl, (cfg, g["id"], g["verdict"], g["control"])
+    # eth-main declares upgrade_from, so its upgrade-path gate really runs (it cannot hide as NOT-RUN)
+    if "eth-main" in by_cfg:
+        main_gates = {x["id"]: x for x in by_cfg["eth-main"][0]["gates"]}
+        assert main_gates["t0.clone.upgrade-path"]["verdict"] != "NOT-RUN"
 
     # Then 3: eth-rc4 matches the golden rows, for the real reasons
     (rc4,) = by_cfg["eth-rc4"]
@@ -571,7 +866,8 @@ def test_AT_D2(tmp_path):
     g = {x["id"]: x for x in rc4["gates"]}
     assert g["t0.infra.probe"]["verdict"] == "PASS"
     assert g["t0.pins.fetchable"]["verdict"] == "FAIL"
-    assert g["t0.pins.reachable"]["verdict"] == "FAIL"
+    # FAIL while a pin is off its canonical host; else UNVERIFIED (asic-toolkit is private)
+    assert g["t0.pins.reachable"]["verdict"] == ("FAIL" if expected_unreachable else "UNVERIFIED")
     assert g["t0.urls.no-ssh-public"]["verdict"] == "FAIL"
     assert g["t0.manifest.valid"]["verdict"] == "NOT-RUN"
     assert g["t0.clone.upgrade-path"]["verdict"] == "NOT-RUN"      # eth-rc4 has no upgrade_from
@@ -588,30 +884,50 @@ def test_AT_D2(tmp_path):
     assert all(p.startswith("tidelink/") for p in by_result["not-reached"])
     assert len(by_result.get("pass", ())) == RC4_PIN_COUNT - len(RC4_SSH_PINS) - RC4_BELOW_TIDELINK
 
+    # Then 4: t0.pins.reachable on rc4
     reach = {i["tree_path"]: i for i in gate_items(nonce, "t0.pins.reachable")}
+    # All 44 pins are judged, including the 5 below tidelink: the gate walks by canonical https
+    # URLs, not by the pinned ssh URL. PROPOSED (G15).
+    assert len(reach) == RC4_PIN_COUNT
+    for tp, i in reach.items():                          # judged on the canonical host, never "any host"
+        want = "github" if i["component"] in RC4_EXTERNALS else canonical[i["component"]]
+        assert i["host"] == want, (tp, i["host"])
     # TideLink host drift: 5e8bdb5 is v0.90 on GitHub (canonical) and missing on the GitLab copy.
     assert reach["tidelink"]["commit"] == TIDELINK_PIN
     assert (reach["tidelink"]["result"], reach["tidelink"]["host"]) == ("pass", "github")
-    assert reach["ASIC/asic-toolkit"]["result"] == "unverified"    # canonical repo is private
-    qspi = reach["nanosoc-multicore-system/ahb_qspi"]
-    assert qspi["commit"] == AHB_QSPI_GITLAB_ONLY
-    assert qspi["result"] == ("fail" if canonical["ahb_qspi"] == "github" else "pass")
+    assert reach["nanosoc-multicore-system/ahb_qspi"]["commit"] == AHB_QSPI_GITLAB_ONLY
+    assert reach["ASIC/asic-flows"]["commit"] == ASIC_FLOW_GITHUB_ONLY
+    by_reach = {}
+    for tp, i in reach.items():
+        by_reach.setdefault(i["result"], set()).add(tp)
+    assert by_reach.get("fail", set()) == expected_unreachable
+    assert by_reach.get("unverified", set()) == {"ASIC/asic-toolkit"}   # canonical repo is private
+    assert by_reach.get("not-reached", set()) == set()
+    # Keep tags: the 11 formerly branch-only commits are reachable from a tag (or, for arch_tech
+    # ecf76aa on GitHub, a branch), so none of them fails.
+    assert reach["nanosoc-multicore-system/nanosoc_arch_tech"]["commit"] == ARCH_TECH_GITHUB_BRANCH_ONLY
+    for tp in RC4_KEEP_TAG_PINS:
+        if tp != "ASIC/asic-toolkit":
+            assert reach[tp]["result"] == "pass", (tp, reach[tp])
 
     ssh = gate_items(nonce, "t0.urls.no-ssh-public")
     assert {i["tree_path"] for i in ssh if i["result"] == "fail"} == set(RC4_SSH_PINS)
 
-    # Then 4: the registry job judges every cited commit; the unpushed bench fails while unpushed
+    # Then 5: the registry job judges every cited commit; the unpushed bench fails while unpushed
     (regrun,) = by_cfg["@registry"]
     refs = gate_items(regrun["run"]["nonce"], "t0.registry.refs-resolve")
-    bench = [i for i in refs if i["commit"] == BENCH_UNPUSHED]
-    if bench:
-        pushed = anon_fetchable(tmp_path / "oracle", ETH_HTTPS, BENCH_UNPUSHED)
-        assert bench[0]["result"] == ("pass" if pushed else "fail")
+    sl1 = {as_doc(x)["id"]: as_doc(x) for x in reg.defects()}["SL-DEF-0001"]
+    bench_commit = (sl1.get("regression_test") or {}).get("commit")
+    assert bench_commit, "SL-DEF-0001 records no bench: F1 needs one pinned by commit"
+    bench = [i for i in refs if i["commit"] == bench_commit]
+    assert bench, "the registry job did not judge SL-DEF-0001's bench %s" % bench_commit[:7]
+    pushed = anon_fetchable(tmp_path / "oracle", ETH_HTTPS, bench_commit)
+    assert bench[0]["result"] == ("pass" if pushed else "fail")
     rg = {x["id"]: x for x in regrun["gates"]}
     any_fail = any(i["result"] == "fail" for i in refs)
     assert rg["t0.registry.refs-resolve"]["verdict"] == ("FAIL" if any_fail else "PASS")
 
-    # Then 5: the dashboard shows every configuration with tonight's verdict, data age < 24 h
+    # Then 6: the dashboard shows every configuration with tonight's verdict, data age < 24 h
     html = member_client(Path(require_env("NANOSOC_RM_CONFIG"))).get("/").text
     rows = {a["data-configuration"]: a for a in elements_with(html, "data-configuration")}
     assert sorted(rows) == sorted(c for c in expected if c != "@registry")
@@ -621,7 +937,7 @@ def test_AT_D2(tmp_path):
 
 
 @pytest.mark.requirement("D2")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D2_negative_control(tmp_path, monkeypatch):
     """AT-D2 control: the CI API refuses eth-main's nightly trigger. eth-main must show a
     missed night, never last night's result and never PASS."""
@@ -642,7 +958,10 @@ def test_AT_D2_negative_control(tmp_path, monkeypatch):
                  "acceptance": "accepted", "reason": None, "verdict": "PASS",
                  "gates": [{"id": gid, "verdict": "PASS", "control": "fired", "detail": ""}
                            for gid in CONFIG_GATES],
-                 "bundle": {"store": "ci", "path": "jobs/1999/artifacts"}},
+                 "bundle": {"store": "ci", "path": "jobs/1999/artifacts"},
+                 "started_at": "2026-09-30T02:00:40Z", "finished_at": "2026-09-30T02:02:10Z",
+                 "over_budget": False, "runner": {"id": RUNNER_ID, "description": "rm-hardened",
+                                                  "tags": ["rm-hardened"]}},
     }
     db.put(last_night)
 
@@ -669,6 +988,19 @@ def test_AT_D2_negative_control(tmp_path, monkeypatch):
     html = member_client(cfg_path).get("/").text
     row = {a["data-configuration"]: a for a in elements_with(html, "data-configuration")}["eth-main"]
     assert row["data-verdict"] != "PASS"
+
+    # Part 2 (coverage review High 2). rc4 cannot exercise three D2 checks (manifest and upgrade path
+    # are NOT-RUN, the Arm scan is UNVERIFIED) and nothing real exercises the registry schema gate.
+    # Each is shown to PASS on a good hermetic input and FAIL on a broken one, through the test-only
+    # url_map seam (interfaces.md section 9), with its own control firing in the same run.
+    from nanosoc_rm.scan import rules
+    from nanosoc_rm.t0 import gates
+    fx = hermetic_gate_fixtures(tmp_path / "gatefx", arm_specimen=rules.specimen("arm.banner"))
+    for gid, good, bad in fx["cases"]:
+        row, ctl = gates.run_with_control(gid, gates_ctx(nonce="1" * 32, workdir=tmp_path / ("w-" + gid), **good))
+        assert (row["status"], ctl["status"]) == ("PASS", "PASS"), (gid, row["detail"], ctl["detail"])
+        row, _ = gates.run_with_control(gid, gates_ctx(nonce="2" * 32, workdir=tmp_path / ("b-" + gid), **bad))
+        assert row["status"] == "FAIL", (gid, row["detail"])
 
 
 # ============================================================================================
@@ -747,7 +1079,7 @@ D5_TAMPERS = (
 
 
 @pytest.mark.requirement("D5")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D5(tmp_path, monkeypatch):
     """AT-D5: the genuine rc4 bundle is accepted; each single-field tamper is rejected by the
     check that owns the field; no route accepts a pushed result."""
@@ -778,12 +1110,15 @@ def test_AT_D5(tmp_path, monkeypatch):
     for path in ("/configurations/eth-rc4/runs", "/api/v1/configurations/eth-rc4/runs"):
         client.post(path, json=posted)
     results = [as_doc(o)["fact"] for o in db.latest("t0_result", "t0_result:")]
+    # Each POST made a run (pending, or no-bundle when the trigger cannot reach a CI host); none of
+    # them is the posted bundle. An empty list would prove nothing, so it fails.
+    assert len(results) >= 2, results
     assert all(r["run"]["nonce"] != posted["run_nonce"] for r in results)
     assert all(r["acceptance"] != "accepted" for r in results)
 
 
 @pytest.mark.requirement("D5")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D5_negative_control(tmp_path, monkeypatch):
     """AT-D5 control (the done-when): the genuine bundle with only the captured superproject
     commit changed to rc4's real parent is rejected, and stored as UNVERIFIED."""
@@ -810,15 +1145,17 @@ def test_AT_D5_negative_control(tmp_path, monkeypatch):
 # ============================================================================================
 # AT-D6  Every gate carries a negative control
 # ============================================================================================
-def _rc4_ctx(tmp_path, nonce):
+def rc4_parents():
     """rc4's superproject as the no-ssh gate sees it: one public parent and its .gitmodules."""
-    return gates_ctx(nonce=nonce, workdir=tmp_path / "work",
-                     parents={"%s/%s@%s" % (ETH_REPO[0], ETH_REPO[1], RC4): {
-                         "public": True, "gitmodules": RC4_GITMODULES}})
+    return {"%s/%s@%s" % (ETH_REPO[0], ETH_REPO[1], RC4): {"public": True, "gitmodules": RC4_GITMODULES}}
+
+
+def _rc4_ctx(tmp_path, nonce):
+    return gates_ctx(nonce=nonce, workdir=tmp_path / "work", parents=rc4_parents())
 
 
 @pytest.mark.requirement("D6")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D6(tmp_path, monkeypatch):
     """AT-D6: every declared gate is reported with its control and whether it fired; a PASS
     never stands without a fired control."""
@@ -848,12 +1185,16 @@ def test_AT_D6(tmp_path, monkeypatch):
     assert sorted(items) == sorted(CONFIG_GATES)
     assert {k: (v["verdict"], v["control"]) for k, v in items.items()} == EXPECTED_RC4_ROLLUP
     assert all(v["control"] == "fired" for v in items.values() if v["verdict"] == "PASS")
+    assert all(v["detail"].strip() for v in items.values() if v["verdict"] == "NOT-RUN")  # README 6
     assert gates.run_verdict(list(items.values())) == ("FAIL", 2)
 
-    # The golden example as published lacks t0.runner.hardened (G6): it must roll up UNVERIFIED.
+    # The golden example carries the t0.runner.hardened rows (G6 fixed); without them the gate is
+    # missing, and a missing gate rolls up UNVERIFIED, never PASS.
     raw = {i["id"]: i for i in gates.rollup(parse_rows(example_verdicts()), scope="configuration")}
-    assert (raw["t0.runner.hardened"]["verdict"], raw["t0.runner.hardened"]["control"]) == (
-        "UNVERIFIED", "missing")
+    assert (raw["t0.runner.hardened"]["verdict"], raw["t0.runner.hardened"]["control"]) == ("PASS", "fired")
+    stripped = [r for r in parse_rows(example_verdicts()) if not r["gate"].startswith("t0.runner.hardened")]
+    gone = {i["id"]: i for i in gates.rollup(stripped, scope="configuration")}["t0.runner.hardened"]
+    assert (gone["verdict"], gone["control"]) == ("UNVERIFIED", "missing")
 
     # Then 4: the run page shows each gate's control and whether it fired
     db.put({"schema": 1, "kind": "t0_result", "subject": "t0_result:eth-rc4:" + nonce,
@@ -866,7 +1207,9 @@ def test_AT_D6(tmp_path, monkeypatch):
                              "pipeline_id": prov["ci"]["pipeline_id"], "job_id": prov["ci"]["job_id"]},
                      "acceptance": "accepted", "reason": None, "verdict": "FAIL",
                      "gates": list(items.values()),
-                     "bundle": {"store": "ci", "path": "jobs/%d/artifacts" % prov["ci"]["job_id"]}}})
+                     "bundle": {"store": "ci", "path": "jobs/%d/artifacts" % prov["ci"]["job_id"]},
+                     "started_at": prov["started_at"], "finished_at": prov["finished_at"], "over_budget": False,
+                     "runner": {"id": RUNNER_ID, "description": "rm-hardened", "tags": ["rm-hardened"]}}})
     html = member_client(cfg_path).get("/runs/" + nonce).text
     shown = {a["data-gate"]: a for a in elements_with(html, "data-gate")}
     assert sorted(shown) == sorted(CONFIG_GATES)
@@ -875,7 +1218,7 @@ def test_AT_D6(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("D6")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D6_negative_control(tmp_path, monkeypatch):
     """AT-D6 control: a gate that cannot fail is caught (its control does not fire, the gate is
     UNVERIFIED); missing, unfired and duplicated rows never show PASS."""
@@ -896,6 +1239,20 @@ def test_AT_D6_negative_control(tmp_path, monkeypatch):
     assert ctl["status"] == "FAIL"
     item = {i["id"]: i for i in gates.rollup([row, ctl], scope="configuration")}[gid]
     assert (item["verdict"], item["control"]) == ("UNVERIFIED", "not-fired")
+
+    # And the same holds for EVERY declared gate (coverage review Medium 1): replaced by an always-PASS
+    # mutant, each gate's own control fails to fire, so none of them can show PASS. This proves each
+    # control runs the gate's own check on a broken input, not a separate always-red function.
+    registry = example_registry(tmp_path / "registry-d6")
+    for other, gate in sorted(gates.GATES.items()):
+        mutant = dataclasses.replace(gate, check=lambda ctx: ("PASS", "mutant: this check cannot fail"))
+        monkeypatch.setitem(gates.GATES, other, mutant)
+        ctx = gates_ctx(nonce=nonce, workdir=tmp_path / ("mut-" + other), registry_dir=registry,
+                        parents=rc4_parents())
+        row, ctl = gates.run_with_control(other, ctx)
+        assert (row["status"], ctl["status"]) == ("PASS", "FAIL"), (other, row, ctl)
+        rolled = {i["id"]: i for i in gates.rollup([row, ctl], scope=gate.scope)}[other]
+        assert (rolled["verdict"], rolled["control"]) == ("UNVERIFIED", "not-fired"), other
 
     # Then: README section 6 rules, each on the golden with one change
     golden = parse_rows(with_runner_hardened(example_verdicts(), nonce))
@@ -919,7 +1276,7 @@ def test_AT_D6_negative_control(tmp_path, monkeypatch):
 # ============================================================================================
 @pytest.mark.requirement("D10")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D10():
     """AT-D10: the real T0 job passes t0.runner.hardened; the runner's id and settings are
     recorded and match the expected ones."""
@@ -953,7 +1310,7 @@ def test_AT_D10():
 
 
 @pytest.mark.requirement("D10")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D10_negative_control(tmp_path, monkeypatch):
     """AT-D10 control: one-variable changes to a good job environment each FAIL the gate; a job
     run on a runner outside the allowlist is rejected."""
@@ -962,16 +1319,7 @@ def test_AT_D10_negative_control(tmp_path, monkeypatch):
 
     def ctx(name, env_changes=None, home_file=False, tmp_file=False):
         """A fresh job environment per case, so one case's leftovers never leak into another."""
-        home, tmp = tmp_path / name / "home", tmp_path / name / "tmp"
-        for d in (home, tmp):
-            d.mkdir(parents=True)
-        if home_file:
-            (home / ".gitconfig").write_text("[user]\n\tname = left by a previous job\n")
-        if tmp_file:
-            (tmp / "previous-job.log").write_text("left by a previous job\n")
-        env = {"CI_COMMIT_REF_PROTECTED": "true", "HOME": str(home), "TMPDIR": str(tmp),
-               "USER": SERVICE_ACCOUNT}
-        env.update(env_changes or {})
+        env = job_env(tmp_path, name, env_changes, home_file, tmp_file)
         return gates_ctx(env=env, service_account=SERVICE_ACCOUNT, nonce="0" * 32,
                          workdir=tmp_path / name / "work")
 
@@ -985,7 +1333,8 @@ def test_AT_D10_negative_control(tmp_path, monkeypatch):
     for name, c in (("CI_COMMIT_REF_PROTECTED", ctx("ref", {"CI_COMMIT_REF_PROTECTED": "false"})),
                     ("HOME", ctx("home", home_file=True)),
                     ("TMPDIR", ctx("tmpdir", tmp_file=True)),
-                    ("USER", ctx("user", {"USER": "jbloggs"}))):
+                    ("USER", ctx("user", {"USER": "jbloggs"})),
+                    ("CI_JOB_TOKEN", ctx("token", {"CI_JOB_TOKEN": "left-in-the-environment"}))):
         status, detail = gate.check(c)
         assert status == "FAIL", name
         assert name in detail, (name, detail)
@@ -1004,7 +1353,7 @@ def test_AT_D10_negative_control(tmp_path, monkeypatch):
 # ============================================================================================
 @pytest.mark.requirement("D11")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D11(tmp_path, monkeypatch):
     """AT-D11: the genuine rc4 bundle scans clean, is accepted and stored; the arm.banner rule
     fires on one real vendor file (realism, lab only)."""
@@ -1036,7 +1385,7 @@ def test_AT_D11(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("D11")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_D11_negative_control(tmp_path, monkeypatch):
     """AT-D11 control (the done-when): the same bundle with a planted Arm banner in its log is
     refused, never stored; an empty bundle is refused, not accepted."""
@@ -1063,7 +1412,12 @@ def test_AT_D11_negative_control(tmp_path, monkeypatch):
     assert (f["acceptance"], f["verdict"], f["bundle"]) == ("refused", "UNVERIFIED", None)
     assert "arm.banner" in f["reason"] and "logs/t0.log:3" in f["reason"]
     assert first_line not in f["reason"]
-    assert not any(quarantine.iterdir())
+    # Nothing holding the planted text survives anywhere under the service's data dir, wherever the
+    # tool chose to quarantine (a check on one directory name alone could pass vacuously).
+    assert quarantine.is_dir()
+    leftovers = [str(q) for q in (tmp_path / "data").rglob("*")
+                 if q.is_file() and first_line in q.read_text(errors="replace")]
+    assert leftovers == [], leftovers
 
     # Then: a bundle with nothing to scan is unverified, and so refused
     empty = tmp_path / "empty" / "rm-bundle"
@@ -1088,7 +1442,7 @@ def test_AT_D11_negative_control(tmp_path, monkeypatch):
 # ============================================================================================
 @pytest.mark.requirement("F1")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F1():
     """AT-F1: SL-DEF-0001 holds the real cpu_ss_hsel facts; one erratum each for eth, compute
     and QuickStart; the eth forms agree with containment."""
@@ -1147,7 +1501,7 @@ def test_AT_F1():
 
 
 @pytest.mark.requirement("F1")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F1_negative_control(tmp_path):
     """AT-F1 control: the rc4 erratum copied to non-silicon eth-main, still `permanent`, is
     refused; an erratum naming a form the defect lacks is refused."""
@@ -1187,7 +1541,7 @@ EXPOSURE_COLOUR = {"probably-exposed": "state-amber", "exposed": "state-red",
 
 @pytest.mark.requirement("F2")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F2():
     """AT-F2: every erratum shows level, method and evidence; ancestry shows amber; a detector
     level carries a re-checkable run; D1 runs on rc4's archived RTL."""
@@ -1210,7 +1564,7 @@ def test_AT_F2():
         assert el["data-exposure"] == exp["level"]
         assert el["data-method"] == exp["method"]
         assert EXPOSURE_COLOUR[exp["level"]] in el.get("class", "").split()
-        assert html_escape(exp["evidence"].strip()[:40], quote=False) in html
+        assert exp["evidence"].strip()[:40] in html_unescape(html)   # printed beside the level
         if exp["level"] != "probably-exposed":
             assert exp["method"] == "detector", e["id"]
             assert exp["detector"] in {x["id"] for x in defects[e["defect"]]["detectors"]}
@@ -1236,10 +1590,11 @@ def test_AT_F2():
 
 
 @pytest.mark.requirement("F2")
-@pytest.mark.skip(reason=GATE2)
-def test_AT_F2_negative_control(tmp_path):
+@NOT_BUILT
+def test_AT_F2_negative_control(tmp_path, monkeypatch):
     """AT-F2 control: ancestry claiming `exposed` is rejected; a detector the defect lacks is
-    refused."""
+    refused; a detector is shown both to fire and to stay clean (coverage review Medium 2)."""
+    from nanosoc_rm.analysis import detect                # interfaces.md section 6a
     from nanosoc_rm.registry import RegistryError, load_registry
     load_registry(example_registry(tmp_path / "good"))     # the pair's good half
 
@@ -1249,7 +1604,8 @@ def test_AT_F2_negative_control(tmp_path):
                     anc / "errata" / "eth-rc4" / "ERR-001.yaml")
     with pytest.raises(RegistryError) as ei:
         load_registry(anc)
-    assert any(ptr.startswith("/exposure") and "'detector' is a required property" in msg
+    # matched on the pointer and the property name, not on jsonschema's message wording
+    assert any(ptr.startswith("/exposure") and "detector" in msg
                for _f, ptr, _rule, msg in problems_of(ei)), problems_of(ei)
 
     # When: exposure claims detector D9, which SL-DEF-0001 lacks. Then: README section 3 rule 4.
@@ -1262,11 +1618,25 @@ def test_AT_F2_negative_control(tmp_path):
         load_registry(d9)
     assert any(ptr == "/exposure/detector" for _f, ptr, _rule, _msg in problems_of(ei)), problems_of(ei)
 
+    # The detector path itself can say both answers: SL-DEF-0001's D2 (a netlist pattern) fires on a
+    # synthetic netlist carrying the defect's shape and stays clean on one without it. A detector
+    # that can only ever answer one way would pass AT-F2's "fired or clean" and prove nothing.
+    write_config(tmp_path, monkeypatch)
+    example_registry(tmp_path / "registry")
+    fired, clean = synthetic_netlists(tmp_path / "netlists")
+    hit = detect.run("SL-DEF-0001", "D2", fired)
+    miss = detect.run("SL-DEF-0001", "D2", clean)
+    assert (hit.result, hit.forms) == ("fired", ["A"]), hit
+    assert (miss.result, miss.forms) == ("clean", []), miss
+    assert hit.input["md5"] != miss.input["md5"]
+
 
 # ============================================================================================
 # AT-F3  Every cited commit exists on its canonical host
 # ============================================================================================
-# Every commit R0 cites, each pushed and reachable from a branch or tag on its canonical host.
+# Every commit R0 cites, each pushed and reachable from a branch or tag on its canonical host. The last
+# four are named in the erratum's free text and cited structurally in its `cites` (loader rule 9), so
+# the gate proves them too (coverage review Low 2).
 R0_REFS = {
     ("nanosoc_arch_tech", ORIGIN_ARCH),                 # GitHub main
     ("nanosoc_gen", ORIGIN_GEN),                        # GitLab main
@@ -1274,6 +1644,10 @@ R0_REFS = {
     ("nanosoc_gen", FIX_FORM_B),                        # GitLab main; also D1's source
     ("nanosoc-multicore-system", WORKAROUND_BRANCH_ONLY),  # GitLab, branch-only
     ("nanosoc-ethernet-chiplet", IMPORT_DOCS_COMMIT),   # GitHub, reachable only from tag v1.0.0
+    ("nanosoc_gen", GEN_PINS_RC4[0]),                   # d04de2e: GitLab, keep tag and a branch
+    ("nanosoc_gen", GEN_PINS_RC4[1]),                   # 1d7772d: GitLab main
+    ("nanosoc-multicore-system", MULTICORE_DMA250),     # 57d2c76: GitLab master
+    ("nanosoc-multicore-system", MULTICORE_RC4_PIN),    # f60449b: GitLab, keep tag and branches
 }
 
 
@@ -1290,12 +1664,12 @@ def _refs_gate(tmp_path, registry_dir, name):
     from nanosoc_rm.t0 import gates
     ctx = gates_ctx(nonce="0" * 32, registry_dir=registry_dir, workdir=tmp_path / ("work-" + name))
     row, ctl = gates.run_with_control("t0.registry.refs-resolve", ctx)
-    return row, ctl, ctx.items("t0.registry.refs-resolve")    # refs.jsonl: PROPOSED (G11)
+    return row, ctl, ctx.items("t0.registry.refs-resolve")    # items/<gate>.jsonl: PROPOSED (G11)
 
 
 @pytest.mark.requirement("F3")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F3(tmp_path):
     """AT-F3: with every cited commit pushed, t0.registry.refs-resolve passes and names each
     commit it proved on its canonical host."""
@@ -1320,7 +1694,7 @@ def test_AT_F3(tmp_path):
 
 @pytest.mark.requirement("F3")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F3_negative_control(tmp_path):
     """AT-F3 control (the done-when, real data): the real SL-DEF-0001, whose bench 6aafc94 is
     unpushed, fails T0; so do a copy-host-only commit and a local-only commit."""
@@ -1336,16 +1710,22 @@ def test_AT_F3_negative_control(tmp_path):
         ("defects/SL-DEF-0001.yaml", "/regression_test/commit", BENCH_UNPUSHED)]
     assert BENCH_UNPUSHED[:7] in row["detail"]
 
-    # Case 2: a record citing ahb_qspi e908ac8, which exists only on the GitLab copy
+    # Case 2: a record citing an ahb_qspi commit that exists only on the NON-canonical host.
+    # ahb_qspi is DIVERGED (GitHub +1, GitLab +5), so such a commit exists whichever host
+    # question 2 makes canonical: e908ac8 is GitLab-only, 71f8d1c is GitHub-only.
+    from nanosoc_rm.registry import load_registry
     r2 = _registry_r0(tmp_path / "r2")
+    canon = {as_doc(c)["id"]: as_doc(c)["canonical"]["host"]
+             for c in load_registry(r2).components()}["ahb_qspi"]
+    copy_only = AHB_QSPI_GITLAB_ONLY if canon == "github" else AHB_QSPI_GITHUB_ONLY
     d2 = load_yaml(EX / "defect.SL-DEF-0001.example.yaml")
     d2.update(id="SL-DEF-0002", component="ahb_qspi", regression_test=None,
-              origin=[{"component": "ahb_qspi", "commit": AHB_QSPI_GITLAB_ONLY}])
+              origin=[{"component": "ahb_qspi", "commit": copy_only}])
     dump_yaml(d2, r2 / "defects" / "SL-DEF-0002.yaml")
     row, _ctl, items = _refs_gate(tmp_path, r2, "r2")
     assert row["status"] == "FAIL"
-    (q,) = [i for i in items if i["commit"] == AHB_QSPI_GITLAB_ONLY]
-    assert (q["result"], q["host"]) == ("fail", "github")      # judged on the canonical host
+    (q,) = [i for i in items if i["commit"] == copy_only]
+    assert (q["result"], q["host"]) == ("fail", canon)         # judged on the canonical host
 
     # Case 3: an import source at the QuickStart write-up, committed only locally.
     # SYNTHETIC catalogue entry: the QuickStart component is not catalogued yet (G9).
@@ -1368,7 +1748,7 @@ def test_AT_F3_negative_control(tmp_path):
 # ============================================================================================
 @pytest.mark.requirement("F5")
 @pytest.mark.live
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F5(tmp_path):
     """AT-F5: all four registers are imported; each document's items are censused against the
     ledger; nothing is pending; every item is a record or a reasoned dismissal."""
@@ -1392,29 +1772,35 @@ def test_AT_F5(tmp_path):
     cp = rm("registry", "imports", path, "--json")
     report = {r["path"]: r for r in (json.loads(x) for x in cp.stdout.splitlines() if x.strip())}
 
-    # Then 2-3: every source's items match the ledger; nothing pending; exit 0
+    # Then 2-3: every source's items match the ledger; nothing pending; exit 0. The report covers
+    # exactly the four sources (a report that dropped one would otherwise pass).
     assert cp.returncode == 0, cp.stdout
+    assert sorted(report) == sorted(s["doc"]["path"] for s in ledger["sources"])
     for p, r in report.items():
         assert (r["missing"], r["extra"], r["pending"]) == ([], [], 0), p
         assert r["census"], "%s: the rule extracted no items" % p
 
-    # Independent census of the one document whose structure is known and committed
+    # Independent census of the two eth documents, at whatever commit the ledger cites
     known = report["docs/tapeout/11-known-issues.md"]
+    text = anon_show(tmp_path / "eth-11", ETH_HTTPS, known["commit"], "docs/tapeout/11-known-issues.md")
+    assert text is not None, "11-known-issues.md is not fetchable at the cited commit %s" % known["commit"][:7]
+    own = tuple(line[3:5] for line in text.splitlines()
+                if len(line) > 5 and line.startswith("## ") and line[4] == ")")
+    assert set(own) <= set(known["census"]) | {x["key"] for x in known["excluded"]}
     if known["commit"] == IMPORT_DOCS_COMMIT:
-        text = anon_show(tmp_path / "eth", ETH_HTTPS, IMPORT_DOCS_COMMIT,
-                         "docs/tapeout/11-known-issues.md")
-        assert text is not None
-        own = tuple(line[3:5] for line in text.splitlines()
-                    if len(line) > 5 and line.startswith("## ") and line[4] == ")")
         assert own == KNOWN_ISSUES_KEYS
-        assert tuple(known["census"]) == KNOWN_ISSUES_KEYS
     opened = report["docs/tapeout/16-open-defects.md"]
+    text = anon_show(tmp_path / "eth-16", ETH_HTTPS, opened["commit"], "docs/tapeout/16-open-defects.md")
+    assert text is not None, "16-open-defects.md is not fetchable at the cited commit %s" % opened["commit"][:7]
+    numbered = {line[3:].split()[0] for line in text.splitlines()
+                if line.startswith("## ") and line[3:4].isdigit()}
+    assert numbered <= set(opened["census"]) | {x["key"] for x in opened["excluded"]}
+    assert all(x["reason"].strip() for x in opened["excluded"])
     if opened["commit"] == IMPORT_DOCS_COMMIT:
-        assert set(OPEN_DEFECTS_NUMBERED) <= set(opened["census"])
+        assert set(OPEN_DEFECTS_NUMBERED) == numbered
         # 6 numbered items + 2 "found in passing" paragraphs + the 2026-08-12 addendum's
-        # "found in passing" defect: the rule must import or explicitly exclude every one.
+        # "found in passing" defect: the rule must import (include) or explicitly exclude every one.
         assert len(opened["census"]) + len(opened["excluded"]) >= OPEN_DEFECTS_CANDIDATES
-        assert all(x["reason"].strip() for x in opened["excluded"])
 
     # Then 4-5: every item is a record of an existing defect, or dismissed with a reason
     for s in ledger["sources"]:
@@ -1429,7 +1815,7 @@ def test_AT_F5(tmp_path):
 
 
 @pytest.mark.requirement("F5")
-@pytest.mark.skip(reason=GATE2)
+@NOT_BUILT
 def test_AT_F5_negative_control(tmp_path):
     """AT-F5 control: the example ledger (all pending) is reported not done; a ledger missing
     one censused item is reported not done, naming the item."""
@@ -1482,3 +1868,278 @@ def test_AT_F5_negative_control(tmp_path):
     syn = rows["docs/synthetic-register.md"]
     assert syn.missing == ["c)"] and syn.pending == 0
     assert not syn.done
+
+
+# ============================================================================================
+# Self-checks: they test THIS FILE, not the tool, and run now (PR6 at checker level; coverage
+# review High 3). Each proves a negative control's input really is what its AT claims, using the
+# reference oracles above or the contracts' own schemas, never tool code.
+# ============================================================================================
+def _schemas():
+    ce = _check_examples()
+    schemas, registry = ce.load_schemas()
+    return ce, schemas, registry
+
+
+def _errors(schema, doc, pointer=None):
+    ce, schemas, registry = _schemas()
+    return list(ce.validator_for(schemas, registry, schema, pointer).iter_errors(doc))
+
+
+def test_selfcheck_D1_budget_inputs():
+    """AT-D1: the example bundle ran 92 s (inside 120 s); the control's 181 s is over; seven tiers."""
+    prov = example_provenance()
+    seconds = lambda a, b: int((utc(b) - utc(a)).total_seconds())
+    assert seconds(prov["started_at"], prov["finished_at"]) == 92
+    assert seconds(prov["started_at"], "2026-10-01T02:06:31Z") == 181 > 120
+    tiers = json.loads((SCHEMAS / "result-bundle.schema.json").read_text())["properties"]["tier"]["enum"]
+    assert tiers == ["t0", "t1", "t2", "t3", "t4", "t5", "t6"]
+
+
+def test_selfcheck_D2_expected_sets():
+    """AT-D2: the per-pin expectations agree with the contract examples they are drawn from."""
+    lock = load_yaml(EX / "release-lock.eth-rc4.example.yaml")["pins"]
+    assert len(lock) == RC4_PIN_COUNT
+    assert {p["tree_paths"][0] for p in lock if p["url_kind"] == "ssh"} == set(RC4_SSH_PINS)
+    assert sum(1 for p in lock if p["tree_paths"][0].startswith("tidelink/")) == RC4_BELOW_TIDELINK
+    rows = [json.loads(line) for line in (EX / "observation.example.jsonl").read_text().splitlines() if line]
+    silicon = [r["fact"] for r in rows if r["kind"] == "silicon_protection"]
+    assert {r["tree_paths"][0] for r in silicon if r["pinned"]} == set(RC4_KEEP_TAG_PINS)
+    catalogue = {c["id"]: c for c in load_yaml(EX / "component-catalogue.example.yaml")["components"]}
+    assert catalogue["ahb_qspi"]["canonical"]["host"] == "github"      # so e908ac8 (GitLab-only) fails
+    golden = {r["gate"]: r for r in parse_rows(example_verdicts())}
+    assert golden["t0.pins.reachable"]["status"] == "FAIL" and "e908ac8" in golden["t0.pins.reachable"]["detail"]
+    for p in RC4_SSH_PINS:
+        assert p in golden["t0.urls.no-ssh-public"]["detail"] and p in golden["t0.pins.fetchable"]["detail"]
+
+
+def test_selfcheck_D2_gate_fixtures(tmp_path):
+    """AT-D2 control part 2: the hermetic good and broken inputs really are good and broken, shown with
+    raw git and the schemas (no tool code). The Arm specimen is a stand-in here; the AT uses the tool's."""
+    stand_in = "STAND-IN FOR THE TOOL'S arm.banner SPECIMEN"
+    fx = hermetic_gate_fixtures(tmp_path / "fx", arm_specimen=stand_in)
+    c, opts = fx["commits"], fx_insteadof(fx["url_map"])
+
+    def upgrade(name, old, new):
+        work = tmp_path / ("clone-" + name)
+        _fx_git(*opts, "clone", "-q", FX_WEB % name, work)
+        _fx_git(*opts, "-C", work, "checkout", "-q", old)
+        _fx_git(*opts, "-C", work, "submodule", "update", "--init", "--recursive")
+        _fx_git(*opts, "-C", work, "checkout", "-q", new)
+        first = _fx_git(*opts, "-C", work, "submodule", "update", "--init", "--recursive", check=False)
+        return first.returncode
+
+    assert upgrade("fx-upgrade-good", c["ug1"], c["ug2"]) == 0, "good pair: the old host still serves s3"
+    assert upgrade("fx-upgrade-bad", c["ub1"], c["ub2"]) != 0, "bad pair: an upgrade without sync must fail"
+    import yaml
+    show = lambda name, commit, path: _fx_git("--git-dir", fx["url_map"][FX_WEB % name], "show",
+                                             "%s:%s" % (commit, path)).stdout
+    assert _errors("component-manifest", yaml.safe_load(show("fx-manifest-good", c["mg"], "nanosoc-component.yaml"))) == []
+    assert [e.validator for e in _errors("component-manifest",
+                                         yaml.safe_load(show("fx-manifest-bad", c["mb"], "nanosoc-component.yaml")))] == ["pattern"]
+    grep = lambda name, commit: _fx_git("--git-dir", fx["url_map"][FX_WEB % name], "grep", "-l", stand_in, commit,
+                                       check=False).returncode
+    assert grep("fx-vendor-planted", c["vp"]) == 0 and grep("fx-vendor-clean", c["vc"]) != 0
+    good_reg, bad_reg = fx["registries"]
+    assert _errors("component-catalogue", load_yaml(good_reg / "catalogue.yaml")) == []
+    assert _errors("component-catalogue", load_yaml(bad_reg / "catalogue.yaml"))
+    assert [g for g, _good, _bad in fx["cases"]] == ["t0.manifest.valid", "t0.clone.upgrade-path",
+                                                    "t0.vendor.no-arm-ip", "t0.registry.schema"]
+
+
+def test_selfcheck_D5_tampers():
+    """AT-D5: the genuine case passes every verify check; each tamper fails exactly the check it is
+    listed under; the control (captured commit = rc4's parent) fails check 5."""
+    ce = _check_examples()
+    genuine = genuine_case()
+    assert reference_verify(genuine, ce) is None
+    assert _errors("result-bundle", json.loads(genuine.run["request"]), "/$defs/rm_request") == []
+    for label, check, mutate in D5_TAMPERS:
+        case = genuine_case()
+        mutate(case)
+        assert dataclasses.asdict(case) != dataclasses.asdict(genuine_case()), label
+        assert reference_verify(case, ce) == check, (label, reference_verify(case, ce), check)
+    control = genuine_case()
+    control.prov["captured"]["superproject_commit"] = RC4_PARENT
+    assert reference_verify(control, ce) == 5
+    changed = [k for k in ("run", "pipeline", "job", "variables", "verdicts")
+               if getattr(control, k) != getattr(genuine_case(), k)]
+    assert changed == [], "the control must differ from the genuine case in provenance only"
+
+
+def test_selfcheck_D6_rollup_oracle():
+    """AT-D6: README section 6 applied by a reference oracle gives EXPECTED_RC4_ROLLUP on the golden
+    rows; each control variant is UNVERIFIED; nothing-checked runs are never PASS, by the oracle and
+    by the observation schema."""
+    rows = parse_rows(example_verdicts())
+    items = reference_rollup(rows, CONFIG_GATES)
+    assert items == EXPECTED_RC4_ROLLUP
+    assert reference_run_verdict(items) == ("FAIL", 2)
+    no_ctl = [r for r in rows if r["gate"] != "t0.infra.probe.negctl"]
+    assert reference_rollup(no_ctl, CONFIG_GATES)["t0.infra.probe"] == ("UNVERIFIED", "missing")
+    unfired = copy.deepcopy(rows)
+    next(r for r in unfired if r["gate"] == "t0.infra.probe.negctl")["status"] = "FAIL"
+    assert reference_rollup(unfired, CONFIG_GATES)["t0.infra.probe"] == ("UNVERIFIED", "not-fired")
+    twice = rows + [dict(next(r for r in rows if r["gate"] == "t0.infra.probe"))]
+    assert reference_rollup(twice, CONFIG_GATES)["t0.infra.probe"][0] == "UNVERIFIED"
+    skipped = [dict(r, status="SKIP") for r in rows if not r["gate"].endswith(".negctl")]
+    assert reference_run_verdict(reference_rollup(skipped, CONFIG_GATES))[0] == "UNVERIFIED"
+    assert reference_run_verdict({})[0] == "UNVERIFIED"
+    # The schema agrees: the golden roll-up stored as an accepted FAIL is valid; the same gates
+    # claimed as PASS are refused; a PASS over nothing but NOT-RUN gates is refused.
+    base = json.loads([line for line in (EX / "observation.example.jsonl").read_text().splitlines()
+                       if '"kind": "t0_result"' in line][0])
+    f = base["fact"]
+    f.update(acceptance="accepted", reason=None, verdict="FAIL", bundle={"store": "ci", "path": "rm-bundle"},
+             started_at="2026-10-01T02:03:30Z", finished_at="2026-10-01T02:05:02Z", over_budget=False,
+             runner={"id": RUNNER_ID, "description": "rm-hardened", "tags": ["rm-hardened"]},
+             gates=[{"id": g, "verdict": v, "control": c, "detail": "x"} for g, (v, c) in items.items()])
+    assert _errors("observation", base) == []
+    f["verdict"] = "PASS"
+    assert _errors("observation", base)
+    f["gates"] = [g for g in f["gates"] if g["verdict"] == "NOT-RUN"]
+    assert _errors("observation", base)
+
+
+def test_selfcheck_D10_environments(tmp_path):
+    """AT-D10 control: each synthetic job environment breaks exactly one hardened property."""
+    assert reference_hardened(job_env(tmp_path, "good"), SERVICE_ACCOUNT) == []
+    for want, env in (("CI_COMMIT_REF_PROTECTED", job_env(tmp_path, "ref", {"CI_COMMIT_REF_PROTECTED": "false"})),
+                      ("HOME", job_env(tmp_path, "home", home_file=True)),
+                      ("TMPDIR", job_env(tmp_path, "tmpdir", tmp_file=True)),
+                      ("USER", job_env(tmp_path, "user", {"USER": "jbloggs"})),
+                      ("CI_JOB_TOKEN", job_env(tmp_path, "token", {"CI_JOB_TOKEN": "left-in-the-environment"}))):
+        assert reference_hardened(env, SERVICE_ACCOUNT) == [want], want
+
+
+def test_selfcheck_D11_planted_line(tmp_path):
+    """AT-D11 control: a specimen appended to the two-line runner log starts at line 3, and the
+    bundle writer puts it exactly there."""
+    specimen = "STAND-IN SPECIMEN LINE 1\nSTAND-IN SPECIMEN LINE 2\n"
+    b = write_bundle(tmp_path, example_provenance(), example_verdicts(), {"logs/t0.log": T0_LOG + specimen})
+    lines = (b / "logs" / "t0.log").read_text().splitlines()
+    assert lines.index("STAND-IN SPECIMEN LINE 1") + 1 == 3
+    assert sorted(str(p.relative_to(b)) for p in b.rglob("*") if p.is_file()) == [
+        "logs/t0.log", "provenance.json", "verdicts.tsv"]
+
+
+def test_selfcheck_F1_F2_variants():
+    """AT-F1 and AT-F2 controls: each broken record breaks exactly the rule the AT names."""
+    elig = load_yaml(EX / "eligibility.example.yaml")
+    silicon = {c["id"] for c in elig["configurations"] if "silicon" in c}
+    defect = load_yaml(EX / "defect.SL-DEF-0001.example.yaml")
+    forms, detectors = {f["id"] for f in defect["forms"]}, {d["id"] for d in defect["detectors"]}
+    erratum = load_yaml(EX / "erratum.ETH-R0P0-ERR-001.example.yaml")
+    assert _errors("erratum", erratum) == []
+    assert erratum["status"] == "permanent" and erratum["configuration"] in silicon     # the good half
+    copied = dict(erratum, configuration="eth-main", id="ETH-MAIN-ERR-001")
+    assert copied["status"] == "permanent" and copied["configuration"] not in silicon   # rule 6 fires
+    assert _errors("erratum", copied) == []                                             # only the loader sees it
+    assert set(["A", "C"]) - forms == {"C"}                                             # rule 4 fires on form C
+    ancestry = load_yaml(BAD / "erratum.ancestry-claims-exposed.yaml")
+    assert any(e.validator == "required" and "detector" in e.message and list(e.absolute_path) == ["exposure"]
+               for e in _errors("erratum", ancestry))
+    assert "D9" not in detectors and detectors == {"D1", "D2"}                          # rule 4 fires on D9
+    import re as _re
+    fired, clean = synthetic_netlists_text()
+    pattern = next(d for d in defect["detectors"] if d["id"] == "D2")["pattern"]
+    assert _re.search(pattern, fired) and not _re.search(pattern, clean)
+
+
+def synthetic_netlists_text():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        fired, clean = synthetic_netlists(d)
+        return fired.read_text(), clean.read_text()
+
+
+def _structured_refs(registry_dir):
+    """Every structured commit citation in a registry directory (what refs-resolve must prove)."""
+    refs = set()
+    for path in sorted(Path(registry_dir).rglob("*.yaml")):
+        doc = load_yaml(path)
+        if path.name == "imports.yaml":
+            refs |= {(s["doc"]["component"], s["doc"]["commit"]) for s in doc["sources"]}
+            continue
+        if "origin" in doc:                                   # a defect
+            refs |= {(r["component"], r["commit"]) for r in doc["origin"]}
+            for f in doc["forms"]:
+                refs |= {(r["component"], r["commit"]) for r in f.get("fixed_in", []) + f.get("candidate_fix", [])}
+            refs |= {(d["source"]["component"], d["source"]["commit"]) for d in doc["detectors"] if "source" in d}
+            if doc.get("regression_test"):
+                refs.add((doc["regression_test"]["component"], doc["regression_test"]["commit"]))
+        if "exposure" in doc:                                 # an erratum
+            for impl in (doc.get("workaround") or {}).get("implementations", []):
+                refs.add((impl["component"], impl["commit"]))
+            run = doc["exposure"].get("run") or {}
+            if run.get("detector_source"):
+                refs.add((run["detector_source"]["component"], run["detector_source"]["commit"]))
+        refs |= {(r["component"], r["commit"]) for r in doc.get("cites", [])}
+    return refs
+
+
+HEX_TOKEN = __import__("re").compile(r"(?<![0-9a-f])(?<!md5 )[0-9a-f]{7,40}(?![0-9a-f])")
+
+
+def free_text_uncited(record):
+    """Loader rule 9, as an oracle: hex tokens (7 to 40, with a digit, not after 'md5 ') in the
+    record's free text that no structured citation of the record matches."""
+    texts = [record.get("title", ""), record.get("trigger", ""), record.get("conditions", "")]
+    texts += [e.get("text", "") for e in record.get("effects", [])]
+    texts += [(record.get("exposure") or {}).get("evidence", ""), ((record.get("workaround") or {}).get("rules", ""))]
+    cited = [c for _comp, c in _structured_refs_of(record)]
+    tokens = [m.group(0) for t in texts for m in HEX_TOKEN.finditer(t or "") if any(ch.isdigit() for ch in m.group(0))]
+    return sorted({tok for tok in tokens if not any(c.startswith(tok) for c in cited)})
+
+
+def _structured_refs_of(record):
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        dump_yaml(record, Path(d) / "record.yaml")
+        return _structured_refs(d)
+
+
+def test_selfcheck_F3_refs(tmp_path):
+    """AT-F3: R0's structured citations are exactly R0_REFS (10 commits); every commit the example
+    records name in free text is cited structurally (rule 9); the control adds exactly the bench."""
+    r0 = example_registry(tmp_path / "r0")
+    edit_yaml(r0 / "defects" / "SL-DEF-0001.yaml", lambda d: d.__setitem__("regression_test", None))
+    assert _structured_refs(r0) == R0_REFS
+    r1 = example_registry(tmp_path / "r1")
+    assert _structured_refs(r1) - R0_REFS == {("nanosoc-ethernet-chiplet", BENCH_UNPUSHED)}
+    for name in ("defect.SL-DEF-0001.example.yaml", "erratum.ETH-R0P0-ERR-001.example.yaml"):
+        assert free_text_uncited(load_yaml(EX / name)) == [], name
+    sneaky = load_yaml(EX / "erratum.ETH-R0P0-ERR-001.example.yaml")
+    sneaky["exposure"]["evidence"] += " Also seen at 7a8b9c0."
+    assert free_text_uncited(sneaky) == ["7a8b9c0"]
+
+
+def reference_census(source, text):
+    import re as _re
+    rule = source["doc"]["items_rule"]
+    keys = [m.group(1) for m in _re.finditer(rule["pattern"], text, _re.M)]
+    keys = [k for k in keys if k not in {x["key"] for x in rule.get("exclude", [])}]
+    keys += [x["key"] for x in rule.get("include", [])]
+    listed = [i["key"] for i in source["items"]]
+    return {"missing": [k for k in keys if k not in listed], "extra": [k for k in listed if k not in keys],
+            "pending": sum(1 for i in source["items"] if i["disposition"] == "pending")}
+
+
+def test_selfcheck_F5_census():
+    """AT-F5 control: on the synthetic documents, the example ledger is 3 pending, and a ledger that
+    omits c) is missing exactly c)."""
+    docs = {"docs/tapeout/11-known-issues.md": "# 11\n## a) first\n## b) second\n",
+            "docs/tapeout/16-open-defects.md": "# 16\n## 1 — first\n",
+            "docs/synthetic-register.md": "# R\n## a) one\n## b) two\n## c) three\n"}
+    rule = {"pattern": r"^## ([a-z]\)|[0-9]+) "}
+    ledger = load_yaml(EX / "import-ledger.example.yaml")
+    for s in ledger["sources"]:
+        s["doc"]["items_rule"] = dict(rule)
+    assert _errors("import-ledger", ledger) == []
+    rows = [reference_census(s, docs[s["doc"]["path"]]) for s in ledger["sources"]]
+    assert sum(r["pending"] for r in rows) == 3 and all(r["missing"] == [] for r in rows)
+    synthetic = {"doc": {"component": "nanosoc-ethernet-chiplet", "commit": IMPORT_DOCS_COMMIT,
+                         "path": "docs/synthetic-register.md", "items_rule": dict(rule)},
+                 "items": [{"key": "a)", "title": "one", "disposition": "dismissed", "reason": "control"},
+                           {"key": "b)", "title": "two", "disposition": "dismissed", "reason": "control"}]}
+    assert reference_census(synthetic, docs["docs/synthetic-register.md"]) == {"missing": ["c)"], "extra": [], "pending": 0}

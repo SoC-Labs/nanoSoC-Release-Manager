@@ -1,4 +1,4 @@
-# expect-error: does not match
+# expect-error: pattern at /version
 # C1: versions are SemVer X.Y.Z.
 schema: 1
 id: nanosoc_arch_tech

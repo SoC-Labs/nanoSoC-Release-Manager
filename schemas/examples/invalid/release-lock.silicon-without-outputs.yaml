@@ -1,4 +1,4 @@
-# expect-error: 'outputs' is a required property
+# expect-error: required at / ~ 'outputs'
 # G3: a silicon release records the GDS and netlist hashes.
 schema: 1
 release: {component: nanosoc-ethernet-chiplet, configuration: eth-rc4, version: "1.0.0", tag: v1.0.0, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e", silicon: {chip: eth-chiplet, revision: r0p0, tag: silicon/eth-chiplet-r0p0}}

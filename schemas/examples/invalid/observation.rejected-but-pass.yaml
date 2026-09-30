@@ -1,4 +1,4 @@
-# expect-error: 'UNVERIFIED' was expected
+# expect-error: const at /fact/verdict
 # D5: a bundle that failed verification can never produce a PASS.
 schema: 1
 kind: t0_result
@@ -8,9 +8,13 @@ sources: [{kind: ci_api, command: "GET projects/soclabs%2Fnanosoc-compat-ci/pipe
 fact:
   configuration: eth-rc4
   commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"
-  run: {nonce: 5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f, trigger: manual, triggered_by: dam1n19, triggered_at: "2026-10-01T02:03:10Z", pipeline_id: 1001, job_id: 2002}
+  run: {nonce: 5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f, trigger: manual, triggered_by: member-a, triggered_at: "2026-10-01T02:03:10Z", pipeline_id: 1001, job_id: 2002}
   acceptance: rejected
   reason: "captured.superproject_commit 0123456789abcdef0123456789abcdef01234567 != requested ab73e40924317e45e7b3b941f52a7ed35f20832e (D5)"
   verdict: PASS
   gates: []
   bundle: null
+  started_at: null
+  finished_at: null
+  over_budget: null
+  runner: null

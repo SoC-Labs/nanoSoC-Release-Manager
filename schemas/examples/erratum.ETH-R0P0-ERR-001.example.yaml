@@ -1,7 +1,7 @@
 # registry/errata/eth-rc4/ERR-001.yaml: SL-DEF-0001 on the eth chiplet silicon r0p0.
 # OBSERVED 2026-09-30 (GitLab merge_base API): both nanosoc_gen pins in rc4's tree contain the origin
 #   b0a6069 and contain neither 036d381 nor adbb9ab. multicore 57d2c76 (PL230 -> DMA-250) is contained in
-#   rc4's multicore pin f60449b. 7a87e20 exists only on branch feat/soc-completeness-gate.
+#   rc4's multicore pin f60449b. 7a87e20 is reachable from a branch of the canonical repo (F3 passes).
 # NOT YET DONE: detector D1 has not been run on rc4's archived build_soc, so exposure is `probably-exposed`
 #   by ancestry (F2). Running D1 on the archive would make it `exposed` with method `detector`.
 # ILLUSTRATIVE: doc_revision (no errata document exists yet; F4 is Phase 5). category is undecided.
@@ -25,5 +25,13 @@ workaround:
   rules: DMA-250 channel 0 only; no linked commands; no auto-restart; no commands from CPU1.
   implementations:
     - {component: nanosoc-multicore-system, commit: "7a87e20051d6335abd3de690cde332bf3bd935a9", merged: false}
+cites:                    # every commit the free text above names (README section 3 rule 9; F3)
+  - {component: nanosoc_gen, commit: "d04de2ec25d79c1fc3223f853ddb6725cbf2831c"}
+  - {component: nanosoc_gen, commit: "1d7772dd0cd0e135f86f7d9906f4852883c4670e"}
+  - {component: nanosoc_gen, commit: "b0a606960c349aeac4a00f67b3dbd13f55cb5f24"}
+  - {component: nanosoc_gen, commit: "036d3811e630c89b2344b56aa617b40a99cd652b"}
+  - {component: nanosoc_gen, commit: "adbb9abfaa81350e6f40d3b5c4e20f1f87b8002d"}
+  - {component: nanosoc-multicore-system, commit: "57d2c762aab6f6b403e9747c7a390e11c3c4dcac"}
+  - {component: nanosoc-multicore-system, commit: "f60449b491d54b617c92f1ccf0538c187cd8f34a"}
 status: permanent         # silicon: never fixed, never yanked
 doc_revision: 1

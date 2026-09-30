@@ -2,12 +2,15 @@
 
 The data formats and module interfaces for the nanoSoC release manager, fixed before any
 implementation (PR3). Builders code against these; reviewers and the coverage checker test against them
-(PR5). After David approves gate 2, a contract changes only through a change request (PR2).
+(PR5). After David approves gate 2, a contract changes only through a change request (PR2,
+[`../CHANGES.md`](../CHANGES.md)).
 
 - **Formats:** JSON Schema draft 2020-12, in [`schemas/`](../../schemas/).
-- **Interfaces:** [`interfaces.md`](interfaces.md): modules, functions, CLI commands, HTTP endpoints, the T0 job.
+- **Interfaces:** [`interfaces.md`](interfaces.md): modules, functions, CLI commands, HTTP endpoints, the T0 job,
+  and (section 17) every name the acceptance tests rely on.
 - **Examples:** [`schemas/examples/`](../../schemas/examples/): one or more valid instances per schema, built
   from real rc4 data where possible, plus deliberately broken ones in `examples/invalid/`.
+- **Gate summary for approval:** [`../GATE2.md`](../GATE2.md).
 
 Check everything with:
 
@@ -16,24 +19,30 @@ python3 schemas/check_examples.py
 ```
 
 It exits 0 only if every schema is valid 2020-12, every example validates, and every invalid example
-fails for the reason written on its first line (the schemas' own negative control, PR6). Result on
-2026-09-30: **47 ok, 0 failed** (jsonschema 4.19.1, PyYAML 6.0.1).
+fails for the reason written on its first line (the schemas' own negative control, PR6). The reason is
+written as `# expect-error: <validator keyword> at <instance pointer> [~ <message text>]` and matched on the
+keyword and path, not on the message wording, so the check gives the same answer on every jsonschema release.
+Result on 2026-09-30: **61 ok, 0 failed**, on jsonschema 4.19.1 (Python 3.8) and 4.26.0 (Python 3.11).
+Dev dependencies are pinned in [`requirements-dev.txt`](../../requirements-dev.txt).
 
 ## 1. Index
 
 | Contract | File (where it lives at run time) | Purpose | Owner module | Requirement IDs | Phase |
 |---|---|---|---|---|---|
-| [defs](../../schemas/defs.schema.json) | none (shared types) | SHA, host key, repo, component id, timestamps, `source`/`observed` (A3), pin states (B3), gate id | all | A1, A3, B3, B4, C1, C2, D6, F3 | v1 |
-| [component-catalogue](../../schemas/component-catalogue.schema.json) | registry `catalogue.yaml` | Every repo, grouped into components; class; one canonical host; copies; aliases; known rewrites; third-party repos | registry | A1, B1, B3, B6, B8, B9 | v1 |
-| [eligibility](../../schemas/eligibility.schema.json) | registry `eligibility.yaml` | Registered configurations (branch or tag), frozen and silicon flags, upgrade path; Phase 4 auto-merge scope | registry | B2, B5, D2, E3, E5, H1 | v1 (auto_merge: 4) |
-| [defect](../../schemas/defect.schema.json) | registry `defects/SL-DEF-NNNN.yaml` | Root cause per component: origin, forms, trigger, detectors, fixes, effects, bench pinned by commit | registry | F1, F2, F3, F6, F7 | v1 |
-| [erratum](../../schemas/erratum.schema.json) | registry `errata/<configuration>/ERR-NNN.yaml` | Effect on one configuration: forms, exposure and how it was proven, category, workaround, status, doc revision | registry | F1, F2, F3, F4 | v1 |
-| [import-ledger](../../schemas/import-ledger.schema.json) | registry `imports.yaml` | Every issue in the existing registers and what became of it: record, dismissed (with reason) or pending | registry | F3, F5 | v1 |
+| [defs](../../schemas/defs.schema.json) | none (shared types) | SHA, host key, repo, component, configuration, defect and erratum ids, timestamps, `source`, `snapshot` (A3), URL kinds and pin states (B3), gate id | all | A1, A3, B3, B4, B9, C1, C2, D6, F3 | v1 |
+| [component-catalogue](../../schemas/component-catalogue.schema.json) | registry `catalogue.yaml` | Every repo, grouped into components; class; one canonical host; copies; aliases; known rewrites; third-party repos; repos ignored with a reason | registry | A1, B1, B3, B6, B8, B9 | v1 |
+| [eligibility](../../schemas/eligibility.schema.json) | registry `eligibility.yaml` | Registered configurations (branch or tag), frozen and silicon flags, errata id prefix, upgrade path; Phase 4 auto-merge scope | registry | B2, B5, D2, E3, E5, F1, H1 | v1 (auto_merge: 4) |
+| [defect](../../schemas/defect.schema.json) | registry `defects/SL-DEF-NNNN.yaml` | Root cause per component: origin, forms, trigger, detectors, fixes, effects, bench pinned by commit, cited commits | registry | F1, F2, F3, F6, F7 | v1 |
+| [erratum](../../schemas/erratum.schema.json) | registry `errata/<configuration>/ERR-NNN.yaml` | Effect on one configuration: forms, exposure and how it was proven (with the structured detector run), category, workaround, status, doc revision, cited commits | registry | F1, F2, F3, F4 | v1 |
+| [import-ledger](../../schemas/import-ledger.schema.json) | registry `imports.yaml` | Every issue in the existing registers, the rule that finds them (census), and what became of each: record, dismissed (with reason) or pending | registry | F3, F5 | v1 |
 | [pin-state](../../schemas/pin-state.schema.json) | walker output (JSONL), DB | One pin of a configuration's tree with its state on each host | walker | A3, B2, B3, B7, B9 | v1 |
-| [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source + observed_at) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result | each producer; db | A1, A2, A3, B4, B5, B6, B8, D2, D5, D6, D7, D11, H1, H6 | v1 |
-| [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv` | What a CI job ran and what it found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci fetch/verify (reads) | A4, D2, D4, D5, D6, D7, D11, PR9 | v1 (host, ip_hash: 2) |
+| [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
+| [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv`; pipeline variable `RM_REQUEST` | What a CI job was asked, ran and found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci trigger/fetch/verify | A4, D2, D4, D5, D6, D7, D10, D11, PR9 | v1 (host, ip_hash, cpu_seconds: 2) |
 | [component-manifest](../../schemas/component-manifest.schema.json) | `nanosoc-component.yaml` in each repo | ID, class, version, canonical URL, provides, requires, re-exports, variants, tests with controls | registry (reads), T0 (validates) | C1, C6, C7, C11, D1, D6, E1, E3, I2 | 3 (validated by T0 from v1) |
 | [release-lock](../../schemas/release-lock.schema.json) | release artefact `release.lock.yaml` | Every nested pin with host and state; generated-RTL archive; GDS and netlist hashes; errata and ledger refs | lock writer | A3, B7, C10, G2, G3, G7 | 5 |
+
+Two process artefacts sit beside the schemas: [`../phase-gates.yaml`](../phase-gates.yaml) (A7, the entry gate of
+each later phase; its format is in interfaces.md section 17.6) and [`../CHANGES.md`](../CHANGES.md) (PR2, the CR log).
 
 The registry layout the loader expects:
 
@@ -41,7 +50,7 @@ The registry layout the loader expects:
 catalogue.yaml
 eligibility.yaml
 defects/SL-DEF-NNNN.yaml              file name = id
-errata/<configuration>/ERR-NNN.yaml   directory = configuration id; the record's id is <PREFIX>-ERR-NNN
+errata/<configuration>/ERR-NNN.yaml   directory = configuration id; the record's id is <errata_prefix>-ERR-NNN
 imports.yaml                          F5 import ledger
 ```
 
@@ -57,43 +66,89 @@ imports.yaml                          F5 import ledger
 5. The registry's CI and the compat-ci harness each pin the tool version they validate with, so a schema
    change reaches them only when they move that pin.
 6. Schema `$id`s are names (`https://soclabs.org/nanosoc-rm/schemas/...`), not download locations.
+7. Until gate 2 is approved every schema is at `schema: 1` and may still change without a bump; the gate-2
+   revision (2026-09-30) added required fields without bumping, because no document exists outside this repo.
 
 Formats the tool REUSES keep their owners' rules: `verdicts.tsv` columns 1 to 4 are exactly the toolkit's
 `ci/lib.sh` `_ci_record` output, and `ci/collect-results.py` still parses a 5-column row (it ignores column 5).
+Two deviations are declared, not hidden:
+
+- **INFRA and WARN.** `collect-results.py`'s `VERDICT_MAP` maps neither, so it parses those rows with status
+  `None`. This tool never uses `collect-results.py` to roll up a bundle; its own roll-up (section 6) handles both.
+- **Tabs and newlines in a detail.** `_ci_record` does not strip them, which breaks the row. The runner replaces
+  each with one space before it writes a row; the row schema refuses a detail that still holds one.
 
 ## 3. Rules the loader enforces across files
 
-JSON Schema checks one document. The registry loader (interfaces.md §2) also refuses:
+JSON Schema checks one document. The registry loader (interfaces.md section 2) also refuses:
 
-1. A component id used twice, or a repo that belongs to two components (as canonical, copy, alias or external). (A1)
-2. A configuration whose component is missing or is not class `soc_ref` or `example`. (B2)
-3. A `commit_ref`, `regression_test`, workaround or detector source naming an unknown component. (F3)
+1. A component id used twice, or a repo that appears in two places (as canonical, copy, alias, external or
+   ignored). (A1)
+2. A configuration whose component is missing or is not class `soc_ref` or `example`. (B1, B2)
+3. A `commit_ref`, `cites` entry, `regression_test`, workaround or detector source naming an unknown
+   component; an import item whose `record` names a defect or erratum that does not exist. (F3, F5)
 4. An erratum whose configuration or defect does not exist, or whose `forms_present` / `effects_present`
    / `exposure.detector` ids are not in the defect. (F1, F2)
 5. A defect whose effects or detectors name a form it does not define. (F1)
 6. `status: permanent` on an erratum whose configuration has no `silicon` block. (F1, A6)
 7. A file name or directory that disagrees with the id inside it.
 8. A duplicate key in any YAML file. YAML is read with timestamps left as strings.
+9. **Free-text commits.** A token of 7 to 40 lowercase hex characters containing at least one digit, in any
+   free-text field of a defect or erratum (title, trigger, effect texts, conditions, exposure evidence,
+   workaround rules), that is not a prefix of a commit in the same record's structured citations (`cites`,
+   `origin`, `fixed_in`, `candidate_fix`, detector `source`, `regression_test`, workaround `implementations`,
+   `exposure.run.detector_source`). A token directly after `md5` is a file hash and is skipped. This is what
+   lets T0 prove every cited commit (F3): the gate reads only structured citations. (F3)
+10. `status: fixed` on an erratum of a silicon configuration: silicon is never fixed, only `open`,
+    `permanent`, `wont-fix` or `not-affected`. (A6, F1)
+11. An erratum whose id does not start with its configuration's `errata_prefix`, or a configuration with
+    errata and no `errata_prefix`. (F1, F4)
+12. `method: detector` without `exposure.run` is refused by the schema; the loader also refuses a run whose
+    `detector_source` differs from the detector's `source` in the defect. (F2)
 
-Rules 1 to 8 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
+Rules 1 to 12 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
 
-## 4. Observation subjects
+Not enforced by any rule in v1, stated so nobody assumes otherwise: a registry change that deletes a silicon
+configuration from `eligibility.yaml` would silently drop its silicon-protection rows. Registry `main` is
+protected and changed only by merge request, which is the v1 control (question 12 in GATE2.md).
 
-The latest observation per `subject` is the current value (A3). Keys:
+## 4. Observations: subjects, snapshots, current value
 
-| kind | subject |
-|---|---|
-| pin_state | `pin_state:<configuration>:<first tree path>` |
-| host_compare | `host_compare:<component>:<copy host>:<copy path>` |
-| containment | `containment:<component>:<commit>:<configuration>:<host>` |
-| silicon_protection | `silicon_protection:<configuration>:<component>:<commit>` |
-| rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` |
-| mirror_status | `mirror_status:<host>:<path>` |
-| repo_inventory | `repo_inventory:<host>:<path>` |
-| t0_result | `t0_result:<configuration or @registry>:<nonce>` |
+Keys:
 
-`observed_at` on an envelope is the **oldest** time of anything inside it, so a page's data age
-(now minus the oldest `observed_at` it shows) is never flattering.
+| kind | subject | set or event | snapshot scope |
+|---|---|---|---|
+| pin_state | `pin_state:<configuration>:<first tree path>` | set | `pin_state:<configuration>` (one walk) |
+| host_compare | `host_compare:<component>:<copy host>:<copy path>` | set | `host_compare:<component>` |
+| containment | `containment:<component>:<commit>:<configuration>:<host>` | set | `containment:<component>:<commit>` (one query) |
+| silicon_protection | `silicon_protection:<configuration>:<component>:<commit>:<host>` | set | `silicon_protection:<configuration>` |
+| mirror_status | `mirror_status:<host>:<path>` | set | `mirror_status:<component>` (one sync) |
+| repo_inventory | `repo_inventory:<host>:<path>` | set | `repo_inventory:<host>` (one listing) |
+| runner_settings | `runner_settings:<runner id>` | set | `runner_settings:<runner id>` |
+| credential_status | `credential_status:<name>` | set | `credential_status:all` (one check) |
+| registry_record | `registry_record:<file>#<pointer>` | set | `registry_record:<file>` (one registry read) |
+| rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
+| t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
+| alert | `alert:<alert kind>:<about>` | event | none |
+
+**Current value (A3).**
+
+- **Set kinds** are produced as a complete set per scope, stamped with `snapshot: {id, scope}`. The current
+  value of a scope is its latest *complete* snapshot. A subject absent from it is gone: a pin removed from a
+  tree, a branch-only commit merged to main, a repo deleted from the host all disappear from the current view
+  instead of staying "current" for ever (contracts review M3). A producer that fails midway writes no
+  snapshot, so the previous complete one stays current and its age shows.
+- **Event kinds** keep the latest observation per `subject`. Old ones are history.
+
+**What `db.put` enforces** (interfaces.md section 12), beyond the schema:
+
+1. The document validates against its schema.
+2. The subject equals the key the table above derives from the fact.
+3. The envelope's `observed_at` equals the oldest `observed_at` inside it (for pin_state, the oldest of the
+   envelope and every host state), so a page's data age (now minus the oldest `observed_at` it shows) is
+   never flattering.
+4. A set-kind observation carries a `snapshot`; `put_snapshot(scope, docs)` writes a whole snapshot
+   atomically and marks it complete.
 
 ## 5. Pin states (B3)
 
@@ -101,24 +156,34 @@ Exactly one state per pin per host. First match wins:
 
 | # | State | Rule | Colour |
 |---|---|---|---|
-| 1 | LOCAL_URL | the URL is a local path | red |
+| 1 | LOCAL_URL | the URL is a local path (`/…`, `file://`) | red |
 | 2 | NO_GITLINK | .gitmodules names the path, but the tree holds no gitlink there | red |
 | 3 | UNREADABLE | the repo itself cannot be read with the poller's credentials | red |
 | 4 | TAGGED | a tag other than `keep/*` points exactly at the commit | green |
 | 5 | ON_DEFAULT | reachable from the default branch; `lag` = commits the pin lacks | green, amber as lag grows |
 | 6 | PROTECTED_BY_TAG | not on the default branch, reachable from at least one tag | grey-green |
 | 7 | BRANCH_ONLY | reachable only from non-default branches | amber; red in a silicon or frozen tree |
-| 8 | REWRITTEN | not reachable now, but was on the default branch before a rewrite (mirror reflog, or `known_rewrites`) | red |
+| 8 | REWRITTEN | not reachable now, but was on the default branch before a rewrite (that host's reflog in the mirror, or `known_rewrites`) | red |
 | 9 | PR_ONLY | not reachable from heads or tags; the host has it through a PR/MR ref or its fork network | red |
 | 10 | ORPHAN | the host has the object, and no ref of any kind reaches it | red |
 | 11 | MISSING | the host does not have the object, after proving the repo is readable and the parent's entry is a gitlink | red |
 
+- **LOCAL_URL and NO_GITLINK** do not depend on a host. They are carried in the pin-level `fact.state`, and
+  `hosts` is empty. Every other pin has `fact.state: null` and one entry per host in `hosts`, exactly one of
+  them `pinned`.
 - **SSH-only** is `url_kind: ssh` on the pin, shown as a badge beside the state.
-- **Local path** is state LOCAL_URL.
-- The `.gitmodules` `branch=` value is recorded in `branch_field` and never used.
-- **Unknown URL (B9)** is `child.catalogued_as: unknown`, and raises an alert.
+- **Relative URLs** (`../x.git`) are `url_kind: relative`, resolved against the parent's pinned repo URL as git
+  does. None occurs in the rc4 or compute trees today.
+- The `.gitmodules` `branch=` value is recorded in `branch_field` (null when absent) and never used.
+- **Unknown URL (B9)** is `child.catalogued_as: unknown`, and raises an `unknown_url` alert.
+- **UNREADABLE** means the host answered 401, 403 or 404 for the repo itself with the poller's token, or the
+  repo's latest `mirror_status` is not ok and the mirror holds no refs for it.
 
-"Reachable" always means from a branch or tag on **that** host. PR/MR refs are never mirrored.
+"Reachable" always means from a branch or tag **of that host**. The mirror holds both hosts' objects in one
+store, so an object can be in the mirror and still absent on one host (TideLink `5e8bdb5` on GitLab, AHB-QSPI
+`e908ac8` on GitHub, ASIC-Flow `3824aaa` on GitLab). A commit reachable from no head or tag of that host is
+decided by that host's reflog in the mirror, then `known_rewrites`, then that host's API (PR_ONLY, ORPHAN,
+MISSING). PR/MR refs are never mirrored.
 
 ## 6. Verdicts (D5, D6, D7)
 
@@ -129,30 +194,55 @@ Exactly one state per pin per host. First match wins:
 | FAIL | FAIL |
 | UNVERIFIED, or WARN on a declared gate | UNVERIFIED |
 | INFRA | INFRA (never FAIL, D7) |
-| SKIP | NOT-RUN; the detail must say why |
+| SKIP on a gate that may skip | NOT-RUN; the detail must say why; control `not-applicable` |
+| SKIP on a gate that may never skip | UNVERIFIED |
 | no row, or two rows, for a declared gate | UNVERIFIED |
 
-- **Run verdict:** FAIL, else UNVERIFIED, else INFRA, else PASS. NOT-RUN gates are counted and shown beside the verdict; they do not set it.
+**Gates that may never SKIP** (listed in `gates.py` as `may_skip = False`): `t0.infra.probe`,
+`t0.runner.hardened`, `t0.pins.fetchable`, `t0.pins.reachable`, `t0.urls.no-ssh-public`,
+`t0.vendor.no-arm-ip`, `t0.registry.schema`, `t0.registry.refs-resolve`. Only `t0.manifest.valid` (no manifest
+anywhere) and `t0.clone.upgrade-path` (no `upgrade_from`) may skip.
+
+**Run verdict**, first match wins:
+
+1. any gate FAIL → **FAIL**;
+2. any gate UNVERIFIED, or **no gate PASS** (nothing was checked) → **UNVERIFIED**;
+3. any gate INFRA → **INFRA**;
+4. otherwise → **PASS**.
+
+So a run where every gate skipped, or a run with no gates, can never be PASS (contracts review B1; the toolkit's
+own doctrine that an unread report is never a pass). NOT-RUN gates are counted and shown beside the verdict.
+The observation schema enforces the same rule on every stored `t0_result`.
+
 - **Rejected bundle (D5)** or **refused bundle (D11):** the run's verdict is UNVERIFIED and the reason is shown.
-- **No bundle:** INFRA when the CI API reports an infrastructure cause, else UNVERIFIED.
+- **No bundle:** INFRA when the CI API reports an infrastructure cause, else UNVERIFIED. A trigger that fails
+  (HTTP error) is also recorded, as `no-bundle` with the HTTP status in the reason, so a missed night is visible.
+- **Over budget (D1):** a T0 run whose `finished_at - started_at` exceeds 120 s gets `over_budget: true`, shown
+  as a warning beside the verdict. It never changes the verdict. The job's 15-minute timeout is the kill limit.
+- **"T0 fails" (D2, F3)** means the run verdict is not PASS. A FAIL gate proves the problem; an UNVERIFIED gate
+  (for example a citation into a private canonical repo that an anonymous job cannot read) also stops the run
+  from passing and says why. Whether the service should prove private citations from its own authenticated
+  mirrors is question 3 in GATE2.md.
 
 ## 7. Examples and what is real
 
 | Example | Real (observed 2026-09-30, read-only) | Illustrative |
 |---|---|---|
-| `component-catalogue.example.yaml` | all repo paths, copies, the slcorem0p_tech alias, externals, the legacy repo | every `class`; canonical host of ahb_qspi and asic-flow |
-| `eligibility.example.yaml` | eth-rc4 commit and tags | the choice of configurations; eth-main's upgrade_from |
+| `component-catalogue.example.yaml` | all repo paths, copies, the slcorem0p_tech alias, externals, the legacy repo, the three `ignored` repos | every `class`; canonical host of ahb_qspi and asic-flow; the choice of repos to ignore |
+| `eligibility.example.yaml` | eth-rc4 commit and tags | the choice of configurations; eth-main's upgrade_from; `errata_prefix` |
 | `defect.SL-DEF-0001.example.yaml` | every commit (full ids resolved), fix order on nanosoc_gen main, hsel_lint usage | effect-to-port mapping and netlist pattern (from the proposal, not re-checked) |
-| `erratum.ETH-R0P0-ERR-001.example.yaml` | ancestry evidence (merge_base), 57d2c76 in rc4, 7a87e20's branch | doc_revision; category left null |
-| `pin-state.example.jsonl` | 3 rc4 pins, each host's state, with the commands that produced them | none |
-| `observation.example.jsonl` | 3 host compares, 1 containment, 11 silicon-protection rows, mirror status, inventory | the rewrite alert (synthetic fixture repo) and the rejected T0 run |
-| `release-lock.eth-rc4.example.yaml` | all 44 pins with state, lag and tags; P1 archive; GDS and netlist md5 | errata, gate_ledger, generated_by.version |
-| `result-bundle.provenance.example.json` + `.verdicts.example.tsv` | commits, the ssh URLs, and the ahb_qspi reachability gap they report | run ids, times, harness SHA; no T0 job has run yet |
+| `erratum.ETH-R0P0-ERR-001.example.yaml` | ancestry evidence (merge_base), the 7 cited commits, 57d2c76 in rc4 (ancestor of f60449b) | doc_revision; category left null |
+| `pin-state.example.jsonl` | 3 rc4 pins, each host's state, with the commands that produced them | the snapshot id |
+| `observation.example.jsonl` | 3 host compares (counts from rev-list in one object store), 1 containment, 13 silicon-protection rows (11 on the pinned host, all covered; 2 on the canonical host, uncovered), mirror status, inventory | the rewrite alert (synthetic fixture repo), the rejected T0 run, the runner settings, the credential status, the registry record and the alert (none of those systems exists yet); snapshot ids; the time of day of the ahb_qspi canonical-host row |
+| `release-lock.eth-rc4.example.yaml` | all 44 pins with state, lag and tags; P1 archive md5; GDS and netlist md5 and size | errata, gate_ledger, generated_by.version; store paths and output file names are placeholders |
+| `result-bundle.provenance.example.json` + `.verdicts.example.tsv` + `.rm-request.example.json` | commits, the ssh URLs, and the ahb_qspi reachability gap they report | run ids, times, harness SHA, the t0.runner.hardened rows; no T0 job has run yet; `captured.pins` lists 8 of the 44 |
 | `component-manifest.example.yaml` | canonical URL | everything else; no repo has a manifest yet |
-| `import-ledger.example.yaml` | source documents, their commit, item headings | none (dispositions left `pending`) |
+| `import-ledger.example.yaml` | source documents, their commit, item headings, the census patterns | none (dispositions left `pending`, lists deliberately incomplete) |
 
-**Hostname placeholder.** Where a real pinned URL names the lab's GitLab host, the examples write
-`<gitlab-host>`. The real hostname lives only in the private service config (interfaces.md §1).
+**Public-repo hygiene.** This repo is public (DEC8). Where a real value names the lab's GitLab host the examples
+write `<gitlab-host>`; the real hostname lives only in the private service config (interfaces.md section 1).
+The release-store path layout and the silicon output file names are placeholders. A branch name of a private
+repo is written `<branch of a private repo>`. Logins in examples are `member-a`, `alice`, `bob`, `carol`.
 
 ### Facts found while building the fixtures
 
@@ -163,28 +253,44 @@ These affect acceptance tests:
    - nanosoc_arch_tech, nanosoc_gen, socdebug_tech, hostio4 (the proposal's 4);
    - tidelink-gpio-phy: `6ee8418` and `8c560c5`;
    - asic-flow: `69500ef` and `46c88d3` on GitLab, and `3824aaa` on GitHub.
-3. **All 11 branch-only rc4 commits are now PROTECTED_BY_TAG.** Multicore's branch `fix/dma250-hsel-guard` disappeared between 09-28 and 09-30. The keep tag now covers `f60449b`.
+3. **All 11 branch-only rc4 commits are now PROTECTED_BY_TAG on their pinned host.** Multicore's branch `fix/dma250-hsel-guard` disappeared between 09-28 and 09-30. The keep tag now covers `f60449b`.
 4. **GitHub's compare API returns 404 when the other host's head is absent.** That says nothing about divergence. The real answers came from one object store holding both hosts' refs:
    - AHB-QSPI: GitHub +1, GitLab +5.
-   - ASIC-Flow: GitHub +4, GitLab +1.
-   - The mirror design follows from this (interfaces.md §3).
+   - ASIC-Flow: GitHub +4, GitLab +1. The two default branches have different names (GitHub `lpddr4-pll`, GitLab `main`), so `default_branch_mismatch` is true.
+   - The mirror design follows from this (interfaces.md section 3).
 5. **The SL-DEF-0001 bench `6aafc94` exists only in a local checkout.** Recording it makes `t0.registry.refs-resolve` fail until it is pushed: F3 working on real data.
 6. **rc4's pin set does not fit one canonical host for two components:**
    - ahb_qspi `e908ac8` exists only on GitLab;
    - asic-flow `3824aaa` exists only on GitHub.
 
    Whichever host is canonical for ahb_qspi, D2's "reachable on its canonical host" check will judge rc4 by that host's copy.
+7. **B5 on the canonical host differs from B5 on the pinned host.** On their pinned hosts all 11 branch-only commits are covered. On the canonical host (the catalogue example's choice), rc4's multicore arch_tech pin `ecf76aa` is BRANCH_ONLY with no tag, and ahb_qspi `e908ac8` is MISSING. The silicon-protection list therefore shows both hosts (interfaces.md section 7; question 9 in GATE2.md).
 
 ## 8. Reuse (PR9)
 
 | Existing asset | Where it is used |
 |---|---|
-| `walk.py` prototype | Pin walker (interfaces.md §4): URL normalisation, `.gitmodules` parsing, gitlink type check, dedupe by (repo, commit), recursion. Changed to keep full SHAs and to read mirrors before APIs. rc4's 44-pin output is the B2 golden. |
-| toolkit `ci/lib.sh` `_ci_record` | verdicts.tsv columns 1 to 4 and the gate-id convention, unchanged; column 5 (nonce) added. |
-| toolkit `ci/collect-results.py` | The row parser and the roll-up doctrine (an unread report is never a pass). |
+| `walk.py` prototype | Pin walker (interfaces.md section 4): URL normalisation, `.gitmodules` parsing, gitlink type check, dedupe by (repo, commit), recursion. Changed to keep full SHAs, to read mirrors before APIs, and to take the host table from the service config: the prototype hard-codes the lab GitLab hostname, which the port must not. rc4's 44-pin output is the B2 golden. |
+| toolkit `ci/lib.sh` `_ci_record` | verdicts.tsv columns 1 to 4 and the gate-id convention, unchanged; column 5 (nonce) added; details cleaned of tabs and newlines (section 2). |
+| toolkit `ci/collect-results.py` | The row parser and the roll-up doctrine (an unread report is never a pass; SKIP is not a pass). Its `VERDICT_MAP` is not reused, because it lacks INFRA and WARN (section 2). |
 | toolkit `ci/check-pins.sh` | T0 reachability method: `merge-base --is-ancestor` against fetched refs, never `ls-remote` tips; `--offline` asymmetry (stale cache: PASS sound, not-found UNVERIFIED). |
 | toolkit `ci/check-vendor-collateral.sh` | Bundle and tree scanner (D11, D2 no-Arm-IP). Its method is kept: arm every rule on a specimen first, census the corpus (empty = UNVERIFIED), allowlist with owner. |
 | toolkit `ci/check-vacuous-gates.sh` | The same method is applied to the tool's own gates: every T0 gate has a control. |
-| fpgahub stack | Layout and dependencies: Python 3.11, click CLI, FastAPI + Jinja2 + htmx, pydantic, httpx, itsdangerous sessions, hatchling, one systemd unit (H4). |
+| fpgahub stack | Layout and dependencies: Python 3.11, click CLI, FastAPI + Jinja2 + htmx, pydantic, httpx, itsdangerous sessions, hatchling, one systemd unit (H4). fpgahub has no SQLite layer, so the `db` module is new code, not reuse. |
 | Artifactory | Store `artifactory` in `store_ref` (D12, G7). The P1 rc4 archive is already there. |
-| compute's pin checker (`NanoSoC-Compute-Chiplet/.github/workflows/submodule-pins.yml`) | Gate `t0.pins.fetchable`: its probe (`git fetch --depth=1 <url> <sha>` into an empty repo, no credentials, `GIT_TERMINAL_PROMPT=0`, ssh `BatchMode=yes`) and its failure classes: not-our-ref and auth are FAIL, unreachable host is INFRA. Extended from direct pins to the whole recursive tree. |
+| compute chiplet's submodule-pin CI workflow | Gate `t0.pins.fetchable`: its probe (`git fetch --depth=1 <url> <sha>` into an empty repo, no credentials, `GIT_TERMINAL_PROMPT=0`, ssh `BatchMode=yes`) and its failure classes: not-our-ref and auth are FAIL, unreachable host is INFRA. Extended from direct pins to the whole recursive tree. |
+
+## 9. How the process requirements are verified
+
+The v1 acceptance tests cover the 28 v1 Must requirements. The process Musts are checked like this:
+
+| ID | Verified by |
+|---|---|
+| PR1 | `docs/REQUIREMENTS.md` v1.0 committed (c8c1745). |
+| PR2 | [`../CHANGES.md`](../CHANGES.md) exists next to REQUIREMENTS.md and is the CR log. |
+| PR3 | This directory, `schemas/`, `docs/acceptance/`, `tests/acceptance/`, and David's approval of [`../GATE2.md`](../GATE2.md). |
+| PR4 | interfaces.md section 0: every capability is a function with a CLI front end; AT-H1 compares each page with its CLI command. |
+| PR5 | The coverage checker runs `pytest tests/acceptance -m requirement` and maps each requirement marker to a result; the integrator runs the `live` tests on the service VM (interfaces.md section 17). |
+| PR6 | Every AT has a `_negative_control` test; the checker-level controls run today as `test_selfcheck_*`; `schemas/check_examples.py` is the schemas' own control. |
+| PR7 | Commits carry a `Requirements: <IDs>` trailer; `nanosoc-rm trace` (Phase 1 builder task) generates requirement → tests → commits from the markers and trailers. AT-A7 reads the same trailers. |
+| PR8 | AT-A2 and AT-H3 check every v1 credential's scope; writes a person must make are listed in GATE2.md, never made by an agent. |

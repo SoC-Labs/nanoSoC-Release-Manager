@@ -10,6 +10,7 @@ configurations:
     commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"
     frozen: true
     silicon: {chip: eth-chiplet, revision: r0p0}
+    errata_prefix: ETH-R0P0           # erratum ids ETH-R0P0-ERR-NNN (README section 3 rule 11)
   - id: eth-main
     component: nanosoc-ethernet-chiplet
     ref: {branch: main}

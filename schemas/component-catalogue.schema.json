@@ -17,6 +17,19 @@
       "description": "Third-party repos pinned inside registered trees (e.g. picotcp). Not components: no class, never tested, not counted in A1. Listing one here stops B9 flagging its URL as unknown.",
       "type": "array",
       "items": { "$ref": "#/$defs/external" }
+    },
+    "ignored": {
+      "description": "A1: repos in the GitHub org or GitLab group that are NOT nanoSoC-related (other SoC families, demos, org housekeeping). Listed with a reason so the inventory classifies them (role `ignored`) instead of flagging them; never mirrored, walked or tested. A repo may appear in only one section (loader rule 1).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["repo", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   },
   "$defs": {

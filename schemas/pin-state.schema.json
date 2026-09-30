@@ -4,7 +4,7 @@
   "title": "Pin state observation",
   "description": "One pin of one configuration's recursive tree, with its state on each host that holds a copy of the child. Emitted by the pin walker (one JSON object per line) and stored as an observation of kind pin_state. A pin is identified by (parent repo, parent commit, path): rc4 has 44. Owner: pin walker. A3, B2, B3, B7, B9.",
   "type": "object",
-  "required": ["schema", "kind", "subject", "observed_at", "sources", "fact"],
+  "required": ["schema", "kind", "subject", "observed_at", "sources", "snapshot", "fact"],
   "additionalProperties": false,
   "properties": {
     "schema": { "const": 1 },
@@ -23,16 +23,22 @@
       "minItems": 1,
       "items": { "$ref": "defs.schema.json#/$defs/source" }
     },
+    "snapshot": {
+      "$ref": "defs.schema.json#/$defs/snapshot",
+      "description": "M3 / README section 4: one walk of one configuration is one snapshot, scope pin_state:<configuration>. A pin missing from the latest complete snapshot is gone.",
+      "properties": { "scope": { "pattern": "^pin_state:" } }
+    },
     "fact": { "$ref": "#/$defs/fact" }
   },
   "$defs": {
     "fact": {
       "type": "object",
-      "required": ["configuration", "parent", "path", "url", "url_kind", "branch_field", "entry_type", "child", "tree_paths", "depth", "split", "effective", "hosts"],
+      "required": ["configuration", "parent", "path", "url", "url_kind", "branch_field", "entry_type", "state", "child", "tree_paths", "depth", "split", "effective", "hosts"],
       "additionalProperties": false,
       "properties": {
         "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
         "parent": {
+          "description": "B2: the parent commit and the repo it was fetched from: the repo named by the parent's OWN pinned URL, after alias normalisation (for rc4's multicore arch_tech that is the GitLab copy), as the rc4 lock records it. For a depth-1 pin, the configuration's repo.",
           "type": "object",
           "required": ["component", "repo", "commit"],
           "additionalProperties": false,
@@ -51,16 +57,20 @@
           "minLength": 1
         },
         "url_kind": {
-          "description": "B3: `ssh` is the SSH-only state (no anonymous fetch through this URL); `local` is the local-path state.",
-          "enum": ["https", "ssh", "local", "other"]
+          "$ref": "defs.schema.json#/$defs/url_kind",
+          "description": "B3: `ssh` is the SSH-only badge (no anonymous fetch through this URL); `local` is the local-path state; `relative` is resolved against the parent's pinned repo URL."
         },
         "branch_field": {
-          "description": "B3: .gitmodules branch= as written. Recorded for display, never used to compute anything.",
-          "type": ["string", "null"]
+          "description": "B3: .gitmodules branch= as written. Recorded for display, never used to compute anything. null when the key is absent; an empty string is never written.",
+          "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
         },
         "entry_type": {
           "description": "What the parent's tree holds at `path`. Anything but `commit` gives state NO_GITLINK; the walker never drops the entry.",
           "enum": ["commit", "tree", "blob", "absent"]
+        },
+        "state": {
+          "description": "B3 pin-level state, for the two states that do not depend on a host: LOCAL_URL (url_kind local) and NO_GITLINK (entry_type not commit). null for every other pin, whose state lives per host in `hosts`. Both are red for the walk's exit code.",
+          "enum": ["LOCAL_URL", "NO_GITLINK", null]
         },
         "child": {
           "type": "object",
@@ -103,15 +113,65 @@
           "enum": [true, false, "unknown"]
         },
         "hosts": {
-          "description": "B3: one entry per host that has a copy of the child (canonical, copies, aliases resolved). Empty for LOCAL_URL / NO_GITLINK pins.",
+          "description": "B3: one entry per host that has a copy of the child (canonical, copies, aliases resolved). Exactly one entry is `pinned` when any exists. Empty only for LOCAL_URL, NO_GITLINK and uncatalogued (`unknown`) children.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "github": { "$ref": "#/$defs/host_state" },
             "gitlab": { "$ref": "#/$defs/host_state" }
+          },
+          "not": {
+            "required": ["github", "gitlab"],
+            "properties": {
+              "github": { "properties": { "pinned": { "const": true } } },
+              "gitlab": { "properties": { "pinned": { "const": true } } }
+            }
+          },
+          "if": { "minProperties": 1 },
+          "then": {
+            "anyOf": [
+              { "required": ["github"], "properties": { "github": { "properties": { "pinned": { "const": true } } } } },
+              { "required": ["gitlab"], "properties": { "gitlab": { "properties": { "pinned": { "const": true } } } } }
+            ]
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "url_kind": { "const": "https" } } },
+          "then": { "properties": { "url": { "pattern": "^https://" } } }
+        },
+        {
+          "if": { "properties": { "url_kind": { "const": "ssh" } } },
+          "then": { "properties": { "url": { "pattern": "^(ssh://|[A-Za-z0-9._-]+@[^:/]+:)" } } }
+        },
+        {
+          "if": { "properties": { "url_kind": { "const": "local" } } },
+          "then": { "properties": { "url": { "pattern": "^(/|file://)" }, "state": { "const": "LOCAL_URL" }, "hosts": { "maxProperties": 0 } } }
+        },
+        {
+          "if": { "properties": { "url_kind": { "const": "relative" } } },
+          "then": { "properties": { "url": { "pattern": "^\\.\\.?/" } } }
+        },
+        {
+          "if": { "properties": { "url_kind": { "not": { "const": "local" } }, "entry_type": { "not": { "const": "commit" } } } },
+          "then": { "properties": { "state": { "const": "NO_GITLINK" }, "hosts": { "maxProperties": 0 } } }
+        },
+        {
+          "if": { "properties": { "url_kind": { "not": { "const": "local" } }, "entry_type": { "const": "commit" } } },
+          "then": { "properties": { "state": { "const": null } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "entry_type": { "const": "commit" },
+              "url_kind": { "enum": ["https", "ssh", "relative"] },
+              "child": { "properties": { "catalogued_as": { "enum": ["component", "external"] } } }
+            }
+          },
+          "then": { "properties": { "hosts": { "minProperties": 1 } } }
+        }
+      ]
     },
     "host_state": {
       "type": "object",

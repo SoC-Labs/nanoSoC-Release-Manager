@@ -9,10 +9,10 @@
   "properties": {
     "schema": { "const": 1 },
     "id": {
-      "type": "string",
-      "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*-ERR-[0-9]{3}$"
+      "$ref": "defs.schema.json#/$defs/erratum_id",
+      "description": "The configuration's errata_prefix, then -ERR-NNN (README section 3 rule 11)."
     },
-    "defect": { "type": "string", "pattern": "^SL-DEF-[0-9]{4}$" },
+    "defect": { "$ref": "defs.schema.json#/$defs/defect_id" },
     "configuration": {
       "$ref": "defs.schema.json#/$defs/configuration_id",
       "description": "F1: exactly one configuration from registry/eligibility.yaml."
@@ -27,31 +27,36 @@
       "items": { "type": "string", "pattern": "^E[0-9]+$" }
     },
     "exposure": {
-      "description": "F2: how exposure was established. Only a detector run on the configuration's built output (generated RTL or netlist) can prove `exposed`, `affected` or `not-affected`; ancestry or reading the source gives at most `probably-exposed` (amber).",
+      "description": "F2: how exposure was established. Only a detector run on the configuration's built output (generated RTL or netlist) can prove `exposed`, `affected` or `not-affected`, and it must carry the structured `run`. Ancestry or reading the source gives at most `probably-exposed` (amber) or `probably-not-affected` (ancestry says the fix is in).",
       "type": "object",
       "required": ["level", "method", "evidence"],
       "additionalProperties": false,
       "properties": {
-        "level": { "enum": ["exposed", "affected", "probably-exposed", "not-affected"] },
+        "level": { "enum": ["exposed", "affected", "probably-exposed", "probably-not-affected", "not-affected"] },
         "method": { "enum": ["detector", "ancestry", "source-inferred"] },
         "detector": {
           "type": "string",
           "pattern": "^D[0-9]+$",
-          "description": "Id of the detector in the defect record."
+          "description": "Id of the detector in the defect record (README section 3 rule 4)."
         },
         "evidence": {
-          "description": "What was checked, where, and the result, in one line. For a detector: the input (archive, netlist) and its md5.",
+          "description": "What was checked, where, and the result, in one line. For a detector: the input (archive, netlist) and its md5. Commit ids in this text must also appear in the record's `cites` (rule 9).",
           "type": "string",
           "minLength": 1
-        }
+        },
+        "run": { "$ref": "#/$defs/detector_run" }
       },
       "allOf": [
         {
           "if": { "properties": { "level": { "enum": ["exposed", "affected", "not-affected"] } } },
           "then": {
-            "required": ["detector"],
+            "required": ["detector", "run"],
             "properties": { "method": { "const": "detector" } }
           }
+        },
+        {
+          "if": { "properties": { "method": { "const": "detector" } } },
+          "then": { "properties": { "level": { "enum": ["exposed", "affected", "not-affected"] } } }
         }
       ]
     },
@@ -94,14 +99,53 @@
         }
       ]
     },
+    "cites": {
+      "description": "F3: every commit this record's free text (evidence, conditions, workaround rules) names, as structured citations, so T0's refs-resolve gate can prove each exists on its canonical host. The loader refuses a 7 to 40 hex token in free text that no structured citation of the record matches (README section 3 rule 9).",
+      "type": "array",
+      "items": { "$ref": "defs.schema.json#/$defs/commit_ref" }
+    },
     "status": {
-      "description": "F1. `permanent` is for silicon configurations only (checked by the loader).",
+      "description": "F1. `permanent` is for silicon configurations only, and a silicon configuration's erratum is never `fixed` (loader rules 6 and 10).",
       "enum": ["open", "fixed", "wont-fix", "permanent", "not-affected"]
     },
     "doc_revision": {
       "description": "F1, F4: the revision of this configuration's errata document in which this record last changed.",
       "type": "integer",
       "minimum": 1
+    }
+  },
+  "$defs": {
+    "detector_run": {
+      "description": "F2 (interfaces.md section 6a): one run of a defect's detector on one configuration's built output, as `nanosoc-rm detect` prints it. A person or a CI job runs it; the service never does (A4).",
+      "type": "object",
+      "required": ["result", "forms", "input", "detector_source", "command", "observed_at"],
+      "additionalProperties": false,
+      "properties": {
+        "result": { "enum": ["fired", "clean"] },
+        "forms": {
+          "description": "The forms the detector reported. Empty when clean.",
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z]$" }
+        },
+        "input": {
+          "type": "object",
+          "required": ["path", "md5"],
+          "additionalProperties": false,
+          "properties": {
+            "store": { "enum": ["artifactory", "disk", "ci"] },
+            "path": { "type": "string", "minLength": 1 },
+            "md5": { "$ref": "defs.schema.json#/$defs/md5" }
+          }
+        },
+        "detector_source": {
+          "description": "The detector's code, pinned by commit; null for a pattern detector, which lives in the defect record.",
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/commit_ref" }, { "type": "null" }]
+        },
+        "command": { "type": "string", "minLength": 1 },
+        "observed_at": { "$ref": "defs.schema.json#/$defs/utc" }
+      },
+      "if": { "properties": { "result": { "const": "fired" } } },
+      "then": { "properties": { "forms": { "minItems": 1 } } }
     }
   },
   "allOf": [

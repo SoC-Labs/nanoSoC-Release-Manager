@@ -6,9 +6,15 @@
 1. Every schemas/*.schema.json is a valid Draft 2020-12 schema.
 2. Every schemas/examples/<name>.* validates against schemas/<name>.schema.json
    (the schema is the file-name prefix up to the first dot; .jsonl = one document per line).
+   A file listed in DEF_EXAMPLES validates against one $defs entry of its schema instead.
 3. Every schemas/examples/invalid/<name>.* FAILS, and fails for the reason its
-   first line names (`# expect-error: <text>` must appear in an error message).
-   This is the negative control for step 2 (PR6).
+   first line names:
+       # expect-error: <validator keyword> at <instance pointer> [~ <message substring>]
+   e.g. `# expect-error: required at /exposure ~ 'detector'`. Some error (nested
+   oneOf/anyOf/if-then contexts included) must have that keyword at that instance
+   path. Matching the keyword and path, not the message wording, keeps this check
+   stable across jsonschema releases (4.19 says "is too long", 4.26 "is expected to
+   be empty" for the same maxItems error). This is the negative control for step 2 (PR6).
 4. verdicts.tsv files follow the row contract: 5 tab-separated fields, each row
    valid against result-bundle#/$defs/verdict_row, nonce equal to the paired
    provenance's run_nonce, timestamp inside [started_at, finished_at] (D5).
@@ -16,11 +22,12 @@
 YAML is loaded with timestamps left as strings and duplicate keys rejected: a
 registry file with a repeated key is an error, never a silent overwrite.
 
-Needs: jsonschema >= 4.18 (with `referencing`) and PyYAML.
+Needs: jsonschema >= 4.18 (with `referencing`) and PyYAML (requirements-dev.txt).
 """
 import glob
 import json
 import os
+import re
 import sys
 
 import yaml
@@ -122,6 +129,32 @@ def check_tsv(path, row_validator, nonce, t_start, t_end):
     return problems
 
 
+# Examples of one $defs entry, not of a whole document: file -> (schema, JSON pointer).
+DEF_EXAMPLES = {
+    "result-bundle.rm-request.example.json": ("result-bundle", "/$defs/rm_request"),
+}
+
+EXPECT_RX = re.compile(r"^#\s*expect-error:\s*(\S+)\s+at\s+(\S+)(?:\s+~\s+(.+?))?\s*$")
+
+
+def all_errors(validator, doc):
+    """Every error, descending into oneOf/anyOf/if-then contexts, so a nested reason is visible."""
+    out, stack = [], list(validator.iter_errors(doc))
+    while stack:
+        e = stack.pop()
+        out.append(e)
+        stack.extend(e.context or [])
+    return out
+
+
+def pointer_of(error):
+    return "/" + "/".join(str(p) for p in error.absolute_path)
+
+
+def describe(error):
+    return "%s at %s: %s" % (error.validator, pointer_of(error), error.message)
+
+
 TSV_EXPECT = {
     "result-bundle.verdicts.four-columns.tsv": "expected 5 tab-separated fields",
     "result-bundle.verdicts.foreign-nonce.tsv": "does not match run_nonce",
@@ -154,9 +187,10 @@ def main():
             probs = check_tsv(path, row_v, prov["run_nonce"], prov["started_at"], prov["finished_at"])
             report(not probs, os.path.basename(path), "; ".join(probs))
             continue
-        name = schema_for(path)
-        v = validator_for(schemas, registry, name)
-        covered.add(name)
+        name, pointer = DEF_EXAMPLES.get(os.path.basename(path), (schema_for(path), None))
+        v = validator_for(schemas, registry, name, pointer)
+        if pointer is None:
+            covered.add(name)
         for label, doc in docs_in(path):
             errs = errors(v, doc)
             report(not errs, label, "; ".join("%s: %s" % ("/".join(map(str, e.absolute_path)), e.message) for e in errs[:3]))
@@ -174,20 +208,21 @@ def main():
         name = schema_for(path)
         bad_covered.add(name)
         with open(path) as f:
-            first = f.readline()
-        want = first.split("expect-error:", 1)[1].strip() if "expect-error:" in first else None
-        if not want:
-            report(False, base, "first line must be '# expect-error: <text>'")
+            first = f.readline().strip()
+        m = EXPECT_RX.match(first)
+        if not m:
+            report(False, base, "first line must be '# expect-error: <keyword> at <pointer> [~ <text>]'")
             continue
+        keyword, where, text = m.group(1), m.group(2), m.group(3)
         v = validator_for(schemas, registry, name)
         for label, doc in docs_in(path):
-            msgs = [e.message for e in v.iter_errors(doc)]
-            # descend into oneOf/anyOf/if-then contexts so a nested reason is visible
-            for e in v.iter_errors(doc):
-                msgs.extend(c.message for c in e.context or [])
-            hit = any(want in m for m in msgs)
-            report(hit, label, ("rejected: " + next(m for m in msgs if want in m)) if hit
-                   else "expected %r; got %s" % (want, msgs[:3] or "NO ERROR (the schema cannot fail here)"))
+            errs = all_errors(v, doc)
+            hits = [e for e in errs if e.validator == keyword and pointer_of(e) == where
+                    and (text is None or text in e.message)]
+            report(bool(hits), label, ("rejected: " + describe(hits[0])) if hits
+                   else "expected %s at %s%s; got %s" % (
+                       keyword, where, (" ~ %r" % text) if text else "",
+                       [describe(e) for e in errs[:4]] or "NO ERROR (the schema cannot fail here)"))
 
     doc_schemas = set(schemas) - {"defs"}
     missing_valid = sorted(doc_schemas - covered)

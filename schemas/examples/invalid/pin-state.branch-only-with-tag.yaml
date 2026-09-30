@@ -1,10 +1,11 @@
-# expect-error: is too long
+# expect-error: maxItems at /fact/hosts/gitlab/tags
 # B3 precedence: a commit reachable from a tag is PROTECTED_BY_TAG, never BRANCH_ONLY.
 schema: 1
 kind: pin_state
 subject: "pin_state:eth-rc4:nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen"
 observed_at: "2026-09-30T17:31:59Z"
 sources: [{kind: gitlab_api, command: "GET projects/soclabs%2Fnanosoc_gen/repository/commits/d04de2e/refs?type=all"}]
+snapshot: {id: "pin_state:eth-rc4@2026-09-30T17:31:59Z", scope: "pin_state:eth-rc4"}
 fact:
   configuration: eth-rc4
   parent: {component: nanosoc_arch_tech, repo: {host: gitlab, path: soclabs/nanosoc-m0/nanosoc_arch_tech}, commit: "ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3"}
@@ -13,6 +14,7 @@ fact:
   url_kind: https
   branch_field: null
   entry_type: commit
+  state: null
   child: {component: nanosoc_gen, catalogued_as: component, repo: {host: gitlab, path: soclabs/nanosoc_gen}, commit: "d04de2ec25d79c1fc3223f853ddb6725cbf2831c"}
   tree_paths: [nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen]
   depth: 3

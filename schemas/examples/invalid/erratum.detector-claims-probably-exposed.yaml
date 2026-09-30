@@ -1,0 +1,19 @@
+# expect-error: enum at /exposure/level
+# F2 (contracts review m6): a detector run proves exposed, affected or not-affected; `probably-exposed` is for ancestry or source reading only.
+schema: 1
+id: ETH-R0P0-ERR-001
+defect: SL-DEF-0001
+configuration: eth-rc4
+forms_present: [A, B]
+effects_present: [E1]
+exposure:
+  level: probably-exposed
+  method: detector
+  detector: D1
+  evidence: D1 on the rc4 build_soc archive (md5 80eb7ce7e81fee653b52c6821cea3942)
+  run: {result: fired, forms: [A, B], input: {store: artifactory, path: build_soc.tar.gz, md5: "80eb7ce7e81fee653b52c6821cea3942"}, detector_source: {component: nanosoc_gen, commit: "adbb9abfaa81350e6f40d3b5c4e20f1f87b8002d"}, command: "nanosoc-rm detect SL-DEF-0001 D1 --input build_soc.tar.gz", observed_at: "2026-10-02T10:00:00Z"}
+category: null
+conditions: DMA-250 present
+workaround: null
+status: permanent
+doc_revision: 1

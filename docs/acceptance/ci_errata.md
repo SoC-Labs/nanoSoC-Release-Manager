@@ -5,8 +5,8 @@ F1, F2, F3, F5**. Each AT has a negative control (PR6).
 
 - **Requirements:** [`REQUIREMENTS.md`](../REQUIREMENTS.md) v1.0, frozen 2026-09-30.
 - **Contracts exercised:** [`contracts/README.md`](../contracts/README.md), [`contracts/interfaces.md`](../contracts/interfaces.md), [`schemas/`](../../schemas/).
-- **Test code:** [`tests/acceptance/test_ci_errata.py`](../../tests/acceptance/test_ci_errata.py). Every test is skipped (`not implemented: gate 2`) until its module exists.
-- **Status:** draft for David's gate-2 review. Written 2026-09-30.
+- **Test code:** [`tests/acceptance/test_ci_errata.py`](../../tests/acceptance/test_ci_errata.py). Every AT carries `NOT_BUILT` (xfail, `raises=ImportError`, strict): XFAIL until its module exists, red on any other error, red as XPASS once it passes (`tests/conftest.py`). Ten `test_selfcheck_*` tests run now: see [Negative controls run today](#negative-controls-run-today).
+- **Status:** for David's gate-2 review. Written 2026-09-30; every fixture value re-checked against the hosts the same evening (read-only); revised the same day after the contracts and coverage reviews ([GATE2.md](../GATE2.md) section 4).
 
 ## How to read this page
 
@@ -21,22 +21,22 @@ F1, F2, F3, F5**. Each AT has a negative control (PR6).
    - `hermetic`: needs only this repo and `tmp_path`. Any builder can run it.
    - `live`: needs the lab network (anonymous git to both hosts), the service's data or the registry checkout. The integrator runs these end to end on the real repos (PR5). Marked `@pytest.mark.live`.
 4. **Real or synthetic.** Fixture values marked OBSERVED were read on 2026-09-30 with read-only git and API calls. A SYNTHETIC input is used only where real data cannot produce the case.
-5. **PROPOSED interfaces.** A few tests need an interface the contracts do not define yet. Each such name is marked `PROPOSED (Gn)` in the test and listed under [Contract gaps](#contract-gaps).
+5. **Names beyond the schemas.** A name marked `PROPOSED (Gn)` in the test was a gap in the first draft. Every one is now contracted in `interfaces.md` section 17; [Contract gaps](#contract-gaps) says where.
 6. **Hostnames.** The lab GitLab host is written `<gitlab-host>`, as in the contracts. The real name lives in the private service config.
 
 ## Index
 
 | AT | Requirement | What the test checks | Runs (test / control) | Negative control |
 |---|---|---|---|---|
-| [AT-D1](#at-d1) | D1 test tiers | All 7 tiers have a budget; every configuration has a T0 command; every accepted nightly T0 finished inside its 2-minute budget | live / hermetic | a 181 s T0 bundle is flagged over budget; a tier row with no budget fails the table check |
-| [AT-D2](#at-d2) | D2 nightly T0 | Every registered configuration and the registry have tonight's accepted T0 report; rc4 goes red on exactly its 3 known real gates | live / hermetic | the CI API refuses eth-main's nightly trigger: eth-main shows a missed night, never last night's result |
+| [AT-D1](#at-d1) | D1 test tiers | All 7 tiers have a budget; every configuration has a T0 command; every accepted nightly T0 finished inside its 120 s budget | live / hermetic | a 181 s T0 bundle is flagged over budget; a tier row with no budget fails the table check |
+| [AT-D2](#at-d2) | D2 nightly T0 | Every registered configuration and the registry have tonight's accepted T0 report; rc4 goes red on its known real gates; all 44 pins are judged on their canonical host; every gate that ran fired its control | live / hermetic | the CI API refuses eth-main's nightly trigger: eth-main shows a missed night, never last night's result; and the four gates rc4 cannot exercise each PASS and FAIL on hermetic inputs |
 | [AT-D5](#at-d5) | D5 pull and verify | The genuine rc4 bundle is accepted; 13 single-field tampers are each rejected by the check that owns the field; no route accepts a pushed result | hermetic / hermetic | the same bundle with `captured.superproject_commit` = rc4's real parent `3ab16f5` is rejected |
-| [AT-D6](#at-d6) | D6 negative controls | Every declared gate is reported with its control and whether it fired; a PASS without a fired control never shows PASS | hermetic / hermetic | a mutant `t0.urls.no-ssh-public` that always passes: its control does not fire and the gate shows UNVERIFIED |
-| [AT-D10](#at-d10) | D10 hardened runner | The real T0 job passes `t0.runner.hardened`; the runner's id and settings are recorded and match the expected ones | live / hermetic | synthetic job environments (unprotected ref, dirty HOME, dirty TMPDIR, personal user) each FAIL the gate |
+| [AT-D6](#at-d6) | D6 negative controls | Every declared gate is reported with its control and whether it fired; a PASS without a fired control never shows PASS | hermetic / hermetic | every gate in turn replaced by an always-PASS mutant: its control does not fire and the gate shows UNVERIFIED |
+| [AT-D10](#at-d10) | D10 hardened runner | The real T0 job passes `t0.runner.hardened`; the runner's id and settings are recorded and match the expected ones | live / hermetic | synthetic job environments (unprotected ref, dirty HOME, dirty TMPDIR, personal user, a CI token left unscrubbed) each FAIL the gate |
 | [AT-D11](#at-d11) | D11 vendor scan | The genuine rc4 bundle scans clean, is accepted and stored; the `arm.banner` rule fires on one real vendor file | live (realism step) / hermetic | the same bundle with a planted Arm banner in `logs/t0.log` is refused and never stored |
 | [AT-F1](#at-f1) | F1 defects and errata | SL-DEF-0001 holds the real cpu_ss_hsel facts; one erratum each for eth, compute and QuickStart; the eth forms agree with containment | live / hermetic | the rc4 erratum copied to non-silicon eth-main with `status: permanent` is refused |
-| [AT-F2](#at-f2) | F2 exposure | Every erratum shows level, method and evidence; ancestry shows amber; a detector level carries a re-checkable run | live / hermetic | `erratum.ancestry-claims-exposed.yaml` is rejected; a detector id not in the defect is refused |
-| [AT-F3](#at-f3) | F3 cited commits exist | With every cited commit pushed, `t0.registry.refs-resolve` passes and names each commit it proved | live / live | the real SL-DEF-0001, whose bench `6aafc94` is unpushed, FAILs; so do a copy-host-only and a local-only commit |
+| [AT-F2](#at-f2) | F2 exposure | Every erratum shows level, method and evidence; ancestry shows amber; a detector level carries a re-checkable run | live / hermetic | `erratum.ancestry-claims-exposed.yaml` is rejected; a detector id not in the defect is refused; D2 fires on a synthetic netlist with the defect and stays clean on one without |
+| [AT-F3](#at-f3) | F3 cited commits exist | With every cited commit pushed, `t0.registry.refs-resolve` passes and names each of the 10 commits it proved, including the 4 the erratum names only in free text | live / live | the real SL-DEF-0001, whose bench `6aafc94` is unpushed, FAILs; so do a copy-host-only and a local-only commit |
 | [AT-F5](#at-f5) | F5 import registers | All 4 registers are imported; each document's items are censused against the ledger; nothing is pending | live / hermetic | the example ledger (all pending) and a ledger missing one censused item are both reported not done |
 
 ## Real facts the fixtures use
@@ -51,7 +51,9 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 | rc4 ssh pins | `tidelink` (5 pins below it) and `ASIC/asic-toolkit` | D2, D6 |
 | ASIC-Toolkit visibility | private on GitHub: not anonymously fetchable over any URL | D2 |
 | TideLink host drift | rc4's `5e8bdb5` is exactly `v0.90` on GitHub (canonical), MISSING on the GitLab copy; copy relation AHEAD 298 | D2 |
-| ahb_qspi | rc4's `e908ac843845d5b293616265f93a802804555540` exists only on the GitLab copy | D2, F3 |
+| ahb_qspi | DIVERGED, both hosts public. rc4's `e908ac843845d5b293616265f93a802804555540` exists only on GitLab (GitHub 422); `71f8d1ce46dfa76e9f1e16f7ab186e51d1b31520` exists only on GitHub (GitLab 404) | D2, F3 |
+| asic-flow | rc4's `3824aaa` (ASIC/asic-flows) is only on GitHub `lpddr4-pll`, GitHub's default branch; rc4's `46c88d3` and `69500ef` are on `main` on both hosts | D2 |
+| arch_tech `ecf76aa` | rc4's multicore arch_tech pin. Its keep tag is on the GitLab copy only. On GitHub (canonical) it is reachable only from branch `wip/uncommitted-2026-08-18` | D2 |
 | keep tags | 11 `keep/eth-rc4/*` tags cover all 11 branch-only rc4 commits | D2 |
 | eth main | `8e6d0434fc8331191607ad5b2af73646e995c892` (2026-08-07) still pins tidelink by ssh | D2 |
 | SL-DEF-0001 commits | origin arch_tech `49a6c25` (GitHub main) and nanosoc_gen `b0a6069` (main); fixes `036d381` (form A) and `adbb9ab` (form B), both on nanosoc_gen main | F1, F3 |
@@ -64,7 +66,8 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 | `67-rc4-issue-register.md` | untracked in the eth repo: no commit to cite yet | F5 |
 | QuickStart `docs/DEFECT-cpu-ss-hsel.md` | committed only locally, `1f2f06e4303de5eaa7316caf965ec0b070a89028` on branch `record/qs-platform`; GitHub answers 422 | F3, F5 |
 | rc4 generated RTL | P1 archive `build_soc.tar.gz`, md5 `80eb7ce7e81fee653b52c6821cea3942`, 332 files | F2 |
-| compute superproject | SoC-Labs/NanoSoC-Compute-Chiplet is not anonymously readable; its taped-out commit waits on DEC3 | F1, D2 |
+| compute superproject | SoC-Labs/NanoSoC-Compute-Chiplet is private on GitHub, so not anonymously fetchable; its taped-out commit waits on DEC3 | F1, D2 |
+| QuickStart repo | SoC-Labs/nanoSoC-M0-QuickStart-SoC is public, so an anonymous miss there is FAIL, not UNVERIFIED | F3 |
 | registry and CI project | `soclabs/nanosoc-registry` and `soclabs/nanosoc-compat-ci` are not found by the read API (not created yet, or not visible) | D2, D10, F3 |
 
 ---
@@ -80,7 +83,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - the accepted scheduled T0 runs of the last 7 nights.
 
 **When**
-1. `nanosoc-rm tiers CONFIG --json` runs for each configuration. PROPOSED (G1).
+1. `nanosoc-rm tiers CONFIG --json` runs for each configuration. (G1, now contracted).
 2. Each run's bundle start and finish times are read.
 
 **Then**
@@ -103,7 +106,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - REAL: configurations eth-rc4, eth-main and multicore-master, from the eligibility example.
 - ILLUSTRATIVE: the bundle example runs 02:03:30 → 02:05:02, which is 92 s. No real T0 has run yet.
 
-**Exercises:** the PROPOSED tier table and budget check (G1); result-bundle `started_at` / `finished_at`; the interfaces §9 job contract.
+**Exercises:** the tier table and budget check (interfaces.md section 9); result-bundle `started_at` / `finished_at`; the interfaces §9 job contract.
 
 **Negative control**
 1. The example bundle with `finished_at` moved to 02:06:31 (181 s): the budget check reports over budget, not OK.
@@ -114,8 +117,8 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - Durations come from verified bundles, and the control shows an over-budget run is flagged.
 
 **Open**
-- The job contract's `timeout: 15m`, and interfaces §16's "15-minute budget", disagree with D1's 2 minutes. Which one is the budget, and whether over budget is WARN or INFRA, is gap G1.
-- T4 and T5 have no budget in D1.
+- Resolved: the budget is 120 s, the job's `timeout: 15m` is only the kill limit, and over budget is a warning (`over_budget: true`) that never changes the verdict (interfaces.md section 9).
+- T4 and T5 have no budget in D1; each carries a written reason in the tier table.
 
 ---
 
@@ -136,28 +139,39 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 2. Its gates cover every D2 check:
    - a configuration run carries the 8 gates of interfaces §9;
    - `@registry` carries `t0.registry.schema` and `t0.registry.refs-resolve`;
-   - every gate carries a `control` value.
+   - every gate that ran has `control: fired`; only a NOT-RUN gate has `not-applicable` (an "any valid value" check would pass vacuously);
+   - eth-main declares `upgrade_from`, so its `t0.clone.upgrade-path` is not NOT-RUN.
 3. eth-rc4 matches the golden `result-bundle.verdicts.example.tsv`:
 
    | Gate | Verdict | Detail |
    |---|---|---|
    | `t0.infra.probe` | PASS | |
-   | `t0.pins.fetchable` | FAIL | names `tidelink` and `ASIC/asic-toolkit`; 37 of 44 pins fetched |
-   | `t0.pins.reachable` | FAIL | names ahb_qspi `e908ac8`; does not name `tidelink` |
+   | `t0.pins.fetchable` | FAIL | fails exactly `tidelink` and `ASIC/asic-toolkit`; the 5 pins below `tidelink` are not reached; 37 of 44 pass |
+   | `t0.pins.reachable` | FAIL, or UNVERIFIED | see Then 4 |
    | `t0.urls.no-ssh-public` | FAIL | names `tidelink` and `ASIC/asic-toolkit` |
    | `t0.manifest.valid` | NOT-RUN | no manifest anywhere |
    | `t0.clone.upgrade-path` | NOT-RUN | no `upgrade_from` |
    | `t0.vendor.no-arm-ip` | UNVERIFIED | 7 trees not fetched |
 
    The run verdict is FAIL.
-4. `@registry`: `t0.registry.refs-resolve` is FAIL and names `6aafc94`, until that commit is pushed (AT-F3).
-5. The dashboard lists every configuration with tonight's verdict and a data age under 24 h.
+4. **`t0.pins.reachable` on rc4:**
+   - All 44 pins are judged, each on its component's canonical host (externals on their own repo). (G15, now contracted).
+   - **TideLink host drift:** `tidelink` `5e8bdb5` passes on GitHub, although the GitLab copy lacks it.
+   - **Keep tags:** the 10 keep-tag pins other than `ASIC/asic-toolkit` all pass.
+   - `ASIC/asic-toolkit` is UNVERIFIED: its canonical repo is private.
+   - The failures are exactly the pins off their canonical host, read from the catalogue (question 2):
+     `nanosoc-multicore-system/ahb_qspi` (`e908ac8`) if ahb_qspi is canonical on GitHub, and `ASIC/asic-flows`
+     (`3824aaa`) if asic-flow is canonical on GitLab. With the catalogue example (both GitHub), that is ahb_qspi only.
+   - The gate is FAIL if that set is not empty, else UNVERIFIED.
+5. `@registry`: `t0.registry.refs-resolve` judges SL-DEF-0001's bench commit (it must be among the items), FAIL while it is unpushed (`6aafc94` today) and PASS once anonymously fetchable (AT-F3).
+6. The dashboard lists every configuration with tonight's verdict and a data age under 24 h.
 
 **Fixture:** REAL.
 - rc4's 44-pin tree and its two ssh URLs.
 - ASIC-Toolkit is private, so that pin fails fetch whatever its URL.
 - **TideLink host drift:** `5e8bdb5` is `v0.90` on GitHub, which is canonical, and missing on the GitLab copy. So `tidelink` must be in the fetchable failures (ssh URL) and absent from the reachable failures (the canonical host has it).
-- The ahb_qspi row depends on question 2 in the gate-2 summary (canonical host). The test reads the expectation from the catalogue's canonical host for ahb_qspi.
+- **Keep tags:** the 11 `keep/eth-rc4/*` tags that cover rc4's formerly branch-only commits.
+- The ahb_qspi and asic-flow rows depend on question 2 in GATE2.md (canonical host). The test reads both from the catalogue, so it stays right whichever way David decides.
 
 **Exercises:** interfaces §9 (gates and job contract), §10 (trigger, fetch, verify), §13 (dashboard and `/api/v1/runs`); observation `t0_result`.
 
@@ -165,19 +179,33 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - **Setup:** the fake CI API answers HTTP 500 to tonight's `POST projects/:id/trigger/pipeline` for eth-main, and succeeds for the others.
 - **Must happen:**
   - eth-main gets a `t0_result` for tonight with `acceptance: no-bundle`, a verdict other than PASS, and a reason naming the trigger failure;
-  - the nightly coverage check exits 1 and names eth-main (PROPOSED, G2);
+  - the nightly coverage check exits 1 and names eth-main (`t0 coverage`, interfaces.md section 10);
   - the dashboard does not show eth-main's previous night as current.
-- **Runs:** hermetic. Fake CI client (G4), fake clock.
+- **Runs:** hermetic. Fake CI client, fake clock.
+- **Part 2 (coverage review High 2):** rc4 cannot exercise `t0.manifest.valid`, `t0.clone.upgrade-path` or `t0.vendor.no-arm-ip`, and nothing real exercises `t0.registry.schema`. Each runs with its control, through the test-only `url_map` seam, on a hermetic good input (must PASS, control fired) and a broken one (must FAIL):
+
+  | Gate | Good input | Broken input |
+  |---|---|---|
+  | `t0.manifest.valid` | the example manifest at the pinned commit | the same with `version: "1.0"` |
+  | `t0.clone.upgrade-path` | the second commit moves the submodule to a new host while the old host still serves the new commit (C8: a fix) | the old host was frozen before the new commit, so an upgrade without `submodule sync` cannot fetch it |
+  | `t0.vendor.no-arm-ip` | a clean tree | the same tree with the scanner's `arm.banner` specimen planted in a file |
+  | `t0.registry.schema` | the example registry | the example registry with `component-catalogue.no-class.yaml` as its catalogue |
+
+  `test_selfcheck_D2_gate_fixtures` proves with raw git and the schemas that each good input is good and each broken one is broken.
 
 **Cannot pass vacuously because**
-- rc4 must go red on exactly three gates, for known real reasons.
-- `tidelink` must appear in one gate's list and not the other's. A tool that marks everything red fails, and so does one that judges the wrong host.
+- rc4 must go red on named gates, for known real reasons, and each gate's per-pin results must match exact sets.
+- `tidelink` must fail one gate and pass the other. A tool that marks everything red fails, and so does one that judges the wrong host.
+- Every reachable item must carry its canonical host, and the 44-pin count rules out a gate that judged only the pins it could fetch.
 - The run count must equal the number of configurations plus one, so an empty night fails.
 
 **Known consequences (not failures of the test)**
 - eth-main also pins tidelink by ssh, so its `t0.urls.no-ssh-public` is red.
 - If eth-main keeps `upgrade_from: v1.0.0`, its `t0.clone.upgrade-path` is red: an anonymous recursive clone of rc4 cannot fetch rc4's ssh pins.
 - Frozen rc4 stays red for ever unless waived (question 1).
+- Once compute is registered (F1), its T0 is red at the root while the compute repo stays private: `t0.pins.fetchable` cannot fetch the superproject anonymously.
+
+**Related:** rc4's arch_tech pin `ecf76aa` is reachable on GitHub only from a branch, not a tag; the silicon-protection list shows it as an uncovered canonical-host row (AT-B5, question 9 in GATE2.md).
 
 ---
 
@@ -214,7 +242,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    | 13 | an empty `verdicts.tsv` | 6 |
 3. **No push path.**
    - The app's non-GET routes are exactly `POST /configurations/{id}/runs` and `POST /api/v1/configurations/{id}/runs`.
-   - POSTing the bundle's `provenance.json` as the body of either creates only a new pending run with a fresh nonce. It never creates an accepted result, and the posted nonce appears nowhere.
+   - POSTing the bundle's `provenance.json` as the body of either creates only a new run with a fresh nonce (pending, or `no-bundle` when the trigger cannot reach a CI host). It never creates an accepted result, and the posted nonce appears nowhere. At least the two new runs must exist, so the check cannot pass on an empty list.
 
 **Fixture**
 - REAL: the rc4 commit, request and `canonical_urls`; the two invalid `verdicts.tsv` examples.
@@ -275,7 +303,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 **Fixture**
 - REAL: the rc4 rows and `.gitmodules`.
-- The example TSV has **no `t0.runner.hardened` rows** (gap G6). As written it rolls up UNVERIFIED (`missing`). The test adds that gate's two rows before rolling up, and records the example defect.
+- The example TSV now carries the two `t0.runner.hardened` rows (G6 fixed). The test also shows that the same TSV without them rolls up UNVERIFIED (`missing`).
 
 **Exercises:** README §6 verdict table; observation `t0_result.gates[].control`; interfaces §9 gate table; §13 `/runs/{nonce}`.
 
@@ -285,7 +313,8 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    - The control must NOT fire: the `.negctl` row is FAIL.
    - The service's verdict for the gate is UNVERIFIED, never PASS.
    - This is D6's purpose: a gate that cannot fail is caught.
-2. **Roll-up rules**, each on a copy of the golden with one change:
+2. **Every gate, not just one** (coverage review Medium 1): each gate in `GATES` is replaced in turn by an always-PASS mutant and run with its own control. Each control fails to fire and each gate rolls up UNVERIFIED, which proves every control runs its gate's own check on a broken input.
+3. **Roll-up rules**, each on a copy of the golden with one change:
    - `t0.infra.probe.negctl` deleted → UNVERIFIED, `missing`;
    - that row flipped to FAIL → UNVERIFIED, `not-fired`;
    - a second `t0.infra.probe` row → UNVERIFIED.
@@ -304,7 +333,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 **Given**
 - The compat-ci `t0` job on the dedicated runner.
-- The expected settings in the private service config: service account, allowed runner ids, runner tag. PROPOSED (G7).
+- The expected settings in the private service config: `ci.service_account`, `ci.allowed_runner_ids`, `ci.runner_tag`, `ci.runner_expected` (interfaces.md section 17.1).
 
 **When:** a nightly T0 runs and the service fetches it.
 
@@ -313,8 +342,8 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    - `CI_COMMIT_REF_PROTECTED=true`;
    - `HOME` and `TMPDIR` empty at job start;
    - the job user is the service account.
-2. The CI API's `job.runner.id` is in `ci.allowed_runner_ids`. Verify rejects the bundle otherwise. PROPOSED (G7).
-3. **Settings recorded:** a `runner_settings` observation from `GET runners/:id`, observed no earlier than tonight's newest run. PROPOSED (G7). It shows:
+2. The CI API's `job.runner.id` is in `ci.allowed_runner_ids`. Verify rejects the bundle otherwise. (G7, now contracted).
+3. **Settings recorded:** a `runner_settings` observation from `GET runners/:id`, observed no earlier than tonight's newest run. (G7, now contracted). It shows:
    - `run_untagged: false`;
    - `access_level: ref_protected`;
    - `locked: true`;
@@ -333,10 +362,11 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
   1. `CI_COMMIT_REF_PROTECTED=false` (the gate's contracted control);
   2. `HOME` holding a file left by a previous job;
   3. `TMPDIR` not empty;
-  4. job user = a personal login.
+  4. job user = a personal login;
+  5. `CI_JOB_TOKEN` left in the environment (the scrub of interfaces.md section 9 did not run).
 - **Must happen:**
   - each environment gives FAIL, and the detail names the variable;
-  - PROPOSED (G7): the genuine bundle, with the job API reporting a runner id outside the allowlist, is `rejected` at check 1.
+  - (G7, now contracted): the genuine bundle, with the job API reporting a runner id outside the allowlist, is `rejected` at check 1.
 
 **Cannot pass vacuously because**
 - The same gate code must PASS in the real job and FAIL on each one-variable change.
@@ -359,14 +389,14 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 1. The scan is `clean`: more than 0 files scanned, and every rule, including `arm.banner`, armed on its specimen first.
 2. The run is `accepted`, and the bundle is written to the `ci` store (`bundle` is a store_ref, not null).
 3. **Realism, live, lab only.** Scanning one real vendor source file reports `arm.banner` at line ≤ 30.
-   - The file is named by `RM_ARM_REFERENCE_FILE`. PROPOSED `scan_paths` (G8) reads it in place, read-only. No copy is made.
+   - The file is named by `RM_ARM_REFERENCE_FILE`. contracted `scan_paths` (G8) reads it in place, read-only. No copy is made.
    - The finding carries rule, file and line only; the test prints no content.
    - This ties the invented specimen to a real banner.
 
 **Fixture**
 - REAL: the rc4 provenance and rows.
 - SYNTHETIC: the log text.
-- SPECIMEN: the scanner's own `arm.banner` arming specimen, PROPOSED (G8). No vendor text is written into this repo.
+- SPECIMEN: the scanner's own `arm.banner` arming specimen, (G8, now contracted). No vendor text is written into this repo.
 
 **Exercises:** interfaces §11 scan; §10 verify check 7; observation `t0_result` (refused → UNVERIFIED, `bundle: null`).
 
@@ -375,11 +405,11 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - **Must happen:**
   - `refused`, at check 7;
   - the reason names `arm.banner` and `logs/t0.log:3`, and never the matched text;
-  - the quarantine directory is emptied;
+  - no file holding the planted text survives anywhere under the service's data dir (a check on one quarantine directory alone could pass if the tool quarantined elsewhere);
   - nothing reaches the store;
   - `t0_result`: `acceptance: refused`, `verdict: UNVERIFIED`, `bundle: null`.
 - **Second input:** an empty `rm-bundle/`. The scan is `unverified`, because the census is 0, and the run is refused, not accepted.
-- **Third input, the job side ("before upload"):** the planted bundle goes through the runner's last step before the job ends. PROPOSED `finalise_bundle` (G8).
+- **Third input, the job side ("before upload"):** the planted bundle goes through the runner's last step before the job ends. contracted `finalise_bundle` (G8).
   - Must happen: `logs/t0.log` is gone from `rm-bundle/`, and `provenance.scan` says `finding` and lists `arm.banner` at `logs/t0.log:3`.
   - Why: the job contract uploads `rm-bundle/` with `when: always`. Without this step, the planted text reaches CI artifacts before the service can refuse it.
 - **Runs:** hermetic.
@@ -455,7 +485,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 **When**
 1. `/errata/<configuration>` is rendered for every configuration with errata.
-2. PROPOSED (G10): detector D1 of SL-DEF-0001 (hsel_lint at nanosoc_gen `adbb9ab`) runs on the unpacked rc4 archive.
+2. (G10, now contracted): detector D1 of SL-DEF-0001 (hsel_lint at nanosoc_gen `adbb9ab`) runs on the unpacked rc4 archive.
 
 **Then**
 1. Every erratum has `exposure.level`, `method` and `evidence`. The page prints the method and evidence beside the level.
@@ -476,17 +506,18 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - REAL: the rc4 erratum and the P1 archive.
 - The D1 result on rc4 has never been observed.
 
-**Exercises:** the erratum `exposure` schema and its if/then; the loader's README §3 rule 4; §13 `/errata/{configuration}`; the PROPOSED detector run (G10).
+**Exercises:** the erratum `exposure` schema and its if/then; the loader's README §3 rule 4; §13 `/errata/{configuration}`; the detector run (interfaces.md section 6a).
 
 **Negative control (hermetic)**
 1. The real invalid example `erratum.ancestry-claims-exposed.yaml` (`level: exposed`, `method: ancestry`, no detector) is rejected with `'detector' is a required property`.
 2. The rc4 erratum with `exposure: {level: exposed, method: detector, detector: D9, …}` is refused by loader rule 4: SL-DEF-0001 has no D9.
+3. **The detector can answer both ways** (coverage review Medium 2): `detect.run` with SL-DEF-0001's D2 (a netlist pattern) returns `fired`, forms `[A]`, on a synthetic netlist with `.cpu_ss_hsel(UNCONNECTED_12)`, and `clean` on the same netlist with the port connected. A detector that only ever answers one way cannot pass.
 
 **Cannot pass vacuously because**
 - The one real erratum sits at the amber level, so the page must render amber.
 - The invalid example is exactly the shortcut F2 forbids.
 
-**Limit:** the evidence is free text today. Nothing re-checks that a claimed detector run happened (G10).
+**Limit:** a detector level now carries a structured `exposure.run` (input md5, detector source commit, result, command, time), and the refs-resolve gate proves the source commit. Nothing re-runs the detector to check the claim; AT-F2's live half does that for rc4.
 
 ---
 
@@ -497,20 +528,23 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 **Given**
 - Registry state R0: the real SL-DEF-0001, ETH-R0P0-ERR-001, catalogue and import-ledger examples, with one change: `regression_test: null`. The schema allows null for "no bench yet".
-- Every commit R0 still cites is pushed:
+- Every commit R0 still cites is pushed. The erratum now cites structurally (`cites`, loader rule 9) the four commits its free text names, so the gate proves them too (coverage review Low 2):
 
   | Commit | Component | Where it is reachable |
   |---|---|---|
   | `49a6c25` | arch_tech | GitHub main |
-  | `b0a6069`, `036d381`, `adbb9ab` | nanosoc_gen | GitLab main |
+  | `b0a6069`, `036d381`, `adbb9ab`, `1d7772d` | nanosoc_gen | GitLab main |
+  | `d04de2e` | nanosoc_gen | GitLab, keep tag and a branch |
   | `7a87e20` | multicore | GitLab, branch-only |
+  | `57d2c76` | multicore | GitLab master |
+  | `f60449b` | multicore | GitLab, keep tag and branches |
   | `66a2f698` | eth | GitHub, tag-only via `v1.0.0` |
 
 **When:** the registry T0 job (`configuration: @registry`) runs `t0.registry.refs-resolve` anonymously (interfaces §9).
 
 **Then**
 1. The gate is PASS, and its `.negctl` fired.
-2. The gate's per-ref results (PROPOSED `refs.jsonl`, G11) list each distinct cited commit once, all reachable on the catalogue's canonical host. This includes the branch-only `7a87e20` and the tag-only `66a2f698`.
+2. The gate's per-citation results (items file, interfaces.md section 9) cover exactly the 10 distinct cited commits above, each `pass` on the catalogue's canonical host. This includes the branch-only `7a87e20` and the tag-only `66a2f698`.
 
 **Fixture:** REAL, all commits verified on their hosts on 2026-09-30.
 
@@ -518,18 +552,16 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 **Negative control (the done-when, real data)**
 1. **R0 with the bench restored** to `6aafc943f2750be92e80b31be99f0cd60f8927e4`, which is the real record today.
-   - Must happen: the gate FAILs; the detail and `refs.jsonl` name `defects/SL-DEF-0001.yaml`, pointer `/regression_test/commit` and `6aafc94`. The run verdict is FAIL.
-2. **R0 plus a defect citing ahb_qspi `e908ac8`.** The commit exists only on the GitLab copy; the canonical host is GitHub.
-   - Must happen: FAIL. This proves the gate checks the canonical host, not any host.
+   - Must happen: the gate FAILs; the detail and the gate's items (G11) name `defects/SL-DEF-0001.yaml`, pointer `/regression_test/commit` and `6aafc94`. The run verdict is FAIL.
+2. **R0 plus a defect citing an ahb_qspi commit that exists only on the non-canonical host.** ahb_qspi is DIVERGED, so one exists whichever host question 2 makes canonical: `e908ac8` is GitLab-only (used while GitHub is canonical, as in the catalogue example) and `71f8d1c` is GitHub-only.
+   - Must happen: FAIL, with the item judged on the canonical host. This proves the gate checks the canonical host, not any host.
 3. **R0 plus an import source at QuickStart `1f2f06e`**, which is committed only locally.
    - Must happen: FAIL.
 
 **Cannot pass vacuously because**
 - It is a controlled pair: R0 and case 1 differ in one field.
 - The positive half needs a branch-only and a tag-only commit to pass, so a checker that reads only the default branch fails the main test.
-- Case 2 fails a checker that accepts a commit found on any host.
-
-**Watch:** `7a87e20` is one branch deletion away from failing F3. Multicore's `fix/dma250-hsel-guard` was deleted between 09-28 and 09-30. Protecting `7a87e20` with a tag is a write, so it is David's call (PR8).
+- Case 2 fails a checker that accepts a commit found on any host, and stays valid whichever canonical host David picks.
 
 **Blocked:** the registry job needs read access to the private registry from compat-ci (question 3).
 
@@ -543,8 +575,9 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 **Given:** the live registry's `imports.yaml`, and each source document at the commit the ledger cites.
 
 **When**
-1. PROPOSED (G12): `nanosoc-rm registry imports --json` runs.
-2. Each source document is read at its cited commit and its items are extracted by the source's declared rule.
+1. `nanosoc-rm registry imports --json` runs (interfaces.md section 2a).
+2. Each source document is read at its cited commit and its items are extracted by the source's declared rule (`items_rule`).
+3. Independently, the test fetches the two eth documents anonymously at whatever commits the ledger cites and extracts their headings itself.
 
 **Then**
 1. The ledger has exactly four sources:
@@ -554,7 +587,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    - QuickStart `docs/DEFECT-cpu-ss-hsel.md`.
 
    Each is cited at a commit that `t0.registry.refs-resolve` proves (AT-F3).
-2. **Census.** For each source, the ledger's item keys equal the items the source's rule extracts at that commit:
+2. **Census.** The report covers exactly the ledger's four sources. For each source, the ledger's item keys equal the items the source's rule extracts at that commit, and the independent heading census is contained in the tool's census plus its exclusions:
    - `11-known-issues.md` @ `66a2f698`: 9 items, `a)` to `i)`;
    - `16-open-defects.md` @ `66a2f698`: `1` to `6`, plus the three "found in passing" defects (two in the body, one in the 2026-08-12 addendum). Each of the 9 is either listed or excluded by the rule with a reason.
 3. No item is `pending`.
@@ -565,7 +598,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - REAL: the document commits and item counts.
 - UNKNOWN: the item counts of the other two documents. `67-rc4-issue-register.md` is untracked, and the QuickStart write-up is committed only locally (`1f2f06e`, not on GitHub). **F5 cannot complete until both are committed and pushed.**
 
-**Exercises:** import-ledger schema; loader §2 (pending count); PROPOSED census rule and command (G12); F3 for the source commits.
+**Exercises:** import-ledger schema; loader §2 (pending count); the census rule and command (interfaces.md section 2a); F3 for the source commits.
 
 **Negative control (hermetic)**
 1. The example ledger as written, with 3 items all pending: the F5 check reports "not done: 3 pending" and exits 1.
@@ -577,26 +610,49 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 ---
 
+## Negative controls run today
+
+`python3 -m pytest --strict-markers tests/acceptance/test_ci_errata.py` on 2026-09-30, after the revision, gave
+**10 passed, 20 xfailed**, under Python 3.8 (pytest 8.3.5, jsonschema 4.19.1) and 3.11 (pytest 9.1.1,
+jsonschema 4.26.0). The 20 xfailed are the 10 ATs and their controls, which wait for the tool. The 10 passed
+are self-checks: each proves a control's input is what its AT claims, with an oracle that shares no tool code.
+
+| Self-check | Good input passes | Broken inputs that fail |
+|---|---|---|
+| `test_selfcheck_D1_budget_inputs` | the example bundle ran 92 s | 181 s is over the 120 s budget; the tier enum is exactly t0 to t6 |
+| `test_selfcheck_D2_expected_sets` | the per-pin sets match the lock, the silicon rows, the catalogue and the golden TSV | (consistency of the goldens the AT reads) |
+| `test_selfcheck_D2_gate_fixtures` | the good upgrade pair updates without sync; the example manifest validates; the clean tree has no specimen; the example registry validates | the frozen-old-host pair fails without sync; `version: "1.0"` fails; the planted tree holds the specimen; the no-class catalogue fails |
+| `test_selfcheck_D5_tampers` | a reference verify accepts the genuine case | each of the 13 tampers fails exactly the check it is listed under; the control fails check 5 and differs only in provenance |
+| `test_selfcheck_D6_rollup_oracle` | a reference README section 6 roll-up of the golden TSV equals `EXPECTED_RC4_ROLLUP` (FAIL, 2 not run); the schema accepts it | control deleted, flipped, doubled: UNVERIFIED; all-skip and no gates: UNVERIFIED; the schema refuses the same gates claimed PASS, and a PASS over NOT-RUN gates only |
+| `test_selfcheck_D10_environments` | the good job environment breaks nothing | each synthetic environment breaks exactly its one property |
+| `test_selfcheck_D11_planted_line` | the bundle writer writes exactly 3 files | the planted specimen starts at `logs/t0.log` line 3 |
+| `test_selfcheck_F1_F2_variants` | the rc4 erratum validates and is permanent on a silicon configuration | the eth-main copy breaks rule 6 only; form C and D9 are not in the defect; the ancestry example fails `required` at `/exposure`; D2's pattern matches only the fired netlist |
+| `test_selfcheck_F3_refs` | R0's structured citations are exactly the 10 commits; every commit named in the examples' free text is cited | the control adds exactly the bench; a planted free-text commit is flagged by rule 9 |
+| `test_selfcheck_F5_census` | the example ledger with rules validates; the census finds everything listed | 3 pending; a ledger without `c)` misses exactly `c)` |
+
 ## Contract gaps
+
+**Every gap below except G9 (data, not a contract) was resolved in the gate-2 revision (2026-09-30);** the last column says where. `docs/contracts/interfaces.md` section 17.7 has the same index. The text of each gap is kept as written, so the review trail stays readable.
 
 Needed by the tests above and not in the gate-2 contracts. Each is a proposal. None has been added to a contract.
 
-| # | Gap | Needed by | Proposal |
-|---|---|---|---|
-| G1 | **No tier table.** No contract gives each tier's budget, licence, manual flag or per-SoC command. The T0 budget conflicts: D1 says under 2 min, the job contract has `timeout: 15m`, interfaces §16 says "15-minute budget". No rule says what over budget means. D1 gives T4 and T5 no budget. `t0_result` carries no start or finish time. | D1 | `nanosoc_rm/t0/tiers.py`: `TIERS`, `tier_commands(config)`, `check_budget(tier, started_at, finished_at)`, `validate_tiers()`; CLI `nanosoc-rm tiers [CONFIG] --json`; `t0_result.fact.started_at`, `.finished_at`, `.over_budget`. Keep `timeout: 15m` as the kill limit, 120 s as the budget, and make over budget a WARN shown on the dashboard. |
-| G2 | **A missed night is invisible.** `trigger()` failure has no recorded outcome, and nothing defines "no report tonight". The dashboard shows only the last verdict's age. | D2 | A failed trigger writes a `t0_result` with `acceptance: no-bundle` and a reason. Add `nanosoc-rm t0 coverage [--night DATE] --json`: exit 1 when any configuration or `@registry` lacks an accepted scheduled run that night. |
-| G3 | **No hermetic seam for the T0 runner.** `GIT_CONFIG_GLOBAL=/dev/null` blocks `insteadOf`, so the runner cannot be pointed at local fixture repos. Only live tests can exercise fetch and reach. | D2 (builder tests) | A test-only `--url-map FILE`, refused when `CI_JOB_ID` is set so a real job cannot fake reachability. |
-| G4 | **Verify, fetch and CI client types are undefined.** `Verdict` and `RunRecord` have no fields. Nothing stores a `RunRecord`. There is no seam to inject a fake CI API. Interfaces §1 names the config sections but not their keys, nor the data directory. | D2, D5, D10, D11 | `Verdict(acceptance, check: int \| None, reason)`; `RunRecord` = the `runs` table columns, importable from `nanosoc_rm.ci.verify`; `db.put_run(run)`; a `CIClient` protocol, and a `FakeCI(pipelines, jobs, variables, artifacts, fail_trigger_for)` for tests, as fpgahub's `FakeAuthenticator`; `trigger(..., client=)` and `fetch_pending(client=)`; keys `[service] data_dir`, `[ci] project, project_id, ref, job, allowed_refs, fetch_timeout_minutes`, `[paths] quarantine`. |
-| G5 | **No app factory, no test auth, no page markup.** Tests cannot find a verdict, a control or a colour on a page. No JSON route serves defects and errata. | D2, D5, D6, F2 | `nanosoc_rm.web.create_app(config_path, auth=)` and `nanosoc_rm.auth.FakeMembership(login=)`; data attributes: dashboard rows `data-configuration`, `data-verdict`, `data-age-seconds`; run page rows `data-gate`, `data-verdict`, `data-control`; errata rows `data-erratum`, `data-exposure`, `data-method`, plus class `state-amber` / `state-red` / `state-green`; `GET /api/v1/errata/{configuration}`. |
-| G6 | **The gate table's shape is undefined.** Missing: the `Gate` fields, a context object, a way to run a gate with its control, and the roll-up function. `control` has no value for a NOT-RUN gate. The golden `verdicts.tsv` example has no `t0.runner.hardened` rows, so it rolls up UNVERIFIED. | D2, D6, D10, F3 | `Gate(id, scope, reqs, check, control)` as a dataclass, with `check(ctx) -> (status, detail)`; `GATES: dict[id, Gate]`; `Context.for_tests(nonce, workdir, parents=, env=, service_account=, registry_dir=)` and `ctx.items(gate)`; `run_with_control(id, ctx) -> (row, negctl_row)`; `rollup(rows, scope)`; `run_verdict(items) -> (verdict, not_run)`; add control value `not-applicable` (an enum value, so no bump); add the two rows to the example. |
-| G7 | **Runner identity and settings are neither recorded nor checked.** The gate checks only the job's environment. Verify ignores `job.runner`. Nothing enforces "not a shared or untagged lab runner, not a shared login server". No field holds CPU time. | D10 | Config `ci.allowed_runner_ids` and `ci.service_account`; verify check 1 adds `job.runner.id ∈ allowed`; a new observation kind `runner_settings` (an enum value, so no bump) from `GET runners/:id`, with a `drift` list; `nanosoc-rm runner --json`, exit 1 on drift; the job learns the expected service account from a non-secret compat-ci variable (e.g. `RM_SERVICE_ACCOUNT`), since the job holds no config; provenance `cpu_seconds` (Phase 2). |
-| G8 | **The scanner's test surface is undefined, and the job uploads before anyone checks.** No specimen access, armed-rule report, census count or quarantine location. The job contract uploads `rm-bundle/` with `when: always`, so content the runner's own scan flags is uploaded to CI artifacts anyway: D11 says "before upload". Where `arm.banner` lives is open (question 4). | D11 | `scan.rules.specimen(rule_id)`; `scan.scan_paths(paths)`, which reads files in place, for the lab-only realism check; `ScanResult(verdict, findings, files_scanned, armed)`; `[paths] quarantine`; the runner's `finalise_bundle(dir)` deletes flagged files and keeps only their locations before the job ends; `provenance.scan` gains an optional `findings: [{rule, file, line}]`. |
-| G9 | Compute and QuickStart are neither catalogued nor registered. | F1 | Data, not contract: register them once DEC3 and question 8 are answered. |
-| G10 | **Nothing runs a detector, and exposure evidence is free text.** A record can claim `exposed` by `detector` with no run behind it. In v1 only rc4 has built output (the P1 archive); no v1 tier regenerates `build_soc`. | F2 | `nanosoc_rm.analysis.detect.run(defect, detector, built_output) -> DetectorRun(result, forms, input_md5, detector_source, command, observed_at)`; an optional structured `exposure.run` on the erratum, required by the loader when `method: detector`. |
-| G11 | **Gate details are free text.** A test cannot tell which pins or record pointers a gate checked, or the result of each. The registry job also needs registry read access (question 3). A citation into a private canonical repo can only be UNVERIFIED, never FAIL, from an anonymous job. | D2, F3, F5 | Each gate writes `rm-bundle/items/<gate>.jsonl`: `{tree_path or file+pointer, component, commit, host, result: pass\|fail\|unverified\|not-reached, why}`; `nanosoc-rm t0 items NONCE GATE --json`. Decide whether UNVERIFIED on a private citation satisfies "T0 fails otherwise". |
-| G12 | **No import census.** The ledger cannot say which headings count as items. `16-open-defects.md` shows the judgement is real: 6 numbered items, 2 unnumbered paragraphs and an addendum with a third. Pending items do not change the exit code. | F5 | Import-ledger source field `doc.items_rule: {pattern, exclude: [{key, reason}]}`, where the pattern's first group is the item key; `nanosoc_rm.registry.imports.census(ledger, read_doc) -> [CensusRow(path, commit, census, missing, extra, excluded, pending, done)]`; `nanosoc-rm registry imports --json`, exit 1 while any item is pending or the census differs. |
-| G13 | **Test infrastructure.** Markers `requirement` and `live` are unregistered. The lab inputs have no agreed names. | all | `tests/conftest.py` registers both markers. Lab inputs: `NANOSOC_RM_CONFIG`, `NANOSOC_RM_REGISTRY`, `RM_ARM_REFERENCE_FILE`, `RM_RC4_BUILD_SOC_TAR`. A live test without its input fails; it never passes. |
-| G14 | **Record and value types are undefined.** `Registry` returns `Component`, `Configuration`, `Defect`, `Erratum` and `Repo` types with no stated fields. | F1, F2, F3, F5 | Records are schema documents (plain dicts, or pydantic models with `model_dump()`); `Repo(host, path)` importable from `nanosoc_rm.registry`. The tests read records through `as_doc()`. |
+| # | Gap | Needed by | Proposal | Resolution (2026-09-30 revision) |
+|---|---|---|---|---|
+| G1 | **No tier table.** No contract gives each tier's budget, licence, manual flag or per-SoC command. The T0 budget conflicts: D1 says under 2 min, the job contract has `timeout: 15m`, interfaces §16 says "15-minute budget". No rule says what over budget means. D1 gives T4 and T5 no budget. `t0_result` carries no start or finish time. | D1 | `nanosoc_rm/t0/tiers.py`: `TIERS`, `tier_commands(config)`, `check_budget(tier, started_at, finished_at)`, `validate_tiers()`; CLI `nanosoc-rm tiers [CONFIG] --json`; `t0_result.fact.started_at`, `.finished_at`, `.over_budget`. Keep `timeout: 15m` as the kill limit, 120 s as the budget, and make over budget a WARN shown on the dashboard. | Resolved: interfaces.md section 9 (tiers; 120 s budget, 15 min kill limit, over budget = warning); observation `started_at`, `finished_at`, `over_budget` |
+| G2 | **A missed night is invisible.** `trigger()` failure has no recorded outcome, and nothing defines "no report tonight". The dashboard shows only the last verdict's age. | D2 | A failed trigger writes a `t0_result` with `acceptance: no-bundle` and a reason. Add `nanosoc-rm t0 coverage [--night DATE] --json`: exit 1 when any configuration or `@registry` lacks an accepted scheduled run that night. | Resolved: interfaces.md section 10 Trigger step 5, `t0 coverage` |
+| G3 | **No hermetic seam for the T0 runner.** `GIT_CONFIG_GLOBAL=/dev/null` blocks `insteadOf`, so the runner cannot be pointed at local fixture repos. Only live tests can exercise fetch and reach. | D2 (builder tests) | A test-only `--url-map FILE`, refused when `CI_JOB_ID` is set so a real job cannot fake reachability. | Resolved: interfaces.md section 9 (`url_map`, refused when `CI_JOB_ID` is set) |
+| G4 | **Verify, fetch and CI client types are undefined.** `Verdict` and `RunRecord` have no fields. Nothing stores a `RunRecord`. There is no seam to inject a fake CI API. Interfaces §1 names the config sections but not their keys, nor the data directory. | D2, D5, D10, D11 | `Verdict(acceptance, check: int \| None, reason)`; `RunRecord` = the `runs` table columns, importable from `nanosoc_rm.ci.verify`; `db.put_run(run)`; a `CIClient` protocol, and a `FakeCI(pipelines, jobs, variables, artifacts, fail_trigger_for)` for tests, as fpgahub's `FakeAuthenticator`; `trigger(..., client=)` and `fetch_pending(client=)`; keys `[service] data_dir`, `[ci] project, project_id, ref, job, allowed_refs, fetch_timeout_minutes`, `[paths] quarantine`. | Resolved: interfaces.md section 10 (`CIClient`, `FakeCI`, `RunRecord`, `Verdict`), 17.1 keys |
+| G5 | **No app factory, no test auth, no page markup.** Tests cannot find a verdict, a control or a colour on a page. No JSON route serves defects and errata. The scope/web tests propose `create_app(config)` taking a loaded config; the two proposals must be reconciled. | D2, D5, D6, F2 | `nanosoc_rm.web.create_app(config_path, auth=)` and `nanosoc_rm.auth.FakeMembership(login=)`; data attributes: dashboard rows `data-configuration`, `data-verdict`, `data-age-seconds`; run page rows `data-gate`, `data-verdict`, `data-control`; errata rows `data-erratum`, `data-exposure`, `data-method`, plus class `state-amber` / `state-red` / `state-green`; `GET /api/v1/errata/{configuration}`. | Resolved: interfaces.md sections 13 and 14 (`create_app(config_path, auth=)`, merged hooks, `/api/v1/errata`) |
+| G6 | **The gate table's shape is undefined.** Missing: the `Gate` fields, a context object, a way to run a gate with its control, and the roll-up function. Nothing makes the control run the gate's own code. `control` has no value for a NOT-RUN gate. The golden `verdicts.tsv` example has no `t0.runner.hardened` rows, so it rolls up UNVERIFIED. | D2, D6, D10, F3 | `Gate(id, scope, reqs, check, control)` as a dataclass, with `check(ctx) -> (status, detail)` and `control(ctx) -> Context` returning the broken input only, so `run_with_control` always runs the same `check` on it; `GATES: dict[id, Gate]`; `Context.for_tests(nonce, workdir, parents=, env=, service_account=, registry_dir=)` and `ctx.items(gate)`; `run_with_control(id, ctx) -> (row, negctl_row)`; `rollup(rows, scope)`; `run_verdict(items) -> (verdict, not_run)`; add control value `not-applicable` (an enum value, so no bump); add the two rows to the example. | Resolved: interfaces.md section 9 (Gate API); observation `control: not-applicable`; the two rows added to the example |
+| G7 | **Runner identity and settings are neither recorded nor checked.** The gate checks only the job's environment. Verify ignores `job.runner`. Nothing enforces "not a shared or untagged lab runner, not a shared login server". No field holds CPU time. | D10 | Config `ci.allowed_runner_ids` and `ci.service_account`; verify check 1 adds `job.runner.id ∈ allowed`; a new observation kind `runner_settings` (an enum value, so no bump) from `GET runners/:id`, with a `drift` list; `nanosoc-rm runner --json`, exit 1 on drift; the job learns the expected service account from a non-secret compat-ci variable (e.g. `RM_SERVICE_ACCOUNT`), since the job holds no config; provenance `cpu_seconds` (Phase 2). | Resolved: interfaces.md sections 1 and 10 (verify check 1), observation `runner_settings`, 17.3; `cpu_seconds` in Phase 2 |
+| G8 | **The scanner's test surface is undefined, and the job uploads before anyone checks.** No specimen access, armed-rule report, census count or quarantine location. The job contract uploads `rm-bundle/` with `when: always`, so content the runner's own scan flags is uploaded to CI artifacts anyway: D11 says "before upload". Where `arm.banner` lives is open (question 4). | D11 | `scan.rules.specimen(rule_id)`; `scan.scan_paths(paths)`, which reads files in place, for the lab-only realism check; `ScanResult(verdict, findings, files_scanned, armed)`; `[paths] quarantine`; the runner's `finalise_bundle(dir)` deletes flagged files and keeps only their locations before the job ends; `provenance.scan` gains an optional `findings: [{rule, file, line}]`. | Resolved: interfaces.md sections 9 (`finalise_bundle`, `access: developer`, compat-ci private) and 11; result-bundle `scan.findings` |
+| G9 | Compute and QuickStart are neither catalogued nor registered. | F1 | Data, not contract: register them once DEC3 and question 8 are answered. | Open (data, not contract): DEC3 and question 8 in GATE2.md |
+| G10 | **Nothing runs a detector, and exposure evidence is free text.** A record can claim `exposed` by `detector` with no run behind it. In v1 only rc4 has built output (the P1 archive); no v1 tier regenerates `build_soc`. | F2 | `nanosoc_rm.analysis.detect.run(defect, detector, built_output) -> DetectorRun(result, forms, input_md5, detector_source, command, observed_at)`; an optional structured `exposure.run` on the erratum, required by the loader when `method: detector`. | Resolved: interfaces.md section 6a; erratum `exposure.run` |
+| G11 | **Gate details are free text.** A test cannot tell which pins or record pointers a gate checked, or the result of each. The registry job also needs registry read access (question 3). A citation into a private canonical repo can only be UNVERIFIED, never FAIL, from an anonymous job. | D2, F3, F5 | Each gate writes `rm-bundle/items/<gate>.jsonl`: `{tree_path or file+pointer, component, commit, host, result: pass\|fail\|unverified\|not-reached, why}`; `nanosoc-rm t0 items NONCE GATE --json`. Decide whether UNVERIFIED on a private citation satisfies "T0 fails otherwise". | Resolved: interfaces.md section 9 (items files, `t0 items`); README section 6 ("T0 fails" = not PASS); private citations: question 3 |
+| G12 | **No import census.** The ledger cannot say which headings count as items. `16-open-defects.md` shows the judgement is real: 6 numbered items, 2 unnumbered paragraphs and an addendum with a third. Pending items do not change the exit code. | F5 | Import-ledger source field `doc.items_rule: {pattern, exclude: [{key, reason}]}`, where the pattern's first group is the item key; `nanosoc_rm.registry.imports.census(ledger, read_doc) -> [CensusRow(path, commit, census, missing, extra, excluded, pending, done)]`; `nanosoc-rm registry imports --json`, exit 1 while any item is pending or the census differs. | Resolved: interfaces.md section 2a; import-ledger `items_rule` |
+| G13 | **Test infrastructure.** Markers `requirement` and `live` are unregistered. The lab inputs have no agreed names. | all | `tests/conftest.py` registers both markers. Lab inputs: `NANOSOC_RM_CONFIG`, `NANOSOC_RM_REGISTRY`, `RM_ARM_REFERENCE_FILE`, `RM_RC4_BUILD_SOC_TAR`. A live test without its input fails; it never passes. | Resolved: interfaces.md 17.4, `tests/conftest.py` |
+| G14 | **Record and value types are undefined.** `Registry` returns `Component`, `Configuration`, `Defect`, `Erratum` and `Repo` types with no stated fields. | F1, F2, F3, F5 | Records are schema documents (plain dicts, or pydantic models with `model_dump()`); `Repo(host, path)` importable from `nanosoc_rm.registry`. The tests read records through `as_doc()`. | Resolved: interfaces.md 17.2 (records are schema dicts; `Repo`) |
+| G15 | **`t0.pins.reachable`'s pin set is undefined when `t0.pins.fetchable` could not fetch a parent.** rc4's 5 pins below `tidelink` are unreachable by the pinned ssh URL but readable through the canonical https URL. The golden row names no unreached pin, which implies the walk goes through canonical URLs, but no contract says so. | D2 | The reachable gate walks the tree through the canonical https URLs it fetches, so it judges every pin (44 on rc4); a pin below an unreadable canonical repo is `not-reached`, which makes the gate UNVERIFIED. Items carry `component` and `host`. | Resolved: interfaces.md section 9 (`t0.pins.reachable` walks the canonical https URLs) |
 
 ## Untestable, or only partly testable
 

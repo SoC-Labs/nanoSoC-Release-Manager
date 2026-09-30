@@ -1,4 +1,4 @@
-# expect-error: 'reason' is a required property
+# expect-error: required at /sources/0/items/0 ~ 'reason'
 # F5: a dismissed issue says why, or it is not dismissed.
 schema: 1
 sources:

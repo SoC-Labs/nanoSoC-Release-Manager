@@ -17,7 +17,7 @@
       "description": "D5: issued by the service when it triggers the run, passed in the RM_REQUEST pipeline variable, and stamped on every verdicts.tsv row."
     },
     "request": {
-      "description": "D5: what the service asked for. Must equal the RM_REQUEST variable the CI API reports for this pipeline.",
+      "description": "D5: what the service asked for. Equal to the stored RM_REQUEST ($defs/rm_request) with its `schema` and `nonce` fields removed (the nonce is carried in run_nonce). Verify compares both against the RM_REQUEST variable the CI API reports for this pipeline.",
       "type": "object",
       "required": ["configuration", "repo", "commit", "upgrade_from", "canonical_urls"],
       "additionalProperties": false,
@@ -58,14 +58,14 @@
     "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
     "finished_at": { "$ref": "defs.schema.json#/$defs/utc" },
     "captured": {
-      "description": "D4, D5: taken AFTER the tests ran. superproject_commit must equal request.commit or the bundle is rejected (D5). A nested pin that differs from the walker's pin makes the run UNVERIFIED (D4).",
+      "description": "D4, D5: what the job actually read, taken AFTER the gates ran. T0 fetches each pin into an empty repo and never checks out a working tree, so: superproject_commit = `git rev-parse FETCH_HEAD^{commit}` of the superproject fetch; pins = the gitlinks the t0.pins.fetchable walk actually read (`git ls-tree <parent> -- <path>`). superproject_commit must equal request.commit or the bundle is rejected (verify check 5, a consistency check: D5's authority for T0 rests on verify checks 1 to 4 and 6, which compare the bundle with the CI API's own record). From Phase 2 (D4) a nested pin that differs from the walker's pin makes the run UNVERIFIED.",
       "type": "object",
       "required": ["superproject_commit", "pins"],
       "additionalProperties": false,
       "properties": {
         "superproject_commit": { "$ref": "defs.schema.json#/$defs/sha" },
         "pins": {
-          "description": "`git submodule status --recursive` after the run, one entry per checked-out submodule.",
+          "description": "One entry per gitlink the job read, with the commit it found; null = the pin's parent could not be fetched, so the gitlink was not read.",
           "type": "array",
           "items": {
             "type": "object",
@@ -103,23 +103,65 @@
         "load_end": { "type": "number", "minimum": 0 }
       }
     },
+    "cpu_seconds": {
+      "description": "D10 (Phase 2): CPU time the job used, for budgeting in CPU-hours. Optional in v1.",
+      "type": "number",
+      "minimum": 0
+    },
     "ip_hash": {
       "description": "D4 (Phase 2): sha256 over the IP files the file lists resolved.",
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
     },
     "scan": {
-      "description": "D11: the job's own vendor scan of rm-bundle/ before artifact upload. The service scans again and trusts only its own result.",
+      "description": "D11: the job's own vendor scan of rm-bundle/, run by finalise_bundle() as the job's last step, BEFORE artifact upload. Flagged or unscanned files are deleted from rm-bundle/ and only their locations are kept in `findings` (never the matched text). The service scans again and trusts only its own result.",
       "type": "object",
       "required": ["tool", "verdict"],
       "additionalProperties": false,
       "properties": {
         "tool": { "type": "string", "minLength": 1 },
-        "verdict": { "enum": ["clean", "finding", "unverified"] }
-      }
+        "verdict": { "enum": ["clean", "finding", "unverified"] },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["rule", "file", "line"],
+            "additionalProperties": false,
+            "properties": {
+              "rule": { "type": "string", "minLength": 1 },
+              "file": { "type": "string", "minLength": 1 },
+              "line": { "type": ["integer", "null"], "minimum": 1 }
+            }
+          }
+        }
+      },
+      "if": { "properties": { "verdict": { "const": "finding" } } },
+      "then": { "required": ["findings"], "properties": { "findings": { "minItems": 1 } } }
     }
   },
   "$defs": {
+    "rm_request": {
+      "description": "D5, A4: the RM_REQUEST pipeline variable, compact JSON, exactly as the service built, stored and sent it (interfaces.md section 10, Trigger step 1). Verify check 2 compares the CI API's copy byte for byte with the stored bytes.",
+      "type": "object",
+      "required": ["schema", "nonce", "configuration", "repo", "commit", "upgrade_from", "canonical_urls"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": 1 },
+        "nonce": { "$ref": "#/$defs/nonce" },
+        "configuration": {
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/configuration_id" }, { "const": "@registry" }]
+        },
+        "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "upgrade_from": {
+          "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }]
+        },
+        "canonical_urls": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^https://[^\\s]+$" }
+        }
+      }
+    },
     "nonce": {
       "type": "string",
       "pattern": "^[0-9a-f]{32}$"
@@ -136,11 +178,12 @@
           "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
         },
         "status": {
-          "description": "lib.sh's five (PASS, FAIL, UNVERIFIED, WARN, SKIP) plus INFRA (D7): an infrastructure failure, never counted as FAIL. A row G.negctl with PASS means gate G's negative control FIRED (G went red on its broken input); FAIL means it did not.",
+          "description": "lib.sh's five (PASS, FAIL, UNVERIFIED, WARN, SKIP) plus INFRA (D7): an infrastructure failure, never counted as FAIL. A row G.negctl with PASS means gate G's negative control FIRED (G went red on its broken input); FAIL means it did not. The toolkit's collect-results.py maps neither INFRA nor WARN (its VERDICT_MAP gives them status None); this tool's roll-up (README section 6) handles both.",
           "enum": ["PASS", "FAIL", "UNVERIFIED", "WARN", "SKIP", "INFRA"]
         },
         "gate": { "$ref": "defs.schema.json#/$defs/gate_id" },
         "detail": {
+          "description": "Free text with no tab or newline. lib.sh's _ci_record does not strip them, so the runner replaces each tab or newline in a detail with one space before writing the row.",
           "type": "string",
           "pattern": "^[^\\t\\n]*$"
         },

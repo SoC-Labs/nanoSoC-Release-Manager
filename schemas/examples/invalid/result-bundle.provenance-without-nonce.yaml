@@ -1,4 +1,4 @@
-# expect-error: 'run_nonce' is a required property
+# expect-error: required at / ~ 'run_nonce'
 # D5: a bundle without the service-issued nonce cannot be matched to the run that asked for it.
 schema: 1
 tier: t0

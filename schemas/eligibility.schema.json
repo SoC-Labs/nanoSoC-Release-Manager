@@ -44,7 +44,12 @@
         },
         "commit": {
           "$ref": "defs.schema.json#/$defs/sha",
-          "description": "Required when frozen. B5 and T0 use this commit even if the tag moves; a tag that stops peeling to it raises an alert (C10)."
+          "description": "Required when frozen. The walker, B5 and T0 always use this commit for a frozen configuration, whatever `ref` says: `ref` is then informational. A TAG that stops peeling to it raises a tag_moved alert (C10); a branch that moves on raises nothing."
+        },
+        "errata_prefix": {
+          "description": "F1, F4: the id prefix of this configuration's errata (ETH-R0P0 gives ETH-R0P0-ERR-001). Required once the configuration has an erratum (README section 3 rule 11).",
+          "type": "string",
+          "pattern": "^[A-Z0-9]+(-[A-Z0-9]+)*$"
         },
         "frozen": {
           "type": "boolean",

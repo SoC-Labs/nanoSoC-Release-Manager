@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://soclabs.org/nanosoc-rm/schemas/observation.schema.json",
   "title": "Observation: the envelope of every fact the tool shows",
-  "description": "Every module output that reaches a page, the JSON API or a CLI --json stream is one of these. The envelope carries where the fact came from (sources: the exact command or API call) and when (observed_at), so each page can show data age and link each fact to its command. The latest observation per `subject` is the current value; older ones are history. The SQLite database stores these and can be rebuilt from mirrors, registry and CI. Owner: each producing module; storage by db. A3, H1, H6.",
+  "description": "Every module output that reaches a page, the JSON API or a CLI --json stream is one of these. The envelope carries where the fact came from (sources: the exact command or API call) and when (observed_at), so each page can show data age and link each fact to its command. Set kinds (produced as a complete set per scope: pin_state, host_compare, containment, silicon_protection, mirror_status, repo_inventory, runner_settings, credential_status, registry_record) carry a `snapshot`; their current value is the latest COMPLETE snapshot of the scope, so a fact that is no longer produced disappears. Event kinds (rewrite_alert, t0_result, alert) keep the latest observation per `subject`. The SQLite database stores these and can be rebuilt from mirrors, registry and CI (except the runs and actions tables). Owner: each producing module; storage by db. A3, H1, H6.",
   "type": "object",
   "required": [
     "schema",
@@ -26,7 +26,11 @@
         "rewrite_alert",
         "mirror_status",
         "repo_inventory",
-        "t0_result"
+        "t0_result",
+        "runner_settings",
+        "credential_status",
+        "registry_record",
+        "alert"
       ]
     },
     "subject": {
@@ -36,7 +40,7 @@
     },
     "observed_at": {
       "$ref": "defs.schema.json#/$defs/utc",
-      "description": "A3: the oldest observation time of any input, so the envelope never looks fresher than its data."
+      "description": "A3: the OLDEST observation time of any input, so the envelope never looks fresher than its data. Not expressible in JSON Schema; db.put enforces it (interfaces.md section 12)."
     },
     "sources": {
       "type": "array",
@@ -44,6 +48,10 @@
       "items": {
         "$ref": "defs.schema.json#/$defs/source"
       }
+    },
+    "snapshot": {
+      "$ref": "defs.schema.json#/$defs/snapshot",
+      "description": "Required for set kinds (see the top-level description and README section 4). db.put refuses a set-kind observation without one."
     },
     "fact": {
       "type": "object"
@@ -65,8 +73,18 @@
           },
           "subject": {
             "pattern": "^pin_state:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^pin_state:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -84,8 +102,18 @@
           },
           "subject": {
             "pattern": "^host_compare:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^host_compare:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -103,8 +131,18 @@
           },
           "subject": {
             "pattern": "^containment:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^containment:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -122,8 +160,18 @@
           },
           "subject": {
             "pattern": "^silicon_protection:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^silicon_protection:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -160,8 +208,18 @@
           },
           "subject": {
             "pattern": "^mirror_status:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^mirror_status:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -179,8 +237,18 @@
           },
           "subject": {
             "pattern": "^repo_inventory:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^repo_inventory:"
+              }
+            }
           }
-        }
+        },
+        "required": [
+          "snapshot"
+        ]
       }
     },
     {
@@ -201,6 +269,112 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "runner_settings"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/runner_settings"
+          },
+          "subject": {
+            "pattern": "^runner_settings:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^runner_settings:"
+              }
+            }
+          }
+        },
+        "required": [
+          "snapshot"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "credential_status"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/credential_status"
+          },
+          "subject": {
+            "pattern": "^credential_status:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^credential_status:"
+              }
+            }
+          }
+        },
+        "required": [
+          "snapshot"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "registry_record"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/registry_record"
+          },
+          "subject": {
+            "pattern": "^registry_record:"
+          },
+          "snapshot": {
+            "properties": {
+              "scope": {
+                "pattern": "^registry_record:"
+              }
+            }
+          }
+        },
+        "required": [
+          "snapshot"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "alert"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "fact": {
+            "$ref": "#/$defs/alert"
+          },
+          "subject": {
+            "pattern": "^alert:"
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -217,16 +391,27 @@
           "$ref": "defs.schema.json#/$defs/repo"
         },
         "default_branch": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "head": {
-          "$ref": "defs.schema.json#/$defs/sha"
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
-      }
+      },
+      "description": "One side of a host compare. `default_branch` and `head` are null only when that side could not be read (relation UNKNOWN)."
     },
     "host_compare": {
-      "description": "B6: a component's canonical default branch against one copy's. AHEAD = the canonical has commits the copy lacks and the copy has none of its own. Counts come from one object store holding both hosts' refs, never from one host's API alone (which cannot see the other host's commits).",
+      "description": "B6: a component's canonical default branch against one copy's. Counts come from rev-list in ONE object store holding both hosts' refs, never from one host's API alone (which cannot see the other host's commits). SAME = 0/0; AHEAD = the canonical has commits the copy lacks and the copy has none of its own; BEHIND = the reverse; DIVERGED = both sides have their own; UNRELATED = no merge base (counts null); UNKNOWN = a side could not be read (its latest mirror_status is not ok, or its default-branch ref is absent from the mirror); counts null, and an unreadable side's head may be null. `default_branch_mismatch` = the two default branches have different names (ASIC-Flow: GitHub lpddr4-pll, GitLab main), so the comparison is between differently named branches.",
       "type": "object",
       "required": [
         "component",
@@ -234,7 +419,8 @@
         "copy",
         "relation",
         "canonical_only",
-        "copy_only"
+        "copy_only",
+        "default_branch_mismatch"
       ],
       "additionalProperties": false,
       "properties": {
@@ -270,6 +456,9 @@
             "null"
           ],
           "minimum": 0
+        },
+        "default_branch_mismatch": {
+          "type": "boolean"
         }
       },
       "allOf": [
@@ -277,19 +466,37 @@
           "if": {
             "properties": {
               "relation": {
-                "const": "DIVERGED"
+                "const": "SAME"
               }
             }
           },
           "then": {
             "properties": {
+              "canonical": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "copy": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
               "canonical_only": {
-                "type": "integer",
-                "minimum": 1
+                "const": 0
               },
               "copy_only": {
-                "type": "integer",
-                "minimum": 1
+                "const": 0
               }
             }
           }
@@ -304,6 +511,26 @@
           },
           "then": {
             "properties": {
+              "canonical": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "copy": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
               "canonical_only": {
                 "type": "integer",
                 "minimum": 1
@@ -318,17 +545,137 @@
           "if": {
             "properties": {
               "relation": {
-                "const": "SAME"
+                "const": "BEHIND"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "copy": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "canonical_only": {
+                "const": 0
+              },
+              "copy_only": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "DIVERGED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "copy": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "canonical_only": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "copy_only": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "UNRELATED"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonical": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "copy": {
+                "properties": {
+                  "head": {
+                    "$ref": "defs.schema.json#/$defs/sha"
+                  },
+                  "default_branch": {
+                    "type": "string"
+                  }
+                }
+              },
+              "canonical_only": {
+                "type": "null"
+              },
+              "copy_only": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "relation": {
+                "const": "UNKNOWN"
               }
             }
           },
           "then": {
             "properties": {
               "canonical_only": {
-                "const": 0
+                "type": "null"
               },
               "copy_only": {
-                "const": 0
+                "type": "null"
               }
             }
           }
@@ -336,7 +683,7 @@
       ]
     },
     "containment": {
-      "description": "B4: does one configuration contain commit X of one component, on one host? Counts only commits reachable from that host's branches and tags. `no` requires both commits proven to exist there; otherwise the answer is `unknown`, never `no`.",
+      "description": "B4: does one configuration contain commit X of one component, on one host? Counts only commits reachable from that host's branches and tags. `no` requires every pin decided false; an undecided pin (contains null) makes the answer `unknown`, never `no`. One row per (configuration, host where the component has a repo), `absent` included (interfaces.md section 6).",
       "type": "object",
       "required": [
         "query",
@@ -416,16 +763,166 @@
             }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "answer": {
+                "const": "yes"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "pins": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "contains": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "contains"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "answer": {
+                "const": "no"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "pins": {
+                "minItems": 1,
+                "items": {
+                  "properties": {
+                    "contains": {
+                      "const": false
+                    }
+                  },
+                  "required": [
+                    "contains"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "answer": {
+                "const": "partial"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "pins": {
+                "minItems": 2,
+                "items": {
+                  "properties": {
+                    "contains": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "contains"
+                  ]
+                },
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "contains": {
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "contains"
+                      ]
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "contains": {
+                          "const": false
+                        }
+                      },
+                      "required": [
+                        "contains"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "answer": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "pins": {
+                "contains": {
+                  "properties": {
+                    "contains": {
+                      "type": "null"
+                    }
+                  },
+                  "required": [
+                    "contains"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "answer": {
+                "const": "absent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "pins": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
     },
     "silicon_protection": {
-      "description": "B5: one commit in a silicon or frozen tree that its component's default branch cannot reach on the pinned host, and whether a tag covers it.",
+      "description": "B5: one commit in a silicon or frozen tree that its component's default branch cannot reach, judged on ONE host. Rows are emitted for the host the pin's URL names (`pinned`: what a recursive clone uses) and for the component's canonical host (`canonical`: where C10 protective tags belong); one row when they are the same host. `state` is the B3 state of the commit on that host. `covered` = a tag on that host contains the commit (judged by containment, not by tag name).",
       "type": "object",
       "required": [
         "configuration",
         "component",
         "repo",
         "commit",
+        "pinned",
+        "canonical",
+        "state",
         "tree_paths",
         "default_branch",
         "branches",
@@ -446,6 +943,27 @@
         "commit": {
           "$ref": "defs.schema.json#/$defs/sha"
         },
+        "pinned": {
+          "type": "boolean",
+          "description": "This row's host is the one the pinned URL names."
+        },
+        "canonical": {
+          "type": "boolean",
+          "description": "This row's host is the component's canonical host."
+        },
+        "state": {
+          "allOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/pin_state"
+            },
+            {
+              "not": {
+                "const": "ON_DEFAULT"
+              }
+            }
+          ],
+          "description": "B3 state on this host. Never ON_DEFAULT: a commit the default branch reaches is not a protection row."
+        },
         "tree_paths": {
           "type": "array",
           "minItems": 1,
@@ -454,7 +972,10 @@
           }
         },
         "default_branch": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "branches": {
           "type": "array",
@@ -472,30 +993,58 @@
           "type": "boolean"
         }
       },
-      "if": {
-        "properties": {
-          "covered": {
-            "const": true
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "properties": {
+                "pinned": {
+                  "const": true
+                }
+              }
+            },
+            {
+              "properties": {
+                "canonical": {
+                  "const": true
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "covered": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "covering_tags": {
+                "minItems": 1
+              },
+              "state": {
+                "enum": [
+                  "TAGGED",
+                  "PROTECTED_BY_TAG"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "covering_tags": {
+                "maxItems": 0
+              }
+            }
           }
         }
-      },
-      "then": {
-        "properties": {
-          "covering_tags": {
-            "minItems": 1
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "covering_tags": {
-            "maxItems": 0
-          }
-        }
-      }
+      ]
     },
     "rewrite_alert": {
-      "description": "B8: a default branch moved to a commit that does not descend from its previous head (a force-push).",
+      "description": "B8: a default branch moved to a commit that does not descend from its previous head (a force-push). Keyed on the branch NAME: a change of which branch is the default is not a rewrite.",
       "type": "object",
       "required": [
         "component",
@@ -602,7 +1151,7 @@
       }
     },
     "repo_inventory": {
-      "description": "A1: one repo found by listing the GitHub org and the GitLab group. `unclassified` = in no catalogue entry, and is flagged.",
+      "description": "A1: one repo found by listing the GitHub org and the GitLab group (with subgroups). `unclassified` = in no catalogue entry, and is flagged. `ignored` = listed in the catalogue's `ignored` section with a reason (a repo in the org that is not nanoSoC-related): classified, not tracked, not flagged.",
       "type": "object",
       "required": [
         "repo",
@@ -632,6 +1181,7 @@
             "copy",
             "alias",
             "external",
+            "ignored",
             "unclassified"
           ]
         },
@@ -651,7 +1201,7 @@
       }
     },
     "t0_result": {
-      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle. A2: every run records who or what started it.",
+      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle, or no bundle at all. A2: every run records who or what started it. The run verdict follows README section 6: FAIL if any gate FAILs; else UNVERIFIED if any gate is UNVERIFIED or no gate PASSed (nothing was checked); else INFRA if any gate is INFRA; else PASS.",
       "type": "object",
       "required": [
         "configuration",
@@ -661,7 +1211,11 @@
         "reason",
         "verdict",
         "gates",
-        "bundle"
+        "bundle",
+        "started_at",
+        "finished_at",
+        "over_budget",
+        "runner"
       ],
       "additionalProperties": false,
       "properties": {
@@ -741,7 +1295,7 @@
           ]
         },
         "verdict": {
-          "description": "Worst gate verdict, ordered FAIL > UNVERIFIED > INFRA > PASS; NOT-RUN gates are counted and shown but do not set the run verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
+          "description": "README section 6: FAIL > UNVERIFIED > INFRA > PASS, and PASS needs at least one PASS gate (all gates NOT-RUN is UNVERIFIED). NOT-RUN gates are counted and shown beside the verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
           "enum": [
             "PASS",
             "FAIL",
@@ -769,31 +1323,71 @@
                 "$ref": "result-bundle.schema.json#/$defs/gate_verdict"
               },
               "control": {
-                "description": "D6: fired / not-fired / missing. A PASS gate whose control did not fire, or is missing, is UNVERIFIED.",
+                "description": "D6: fired / not-fired / missing, or not-applicable for a NOT-RUN gate (nothing ran, so there is no control to fire). A PASS gate whose control did not fire, or is missing, is UNVERIFIED.",
                 "enum": [
                   "fired",
                   "not-fired",
-                  "missing"
+                  "missing",
+                  "not-applicable"
                 ]
               },
               "detail": {
                 "type": "string"
               }
             },
-            "if": {
-              "properties": {
-                "verdict": {
-                  "const": "PASS"
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "verdict": {
+                      "const": "PASS"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "control": {
+                      "const": "fired"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "verdict": {
+                      "const": "NOT-RUN"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "control": {
+                      "const": "not-applicable"
+                    },
+                    "detail": {
+                      "minLength": 1
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "control": {
+                      "const": "not-applicable"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "verdict": {
+                      "const": "NOT-RUN"
+                    }
+                  }
                 }
               }
-            },
-            "then": {
-              "properties": {
-                "control": {
-                  "const": "fired"
-                }
-              }
-            }
+            ]
           }
         },
         "bundle": {
@@ -803,6 +1397,70 @@
             },
             {
               "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "D1: from the D5-verified bundle's provenance. null until accepted."
+        },
+        "finished_at": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "D1: from the D5-verified bundle's provenance. null until accepted."
+        },
+        "over_budget": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "D1: finished_at - started_at exceeded the tier's budget (T0: 120 s). A warning shown beside the verdict; it never changes the verdict. The job's 15-minute timeout is the kill limit, not the budget."
+        },
+        "runner": {
+          "description": "D10: the runner that ran the job, from the CI API's job record (never from the bundle). Verify rejects a runner id outside ci.allowed_runner_ids.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "id",
+                "description",
+                "tags"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           ]
         }
@@ -890,11 +1548,552 @@
               },
               "bundle": {
                 "type": "object"
+              },
+              "started_at": {
+                "$ref": "defs.schema.json#/$defs/utc"
+              },
+              "finished_at": {
+                "$ref": "defs.schema.json#/$defs/utc"
+              },
+              "over_budget": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "PASS"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "minItems": 1,
+                "contains": {
+                  "properties": {
+                    "verdict": {
+                      "const": "PASS"
+                    }
+                  },
+                  "required": [
+                    "verdict"
+                  ]
+                },
+                "items": {
+                  "properties": {
+                    "verdict": {
+                      "enum": [
+                        "PASS",
+                        "NOT-RUN"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "FAIL"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "contains": {
+                  "properties": {
+                    "verdict": {
+                      "const": "FAIL"
+                    }
+                  },
+                  "required": [
+                    "verdict"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "UNVERIFIED"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "not": {
+                  "contains": {
+                    "properties": {
+                      "verdict": {
+                        "const": "FAIL"
+                      }
+                    },
+                    "required": [
+                      "verdict"
+                    ]
+                  }
+                },
+                "anyOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "verdict": {
+                          "const": "UNVERIFIED"
+                        }
+                      },
+                      "required": [
+                        "verdict"
+                      ]
+                    }
+                  },
+                  {
+                    "not": {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "PASS"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "INFRA"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "contains": {
+                  "properties": {
+                    "verdict": {
+                      "const": "INFRA"
+                    }
+                  },
+                  "required": [
+                    "verdict"
+                  ]
+                },
+                "not": {
+                  "anyOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "FAIL"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "UNVERIFIED"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    }
+                  ]
+                }
               }
             }
           }
         }
       ]
+    },
+    "runner_settings": {
+      "description": "D10, H1: the CI runner's settings as the runner API reports them, compared with the expected hardened values. Shown as the dashboard's runner status. `readable: false` = the poller's token could not read the runner (settings null, verdict unverified).",
+      "type": "object",
+      "required": [
+        "runner_id",
+        "readable",
+        "settings",
+        "expected",
+        "drift",
+        "verdict"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "runner_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "readable": {
+          "type": "boolean"
+        },
+        "settings": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "description",
+                "active",
+                "paused",
+                "is_shared",
+                "run_untagged",
+                "locked",
+                "access_level",
+                "tag_list"
+              ],
+              "additionalProperties": true,
+              "properties": {
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "paused": {
+                  "type": "boolean"
+                },
+                "is_shared": {
+                  "type": "boolean"
+                },
+                "run_untagged": {
+                  "type": "boolean"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "access_level": {
+                  "type": "string"
+                },
+                "tag_list": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "expected": {
+          "type": "object",
+          "description": "The hardened values from the private config (interfaces.md section 1, ci.runner_expected)."
+        },
+        "drift": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "One entry per setting that differs from `expected`, e.g. `run_untagged: true, expected false`."
+        },
+        "verdict": {
+          "enum": [
+            "ok",
+            "drift",
+            "unverified"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "readable": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "settings": {
+                "type": "null"
+              },
+              "verdict": {
+                "const": "unverified"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "ok"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "drift": {
+                "maxItems": 0
+              },
+              "readable": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "drift"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "drift": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "credential_status": {
+      "description": "H3: one service credential, its scope as recorded in the private config, its scope as the host reports it (where the host can say), and its expiry. A credential that could not be checked is `unverified` with a reason, never `ok`. No token value ever appears here.",
+      "type": "object",
+      "required": [
+        "name",
+        "recorded_scope",
+        "live_scope",
+        "expires",
+        "project",
+        "verdict",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "recorded_scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "live_scope": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "expires": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The CI project a trigger token is recorded against (A2)."
+        },
+        "verdict": {
+          "enum": [
+            "ok",
+            "finding",
+            "unverified"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "finding",
+                  "unverified"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "registry_record": {
+      "description": "A3, H1: one registry record (configuration, component, defect, erratum, import source) shown as a fact. observed_at = when the service last read the registry at `commit`; the source is `git -C <registry> show <commit>:<file>`.",
+      "type": "object",
+      "required": [
+        "record_kind",
+        "id",
+        "file",
+        "pointer",
+        "commit",
+        "record"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "record_kind": {
+          "enum": [
+            "configuration",
+            "component",
+            "defect",
+            "erratum",
+            "import_source"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pointer": {
+          "type": "string",
+          "description": "JSON pointer of the record inside `file`; empty for a whole-file record."
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "record": {
+          "type": "object",
+          "description": "The record exactly as the registry holds it (its own schema validates it)."
+        }
+      }
+    },
+    "alert": {
+      "description": "An alert the dashboard shows until someone clears it. Mirrors a row of the alerts table (interfaces.md section 12). `about` is the subject of the observation that raised it.",
+      "type": "object",
+      "required": [
+        "alert_kind",
+        "about",
+        "raised_at",
+        "cleared_at",
+        "cleared_by",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "alert_kind": {
+          "enum": [
+            "rewrite",
+            "unknown_url",
+            "token_expiry",
+            "runner_drift",
+            "tag_moved",
+            "mirror_failed"
+          ]
+        },
+        "about": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raised_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "cleared_at": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cleared_by": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

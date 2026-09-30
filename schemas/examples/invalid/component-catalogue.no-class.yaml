@@ -1,4 +1,4 @@
-# expect-error: 'class' is a required property
+# expect-error: required at /components/0 ~ 'class'
 # B1: every catalogue entry has one class.
 schema: 1
 components:

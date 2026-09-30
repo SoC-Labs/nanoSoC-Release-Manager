@@ -1,8 +1,9 @@
 # Registry catalogue example: every component in rc4's tree, plus one legacy repo.
 # OBSERVED: repo paths, copies and aliases (walk 2026-09-30; GitLab reports soclabs/nanosoc-m0/slcorem0p_tech
 #   as a redirect to soclabs/slcorem0p_tech).
-# JUDGEMENT, for the registry owner to confirm: every `class`, and the canonical host of ahb_qspi and
-#   asic-flow (both DIVERGED; set here by the rule 'public components are canonical on GitHub').
+# JUDGEMENT, for the registry owner to confirm: every `class`, the canonical host of ahb_qspi and
+#   asic-flow (both DIVERGED; set here by the rule 'public components are canonical on GitHub'), and the
+#   `ignored` list (the org's other SoC families are open question 6 in docs/GATE2.md).
 schema: 1
 components:
   - {"id": "ahb-wb-bridges", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ahb-wb-bridges"}}
@@ -36,3 +37,7 @@ external:  # third-party repos pinned in rc4's tree (B9)
   - {"id": "core_dbg_bridge", "repo": {"host": "github", "path": "ultraembedded/core_dbg_bridge"}}
   - {"id": "picotcp", "repo": {"host": "github", "path": "tass-belgium/picotcp"}}
   - {"id": "libtelnet", "repo": {"host": "github", "path": "seanmiddleditch/libtelnet"}}
+ignored:  # A1: in the GitHub org but not nanoSoC-related; classified, never tracked (examples only)
+  - {"repo": {"host": "github", "path": "SoC-Labs/.github"}, "reason": "organisation profile and templates"}
+  - {"repo": {"host": "github", "path": "SoC-Labs/demo-repository"}, "reason": "GitHub demo repository, no nanoSoC content"}
+  - {"repo": {"host": "github", "path": "SoC-Labs/SoC-Labs-Drupal-Demo"}, "reason": "website demo, no nanoSoC content"}

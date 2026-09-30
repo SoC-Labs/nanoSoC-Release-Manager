@@ -1,4 +1,4 @@
-# expect-error: does not match '^[0-9a-f]{40}$'
+# expect-error: pattern at /forms/0/fixed_in/0/commit
 # F3: a cited commit must be a full id, so T0 can prove it exists.
 schema: 1
 id: SL-DEF-0001

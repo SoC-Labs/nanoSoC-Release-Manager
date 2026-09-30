@@ -27,14 +27,15 @@
     "superproject_commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e",
     "pins": [
       { "tree_path": "tidechart", "commit": "4b4b89820ab1d87a123a1eac5c221b8527673def" },
-      { "tree_path": "tidelink", "commit": null },
+      { "tree_path": "tidelink", "commit": "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed" },
+      { "tree_path": "tidelink/deps/tidelink-gpio-phy", "commit": null },
       { "tree_path": "nanosoc-multicore-system", "commit": "f60449b491d54b617c92f1ccf0538c187cd8f34a" },
       { "tree_path": "nanosoc-multicore-system/nanosoc_arch_tech", "commit": "ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3" },
       { "tree_path": "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen", "commit": "d04de2ec25d79c1fc3223f853ddb6725cbf2831c" },
       { "tree_path": "ASIC/asic-flows", "commit": "3824aaaf9cee33b647d149b5f00b55d44022b488" },
-      { "tree_path": "ASIC/asic-toolkit", "commit": null }
+      { "tree_path": "ASIC/asic-toolkit", "commit": "4de7860af95cbb003265f94e6c2b7b4a1618877f" }
     ]
   },
   "tools": { "git": "2.43.0", "python": "3.11.9", "nanosoc_rm": "0.1.0" },
-  "scan": { "tool": "nanosoc-rm scan bundle (vendor-guard rules + arm.banner)", "verdict": "clean" }
+  "scan": { "tool": "nanosoc-rm scan bundle (vendor-guard rules + arm.banner)", "verdict": "clean", "findings": [] }
 }

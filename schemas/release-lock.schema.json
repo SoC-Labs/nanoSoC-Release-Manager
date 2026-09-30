@@ -196,7 +196,7 @@
           "$ref": "defs.schema.json#/$defs/pin_state"
         },
         "lag": { "type": "integer", "minimum": 0 },
-        "url_kind": { "enum": ["https", "ssh", "local", "other"] },
+        "url_kind": { "$ref": "defs.schema.json#/$defs/url_kind" },
         "tags": {
           "description": "Tags on the pinned host that point at or contain the commit.",
           "type": "array",

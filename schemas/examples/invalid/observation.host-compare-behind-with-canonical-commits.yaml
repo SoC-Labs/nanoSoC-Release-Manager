@@ -1,0 +1,16 @@
+# expect-error: const at /fact/canonical_only
+# B6 (contracts review m7): BEHIND means the canonical side has no commits of its own; TideLink's real 298/0 is AHEAD, never BEHIND.
+schema: 1
+kind: host_compare
+subject: "host_compare:tidelink:gitlab:soclabs/tidelink"
+observed_at: "2026-09-30T17:34:32Z"
+sources: [{kind: git, command: "git -C mirrors/tidelink.git rev-list --count refs/r/gitlab/soclabs%2Ftidelink/heads/main..refs/r/github/SoC-Labs%2FTideLink-Chiplet-Interconnect-AHB/heads/main"}]
+snapshot: {id: "host_compare:tidelink@2026-09-30T17:34:32Z", scope: "host_compare:tidelink"}
+fact:
+  component: tidelink
+  canonical: {repo: {host: github, path: SoC-Labs/TideLink-Chiplet-Interconnect-AHB}, default_branch: main, head: "6c4632a19bcc10b6cae8af86db958fe9472f3231"}
+  copy: {repo: {host: gitlab, path: soclabs/tidelink}, default_branch: main, head: "9092300b576d9b090e941ba73746c3518ed9e636"}
+  relation: BEHIND
+  canonical_only: 298
+  copy_only: 0
+  default_branch_mismatch: false

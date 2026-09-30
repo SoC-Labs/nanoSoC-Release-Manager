@@ -23,7 +23,41 @@
             "properties": {
               "component": { "$ref": "defs.schema.json#/$defs/component_id" },
               "commit": { "$ref": "defs.schema.json#/$defs/sha" },
-              "path": { "type": "string", "minLength": 1 }
+              "path": { "type": "string", "minLength": 1 },
+              "items_rule": {
+                "description": "F5 census: how the document's items are found. `pattern` is a Python regex applied per line (multiline); its first group is the item key. `exclude` lists keys the pattern finds that are not issues, each with a reason. `nanosoc-rm registry imports` compares the census with `items`; a source with no rule cannot be censused, so it is not done.",
+                "type": "object",
+                "required": ["pattern"],
+                "additionalProperties": false,
+                "properties": {
+                  "pattern": { "type": "string", "minLength": 1 },
+                  "include": {
+                    "description": "Items the pattern cannot find (an unnumbered paragraph, an addendum), each with where it is, so the census still counts it.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "where"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": { "type": "string", "minLength": 1 },
+                        "where": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  },
+                  "exclude": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["key", "reason"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": { "type": "string", "minLength": 1 },
+                        "reason": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  }
+                }
+              }
             }
           },
           "items": {
@@ -41,7 +75,10 @@
                 },
                 "title": { "type": "string", "minLength": 1 },
                 "disposition": { "enum": ["record", "dismissed", "pending"] },
-                "record": { "type": "string", "pattern": "^SL-DEF-[0-9]{4}$" },
+                "record": {
+                  "description": "The defect or erratum this item became. It must exist in the registry (loader rule 3).",
+                  "oneOf": [{ "$ref": "defs.schema.json#/$defs/defect_id" }, { "$ref": "defs.schema.json#/$defs/erratum_id" }]
+                },
                 "reason": { "type": "string", "minLength": 1 }
               },
               "allOf": [
@@ -52,6 +89,10 @@
                 {
                   "if": { "properties": { "disposition": { "const": "dismissed" } } },
                   "then": { "required": ["reason"] }
+                },
+                {
+                  "if": { "properties": { "disposition": { "const": "pending" } } },
+                  "then": { "not": { "anyOf": [{ "required": ["record"] }, { "required": ["reason"] }] } }
                 }
               ]
             }

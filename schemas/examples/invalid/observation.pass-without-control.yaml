@@ -1,4 +1,4 @@
-# expect-error: 'fired' was expected
+# expect-error: const at /fact/gates/0/control
 # D6: a gate whose negative control did not fire cannot be PASS.
 schema: 1
 kind: t0_result
@@ -14,3 +14,7 @@ fact:
   verdict: PASS
   gates: [{id: t0.pins.fetchable, verdict: PASS, control: not-fired, detail: "44 of 44"}]
   bundle: {store: ci, path: rm-bundle}
+  started_at: "2026-10-01T02:03:30Z"
+  finished_at: "2026-10-01T02:05:02Z"
+  over_budget: false
+  runner: {id: 9001, description: rm-hardened, tags: [rm-hardened]}

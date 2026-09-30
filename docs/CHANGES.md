@@ -1,0 +1,20 @@
+# Change requests (PR2)
+
+`REQUIREMENTS.md` v1.0 was frozen on 2026-09-30. From then on a requirement changes only through a numbered
+change request, agreed the same way as the requirements (David approves). After gate 2 is approved, the
+contracts in `docs/contracts/` and `schemas/` change the same way.
+
+Each CR records: number, date raised, the requirement IDs (or contract sections) it affects, the change, why,
+who agreed it and when. A CR that changes a schema also states whether the `schema` number bumps
+(`docs/contracts/README.md` section 2).
+
+| CR | Raised | Affects | Change | Why | Agreed |
+|---|---|---|---|---|---|
+| none yet | | | | | |
+
+## Candidates raised at gate 2 (not CRs until David agrees one)
+
+- **B5 wording.** B5 says "its component's default branch" and its done-when counts "the 11 commits". The 11
+  were counted on each pin's pinned host. If B5 is judged on the canonical host only, rc4's list has 12 commits
+  (question 9 in `GATE2.md`), and the done-when needs a CR. The gate-2 contract judges both hosts, which keeps
+  the done-when as written.

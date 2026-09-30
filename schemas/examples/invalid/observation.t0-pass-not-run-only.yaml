@@ -1,0 +1,22 @@
+# expect-error: contains at /fact/gates
+# D6, PR6 (contracts review B1): every gate SKIPped (NOT-RUN), so nothing was checked; the run is UNVERIFIED, never PASS.
+schema: 1
+kind: t0_result
+subject: "t0_result:eth-rc4:9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c"
+observed_at: "2026-10-01T02:07:41Z"
+sources: [{kind: ci_api, command: "GET projects/soclabs%2Fnanosoc-compat-ci/jobs/2000/artifacts"}]
+fact:
+  configuration: eth-rc4
+  commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"
+  run: {nonce: 9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c, trigger: schedule, triggered_by: schedule, triggered_at: "2026-10-01T02:03:10Z", pipeline_id: 1000, job_id: 2000}
+  acceptance: accepted
+  reason: null
+  verdict: PASS
+  gates:
+    - {id: t0.manifest.valid, verdict: NOT-RUN, control: not-applicable, detail: "no nanosoc-component.yaml at any pinned commit"}
+    - {id: t0.clone.upgrade-path, verdict: NOT-RUN, control: not-applicable, detail: "configuration eth-rc4 declares no upgrade_from"}
+  bundle: {store: ci, path: rm-bundle}
+  started_at: "2026-10-01T02:03:30Z"
+  finished_at: "2026-10-01T02:05:02Z"
+  over_budget: false
+  runner: {id: 9001, description: rm-hardened, tags: [rm-hardened]}

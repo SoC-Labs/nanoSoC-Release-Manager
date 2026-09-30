@@ -1,5 +1,7 @@
 2026-10-01T02:03:41Z	PASS	t0.infra.probe	anonymous ls-remote of one known public repo on each host succeeded	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:03:42Z	PASS	t0.infra.probe.negctl	probe of a repo path that does not exist failed, as it must	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
+2026-10-01T02:03:43Z	PASS	t0.runner.hardened	protected ref; HOME and TMPDIR empty at start; user is the service account; CI_JOB_TOKEN and other CI credentials unset before any git call	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
+2026-10-01T02:03:43Z	PASS	t0.runner.hardened.negctl	synthetic environment with an unprotected ref failed, as it must	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:04:20Z	FAIL	t0.pins.fetchable	37 of 44 pins checked out anonymously; not fetched: tidelink (ssh URL) and the 5 pins below it, ASIC/asic-toolkit (ssh URL)	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:04:21Z	PASS	t0.pins.fetchable.negctl	synthetic pin at a nonexistent commit was not fetched	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:04:35Z	FAIL	t0.pins.reachable	nanosoc-multicore-system/ahb_qspi e908ac8 is on no branch or tag of its canonical repo; unverified: ASIC/asic-toolkit (canonical repo not readable anonymously)	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c

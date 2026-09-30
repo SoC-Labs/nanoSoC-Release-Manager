@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "schema": { "const": 1 },
-    "id": { "type": "string", "pattern": "^SL-DEF-[0-9]{4}$" },
+    "id": { "$ref": "defs.schema.json#/$defs/defect_id" },
     "title": { "type": "string", "minLength": 1 },
     "component": {
       "$ref": "defs.schema.json#/$defs/component_id",
@@ -127,6 +127,11 @@
           }
         }
       ]
+    },
+    "cites": {
+      "description": "F3: every commit this record's free text (title, trigger, effect texts) names, as structured citations (README section 3 rule 9).",
+      "type": "array",
+      "items": { "$ref": "defs.schema.json#/$defs/commit_ref" }
     },
     "issues": {
       "description": "F7: the repo issues labelled `defect` this record was promoted from.",
