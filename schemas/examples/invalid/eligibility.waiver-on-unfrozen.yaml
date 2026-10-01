@@ -1,0 +1,10 @@
+# expect-error: required at /configurations/0 ~ 'frozen'
+# GATE2 Q1: T0 waivers are for frozen configurations only; a branch that moves can be fixed instead.
+schema: 1
+configurations:
+- id: eth-main
+  component: nanosoc-ethernet-chiplet
+  ref: {branch: main}
+  t0_waivers:
+  - {gate: t0.pins.fetchable, tree_path: tidelink, result: fail, approved_by: member-a, approved_on: '2026-10-01', reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5
+      pins below it (not-reached).}

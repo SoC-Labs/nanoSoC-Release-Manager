@@ -1201,7 +1201,7 @@
       }
     },
     "t0_result": {
-      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle, or no bundle at all. A2: every run records who or what started it. The run verdict follows README section 6: FAIL if any gate FAILs; else UNVERIFIED if any gate is UNVERIFIED or no gate PASSed (nothing was checked); else INFRA if any gate is INFRA; else PASS.",
+      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle, or no bundle at all. A2: every run records who or what started it. The run verdict follows README section 6: FAIL if any gate FAILs; else UNVERIFIED if any gate is UNVERIFIED or no gate PASSed (nothing was checked); else INFRA if any gate is INFRA; else WAIVED if any gate is WAIVED (a frozen configuration's known failures, GATE2 Q1); else PASS.",
       "type": "object",
       "required": [
         "configuration",
@@ -1295,12 +1295,13 @@
           ]
         },
         "verdict": {
-          "description": "README section 6: FAIL > UNVERIFIED > INFRA > PASS, and PASS needs at least one PASS gate (all gates NOT-RUN is UNVERIFIED). NOT-RUN gates are counted and shown beside the verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
+          "description": "README section 6: FAIL > UNVERIFIED > INFRA > WAIVED > PASS, and PASS or WAIVED needs at least one PASS gate (all gates NOT-RUN or WAIVED is UNVERIFIED). WAIVED: no gate FAIL, UNVERIFIED or INFRA, at least one gate WAIVED by the configuration's t0_waivers. NOT-RUN gates are counted and shown beside the verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
           "enum": [
             "PASS",
             "FAIL",
             "UNVERIFIED",
             "INFRA",
+            "WAIVED",
             null
           ]
         },
@@ -1333,6 +1334,54 @@
               },
               "detail": {
                 "type": "string"
+              },
+              "raw_verdict": {
+                "description": "Present only on a WAIVED gate: the verdict before waivers (README section 6 table), FAIL or UNVERIFIED. The waiver never erases it.",
+                "enum": [
+                  "FAIL",
+                  "UNVERIFIED"
+                ]
+              },
+              "waived": {
+                "description": "Present only on a WAIVED gate: every non-pass item and the waiver that covers it (`covered_by` = the waiver's tree_path; differs from `tree_path` for a not-reached item below a waived one).",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "tree_path",
+                    "result",
+                    "covered_by",
+                    "reason",
+                    "approved_by"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "tree_path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "result": {
+                      "enum": [
+                        "fail",
+                        "unverified",
+                        "not-reached"
+                      ]
+                    },
+                    "covered_by": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "approved_by": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
               }
             },
             "allOf": [
@@ -1384,6 +1433,45 @@
                     "verdict": {
                       "const": "NOT-RUN"
                     }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "verdict": {
+                      "const": "WAIVED"
+                    }
+                  },
+                  "required": [
+                    "verdict"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "raw_verdict",
+                    "waived"
+                  ],
+                  "properties": {
+                    "control": {
+                      "const": "fired"
+                    }
+                  }
+                },
+                "else": {
+                  "not": {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "raw_verdict"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "waived"
+                        ]
+                      }
+                    ]
                   }
                 }
               }
@@ -1543,7 +1631,8 @@
                   "PASS",
                   "FAIL",
                   "UNVERIFIED",
-                  "INFRA"
+                  "INFRA",
+                  "WAIVED"
                 ]
               },
               "bundle": {
@@ -1745,6 +1834,94 @@
                         "properties": {
                           "verdict": {
                             "const": "UNVERIFIED"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "WAIVED"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "verdict": {
+                          "const": "WAIVED"
+                        }
+                      },
+                      "required": [
+                        "verdict"
+                      ]
+                    }
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "verdict": {
+                          "const": "PASS"
+                        }
+                      },
+                      "required": [
+                        "verdict"
+                      ]
+                    }
+                  }
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "FAIL"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "UNVERIFIED"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "INFRA"
                           }
                         },
                         "required": [
@@ -2063,7 +2240,8 @@
             "token_expiry",
             "runner_drift",
             "tag_moved",
-            "mirror_failed"
+            "mirror_failed",
+            "waiver_unused"
           ]
         },
         "about": {

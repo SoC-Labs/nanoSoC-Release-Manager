@@ -1,0 +1,78 @@
+# expect-error: const at /fact/gates/2/control
+# D6: a gate whose control did not fire is UNVERIFIED; a waiver never covers it.
+schema: 1
+kind: t0_result
+subject: t0_result:eth-rc4:9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
+observed_at: '2026-10-01T02:07:41Z'
+sources:
+- {kind: ci_api, command: GET projects/soclabs%2Fnanosoc-compat-ci/jobs/2000/artifacts}
+fact:
+  configuration: eth-rc4
+  commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  run: {nonce: 9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c, trigger: schedule, triggered_by: schedule, triggered_at: '2026-10-01T02:03:10Z', pipeline_id: 1000, job_id: 2000}
+  acceptance: accepted
+  reason: null
+  verdict: WAIVED
+  gates:
+  - {id: t0.infra.probe, verdict: PASS, control: fired, detail: anonymous ls-remote of one known public repo on each host succeeded}
+  - {id: t0.runner.hardened, verdict: PASS, control: fired, detail: protected ref; HOME and TMPDIR empty at start; user is the service account; CI_JOB_TOKEN and other CI credentials unset before any git
+      call}
+  - id: t0.pins.fetchable
+    verdict: WAIVED
+    raw_verdict: FAIL
+    control: not-fired
+    detail: '37 of 44 pins checked out anonymously; not fetched: tidelink (ssh URL) and the 5 pins below it, ASIC/asic-toolkit (ssh URL)'
+    waived:
+    - {tree_path: tidelink, result: fail, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins below it (not-reached)., approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller, result: not-reached, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins below it (not-reached).,
+      approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller/asic_flow, result: not-reached, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins
+        below it (not-reached)., approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow, result: not-reached, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins
+        below it (not-reached)., approved_by: member-a}
+    - {tree_path: tidelink/deps/tidelink-gpio-phy, result: not-reached, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins below it (not-reached).,
+      approved_by: member-a}
+    - {tree_path: tidelink/deps/tidelink-phy, result: not-reached, covered_by: tidelink, reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the 5 pins below it (not-reached).,
+      approved_by: member-a}
+    - {tree_path: ASIC/asic-toolkit, result: fail, covered_by: ASIC/asic-toolkit, reason: frozen tree pins the private ASIC toolkit by ssh URL; never fetchable anonymously, approved_by: member-a}
+  - id: t0.pins.reachable
+    verdict: WAIVED
+    raw_verdict: FAIL
+    control: fired
+    detail: 'nanosoc-multicore-system/ahb_qspi e908ac8 is on no branch or tag of its canonical repo; unverified: ASIC/asic-toolkit (canonical repo not readable anonymously)'
+    waived:
+    - {tree_path: nanosoc-multicore-system/ahb_qspi, result: fail, covered_by: nanosoc-multicore-system/ahb_qspi, reason: e908ac8 exists only on the GitLab copy. Retire once it is pushed to GitHub AHB-QSPI
+        with tag keep/eth-rc4/ahb_qspi (GATE2 Q2); the waiver_unused alert says when., approved_by: member-a}
+    - {tree_path: ASIC/asic-toolkit, result: unverified, covered_by: ASIC/asic-toolkit, reason: 'the toolkit''s canonical repo is private, so an anonymous job can never judge the pin', approved_by: member-a}
+  - id: t0.urls.no-ssh-public
+    verdict: WAIVED
+    raw_verdict: FAIL
+    control: fired
+    detail: 'public parent NanoSoC-Ethernet-Chiplet@ab73e40 pins by ssh URL: tidelink, ASIC/asic-toolkit'
+    waived:
+    - {tree_path: tidelink, result: fail, covered_by: tidelink, reason: frozen tree's .gitmodules uses an ssh URL for TideLink; cannot change without a new commit, approved_by: member-a}
+    - {tree_path: ASIC/asic-toolkit, result: fail, covered_by: ASIC/asic-toolkit, reason: frozen tree's .gitmodules uses an ssh URL for the ASIC toolkit; cannot change without a new commit, approved_by: member-a}
+  - {id: t0.manifest.valid, verdict: NOT-RUN, control: not-applicable, detail: no nanosoc-component.yaml at any pinned commit}
+  - {id: t0.clone.upgrade-path, verdict: NOT-RUN, control: not-applicable, detail: configuration eth-rc4 declares no upgrade_from}
+  - id: t0.vendor.no-arm-ip
+    verdict: WAIVED
+    raw_verdict: UNVERIFIED
+    control: fired
+    detail: 37 of 44 trees scanned, 0 findings; 7 not fetched, so not scanned
+    waived:
+    - {tree_path: tidelink, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned', approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned', approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller/asic_flow, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned', approved_by: member-a}
+    - {tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned',
+      approved_by: member-a}
+    - {tree_path: tidelink/deps/tidelink-gpio-phy, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned', approved_by: member-a}
+    - {tree_path: tidelink/deps/tidelink-phy, result: not-reached, covered_by: tidelink, reason: 'TideLink and the 5 pins below it are never fetched (ssh URL), so never scanned', approved_by: member-a}
+    - {tree_path: ASIC/asic-toolkit, result: not-reached, covered_by: ASIC/asic-toolkit, reason: 'the private toolkit is never fetched (ssh URL), so never scanned', approved_by: member-a}
+  bundle: {store: ci, path: rm-bundle}
+  started_at: '2026-10-01T02:03:30Z'
+  finished_at: '2026-10-01T02:05:02Z'
+  over_budget: false
+  runner:
+    id: 9001
+    description: rm-hardened
+    tags: [rm-hardened]

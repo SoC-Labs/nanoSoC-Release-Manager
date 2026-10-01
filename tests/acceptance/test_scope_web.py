@@ -87,7 +87,7 @@ FOREIGN_REFS = {                                          # advertised, neither 
     ("github", "SoC-Labs/NanoSoC-Ethernet-Chiplet"): "refs/pull/",
     ("github", "SoC-Labs/AHB-QSPI"): "refs/environments/",
 }
-RC4_T0_EXPECTED_FAIL = {"t0.pins.fetchable", "t0.urls.no-ssh-public"}  # today; question 1 (waivers)
+RC4_T0_EXPECTED_FAIL = {"t0.pins.fetchable", "t0.urls.no-ssh-public"}  # raw verdicts; waivers may make them WAIVED (GATE2 Q1)
 EXAMPLE_NONCE = "5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f"     # the t0_result in observation.example.jsonl
 READ_ONLY_POSTS = ("login/oauth/access_token",)          # a POST that writes nothing: OAuth code exchange (§14)
 B1_CLASSES = {"soc_ref", "example", "generator", "arch_tech", "ip_tech", "toolkit", "infra", "legacy"}
@@ -2384,9 +2384,13 @@ def test_AT_A4(tmp_path, monkeypatch):
         ids = set(gates) if isinstance(gates, dict) else {g if isinstance(g, str) else getattr(g, "id", None) or g["id"]
                                                           for g in gates}
         assert {g["id"] for g in run["fact"]["gates"]} == {g for g in ids if not g.startswith("t0.registry.")}
-        # Today's rc4 data (interfaces.md §9; depends on open question 1, waivers for frozen trees):
-        failed = {g["id"] for g in run["fact"]["gates"] if g["verdict"] == "FAIL"}
-        assert RC4_T0_EXPECTED_FAIL <= failed and run["fact"]["verdict"] == "FAIL"
+        # Today's rc4 data (interfaces.md §9). Its raw verdicts FAIL on the known gates; with rc4's
+        # t0_waivers registered (GATE2 Q1) those gates show WAIVED, keeping raw_verdict, and the run is
+        # FAIL or WAIVED, never PASS (README section 6). AT-D2 checks the waivers item by item.
+        raw = {g["id"]: g.get("raw_verdict", g["verdict"]) for g in run["fact"]["gates"]}
+        assert RC4_T0_EXPECTED_FAIL <= {gid for gid, v in raw.items() if v == "FAIL"}
+        assert all(g["verdict"] in ("FAIL", "WAIVED") for g in run["fact"]["gates"] if g["id"] in RC4_T0_EXPECTED_FAIL)
+        assert run["fact"]["verdict"] in ("FAIL", "WAIVED")
     assert client.get("/runs/%s" % nonce).status_code == 200
     # And the service ran no tests itself: the T0 runner was never imported in this process, and no
     #   git clone or T0 probe (fetch --depth=1) ran.

@@ -1,18 +1,22 @@
 # Gate 2: contracts and acceptance tests
 
-**For David's approval (PR3).** Written 2026-09-30.
+**APPROVED 2026-10-01 by David (PR3)** on the gate-2 sign-off page: V1 to V4 (contracts, acceptance tests,
+review resolutions, what is left for later) agreed; Q1 to Q12 each answered with the recommended option (section
+5). Q1 needed contract work before approval: frozen-configuration T0 waivers, in the same commit as this record
+(section 5a). From now on `docs/contracts/`, `schemas/` and `tests/acceptance/` change only by change request
+(`docs/CHANGES.md`), like the requirements. Raw answers: `signoff-answers/responses_gate2/` in the design folder.
 
-**What to do:** answer the four questions marked *blocks approval* in section 5 (Q1, Q2, Q3, Q9), then approve or
-send back. The other eight can be answered during the Phase 1 build. About 20 minutes to read sections 3 and 5.
+*Written 2026-09-30 for approval; approval record and Q1 work added 2026-10-01.*
 
-**State today:**
+**State at approval:**
 
 - Contracts: 11 schemas, the module interfaces, and one set of names for every test seam.
-  `python3 schemas/check_examples.py` gives **61 ok, 0 failed** on jsonschema 4.19.1 and 4.26.0.
+  `python3 schemas/check_examples.py` gives **84 ok, 0 failed** on jsonschema 4.19.1 and 4.26.0 (61 at
+  review, plus the Q1 waiver examples).
 - Acceptance tests: one AT and one negative control for each of the 28 v1 Must requirements (56 tests), plus
-  31 self-checks that prove the negative controls' inputs today. `pytest --collect-only` collects **87 tests**;
-  a full run gives **31 passed, 56 xfailed** on Python 3.8 and 3.11. Each AT reports XFAIL until its module
-  exists, then must pass.
+  32 self-checks that prove the negative controls' inputs today. `pytest --collect-only` collects **88 tests**;
+  a full run gives **32 passed, 56 xfailed** on Python 3.8 and 3.11; pyflakes is clean. Each AT reports XFAIL
+  until its module exists, then must pass.
 - Both reviews (contracts: 1 blocker, 13 major, 15 minor; coverage: 4 high, 5 medium, 5 low) are worked
   through in section 4. The blocker, every coverage issue, 12 of the 13 majors and 13 of the 15 minors are
   fixed. M8 and m13 are fixed in part, and m15 is not fixed. Each open part waits on a question in section 5
@@ -30,8 +34,8 @@ send back. The other eight can be answered during the Phase 1 build. About 20 mi
 | `docs/contracts/README.md` | Contract index, versioning rule, loader rules 1 to 12, observation subjects and snapshots, pin states, verdict rules, examples, reuse, how PR1 to PR8 are verified. |
 | `docs/contracts/interfaces.md` | Every v1 module: functions, CLI commands, HTTP routes and page hooks, the T0 job and its gates, verify, store, auth; section 17 fixes every name the tests rely on and indexes where each test-writer gap was resolved. |
 | `schemas/*.schema.json` (11) | defs, component-catalogue, eligibility, defect, erratum, import-ledger, pin-state, observation, result-bundle, component-manifest, release-lock. |
-| `schemas/examples/` (12 files) | Valid examples built from real rc4 data (read-only, 2026-09-30) where possible. |
-| `schemas/examples/invalid/` (23 files) | One deliberate defect each; the schemas' own negative control. |
+| `schemas/examples/` (17 files) | Valid examples built from real rc4 data (read-only, 2026-09-30) where possible; 5 added for Q1. |
+| `schemas/examples/invalid/` (27 files) | One deliberate defect each; the schemas' own negative control; 4 added for Q1. |
 | `schemas/check_examples.py` | Validates every schema and example; matches each invalid example on its validator keyword and path. |
 | `docs/acceptance/pins.md`, `ci_errata.md`, `scope_web.md` | The AT specifications: Given, When, Then, fixture, negative control, why it cannot pass vacuously, what is untestable. |
 | `tests/acceptance/test_pins.py`, `test_ci_errata.py`, `test_scope_web.py` | The ATs and self-checks. |
@@ -81,9 +85,9 @@ Python. The specs are in `docs/acceptance/`.
 | B6 | On the 2026-09-30 heads: TideLink AHEAD 298/0, AHB-QSPI DIVERGED 1/5, ASIC-Flow DIVERGED 4/1, counted by rev-list in one mirror; DIVERGED exits 1; live rows equal raw git | AHB-QSPI's copy synced reads SAME and fails; ASIC-Flow with its GitLab refs gone reads UNKNOWN | live + shadow / shadow |
 | B8 | A force-push to a local test repo's main gives exactly one alert: old and new head, 3 lost commits, the lost pin; the pin then reads REWRITTEN | A fast-forward and a force-push of a non-default branch: no alert | hermetic |
 | D1 | 7 tiers, each with a budget or a written reason (T0 120 s); every configuration has a T0 command; every accepted nightly T0 took at most 120 s | A 181 s bundle is flagged over budget; t2 without a budget fails validation | live / hermetic |
-| D2 | Tonight there is one accepted scheduled T0 per configuration and for `@registry`; rc4 is red on its known gates; all 44 pins are judged on their canonical host; every gate that ran fired its control | The trigger returns HTTP 500 for eth-main: the missed night is recorded and `t0 coverage` exits 1. The 4 gates rc4 cannot exercise each PASS and FAIL on hermetic inputs | live / hermetic |
+| D2 | Tonight there is one accepted scheduled T0 per configuration and for `@registry`; rc4's raw gates are red on its known items and its waivers cover exactly those (Q1); all 44 pins are judged on their canonical host; every gate that ran fired its control | The trigger returns HTTP 500 for eth-main: the missed night is recorded and `t0 coverage` exits 1. The 4 gates rc4 cannot exercise each PASS and FAIL on hermetic inputs | live / hermetic |
 | D5 | The genuine rc4 bundle is accepted; 13 single-field tampers are each rejected at the check that owns the field; only the two Run POST routes exist | `captured.superproject_commit` set to rc4's parent `3ab16f5`: rejected at check 5, stored UNVERIFIED with no bundle | hermetic |
-| D6 | Every gate is reported with its control and whether it fired; rc4 rolls up to the golden (FAIL, 2 not run); no PASS without a fired control | Every gate in turn made always-PASS: its control does not fire, so the gate is UNVERIFIED. A control row deleted, flipped or doubled: UNVERIFIED | hermetic |
+| D6 | Every gate is reported with its control and whether it fired; rc4 rolls up to the golden (FAIL, 2 not run), and WAIVED with its waivers (Q1); no PASS without a fired control | Every gate in turn made always-PASS: its control does not fire, so the gate is UNVERIFIED. A control row deleted, flipped or doubled: UNVERIFIED. A new failure, a `fail` below a waived pin, or an unfired control: never WAIVED | hermetic |
 | D10 | Real jobs pass `t0.runner.hardened`; the runner id is allowlisted; the runner's settings are recorded, fresh and without drift | 5 environments, each with one variable wrong (ref, HOME, TMPDIR, user, `CI_JOB_TOKEN`), each FAIL; a runner outside the allowlist is rejected at check 1 | live / hermetic |
 | D11 | The genuine bundle scans clean (more than 0 files, every rule armed) and is stored; `arm.banner` fires on a real vendor file (lab only) | A banner planted at `logs/t0.log:3` is refused and never stored, with no matched text anywhere; an empty bundle is refused; the job drops the file before upload | live / hermetic |
 | F1 | SL-DEF-0001 holds the real facts (origins, fixes `036d381` and `adbb9ab`, D1 and D2, E1 to E5, bench); one erratum each for eth, compute and QuickStart; containment says `no` for both fixes | The rc4 erratum copied to eth-main, still `permanent`: rule 6. Form C: rule 4 | live / hermetic |
@@ -166,7 +170,55 @@ registered: question 8); scope_web G17 is resolved in part (a silicon erratum ca
 deleting a silicon configuration is not detected: question 12). scope_web G13 is contracted
 (`schedule.tick(now)`), but AT-H6 still waits 16 minutes on purpose, because it tests the live schedule.
 
-## 5. Open questions for David
+## 5. Questions for David: decided 2026-10-01
+
+Every question was answered with its recommendation (a):
+
+| Q | Decision | Effect on the contracts |
+|---|---|---|
+| Q1 | Waivers for frozen configurations | Added before approval: section 5a |
+| Q2 | GitHub canonical for ahb_qspi and asic-flow | None (the catalogue example already says so); David pushes `e908ac8` (5b) |
+| Q3 | compat-ci's job token reads the registry (allowlist) | None; registry setting when both projects exist (5b) |
+| Q4 | Scanner rules stay private, pinned in compat-ci | None |
+| Q5 | T0 judges from inside the lab in v1, and says so | None; an outside probe only if an outsider failure appears (Phase 2) |
+| Q6 | nanoSoC repos only; other families `ignored` with a reason | None (catalogue example note updated) |
+| Q7 | Dashboard banners in v1, email digest in Phase 2 | interfaces section 8 wording |
+| Q8 | Register `quickstart-main` now, compute after DEC3 | None; AT-F1 stays red until both exist |
+| Q9 | B5 judges both hosts (13 rows) | None; the B5 CR candidate is withdrawn (`docs/CHANGES.md`); David tags `ecf76aa` on GitHub (5b) |
+| Q10 | Service account: Maintainer on compat-ci only, `read_api` token | None; confirm both reads when compat-ci is created |
+| Q11 | Real values in the public repo: accept as is | None |
+| Q12 | Code-owner approval on `eligibility.yaml` | README section 3 wording; registry setting (5b) |
+
+### 5a. Q1: frozen-configuration T0 waivers (added 2026-10-01)
+
+- **Rule (README section 6):** a frozen configuration may list `t0_waivers`, each naming one item (gate, tree
+  path, item result) with a reason, approver and date. A FAIL or UNVERIFIED gate becomes **WAIVED** only when its
+  control fired and every non-pass item is covered. A `not-reached` item rides on a covered item above it; a
+  `fail` below a waived pin does not. The raw verdict is stored beside it. The run ladder gains WAIVED between
+  INFRA and PASS. A waiver that covers nothing raises `waiver_unused`. The runner never sees waivers.
+- **Schemas:** `eligibility` (`t0_waivers`, frozen only, never on the job or registry gates or a control);
+  `result-bundle` (`gate_item`, the items line, now formal; gate verdict `WAIVED`); `observation` (gate
+  `raw_verdict` and `waived`; run verdict `WAIVED`; alert `waiver_unused`).
+- **Examples:** rc4's 8 waivers; its non-pass items for the four gates (excerpts); a WAIVED rc4 run; 4 invalid
+  examples (waiver on an unfrozen configuration, waiver on `t0.runner.hardened`, WAIVED gate whose control did
+  not fire, WAIVED run hiding a FAIL gate).
+- **Tests:** AT-D2 checks the live waived roll-up item by item against an oracle; AT-D6 and its control apply
+  them and prove nothing new can hide; AT-A4 accepts FAIL or WAIVED for rc4. New self-check
+  `test_selfcheck_D6_waiver_oracle`, shown to fail under three mutants of the oracle.
+- **rc4 outcome:** its four non-pass gates and the run roll up WAIVED, and a new failure is FAIL. After the Q2
+  push the ahb_qspi waiver raises `waiver_unused` and is removed from the registry by merge request.
+
+### 5b. Writes these answers need (David, PR8)
+
+| When | Write | How |
+|---|---|---|
+| Now | GitHub AHB-QSPI tag `keep/eth-rc4/ahb_qspi` → `e908ac8`, which uploads the commit and its history (Q2) | `gate2-github-keep-tags.sh` in the design folder |
+| Now | GitHub nanoSoC-Arch-Tech tag `keep/eth-rc4/nanosoc_arch_tech` → `ecf76aa` (Q9) | same script |
+| When compat-ci and the registry exist | Registry project: add compat-ci to the job-token allowlist (Q3) | GitLab settings |
+| When compat-ci exists | Service account: Maintainer on compat-ci only, `read_api` token (Q10) | GitLab settings |
+| When the registry exists | Code-owner approval on `eligibility.yaml` (Q12) | `CODEOWNERS` plus a protected-branch rule |
+
+### The questions as asked (2026-09-30)
 
 **Blocks approval** (the answer changes a contract or a golden):
 

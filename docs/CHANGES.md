@@ -14,7 +14,10 @@ who agreed it and when. A CR that changes a schema also states whether the `sche
 
 ## Candidates raised at gate 2 (not CRs until David agrees one)
 
-- **B5 wording.** B5 says "its component's default branch" and its done-when counts "the 11 commits". The 11
+None open. GATE2 Q9 (decided 2026-10-01) keeps both hosts, so B5's done-when stands as written and the
+candidate below is withdrawn.
+
+- *(withdrawn)* **B5 wording.** B5 says "its component's default branch" and its done-when counts "the 11 commits". The 11
   were counted on each pin's pinned host. If B5 is judged on the canonical host only, rc4's list has 12 commits
   (question 9 in `GATE2.md`), and the done-when needs a CR. The gate-2 contract judges both hosts, which keeps
   the done-when as written.

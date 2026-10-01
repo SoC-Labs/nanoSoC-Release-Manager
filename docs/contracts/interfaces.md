@@ -283,8 +283,8 @@ def clear_alert(subject: str, by: str) -> None          # logged in `actions` as
 ```
 
 - **CLI:** `nanosoc-rm alerts [--all] [--json]`; `nanosoc-rm alerts clear SUBJECT --by LOGIN`. Clearing is a local write to the service's own database, not a write to anything outside it.
-- **Alert kinds:** `rewrite`, `unknown_url`, `token_expiry`, `runner_drift`, `tag_moved`, `mirror_failed`.
-- Alert delivery beyond the dashboard is open (question 7 in GATE2.md).
+- **Alert kinds:** `rewrite`, `unknown_url`, `token_expiry`, `runner_drift`, `tag_moved`, `mirror_failed`, `waiver_unused` (section 10, README section 6).
+- Alerts are dashboard banners only in v1; a daily email digest comes in Phase 2 (GATE2 Q7, decided 2026-10-01).
 - **Test:** a local bare repo stands in for a host; force-push, sync, expect one alert. Done-when on live data needs a scratch repo that a person creates (PR8).
 
 ## 9. T0: definition and runner
@@ -371,6 +371,10 @@ class Context:                       # what the runner hands a gate: nonce, work
     def items(self, gate_id: str) -> list[dict]
 def run_with_control(gate_id: str, ctx: Context) -> tuple[dict, dict]    # (row, negctl row); both verdict_row dicts
 def rollup(rows: list[dict], scope: str) -> list[dict]                  # one t0_result gate item per declared gate (README section 6)
+def apply_waivers(gates: list[dict], items: dict[str, list[dict]], waivers: list[dict]) -> tuple[list[dict], list[dict]]
+    # README section 6 "T0 waivers": (gates with WAIVED, raw_verdict and waived set where every non-pass item is
+    # covered, the waivers that covered nothing). items = {gate id: gate_item lines}; waivers = the configuration's
+    # t0_waivers. Pure: the same inputs give the same output, and rows, items and waivers are never changed.
 def run_verdict(items: list[dict]) -> tuple[str, int]                    # (run verdict, NOT-RUN count)
 ```
 
@@ -402,10 +406,14 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 The registry is private, so this job needs read access to it from compat-ci (question 3 in GATE2.md).
 
 **Expected on real data today:**
-- eth-rc4 T0 is FAIL on three gates:
-  - `t0.pins.fetchable`: TideLink and ASIC-Toolkit use ssh URLs (and ASIC-Toolkit is private);
+- eth-rc4's raw T0 (README section 6 table, before waivers) is FAIL on three gates and UNVERIFIED on one:
+  - `t0.pins.fetchable`: TideLink and ASIC-Toolkit use ssh URLs (and ASIC-Toolkit is private); the 5 pins below TideLink are `not-reached`;
   - `t0.urls.no-ssh-public`: same two URLs;
-  - `t0.pins.reachable`: ahb_qspi `e908ac8`, if GitHub is canonical (question 2); ASIC/asic-toolkit is `unverified` (private).
+  - `t0.pins.reachable`: ahb_qspi `e908ac8` (GitHub is canonical, GATE2 Q2) until it is pushed there; ASIC/asic-toolkit is `unverified` (private);
+  - `t0.vendor.no-arm-ip`: UNVERIFIED, the 7 trees that were never fetched are `not-reached`.
+- With the 8 `t0_waivers` of `eligibility.example.yaml` registered, every one of those items is covered, so the
+  four gates and the run roll up **WAIVED** (`observation.t0-result-waived.example.jsonl`). Once `e908ac8` is on
+  GitHub, the reachable waiver covers nothing and raises `waiver_unused`.
 - `t0.manifest.valid` and `t0.clone.upgrade-path` are NOT-RUN on rc4 (no manifest; no `upgrade_from`). eth-main declares `upgrade_from: v1.0.0`, so its upgrade-path gate runs (and fails today on rc4's ssh pins).
 - The registry job is FAIL on `t0.registry.refs-resolve`: bench `6aafc94` is not pushed.
 
@@ -480,7 +488,11 @@ Checks run in this order. The first failure makes the run `rejected`, with the c
 7. The service's own scan (section 11): a finding, or a scan that could not run (zero files), makes the run `refused`. The quarantined bundle is deleted, and only the finding locations are kept.
 
 Then:
-- **Roll-up:** `gates.rollup` and `gates.run_verdict`, as in README section 6.
+- **Roll-up:** `gates.rollup`, then `gates.apply_waivers` with the configuration's `t0_waivers` (frozen
+  configurations only; the `@registry` job has none), then `gates.run_verdict`, as in README section 6. Each
+  waiver that covered nothing raises a `waiver_unused` alert (`about` = the run's subject; the message names
+  the gate and tree path). A waiver only ever turns FAIL or UNVERIFIED into WAIVED; it never touches the
+  stored bundle.
 - **Times and runner:** `started_at` and `finished_at` from the verified provenance, `over_budget` from `tiers.check_budget`, `runner` from the job API.
 - **Storage:** the accepted bundle goes to the `ci` store in v1, and to `artifactory` from Phase 2 (D12).
 
@@ -578,7 +590,8 @@ Every route is behind auth (section 14). Every page prints its data age and link
 | `data-source-for="<subject>"` | an `<a>` per fact | link to `/facts/<subject>` |
 | `data-configuration` | a dashboard row | configuration id |
 | `data-item` | a dashboard cell | `t0-result`, `red-pins`, `open-errata`, `host-drift`, `runner-status`, `data-age` (H1) |
-| `data-verdict` | a dashboard row, a run page row | the run or gate verdict |
+| `data-verdict` | a dashboard row, a run page row | the run or gate verdict; WAIVED also carries class `state-amber` and, on a run page row, `data-raw-verdict` |
+| `data-waived` | a run page item row | the tree path of a waived item; the row shows the waiver's reason and approver (README section 6) |
 | `data-run-t0` | a `<form>` | the Run T0 button: POST to `/configurations/{id}/runs` with field `csrf_token` |
 | `data-gate`, `data-control` | a run page row | gate id and control state (D6) |
 | `data-erratum`, `data-exposure`, `data-method` | an errata row | erratum id, exposure level and method; plus class `state-amber`, `state-red` or `state-green` (F2) |
@@ -704,7 +717,7 @@ contract examples do.
 | `sync_component`, `inventory`, `detect_rewrite` | `nanosoc_rm.mirror` |
 | `walk` | `nanosoc_rm.walker` |
 | `compare_hosts` / `contains` / `silicon_protection` / `run`, `DetectorRun` | `nanosoc_rm.analysis.hosts` / `.contains` / `.protect` / `.detect` |
-| `Gate`, `GATES`, `Context`, `run_with_control`, `rollup`, `run_verdict` | `nanosoc_rm.t0.gates` |
+| `Gate`, `GATES`, `Context`, `run_with_control`, `rollup`, `apply_waivers`, `run_verdict` | `nanosoc_rm.t0.gates` |
 | `TIERS`, `Tier`, `validate_tiers`, `tier_commands`, `check_budget` | `nanosoc_rm.t0.tiers` |
 | `finalise_bundle` (and the runner's `main`) | `nanosoc_rm.t0.runner` (imported only in CI; the service never imports it) |
 | `CIClient`, `FakeCI` / `trigger` / `fetch_pending`, `coverage` / `verify`, `RunRecord`, `Verdict` | `nanosoc_rm.ci.client` / `.trigger` / `.fetch` / `.verify` |

@@ -69,9 +69,19 @@
         "upgrade_from": {
           "$ref": "defs.schema.json#/$defs/git_ref",
           "description": "D2 upgrade-path clone: the previous release to upgrade from. Absent -> gate t0.clone.upgrade-path records SKIP with the reason."
+        },
+        "t0_waivers": {
+          "description": "D2, D6 (GATE2 Q1, approved 2026-10-01): known T0 failures of a FROZEN configuration that can never be fixed in its tree. Each covers one item of one gate (README section 6): the item is shown amber with its reason and approver, and a gate whose every non-pass item is covered rolls up WAIVED instead of FAIL or UNVERIFIED. Any other failure is still FAIL, so a new red on a frozen tree stays visible. The runner never sees waivers: verdicts.tsv and the items files are unchanged and the raw verdict is stored beside the waived one. A waiver that matched nothing in an accepted run raises a `waiver_unused` alert. Uniqueness and gate rules: README section 3 rule 13.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/t0_waiver" }
         }
       },
       "allOf": [
+        {
+          "if": { "required": ["t0_waivers"] },
+          "then": { "required": ["frozen"], "properties": { "frozen": { "const": true } } }
+        },
         {
           "if": { "required": ["silicon"] },
           "then": { "required": ["frozen"], "properties": { "frozen": { "const": true } } }
@@ -81,6 +91,33 @@
           "then": { "required": ["commit"] }
         }
       ]
+    },
+    "t0_waiver": {
+      "description": "One waived T0 item. Matches the item of `gate` at `tree_path` whose result is `result` (result-bundle.schema.json gate_item). A `not-reached` item below a covered item of the same gate is covered by it (it was not reached because of the waived item). No wildcards: each waiver names one item.",
+      "type": "object",
+      "required": ["gate", "tree_path", "result", "reason", "approved_by", "approved_on"],
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "$ref": "defs.schema.json#/$defs/gate_id",
+          "description": "A configuration gate that judges pins. Never t0.infra.probe or t0.runner.hardened (they judge the job, not the tree), never a t0.registry.* gate (the registry is not frozen), and never a gate's .negctl (D6: a control that did not fire is never waived).",
+          "not": { "enum": ["t0.infra.probe", "t0.runner.hardened", "t0.registry.schema", "t0.registry.refs-resolve"] },
+          "pattern": "^t0\\.(?!registry\\.)[a-z0-9.-]+(?<!\\.negctl)$"
+        },
+        "tree_path": { "type": "string", "minLength": 1 },
+        "result": { "enum": ["fail", "unverified", "not-reached"] },
+        "reason": {
+          "description": "Why this item can never pass in this frozen tree, and what would retire the waiver.",
+          "type": "string",
+          "minLength": 10
+        },
+        "approved_by": {
+          "description": "The login of the person who approved the waiver. The registry merge request is the record.",
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_on": { "$ref": "defs.schema.json#/$defs/date" }
+      }
     }
   }
 }

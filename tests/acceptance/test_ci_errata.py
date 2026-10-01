@@ -147,6 +147,16 @@ EXPECTED_RC4_ROLLUP = {
     "t0.vendor.no-arm-ip": ("UNVERIFIED", "fired"),
 }
 
+# GATE2 Q1 (decided 2026-10-01): with the 8 t0_waivers of eligibility.example.yaml, rc4's four non-pass
+# gates roll up WAIVED (README section 6). The raw roll-up above is unchanged; each WAIVED gate stores it
+# as raw_verdict.
+RC4_WAIVED_GATES = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public", "t0.vendor.no-arm-ip")
+EXPECTED_RC4_WAIVED_ROLLUP = dict(EXPECTED_RC4_ROLLUP, **{g: ("WAIVED", "fired") for g in RC4_WAIVED_GATES})
+AHB_QSPI_TREE_PATH = "nanosoc-multicore-system/ahb_qspi"
+# SYNTHETIC: a failure rc4's waivers do not cover (a pin that vanished from its canonical repo).
+NEW_FAILURE = {"tree_path": "tidechart", "component": "tidechart", "commit": "1" * 40, "host": "gitlab",
+               "result": "fail", "why": "SYNTHETIC: the pinned commit is on no branch or tag any more"}
+
 # F1 fields of an erratum (erratum.schema.json).
 ERRATUM_F1_FIELDS = ("forms_present", "effects_present", "exposure", "category", "conditions",
                      "workaround", "status", "doc_revision")
@@ -296,6 +306,18 @@ def example_provenance():
 
 def example_verdicts():
     return (EX / "result-bundle.verdicts.example.tsv").read_text()
+
+
+def example_items():
+    """{gate: gate_item lines}: rc4's non-pass items (EXCERPTS: README section 7)."""
+    pre, suf = "result-bundle.items.", ".example.jsonl"
+    return {f.name[len(pre):-len(suf)]: [json.loads(line) for line in f.read_text().splitlines() if line]
+            for f in sorted(EX.glob(pre + "*" + suf))}
+
+
+def example_waivers(config="eth-rc4"):
+    cfgs = {c["id"]: c for c in load_yaml(EX / "eligibility.example.yaml")["configurations"]}
+    return cfgs[config].get("t0_waivers", [])
 
 
 FIELDS = ("utc", "status", "gate", "detail", "nonce")
@@ -660,7 +682,33 @@ def reference_run_verdict(items):
         return "UNVERIFIED", not_run
     if "INFRA" in verdicts:
         return "INFRA", not_run
+    if "WAIVED" in verdicts:
+        return "WAIVED", not_run
     return "PASS", not_run
+
+
+def reference_apply_waivers(rolled, items, waivers):
+    """README section 6 "T0 waivers" on reference_rollup output: ({gate: (verdict, control)}, unused).
+    An item is covered by a waiver naming its gate, tree path and result, or, when `not-reached`, by a
+    covered item above it. Only a FAIL or UNVERIFIED gate whose control fired, with at least one non-pass
+    item and every one covered, becomes WAIVED. A waiver matching no item at all is unused."""
+    out, used = dict(rolled), set()
+    for gid, (verdict, control) in rolled.items():
+        bad = [i for i in items.get(gid, []) if i["result"] != "pass"]
+        direct = {}
+        for n, w in enumerate(waivers):
+            for i in bad:
+                if (w["gate"], w["tree_path"], w["result"]) == (gid, i["tree_path"], i["result"]):
+                    direct[i["tree_path"]] = n
+        used.update(direct.values())
+        covered = 0
+        for i in bad:
+            above = [t for t in direct if i["tree_path"] == t
+                     or (i["result"] == "not-reached" and i["tree_path"].startswith(t + "/"))]
+            covered += bool(above)
+        if verdict in ("FAIL", "UNVERIFIED") and control == "fired" and bad and covered == len(bad):
+            out[gid] = ("WAIVED", control)
+    return out, [w for n, w in enumerate(waivers) if n not in used]
 
 
 def reference_verify(case, ce):
@@ -817,8 +865,9 @@ def test_AT_D1_negative_control():
 @pytest.mark.live
 @NOT_BUILT
 def test_AT_D2(tmp_path):
-    """AT-D2: every configuration and @registry has tonight's accepted T0 report; rc4 goes red
-    on its known real gates; every pin is judged on its canonical host (TideLink drift, keep tags)."""
+    """AT-D2: every configuration and @registry has tonight's accepted T0 report; rc4's raw gates
+    go red on its known real items, and its registered waivers (GATE2 Q1) cover exactly those; every
+    pin is judged on its canonical host (TideLink drift, keep tags)."""
     from nanosoc_rm.registry import Repo, load_registry
     from nanosoc_rm.t0 import gates
 
@@ -864,16 +913,30 @@ def test_AT_D2(tmp_path):
     (rc4,) = by_cfg["eth-rc4"]
     assert rc4["commit"] == RC4
     g = {x["id"]: x for x in rc4["gates"]}
-    assert g["t0.infra.probe"]["verdict"] == "PASS"
-    assert g["t0.pins.fetchable"]["verdict"] == "FAIL"
+    raw = lambda gid: g[gid].get("raw_verdict", g[gid]["verdict"])     # before waivers (README section 6)
+    assert raw("t0.infra.probe") == "PASS"
+    assert raw("t0.pins.fetchable") == "FAIL"
     # FAIL while a pin is off its canonical host; else UNVERIFIED (asic-toolkit is private)
-    assert g["t0.pins.reachable"]["verdict"] == ("FAIL" if expected_unreachable else "UNVERIFIED")
-    assert g["t0.urls.no-ssh-public"]["verdict"] == "FAIL"
-    assert g["t0.manifest.valid"]["verdict"] == "NOT-RUN"
-    assert g["t0.clone.upgrade-path"]["verdict"] == "NOT-RUN"      # eth-rc4 has no upgrade_from
-    assert g["t0.vendor.no-arm-ip"]["verdict"] == "UNVERIFIED"     # 7 trees never fetched
-    assert rc4["verdict"] == "FAIL"
+    assert raw("t0.pins.reachable") == ("FAIL" if expected_unreachable else "UNVERIFIED")
+    assert raw("t0.urls.no-ssh-public") == "FAIL"
+    assert raw("t0.manifest.valid") == "NOT-RUN"
+    assert raw("t0.clone.upgrade-path") == "NOT-RUN"      # eth-rc4 has no upgrade_from
+    assert raw("t0.vendor.no-arm-ip") == "UNVERIFIED"     # 7 trees never fetched
     nonce = rc4["run"]["nonce"]
+
+    # Then 3b (GATE2 Q1): the registered waivers turn exactly the fully covered gates WAIVED; any item
+    #   they do not cover keeps its gate red; a waiver that covered nothing has raised waiver_unused.
+    rc4_cfg = {as_doc(c)["id"]: as_doc(c) for c in reg.configurations()}["eth-rc4"]
+    live_items = {gid: gate_items(nonce, gid) for gid in RC4_WAIVED_GATES}
+    want, unused = reference_apply_waivers({gid: (raw(gid), x["control"]) for gid, x in g.items()},
+                                           live_items, rc4_cfg.get("t0_waivers", []))
+    assert {gid: (x["verdict"], x["control"]) for gid, x in g.items()} == want
+    assert rc4["verdict"] == reference_run_verdict(want)[0]
+    assert rc4["verdict"] in ("FAIL", "WAIVED"), "rc4's frozen tree has known failures: never PASS"
+    _rc, open_alerts = rm_json("alerts", "--json")
+    for u in unused:                      # alert observations (interfaces.md section 8): fact.message names both
+        assert any(a["fact"]["alert_kind"] == "waiver_unused" and u["gate"] in a["fact"]["message"]
+                   and u["tree_path"] in a["fact"]["message"] for a in open_alerts), ("no waiver_unused alert", u)
 
     fetch = gate_items(nonce, "t0.pins.fetchable")
     by_result = {}
@@ -1188,6 +1251,20 @@ def test_AT_D6(tmp_path, monkeypatch):
     assert all(v["detail"].strip() for v in items.values() if v["verdict"] == "NOT-RUN")  # README 6
     assert gates.run_verdict(list(items.values())) == ("FAIL", 2)
 
+    # GATE2 Q1: rc4's waivers applied to the same roll-up and rc4's items. Only the four known
+    # gates change, each keeps its raw verdict, and the inputs are untouched.
+    rc4_items = example_items()
+    waived, unused = gates.apply_waivers(list(items.values()), rc4_items, example_waivers())
+    wv = {i["id"]: i for i in waived}
+    assert {k: (v["verdict"], v["control"]) for k, v in wv.items()} == EXPECTED_RC4_WAIVED_ROLLUP
+    assert unused == []
+    for gid in RC4_WAIVED_GATES:
+        assert wv[gid]["raw_verdict"] == EXPECTED_RC4_ROLLUP[gid][0]
+        assert sorted(w["tree_path"] for w in wv[gid]["waived"]) == sorted(
+            i["tree_path"] for i in rc4_items[gid] if i["result"] != "pass")
+    assert gates.run_verdict(waived) == ("WAIVED", 2)
+    assert {k: (v["verdict"], v["control"]) for k, v in items.items()} == EXPECTED_RC4_ROLLUP
+
     # The golden example carries the t0.runner.hardened rows (G6 fixed); without them the gate is
     # missing, and a missing gate rolls up UNVERIFIED, never PASS.
     raw = {i["id"]: i for i in gates.rollup(parse_rows(example_verdicts()), scope="configuration")}
@@ -1215,6 +1292,20 @@ def test_AT_D6(tmp_path, monkeypatch):
     assert sorted(shown) == sorted(CONFIG_GATES)
     for gid, (verdict, control) in EXPECTED_RC4_ROLLUP.items():
         assert (shown[gid]["data-verdict"], shown[gid]["data-control"]) == (verdict, control), gid
+
+    # Then 4b: the same run stored WAIVED shows each waived gate amber with its raw verdict, and every
+    #   covered item with its waiver (README section 6; interfaces.md section 13)
+    ex = json.loads((EX / "observation.t0-result-waived.example.jsonl").read_text())
+    assert ex["subject"] == "t0_result:eth-rc4:" + nonce
+    db.put(ex)
+    html = member_client(cfg_path).get("/runs/" + nonce).text
+    shown = {a["data-gate"]: a for a in elements_with(html, "data-gate")}
+    for gid in RC4_WAIVED_GATES:
+        assert (shown[gid]["data-verdict"], shown[gid].get("data-raw-verdict")) == (
+            "WAIVED", EXPECTED_RC4_ROLLUP[gid][0]), gid
+        assert "state-amber" in (shown[gid].get("class") or "").split(), gid
+    assert {a["data-waived"] for a in elements_with(html, "data-waived")} == {
+        w["tree_path"] for g in ex["fact"]["gates"] for w in g.get("waived", [])}
 
 
 @pytest.mark.requirement("D6")
@@ -1269,6 +1360,34 @@ def test_AT_D6_negative_control(tmp_path, monkeypatch):
 
     twice = golden + [dict(next(r for r in golden if r["gate"] == "t0.infra.probe"))]
     assert rolled(twice)["verdict"] == "UNVERIFIED"
+
+    # And GATE2 Q1: waivers never hide a new failure, never cover a control that did not fire, and
+    #   report a waiver whose cause has gone (README section 6)
+    base = gates.rollup(golden, scope="configuration")
+    new = copy.deepcopy(example_items())
+    new["t0.pins.reachable"].append(dict(NEW_FAILURE))
+    w, _ = gates.apply_waivers(base, new, example_waivers())
+    reach = {i["id"]: i for i in w}["t0.pins.reachable"]
+    assert reach["verdict"] == "FAIL" and "waived" not in reach
+    assert gates.run_verdict(w)[0] == "FAIL"
+
+    below = copy.deepcopy(example_items())     # a FAIL below a waived pin is new, not "not reached"
+    next(i for i in below["t0.pins.fetchable"] if i["tree_path"] == "tidelink/deps/tidelink-phy").update(
+        result="fail", why="SYNTHETIC: a failure of its own, not caused by tidelink")
+    w, _ = gates.apply_waivers(base, below, example_waivers())
+    assert {i["id"]: i for i in w}["t0.pins.fetchable"]["verdict"] == "FAIL"
+
+    unfired = copy.deepcopy(golden)
+    next(r for r in unfired if r["gate"] == "t0.pins.fetchable.negctl")["status"] = "FAIL"
+    w, _ = gates.apply_waivers(gates.rollup(unfired, scope="configuration"), example_items(), example_waivers())
+    fetch = {i["id"]: i for i in w}["t0.pins.fetchable"]
+    assert (fetch["verdict"], fetch["control"]) == ("FAIL", "not-fired") and "waived" not in fetch
+
+    pushed = copy.deepcopy(example_items())     # e908ac8 on GitHub (GATE2 Q2): its item passes
+    pushed["t0.pins.reachable"] = [i for i in pushed["t0.pins.reachable"] if i["tree_path"] != AHB_QSPI_TREE_PATH]
+    w, unused = gates.apply_waivers(base, pushed, example_waivers())
+    assert {i["id"]: i for i in w}["t0.pins.reachable"]["verdict"] == "WAIVED"     # the toolkit is still private
+    assert [(u["gate"], u["tree_path"]) for u in unused] == [("t0.pins.reachable", AHB_QSPI_TREE_PATH)]
 
 
 # ============================================================================================
@@ -1999,6 +2118,67 @@ def test_selfcheck_D6_rollup_oracle():
     assert _errors("observation", base)
     f["gates"] = [g for g in f["gates"] if g["verdict"] == "NOT-RUN"]
     assert _errors("observation", base)
+
+
+def test_selfcheck_D6_waiver_oracle():
+    """GATE2 Q1: rc4's 8 waivers cover every non-pass item of its four non-pass gates, so the oracle
+    rolls rc4 up WAIVED; an uncovered failure, or a control that did not fire, stays red; a waiver whose
+    cause has gone is unused. The stored example agrees, and the schema refuses a WAIVED run that still
+    has a FAIL gate."""
+    raw = reference_rollup(parse_rows(example_verdicts()), CONFIG_GATES)
+    items, waivers = example_items(), example_waivers()
+    assert sorted(items) == sorted(RC4_WAIVED_GATES) and len(waivers) == 8
+    waived, unused = reference_apply_waivers(raw, items, waivers)
+    assert waived == EXPECTED_RC4_WAIVED_ROLLUP and unused == []
+    assert reference_run_verdict(waived) == ("WAIVED", 2)
+    assert reference_run_verdict(raw) == ("FAIL", 2)
+    # The stored example is the same roll-up, item for item
+    ex = json.loads((EX / "observation.t0-result-waived.example.jsonl").read_text())
+    assert _errors("observation", ex) == []
+    f = ex["fact"]
+    assert {g["id"]: (g["verdict"], g["control"]) for g in f["gates"]} == EXPECTED_RC4_WAIVED_ROLLUP
+    assert f["verdict"] == "WAIVED"
+    for g in f["gates"]:
+        if g["verdict"] == "WAIVED":
+            assert g["raw_verdict"] == raw[g["id"]][0]
+            assert sorted(x["tree_path"] for x in g["waived"]) == sorted(
+                i["tree_path"] for i in items[g["id"]] if i["result"] != "pass")
+    # A new failure stays red: one uncovered item keeps its gate FAIL, and the run FAIL
+    new = copy.deepcopy(items)
+    new["t0.pins.reachable"].append(dict(NEW_FAILURE))
+    w, _ = reference_apply_waivers(raw, new, waivers)
+    assert w["t0.pins.reachable"] == ("FAIL", "fired") and reference_run_verdict(w)[0] == "FAIL"
+    # A gate whose control did not fire is never waived (D6)
+    w, _ = reference_apply_waivers(dict(raw, **{"t0.pins.fetchable": ("FAIL", "not-fired")}), items, waivers)
+    assert w["t0.pins.fetchable"] == ("FAIL", "not-fired")
+    # Only a not-reached item rides on the waiver above it: a FAIL below a waived pin is a new failure
+    below = copy.deepcopy(items)
+    next(i for i in below["t0.pins.fetchable"] if i["tree_path"] == "tidelink/deps/tidelink-phy").update(
+        result="fail", why="SYNTHETIC: a failure of its own, not caused by tidelink")
+    w, _ = reference_apply_waivers(raw, below, waivers)
+    assert w["t0.pins.fetchable"] == ("FAIL", "fired")
+    # A not-reached item is covered only through a covered item above it
+    orphan = copy.deepcopy(items)
+    orphan["t0.pins.fetchable"] = [i for i in orphan["t0.pins.fetchable"] if i["tree_path"] != "tidelink"]
+    w, _ = reference_apply_waivers(raw, orphan, [x for x in waivers if x["tree_path"] != "tidelink"])
+    assert w["t0.pins.fetchable"] == ("FAIL", "fired")
+    # A fixed cause retires its waiver: with e908ac8 on GitHub (GATE2 Q2) that item passes
+    pushed = copy.deepcopy(items)
+    pushed["t0.pins.reachable"] = [i for i in pushed["t0.pins.reachable"] if i["tree_path"] != AHB_QSPI_TREE_PATH]
+    w, unused = reference_apply_waivers(raw, pushed, waivers)
+    assert w["t0.pins.reachable"] == ("WAIVED", "fired")
+    assert [(u["gate"], u["tree_path"]) for u in unused] == [("t0.pins.reachable", AHB_QSPI_TREE_PATH)]
+    # Waivers without items change nothing; PASS and NOT-RUN gates are never touched
+    assert reference_apply_waivers(raw, {}, waivers)[0] == raw
+    # The schema agrees: a WAIVED run with a FAIL gate is refused; so is a WAIVED gate without raw_verdict
+    hidden = copy.deepcopy(ex)
+    g3 = hidden["fact"]["gates"][3]
+    g3.pop("raw_verdict"), g3.pop("waived")
+    g3["verdict"] = "FAIL"
+    assert _errors("observation", hidden)
+    bare = copy.deepcopy(ex)
+    bare["fact"]["gates"][2].pop("raw_verdict")
+    assert _errors("observation", bare)
 
 
 def test_selfcheck_D10_environments(tmp_path):

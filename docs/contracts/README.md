@@ -105,12 +105,18 @@ JSON Schema checks one document. The registry loader (interfaces.md section 2) a
     errata and no `errata_prefix`. (F1, F4)
 12. `method: detector` without `exposure.run` is refused by the schema; the loader also refuses a run whose
     `detector_source` differs from the detector's `source` in the defect. (F2)
+13. **T0 waivers** (GATE2 Q1). Two waivers of one configuration with the same `gate`, `tree_path` and `result`;
+    a waiver whose `gate` is not a declared configuration gate. The schema already refuses a waiver on a
+    configuration that is not frozen, and one on `t0.infra.probe`, `t0.runner.hardened`, a `t0.registry.*` gate
+    or a `.negctl` row. Whether a waiver's `tree_path` exists is not a loader rule: it needs the walk, so the
+    service reports a waiver that matched nothing as a `waiver_unused` alert (section 6). (D2, D6)
 
-Rules 1 to 12 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
+Rules 1 to 13 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
 
 Not enforced by any rule in v1, stated so nobody assumes otherwise: a registry change that deletes a silicon
 configuration from `eligibility.yaml` would silently drop its silicon-protection rows. Registry `main` is
-protected and changed only by merge request, which is the v1 control (question 12 in GATE2.md).
+protected and changed only by merge request, and `eligibility.yaml` needs a code-owner approval: that is the
+v1 control (GATE2 Q12, decided 2026-10-01).
 
 ## 4. Observations: subjects, snapshots, current value
 
@@ -203,12 +209,34 @@ MISSING). PR/MR refs are never mirrored.
 `t0.vendor.no-arm-ip`, `t0.registry.schema`, `t0.registry.refs-resolve`. Only `t0.manifest.valid` (no manifest
 anywhere) and `t0.clone.upgrade-path` (no `upgrade_from`) may skip.
 
+**T0 waivers (GATE2 Q1, decided 2026-10-01).** A frozen configuration's tree never changes, so a failure in
+it is permanent, and a permanent red hides any new red. `eligibility.yaml` may therefore list `t0_waivers`
+for a **frozen** configuration: each names one item (gate, `tree_path`, item `result`) with a reason, an
+approver and a date. The service applies them after the table above, item by item (`gates.apply_waivers`):
+
+- An item is covered when a waiver names its gate, tree path and result, or when it is `not-reached` and an
+  item above it in the same gate (a tree-path prefix) is covered: it was not reached because of that item.
+- A gate whose table verdict is FAIL or UNVERIFIED becomes **WAIVED** only when its control fired, it has at
+  least one non-pass item, and every non-pass item is covered. Its `raw_verdict` (FAIL or UNVERIFIED) and the
+  covered items (`waived`) are stored with it.
+- Anything else is untouched. A gate failure with no items behind it (a missing or doubled row, a SKIP that
+  may not skip, a control that did not fire) is never waived, and neither are INFRA, NOT-RUN or PASS. One
+  uncovered item keeps the whole gate FAIL or UNVERIFIED, so a new failure on a frozen tree stays red.
+- The runner never sees waivers. `verdicts.tsv` and the items files are exactly what the job produced (D5).
+- A waiver that covered nothing in an accepted run raises a `waiver_unused` alert, so a waiver retires once
+  its cause is fixed (for example after the GATE2 Q2 push of `e908ac8` to GitHub). It never changes a verdict.
+- Pages show WAIVED amber, with the raw verdict and every covered item's reason and approver beside it.
+
+A waiver matches the item, not its cause: a different failure at the same gate and tree path would be covered
+too. Frozen trees make that rare, and the item's own `why` is still shown.
+
 **Run verdict**, first match wins:
 
 1. any gate FAIL → **FAIL**;
 2. any gate UNVERIFIED, or **no gate PASS** (nothing was checked) → **UNVERIFIED**;
 3. any gate INFRA → **INFRA**;
-4. otherwise → **PASS**.
+4. any gate WAIVED → **WAIVED** (amber: only a frozen configuration's known failures);
+5. otherwise → **PASS**.
 
 So a run where every gate skipped, or a run with no gates, can never be PASS (contracts review B1; the toolkit's
 own doctrine that an unread report is never a pass). NOT-RUN gates are counted and shown beside the verdict.
@@ -221,15 +249,18 @@ The observation schema enforces the same rule on every stored `t0_result`.
   as a warning beside the verdict. It never changes the verdict. The job's 15-minute timeout is the kill limit.
 - **"T0 fails" (D2, F3)** means the run verdict is not PASS. A FAIL gate proves the problem; an UNVERIFIED gate
   (for example a citation into a private canonical repo that an anonymous job cannot read) also stops the run
-  from passing and says why. Whether the service should prove private citations from its own authenticated
-  mirrors is question 3 in GATE2.md.
+  from passing and says why. The service does not prove private citations from its own authenticated mirrors
+  (GATE2 Q3, decided 2026-10-01): they stay UNVERIFIED. WAIVED is not PASS either: a waived run has failures,
+  all of them known.
 
 ## 7. Examples and what is real
 
 | Example | Real (observed 2026-09-30, read-only) | Illustrative |
 |---|---|---|
 | `component-catalogue.example.yaml` | all repo paths, copies, the slcorem0p_tech alias, externals, the legacy repo, the three `ignored` repos | every `class`; canonical host of ahb_qspi and asic-flow; the choice of repos to ignore |
-| `eligibility.example.yaml` | eth-rc4 commit and tags | the choice of configurations; eth-main's upgrade_from; `errata_prefix` |
+| `eligibility.example.yaml` | eth-rc4 commit and tags; the 8 failing items its `t0_waivers` name | the choice of configurations; eth-main's upgrade_from; `errata_prefix`; the waivers' approver and wording |
+| `result-bundle.items.<gate>.example.jsonl` (4) | rc4's tree paths, commits, ssh URLs and the ahb_qspi gap | EXCERPTS: only the non-pass items of rc4's four non-pass gates; no T0 job has run yet |
+| `observation.t0-result-waived.example.jsonl` | the gates and items above | the run (ids, times, runner); the roll-up rc4 gets once its waivers are registered |
 | `defect.SL-DEF-0001.example.yaml` | every commit (full ids resolved), fix order on nanosoc_gen main, hsel_lint usage | effect-to-port mapping and netlist pattern (from the proposal, not re-checked) |
 | `erratum.ETH-R0P0-ERR-001.example.yaml` | ancestry evidence (merge_base), the 7 cited commits, 57d2c76 in rc4 (ancestor of f60449b) | doc_revision; category left null |
 | `pin-state.example.jsonl` | 3 rc4 pins, each host's state, with the commands that produced them | the snapshot id |

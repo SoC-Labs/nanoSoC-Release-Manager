@@ -1,0 +1,14 @@
+# expect-error: not at /configurations/0/t0_waivers/0/gate
+# GATE2 Q1, D10: t0.runner.hardened judges the job, not the frozen tree, so it can never be waived.
+schema: 1
+configurations:
+- id: eth-rc4
+  component: nanosoc-ethernet-chiplet
+  ref: {tag: v1.0.0}
+  commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  frozen: true
+  silicon: {chip: eth-chiplet, revision: r0p0}
+  errata_prefix: ETH-R0P0
+  t0_waivers:
+  - {gate: t0.runner.hardened, tree_path: tidelink, result: fail, approved_by: member-a, approved_on: '2026-10-01', reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers the
+      5 pins below it (not-reached).}

@@ -3,7 +3,7 @@
 #   as a redirect to soclabs/slcorem0p_tech).
 # JUDGEMENT, for the registry owner to confirm: every `class`, the canonical host of ahb_qspi and
 #   asic-flow (both DIVERGED; set here by the rule 'public components are canonical on GitHub'), and the
-#   `ignored` list (the org's other SoC families are open question 6 in docs/GATE2.md).
+#   `ignored` list (the org's other SoC families are listed as ignored with a reason: GATE2 Q6, decided 2026-10-01).
 schema: 1
 components:
   - {"id": "ahb-wb-bridges", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ahb-wb-bridges"}}

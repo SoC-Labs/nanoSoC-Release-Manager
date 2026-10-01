@@ -1,0 +1,2 @@
+{"tree_path": "tidelink", "component": "tidelink", "commit": "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed", "host": "github", "result": "fail", "why": "public parent SoC-Labs/NanoSoC-Ethernet-Chiplet@ab73e40 pins it by ssh URL"}
+{"tree_path": "ASIC/asic-toolkit", "component": "asic-toolkit", "commit": "4de7860af95cbb003265f94e6c2b7b4a1618877f", "host": "github", "result": "fail", "why": "public parent SoC-Labs/NanoSoC-Ethernet-Chiplet@ab73e40 pins it by ssh URL"}

@@ -29,7 +29,7 @@ F1, F2, F3, F5**. Each AT has a negative control (PR6).
 | AT | Requirement | What the test checks | Runs (test / control) | Negative control |
 |---|---|---|---|---|
 | [AT-D1](#at-d1) | D1 test tiers | All 7 tiers have a budget; every configuration has a T0 command; every accepted nightly T0 finished inside its 120 s budget | live / hermetic | a 181 s T0 bundle is flagged over budget; a tier row with no budget fails the table check |
-| [AT-D2](#at-d2) | D2 nightly T0 | Every registered configuration and the registry have tonight's accepted T0 report; rc4 goes red on its known real gates; all 44 pins are judged on their canonical host; every gate that ran fired its control | live / hermetic | the CI API refuses eth-main's nightly trigger: eth-main shows a missed night, never last night's result; and the four gates rc4 cannot exercise each PASS and FAIL on hermetic inputs |
+| [AT-D2](#at-d2) | D2 nightly T0 | Every registered configuration and the registry have tonight's accepted T0 report; rc4's raw gates go red on its known real items, and its waivers (GATE2 Q1) cover exactly those; all 44 pins are judged on their canonical host; every gate that ran fired its control | live / hermetic | the CI API refuses eth-main's nightly trigger: eth-main shows a missed night, never last night's result; and the four gates rc4 cannot exercise each PASS and FAIL on hermetic inputs |
 | [AT-D5](#at-d5) | D5 pull and verify | The genuine rc4 bundle is accepted; 13 single-field tampers are each rejected by the check that owns the field; no route accepts a pushed result | hermetic / hermetic | the same bundle with `captured.superproject_commit` = rc4's real parent `3ab16f5` is rejected |
 | [AT-D6](#at-d6) | D6 negative controls | Every declared gate is reported with its control and whether it fired; a PASS without a fired control never shows PASS | hermetic / hermetic | every gate in turn replaced by an always-PASS mutant: its control does not fire and the gate shows UNVERIFIED |
 | [AT-D10](#at-d10) | D10 hardened runner | The real T0 job passes `t0.runner.hardened`; the runner's id and settings are recorded and match the expected ones | live / hermetic | synthetic job environments (unprotected ref, dirty HOME, dirty TMPDIR, personal user, a CI token left unscrubbed) each FAIL the gate |
@@ -141,9 +141,9 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    - `@registry` carries `t0.registry.schema` and `t0.registry.refs-resolve`;
    - every gate that ran has `control: fired`; only a NOT-RUN gate has `not-applicable` (an "any valid value" check would pass vacuously);
    - eth-main declares `upgrade_from`, so its `t0.clone.upgrade-path` is not NOT-RUN.
-3. eth-rc4 matches the golden `result-bundle.verdicts.example.tsv`:
+3. eth-rc4's **raw** verdicts (before waivers: `raw_verdict` on a WAIVED gate) match the golden `result-bundle.verdicts.example.tsv`:
 
-   | Gate | Verdict | Detail |
+   | Gate | Raw verdict | Detail |
    |---|---|---|
    | `t0.infra.probe` | PASS | |
    | `t0.pins.fetchable` | FAIL | fails exactly `tidelink` and `ASIC/asic-toolkit`; the 5 pins below `tidelink` are not reached; 37 of 44 pass |
@@ -153,13 +153,18 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    | `t0.clone.upgrade-path` | NOT-RUN | no `upgrade_from` |
    | `t0.vendor.no-arm-ip` | UNVERIFIED | 7 trees not fetched |
 
-   The run verdict is FAIL.
+   **3b. Waivers (GATE2 Q1).** The reference oracle `reference_apply_waivers` (README §6) is applied to those raw
+   verdicts, the live items of the four non-pass gates and rc4's `t0_waivers` from the live registry. The stored
+   gate verdicts and the run verdict must equal its answer. The run is FAIL or WAIVED, never PASS. Each waiver
+   that covered nothing has an open `waiver_unused` alert naming its gate and tree path. With the 8 waivers of
+   `eligibility.example.yaml` registered, the four gates and the run are WAIVED; after the GATE2 Q2 push the
+   ahb_qspi waiver covers nothing.
 4. **`t0.pins.reachable` on rc4:**
    - All 44 pins are judged, each on its component's canonical host (externals on their own repo). (G15, now contracted).
    - **TideLink host drift:** `tidelink` `5e8bdb5` passes on GitHub, although the GitLab copy lacks it.
    - **Keep tags:** the 10 keep-tag pins other than `ASIC/asic-toolkit` all pass.
    - `ASIC/asic-toolkit` is UNVERIFIED: its canonical repo is private.
-   - The failures are exactly the pins off their canonical host, read from the catalogue (question 2):
+   - The failures are exactly the pins off their canonical host, read from the catalogue (GATE2 Q2: both GitHub):
      `nanosoc-multicore-system/ahb_qspi` (`e908ac8`) if ahb_qspi is canonical on GitHub, and `ASIC/asic-flows`
      (`3824aaa`) if asic-flow is canonical on GitLab. With the catalogue example (both GitHub), that is ahb_qspi only.
    - The gate is FAIL if that set is not empty, else UNVERIFIED.
@@ -194,7 +199,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
   `test_selfcheck_D2_gate_fixtures` proves with raw git and the schemas that each good input is good and each broken one is broken.
 
 **Cannot pass vacuously because**
-- rc4 must go red on named gates, for known real reasons, and each gate's per-pin results must match exact sets.
+- rc4's raw verdicts must go red on named gates, for known real reasons, and each gate's per-pin results must match exact sets. Its WAIVED verdicts must equal an oracle that shares no tool code, applied item by item, so a tool that waived whole gates, or waived an item no waiver names, fails.
 - `tidelink` must fail one gate and pass the other. A tool that marks everything red fails, and so does one that judges the wrong host.
 - Every reachable item must carry its canonical host, and the 44-pin count rules out a gate that judged only the pins it could fetch.
 - The run count must equal the number of configurations plus one, so an empty night fails.
@@ -202,10 +207,10 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 **Known consequences (not failures of the test)**
 - eth-main also pins tidelink by ssh, so its `t0.urls.no-ssh-public` is red.
 - If eth-main keeps `upgrade_from: v1.0.0`, its `t0.clone.upgrade-path` is red: an anonymous recursive clone of rc4 cannot fetch rc4's ssh pins.
-- Frozen rc4 stays red for ever unless waived (question 1).
+- Frozen rc4's raw verdicts stay red for ever. Its waivers (GATE2 Q1) make the run WAIVED, so a new failure on rc4 shows red.
 - Once compute is registered (F1), its T0 is red at the root while the compute repo stays private: `t0.pins.fetchable` cannot fetch the superproject anonymously.
 
-**Related:** rc4's arch_tech pin `ecf76aa` is reachable on GitHub only from a branch, not a tag; the silicon-protection list shows it as an uncovered canonical-host row (AT-B5, question 9 in GATE2.md).
+**Related:** rc4's arch_tech pin `ecf76aa` is reachable on GitHub only from a branch, not a tag; the silicon-protection list shows it as an uncovered canonical-host row until a GitHub keep tag covers it (AT-B5; GATE2 Q9).
 
 ---
 
@@ -273,6 +278,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - The golden rc4 `verdicts.tsv`.
 - The gate table in `nanosoc_rm/t0/gates.py`.
 - rc4's real `.gitmodules` at `ab73e40` (5 entries, 2 ssh URLs).
+- rc4's non-pass items (`result-bundle.items.*.example.jsonl`) and its 8 `t0_waivers` (`eligibility.example.yaml`).
 
 **When**
 1. The rows are rolled up (README §6).
@@ -300,6 +306,11 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    | `t0.runner.hardened` | PASS | fired |
 
    Run verdict FAIL, 2 not run.
+7. **With rc4's waivers** (`gates.apply_waivers`, GATE2 Q1), the four FAIL and UNVERIFIED gates become WAIVED,
+   each keeping its raw verdict and listing exactly its non-pass items as `waived`; no waiver is unused; the run
+   is WAIVED, 2 not run; the roll-up passed in is unchanged.
+8. The run page shows each WAIVED gate with `data-raw-verdict` and class `state-amber`, and one `data-waived`
+   row per covered item.
 
 **Fixture**
 - REAL: the rc4 rows and `.gitmodules`.
@@ -318,6 +329,11 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    - `t0.infra.probe.negctl` deleted → UNVERIFIED, `missing`;
    - that row flipped to FAIL → UNVERIFIED, `not-fired`;
    - a second `t0.infra.probe` row → UNVERIFIED.
+4. **Waivers never hide anything new** (GATE2 Q1), each on rc4's items and waivers with one change:
+   - a new `fail` item at `tidechart` in `t0.pins.reachable` → that gate FAIL with nothing waived, and the run FAIL;
+   - `tidelink/deps/tidelink-phy` turned from `not-reached` into `fail` → `t0.pins.fetchable` FAIL (only a not-reached item rides on the waiver above it);
+   - `t0.pins.fetchable.negctl` flipped to FAIL → that gate FAIL, `not-fired`, nothing waived (D6);
+   - the ahb_qspi item gone (as after the GATE2 Q2 push) → `t0.pins.reachable` still WAIVED (the private toolkit), and exactly the ahb_qspi waiver is returned unused.
 - **Runs:** hermetic.
 
 **Cannot pass vacuously because**
@@ -612,9 +628,9 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 
 ## Negative controls run today
 
-`python3 -m pytest --strict-markers tests/acceptance/test_ci_errata.py` on 2026-09-30, after the revision, gave
-**10 passed, 20 xfailed**, under Python 3.8 (pytest 8.3.5, jsonschema 4.19.1) and 3.11 (pytest 9.1.1,
-jsonschema 4.26.0). The 20 xfailed are the 10 ATs and their controls, which wait for the tool. The 10 passed
+`python3 -m pytest --strict-markers tests/acceptance/test_ci_errata.py` on 2026-10-01, after the GATE2 Q1 waivers, gave
+**11 passed, 20 xfailed**, under Python 3.8 (pytest 8.3.5, jsonschema 4.19.1) and 3.11 (pytest 9.1.1,
+jsonschema 4.26.0). The 20 xfailed are the 10 ATs and their controls, which wait for the tool. The 11 passed
 are self-checks: each proves a control's input is what its AT claims, with an oracle that shares no tool code.
 
 | Self-check | Good input passes | Broken inputs that fail |
@@ -624,6 +640,7 @@ are self-checks: each proves a control's input is what its AT claims, with an or
 | `test_selfcheck_D2_gate_fixtures` | the good upgrade pair updates without sync; the example manifest validates; the clean tree has no specimen; the example registry validates | the frozen-old-host pair fails without sync; `version: "1.0"` fails; the planted tree holds the specimen; the no-class catalogue fails |
 | `test_selfcheck_D5_tampers` | a reference verify accepts the genuine case | each of the 13 tampers fails exactly the check it is listed under; the control fails check 5 and differs only in provenance |
 | `test_selfcheck_D6_rollup_oracle` | a reference README section 6 roll-up of the golden TSV equals `EXPECTED_RC4_ROLLUP` (FAIL, 2 not run); the schema accepts it | control deleted, flipped, doubled: UNVERIFIED; all-skip and no gates: UNVERIFIED; the schema refuses the same gates claimed PASS, and a PASS over NOT-RUN gates only |
+| `test_selfcheck_D6_waiver_oracle` (GATE2 Q1) | rc4's 8 waivers turn exactly its 4 non-pass gates WAIVED (run WAIVED, 2 not run, none unused); the stored example equals it item for item and validates | a new failure, a `fail` below a waived pin, an unfired control and an orphaned `not-reached` item each stay FAIL; the pushed ahb_qspi waiver is unused; the schema refuses a WAIVED run with a FAIL gate and a WAIVED gate without `raw_verdict`. Three mutants of the oracle (ignore the control, let a prefix cover any result, never report unused) each fail it |
 | `test_selfcheck_D10_environments` | the good job environment breaks nothing | each synthetic environment breaks exactly its one property |
 | `test_selfcheck_D11_planted_line` | the bundle writer writes exactly 3 files | the planted specimen starts at `logs/t0.log` line 3 |
 | `test_selfcheck_F1_F2_variants` | the rc4 erratum validates and is permanent on a silicon configuration | the eth-main copy breaks rule 6 only; form C and D9 are not in the defect; the ancestry example fails `required` at `/exposure`; D2's pattern matches only the fired netlist |

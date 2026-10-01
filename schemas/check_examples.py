@@ -133,6 +133,15 @@ def check_tsv(path, row_validator, nonce, t_start, t_end):
 DEF_EXAMPLES = {
     "result-bundle.rm-request.example.json": ("result-bundle", "/$defs/rm_request"),
 }
+# rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
+# of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
+ITEMS_PREFIX = "result-bundle.items."
+
+
+def def_example(base):
+    if base.startswith(ITEMS_PREFIX):
+        return ("result-bundle", "/$defs/gate_item")
+    return DEF_EXAMPLES.get(base)
 
 EXPECT_RX = re.compile(r"^#\s*expect-error:\s*(\S+)\s+at\s+(\S+)(?:\s+~\s+(.+?))?\s*$")
 
@@ -187,7 +196,7 @@ def main():
             probs = check_tsv(path, row_v, prov["run_nonce"], prov["started_at"], prov["finished_at"])
             report(not probs, os.path.basename(path), "; ".join(probs))
             continue
-        name, pointer = DEF_EXAMPLES.get(os.path.basename(path), (schema_for(path), None))
+        name, pointer = def_example(os.path.basename(path)) or (schema_for(path), None)
         v = validator_for(schemas, registry, name, pointer)
         if pointer is None:
             covered.add(name)
