@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+
 import pytest
 from registry_helpers import REPO, dump, edit, example_registry, git, git_registry, load, write_example_registry
 
@@ -324,6 +326,45 @@ def test_registry_in_a_subdirectory_keeps_its_prefix(tmp_path):
     assert reg.commit and reg.prefix == "reg/"
     out = git("show", "%s:%s%s" % (reg.commit, reg.prefix, "catalogue.yaml"), cwd=top)
     assert out == (top / "reg/catalogue.yaml").read_text().rstrip("\n")
+
+
+
+def test_an_ignored_file_the_loader_reads_is_not_committed(git_registry):
+    """A gitignored record is read, but `git show <commit>:<file>` cannot reproduce it: no commit (review R2)."""
+    (git_registry / ".gitignore").write_text("errata/eth-rc4/ERR-002.yaml\n")
+    git("add", ".gitignore", cwd=git_registry)
+    git("commit", "-q", "-m", "ignore", cwd=git_registry)
+    shutil.copyfile(git_registry / ERR, git_registry / "errata/eth-rc4/ERR-002.yaml")
+    edit(git_registry / "errata/eth-rc4/ERR-002.yaml", lambda e: e.update(id="ETH-R0P0-ERR-002"))
+    reg = load_registry(git_registry)
+    assert [e["id"] for e in reg.errata()] == ["ETH-R0P0-ERR-001", "ETH-R0P0-ERR-002"]
+    assert reg.commit is None and reg.dirty
+
+
+def test_a_read_file_hidden_from_git_diff_is_not_committed(git_registry):
+    """assume-unchanged hides an edit from `git diff`; the bytes read still differ from the commit's blob."""
+    git("update-index", "--assume-unchanged", "imports.yaml", cwd=git_registry)
+    edit(git_registry / "imports.yaml", lambda d: d["sources"][0]["items"][0].update(title="hidden"))
+    reg = load_registry(git_registry)
+    assert reg.commit is None and reg.dirty
+
+
+def test_a_relative_path_is_held_absolute(git_registry, monkeypatch):
+    """The path is what a fact's `git -C <path> show` names, so it must not depend on the cwd (review R3)."""
+    monkeypatch.chdir(git_registry)
+    reg = load_registry(".")
+    assert reg.path == git_registry.resolve() and reg.path.is_absolute() and reg.commit
+
+
+@pytest.mark.parametrize("name", ["errata/eth-rc4/ERR-002.YAML", "errata/eth-rc4/notes.txt", "defects/README.md",
+                                  "errata/eth-rc4/.ERR-001.yaml.swp", "defects/SL-DEF-0002"])
+def test_a_file_the_loader_would_not_read_is_a_layout_problem(example_registry, name):
+    """Nothing under defects/ or errata/ is skipped in silence (rule 7; review R4). The ERR-002.YAML copy here
+    says `fixed` on silicon, which the loader would otherwise never see."""
+    (example_registry / name).write_text((example_registry / ERR).read_text()
+                                         .replace("ETH-R0P0-ERR-001", "ETH-R0P0-ERR-002")
+                                         .replace("status: permanent", "status: fixed"))
+    assert (name, "", "rule-7") in problems(example_registry)
 
 
 def test_problem_prints_like_the_cli(example_registry):

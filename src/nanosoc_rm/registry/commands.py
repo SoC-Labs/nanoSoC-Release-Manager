@@ -7,7 +7,8 @@
     registry records  [PATH] [--json] [--store]  the registry_record facts (A3); --store writes them to the
                                                service's own database, one snapshot per file
 
-PATH defaults to the service config's `[registry] path`.
+PATH defaults to the service config's `[registry] path`. A PATH, or a configured path, that is not a directory
+is a usage or config error (exit 3, section 0.2), not a finding about a registry.
 """
 from __future__ import annotations
 
@@ -17,14 +18,18 @@ import click
 
 from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, emit, exit_code, json_option, subgroup
 
-_PATH = click.argument("path", required=False, type=click.Path(file_okay=False, path_type=Path))
+_PATH = click.argument("path", required=False, type=click.Path(exists=True, file_okay=False, path_type=Path))
 
 
 def _registry_path(path: Path | None) -> Path:
     if path is not None:
         return path
-    from nanosoc_rm.config import load_config
-    return Path(load_config().require("registry", "path"))
+    from nanosoc_rm.config import ConfigError, load_config
+    config = load_config()
+    root = Path(config.require("registry", "path")).expanduser()
+    if not root.is_dir():
+        raise ConfigError("%s: [registry] path %s is not a directory" % (config.path, root))
+    return root
 
 
 def _problem_row(doc: dict) -> dict:

@@ -6,7 +6,7 @@ import shutil
 import pytest
 from registry_helpers import edit, example_registry, git, git_registry
 
-from nanosoc_rm.config import load_config
+from nanosoc_rm.config import ConfigError, load_config
 from nanosoc_rm.registry import load_registry
 from nanosoc_rm.registry.imports import CensusRow, ReadError, census, census_source, git_reader
 
@@ -71,6 +71,18 @@ def test_unreadable_document_is_not_done():
         raise ReadError("host said 404")
     row = census_source(source([item("a)")], RULE), fail)
     assert not row.done and row.error.startswith("cannot read") and "404" in row.error
+
+
+
+def test_a_config_error_in_the_reader_is_not_an_unreadable_source():
+    """ConfigError leaves census, so the CLI exits 3 (review R6); any other reader failure, a KeyError from a
+    dict-backed reader included, is still `cannot read`."""
+    def unconfigured(component, commit, path):
+        raise ConfigError("[hosts.github] is required for this command")
+    with pytest.raises(ConfigError):
+        census_source(source([item("a)")], RULE), unconfigured)
+    row = census_source(source([item("a)")], RULE), lambda c, s, p: {}[p])
+    assert not row.done and row.error.startswith("cannot read")
 
 
 def test_census_of_a_ledger_keeps_source_order(example_registry):

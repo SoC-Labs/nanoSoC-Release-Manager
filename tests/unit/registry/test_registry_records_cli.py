@@ -162,4 +162,35 @@ def test_records_command(git_registry, rm_config, example_registry):
     assert invoke("registry", "records", example_registry).exit_code == 2     # not a git checkout
 
 
+
+def test_records_cite_an_absolute_registry_path(git_registry, monkeypatch):
+    """`registry records .` must not store a `git -C . show` source (review R3)."""
+    monkeypatch.chdir(git_registry)
+    r = invoke("registry", "records", ".", "--json")
+    cmd = json.loads(r.stdout.splitlines()[0])["sources"][0]["command"]
+    assert r.exit_code == 0 and cmd.startswith("git -C %s show " % git_registry.resolve()), cmd
+    monkeypatch.chdir("/")
+    assert subprocess.run(cmd.split(), capture_output=True, timeout=60).returncode == 0
+
+
+@pytest.mark.parametrize("command", ["validate", "imports", "records"])
+def test_a_registry_path_that_is_not_a_directory_is_a_usage_error(tmp_path, monkeypatch, command):
+    """Section 0.2: a missing PATH is a usage or config error (3), not a finding about a registry (review R5)."""
+    assert invoke("registry", command, tmp_path / "absent").exit_code == 3
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[service]\ndata_dir = "%s"\n[registry]\npath = "%s"\n' % (tmp_path / "d", tmp_path / "absent"))
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    r = invoke("registry", command)
+    assert r.exit_code == 3 and "[registry] path" in r.output, r.output
+
+
+def test_imports_on_an_unconfigured_host_is_a_config_error(ledger_host, tmp_path, monkeypatch):
+    """A component whose host has no [hosts.<h>] entry is a config error (3), not an unreadable source (review R6)."""
+    cfg = tmp_path / "bare.toml"
+    cfg.write_text('[service]\ndata_dir = "%s"\n' % (tmp_path / "data"))
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    r = invoke("registry", "imports", ledger_host)
+    assert r.exit_code == 3 and "hosts.github" in r.output, r.output
+
+
 FIXTURES = (example_registry, git_registry)      # imported for pytest; named here for pyflakes

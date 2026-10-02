@@ -17,10 +17,15 @@ raised together, so one `registry validate` shows all of them.
 
 Records come back as schema documents (plain dicts, deep copies: a caller cannot change the loaded registry).
 
+Every regular file under defects/ and errata/ is accounted for: a file the loader would not read as a record
+(another suffix, `.YAML`, a README, an editor's swap file) is a rule-7 problem, never skipped in silence.
+
 `Registry.commit` is the registry commit the files were read at: HEAD of the git checkout, when the directory
-is one and nothing under it differs from HEAD. A directory that is not a git checkout, or a dirty one, loads
-the same way with `commit = None`, because no `git show <commit>:<file>` would reproduce what was read; such a
-registry cannot produce registry_record facts (records.py).
+is one, nothing under it differs from HEAD (tracked changes, staged changes, untracked files), and every file
+read is in HEAD's tree with the same blob (so an ignored file, or an edit hidden from `git diff`, cannot pass).
+A directory that is not a git checkout, or a dirty one, loads the same way with `commit = None`, because no
+`git show <commit>:<file>` would reproduce what was read; such a registry cannot produce registry_record facts
+(records.py). `Registry.path` is absolute, so that command does not depend on the caller's cwd.
 """
 from __future__ import annotations
 
@@ -105,17 +110,43 @@ def _read(root: Path, rel: str, schema: str, problems: list[Problem]) -> Any:
     return doc
 
 
-def _record_files(root: Path, top: str) -> list[str]:
+def _record_files(root: Path, top: str) -> tuple[list[str], list[str]]:
+    """(the YAML files under `top`, every other regular file under it), registry-relative and sorted."""
     d = root / top
     if not d.is_dir():
-        return []
-    return sorted(p.relative_to(root).as_posix() for p in d.rglob("*")
-                  if p.is_file() and p.suffix in _YAML_SUFFIXES)
+        return [], []
+    found = sorted(p.relative_to(root).as_posix() for p in d.rglob("*") if p.is_file())
+    return ([f for f in found if Path(f).suffix in _YAML_SUFFIXES],
+            [f for f in found if Path(f).suffix not in _YAML_SUFFIXES])
 
 
-def _registry_commit(root: Path) -> tuple[str | None, str, bool]:
+def _read_files_match_head(root: Path, read: Iterable[str]) -> bool:
+    """Every file in `read` (registry-relative) is in HEAD's tree under `root`, and its bytes hash to that
+    blob. `git diff` and `ls-files --others --exclude-standard` cannot see an ignored file or an edit to an
+    assume-unchanged or skip-worktree file; this sees both."""
+    read = sorted(read)
+    if not read:
+        return True
+    tree = gitrun.run_git("ls-tree", "-r", "-z", "HEAD", "--", ".", cwd=root, timeout=120)
+    if not tree.ok:
+        return False
+    blobs = {}
+    for entry in tree.stdout.split("\0"):
+        if "\t" in entry:
+            meta, name = entry.split("\t", 1)
+            parts = meta.split()
+            if len(parts) == 3 and parts[1] == "blob":
+                blobs[name] = parts[2]
+    if any(f not in blobs for f in read):
+        return False
+    hashed = gitrun.run_git("hash-object", "--", *read, cwd=root, timeout=120)
+    return hashed.ok and hashed.stdout.split() == [blobs[f] for f in read]
+
+
+def _registry_commit(root: Path, read: Iterable[str] = ()) -> tuple[str | None, str, bool]:
     """(HEAD commit or None, the directory's prefix inside its repo, dirty). None when not a git checkout, when
-    it has no commit, or when anything under the directory differs from HEAD."""
+    it has no commit, when anything under the directory differs from HEAD, or when a file in `read` is not
+    HEAD's blob (module docstring)."""
     top = gitrun.run_git("rev-parse", "--show-prefix", cwd=root, timeout=60)
     if not top.ok:
         return None, "", False
@@ -126,7 +157,8 @@ def _registry_commit(root: Path) -> tuple[str | None, str, bool]:
     diff = gitrun.run_git("--no-optional-locks", "diff", "--quiet", "HEAD", "--", ".", cwd=root, timeout=120)
     untracked = gitrun.run_git("--no-optional-locks", "ls-files", "--others", "--exclude-standard", "--", ".",
                                cwd=root, timeout=120)
-    dirty = diff.returncode != 0 or not untracked.ok or bool(untracked.stdout.strip())
+    dirty = (diff.returncode != 0 or not untracked.ok or bool(untracked.stdout.strip())
+             or not _read_files_match_head(root, read))
     return (None if dirty else head.stdout.strip()), prefix, dirty
 
 
@@ -249,7 +281,7 @@ class Registry:
 
 def load_registry(path: str | Path) -> Registry:
     """Load and validate the registry at `path`. RegistryError, with every problem, unless it is clean."""
-    root = Path(path)
+    root = Path(path).expanduser().resolve()
     problems: list[Problem] = []
     if not root.is_dir():
         raise RegistryError([Problem("", "", "layout", "%s is not a directory" % root)])
@@ -265,7 +297,11 @@ def load_registry(path: str | Path) -> Registry:
             files[rel] = doc
             setattr(docs, rel.split(".")[0], (rel, doc))
     for top, target in (("defects", docs.defects), ("errata", docs.errata)):
-        for rel in _record_files(root, top):
+        records, others = _record_files(root, top)
+        for rel in others:
+            problems.append(Problem(rel, "", "rule-7", "not a record file, so it is not read: a defect lives at "
+                                    "defects/<id>.yaml, an erratum at errata/<configuration>/ERR-NNN.yaml"))
+        for rel in records:
             doc = _read(root, rel, SCHEMA_OF[top], problems)
             if doc is not None:
                 files[rel] = doc
@@ -273,5 +309,5 @@ def load_registry(path: str | Path) -> Registry:
     problems += [Problem(*p) for p in rules.check_all(docs)]
     if problems:
         raise RegistryError(problems)
-    commit, prefix, dirty = _registry_commit(root)
+    commit, prefix, dirty = _registry_commit(root, files)
     return Registry(root, files, commit, prefix, dirty)

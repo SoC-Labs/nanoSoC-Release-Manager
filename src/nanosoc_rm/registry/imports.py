@@ -11,7 +11,9 @@ key) to the document at the cited commit, drop the `exclude` keys, add the `incl
     done     a rule is present, nothing missing, nothing extra, nothing pending (and the document was read)
 
 A source without a rule, with a rule that does not compile or has no group, or whose document cannot be read
-is not done, and `error` says why (a field after the contracted ones, default None).
+is not done, and `error` says why (a field after the contracted ones, default None). A ConfigError from the
+reader (the component's host is not configured) is not a property of the source: it leaves census, so the CLI
+exits 3 (section 0.2).
 
 `read_doc` for the CLI (`git_reader`) reads the document at the cited commit from the component's mirror
 (`<data_dir>/mirrors/<component>.git`) when it has the commit, else by an anonymous shallow fetch of that one
@@ -26,6 +28,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from nanosoc_rm import gitrun
+from nanosoc_rm.config import ConfigError
 
 __all__ = ["CensusRow", "census", "census_source", "git_reader", "ReadError"]
 
@@ -85,6 +88,8 @@ def census_source(source: dict, read_doc: ReadDoc) -> CensusRow:
         return row
     try:
         text = read_doc(doc["component"], doc["commit"], doc["path"])
+    except ConfigError:
+        raise
     except Exception as e:                     # any reader failure: this source is not censused
         row.error = "cannot read %s at %s: %s" % (doc["path"], doc["commit"][:12], e)
         return row
