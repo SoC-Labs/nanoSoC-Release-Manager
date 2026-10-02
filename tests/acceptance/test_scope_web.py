@@ -2230,7 +2230,6 @@ def test_AT_A2():
 
 
 @pytest.mark.requirement("A2")
-@NOT_BUILT
 def test_AT_A2_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: planted push/POST/DELETE, an unresolvable argv, a second write, an unknown
     # read-post, a "local" claim in an HTTP file, scope `api`, a trigger for another project and a
@@ -2509,7 +2508,6 @@ def test_AT_A5_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
 
 # ----- A6 -------------------------------------------------------------------------------------
 @pytest.mark.requirement("A6")
-@NOT_BUILT
 def test_AT_A6(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Given the package source (every phase), the schemas, and an offline estate whose superproject
     #   pins a user's fork (alice/ip) at a fork-only commit, with an MR ref and a PR ref.
@@ -2654,7 +2652,6 @@ def test_AT_H1():
 
 
 @pytest.mark.requirement("H1")
-@NOT_BUILT
 def test_AT_H1_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: a dashboard without runner-status, a configuration without a row, a Run form
     # without CSRF, a wrong red-pin count, and a silicon page missing or inventing a fact are each
@@ -2778,7 +2775,6 @@ def test_AT_H3():
 
 
 @pytest.mark.requirement("H3")
-@NOT_BUILT
 def test_AT_H3_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: recorded `api`, live scopes that differ, `ok` unchecked, a classic token, a
     # 10-day expiry with no alert, and a bump_writer credential are each caught; a clean report passes.
@@ -2844,7 +2840,6 @@ def test_AT_H6():
 
 
 @pytest.mark.requirement("H6")
-@NOT_BUILT
 def test_AT_H6_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: `git clone --mirror` picks up refs/pull/* and refs/merge-requests/*, and the §3
     # fetch without --no-tags writes refs/tags/*: each is caught. The contracted refspec with

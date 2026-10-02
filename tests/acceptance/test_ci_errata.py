@@ -1216,7 +1216,6 @@ def _rc4_ctx(tmp_path, nonce):
 
 
 @pytest.mark.requirement("D6")
-@NOT_BUILT
 def test_AT_D6(tmp_path, monkeypatch):
     """AT-D6: every declared gate is reported with its control and whether it fired; a PASS
     never stands without a fired control."""
@@ -1426,7 +1425,6 @@ def test_AT_D10():
 
 
 @pytest.mark.requirement("D10")
-@NOT_BUILT
 def test_AT_D10_negative_control(tmp_path, monkeypatch):
     """AT-D10 control: one-variable changes to a good job environment each FAIL the gate; a job
     run on a runner outside the allowlist is rejected."""
@@ -1705,7 +1703,6 @@ def test_AT_F2():
 
 
 @pytest.mark.requirement("F2")
-@NOT_BUILT
 def test_AT_F2_negative_control(tmp_path, monkeypatch):
     """AT-F2 control: ancestry claiming `exposed` is rejected; a detector the defect lacks is
     refused; a detector is shown both to fire and to stay clean (coverage review Medium 2)."""
