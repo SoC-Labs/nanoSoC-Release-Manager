@@ -10,7 +10,10 @@ How it runs (section 11): the toolkit scanner reads git trees.
 
 - A bundle directory becomes a throwaway git repo: one commit over the files, made under a temporary directory
   that is deleted afterwards. The scanner runs on it with `--rev HEAD --fast`.
-- A tree T0 fetched (t0.vendor.no-arm-ip) is scanned in place with `--rev <commit> --fast`.
+- A tree T0 fetched (t0.vendor.no-arm-ip) is scanned in place with `--rev <commit> --fast`. A tree's own
+  `VENDOR_ALLOWLIST` at that commit (the toolkit's project waivers, each with a reason and an owner) is handed to
+  the scanner, as the project's own CI would read it from its checkout. A bundle never waives itself: its
+  throwaway repo has no checkout, so the scanner finds no project allowlist.
 
 Results come back through the scanner's two machine-readable channels: its findings file
 (`VENDOR_CHECK_FINDINGS_OUT`: rule, path, line, why) and its own verdict rows (`CI_VERDICT_DIR`). Only rule,
@@ -116,12 +119,22 @@ def _findings(path: Path, prefix: str) -> list[dict]:
     return out
 
 
-def run_toolkit(tk: Toolkit, repo: str | os.PathLike, rev: str, prefix: str = "") -> ToolkitRun:
+PROJECT_ALLOWLIST = "VENDOR_ALLOWLIST"
+
+
+def run_toolkit(tk: Toolkit, repo: str | os.PathLike, rev: str, prefix: str = "",
+                project_allowlist: bool = True) -> ToolkitRun:
     """Run the toolkit scanner on the tree of `rev` in the non-bare repo `repo`. Finding paths are
-    `prefix/<path in the tree>`. Never raises for a scanner failure: it comes back as `why`."""
+    `prefix/<path in the tree>`. With `project_allowlist`, the tree's own VENDOR_ALLOWLIST at `rev` applies.
+    Never raises for a scanner failure: it comes back as `why`."""
     with tempfile.TemporaryDirectory(prefix="rm-toolkit-") as tmp:
         t = Path(tmp)
         env = _env(t)
+        if project_allowlist:
+            own = run_git("cat-file", "blob", "%s:%s" % (rev, PROJECT_ALLOWLIST), cwd=repo, isolate=True, text=False)
+            if own.ok:
+                (t / PROJECT_ALLOWLIST).write_bytes(own.stdout)
+                env["VC_PROJECT_ALLOWLIST"] = str(t / PROJECT_ALLOWLIST)
         try:
             p = subprocess.run(["bash", str(tk.script), "--rev", rev, "--fast"], cwd=repo, env=env,
                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=TIMEOUT_S)
@@ -160,4 +173,4 @@ def scan_dir_toolkit(tk: Toolkit, root: str | os.PathLike) -> ToolkitRun:
             if not r.ok:
                 return ToolkitRun([], False, "could not build the throwaway repo for the toolkit scanner (%s)"
                                   % " ".join(str(a) for a in argv if a not in (gd, root, repo))[:80])
-        return run_toolkit(tk, repo, "HEAD")
+        return run_toolkit(tk, repo, "HEAD", project_allowlist=False)

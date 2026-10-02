@@ -694,7 +694,7 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
             res, commit, host = scan_dir(obj, rules, toolkit=tk), None, None
         else:
             f = ctx.git.fetch_commit(obj.resolved or obj.url, obj.commit)
-            key = (f.repo, obj.commit)
+            key = obj.commit                   # same commit, same tree, whichever URL served it
             if key not in cache:
                 cache[key] = scan_tree(f.repo, obj.commit, rules, env=ctx.git.env, toolkit=tk)
             res, commit, host = cache[key], obj.commit, ctx.git.host_of(obj.resolved or obj.url)

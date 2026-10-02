@@ -39,8 +39,11 @@ rec PASS vendor.arm "fake rules armed"
 git rev-parse --show-toplevel >/dev/null 2>&1 || { rec UNVERIFIED vendor.corpus "not a work tree"; exit 1; }
 : > "$VENDOR_CHECK_FINDINGS_OUT"
 n=0
+allow=""
+[ -n "${VC_PROJECT_ALLOWLIST:-}" ] && allow="$(cat "$VC_PROJECT_ALLOWLIST")"
 while IFS= read -r -d '' path; do
     n=$((n + 1))
+    printf '%s\n' "$allow" | grep -qxF "$path" && continue          # the project waives this path
     case "$path" in *.lef) printf 'file.ext\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
     git cat-file -p "$rev:$path" | grep -n 'FAKE-FOUNDRY-VALUE' | cut -d: -f1 | while read -r ln; do
         printf 'value.fake\t%s\t%s\t%s\n' "$path" "$ln" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT"
@@ -152,6 +155,25 @@ def test_scan_tree_runs_the_toolkit_in_place_with_the_prefix(tmp_path):
     sha = run_git("rev-parse", "HEAD", cwd=repo).check().stdout.strip()
     r = scan_tree(repo, sha, prefix="sub/a", toolkit=fake_toolkit(tmp_path / "tk"))
     assert r.verdict == "finding" and r.findings == [{"rule": "value.fake", "file": "sub/a/rtl/x.v", "line": 1}]
+
+
+def _committed_repo(d: Path, files: dict[str, str]) -> tuple[Path, str]:
+    run_git("init", "-q", d).check()
+    bundle(d, files)
+    ident = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@invalid", "GIT_COMMITTER_NAME": "t",
+             "GIT_COMMITTER_EMAIL": "t@invalid"}
+    run_git("add", "-A", cwd=d).check()
+    run_git("commit", "-q", "-m", "c", cwd=d, env=ident).check()
+    return d, run_git("rev-parse", "HEAD", cwd=d).check().stdout.strip()
+
+
+def test_a_tree_s_own_vendor_allowlist_applies_but_a_bundle_never_waives_itself(tmp_path):
+    tk = fake_toolkit(tmp_path / "tk")
+    repo, sha = _committed_repo(tmp_path / "fetched", {"cells.lef": "x\n", "VENDOR_ALLOWLIST": "cells.lef\n"})
+    assert scan_tree(repo, sha, toolkit=tk).verdict == "clean"            # the project reviewed it
+    b = bundle(tmp_path / "b", {"cells.lef": "x\n", "VENDOR_ALLOWLIST": "cells.lef\n"})
+    r = scan_dir(b, toolkit=tk)
+    assert r.verdict == "finding" and {"rule": "file.ext", "file": "cells.lef", "line": None} in r.findings
 
 
 def test_finalise_bundle_deletes_what_the_toolkit_flags(at, tmp_path, runner_module):
