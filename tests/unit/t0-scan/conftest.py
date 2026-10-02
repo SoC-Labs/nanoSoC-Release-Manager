@@ -82,5 +82,19 @@ def tree(at, tmp_path_factory):
     return Tree(at, tmp_path_factory.mktemp("t0tree"))
 
 
+@pytest.fixture
+def runner_module():
+    """nanosoc_rm.t0.runner, imported for one test and then forgotten: other tests (AT-A4, the CLI's own) prove
+    the service process never imports it, so a unit test must not leave it in sys.modules."""
+    import nanosoc_rm.t0 as pkg
+    had = "nanosoc_rm.t0.runner" in sys.modules
+    mod = importlib.import_module("nanosoc_rm.t0.runner")
+    yield mod
+    if not had:
+        sys.modules.pop("nanosoc_rm.t0.runner", None)
+        if hasattr(pkg, "runner"):
+            delattr(pkg, "runner")
+
+
 def rm_request(nonce: str, request: dict) -> str:
     return json.dumps(dict({"schema": 1, "nonce": nonce}, **request), separators=(",", ":"))

@@ -12,7 +12,12 @@ import yaml
 from conftest import rm_request
 from nanosoc_rm.contracts import parse_verdict_row, validate_gate_item, validate_provenance, validate_verdict_row
 from nanosoc_rm.scan import rules
-from nanosoc_rm.t0 import gates, runner
+from nanosoc_rm.t0 import gates
+
+@pytest.fixture
+def runner(runner_module):
+    return runner_module
+
 
 NONCE = "0123456789abcdef0123456789abcdef"
 SECRET = "glcbt-SECRET-VALUE-never-written"
@@ -42,7 +47,7 @@ def all_text(root):
     return "".join(p.read_text(errors="replace") for p in root.rglob("*") if p.is_file())
 
 
-def test_configuration_run_writes_a_valid_bundle(tree, tmp_path):
+def test_configuration_run_writes_a_valid_bundle(tree, tmp_path, runner):
     env = job_env(tmp_path, tree.request)
     out = tmp_path / "rm-bundle"
     rc = runner.run(out, environ=env, url_map=tree.url_map)
@@ -66,7 +71,7 @@ def test_configuration_run_writes_a_valid_bundle(tree, tmp_path):
     assert SECRET not in all_text(out) and SECRET not in all_text(tmp_path / "rm-bundle.work")
 
 
-def test_missing_or_invalid_request_writes_no_rows_and_exits_3(tmp_path):
+def test_missing_or_invalid_request_writes_no_rows_and_exits_3(tmp_path, runner):
     env = job_env(tmp_path, {"configuration": "x"})
     env.pop("RM_REQUEST")
     assert runner.run(tmp_path / "a", environ=env) == 3 and not (tmp_path / "a").exists()
@@ -76,12 +81,12 @@ def test_missing_or_invalid_request_writes_no_rows_and_exits_3(tmp_path):
     assert runner.run(tmp_path / "c", environ=env) == 3 and not (tmp_path / "c").exists()
 
 
-def test_url_map_is_refused_in_a_ci_job(tree, tmp_path):
+def test_url_map_is_refused_in_a_ci_job(tree, tmp_path, runner):
     env = job_env(tmp_path, tree.request, CI_JOB_ID="77")
     assert runner.run(tmp_path / "o", environ=env, url_map=tree.url_map) == 3
 
 
-def test_unprotected_ref_fails_the_hardened_gate_in_the_job(tree, tmp_path):
+def test_unprotected_ref_fails_the_hardened_gate_in_the_job(tree, tmp_path, runner):
     env = job_env(tmp_path, tree.request, CI_COMMIT_REF_PROTECTED="false")
     out = tmp_path / "rm-bundle"
     runner.run(out, environ=env, url_map=tree.url_map)
@@ -90,7 +95,7 @@ def test_unprotected_ref_fails_the_hardened_gate_in_the_job(tree, tmp_path):
     assert h["verdict"] == "FAIL" and "CI_COMMIT_REF_PROTECTED" in h["detail"]
 
 
-def test_registry_run_uses_the_job_token_once_then_drops_it(at, tree, tmp_path):
+def test_registry_run_uses_the_job_token_once_then_drops_it(at, tree, tmp_path, runner):
     reg_src = at.example_registry(tmp_path / "reg-files")
     files = {str(p.relative_to(reg_src)): p.read_text() for p in reg_src.rglob("*") if p.is_file()}
     reg_commit = at.fx_commit(tmp_path / "registry.git", files=files, ref="refs/heads/main")
@@ -119,7 +124,7 @@ def test_registry_run_uses_the_job_token_once_then_drops_it(at, tree, tmp_path):
     assert "credential.helper" in log and "$RM_REGISTRY_TOKEN" in log      # the helper reads it from the env
 
 
-def test_finalise_bundle_drops_flagged_files_before_upload(at, tmp_path):
+def test_finalise_bundle_drops_flagged_files_before_upload(at, tmp_path, runner):
     b = at.write_bundle(tmp_path, at.example_provenance(), at.example_verdicts(),
                         {"logs/t0.log": at.T0_LOG + rules.specimen("arm.banner")})
     res = runner.finalise_bundle(b)
@@ -131,7 +136,7 @@ def test_finalise_bundle_drops_flagged_files_before_upload(at, tmp_path):
     assert rules.specimen("arm.banner").splitlines()[0] not in all_text(b)
 
 
-def test_finalise_bundle_with_an_unarmed_rule_keeps_only_provenance(at, tmp_path, monkeypatch):
+def test_finalise_bundle_with_an_unarmed_rule_keeps_only_provenance(at, tmp_path, monkeypatch, runner):
     f = tmp_path / "rules.yaml"
     f.write_text(yaml.safe_dump({"schema": 1, "rules": [{"id": "dead.rule", "patterns": ["zzz-never"],
                                                          "specimen": "does not match"}]}))
@@ -143,14 +148,14 @@ def test_finalise_bundle_with_an_unarmed_rule_keeps_only_provenance(at, tmp_path
     assert json.loads((b / "provenance.json").read_text())["scan"]["verdict"] == "unverified"
 
 
-def test_scrub_environment_keeps_only_the_registry_token_in_hand():
+def test_scrub_environment_keeps_only_the_registry_token_in_hand(runner):
     env = {"CI_JOB_TOKEN": "t", "CI_DEPENDENCY_PROXY_PASSWORD": "p", "CI_JOB_JWT": "j", "CI_JOB_ID": "1",
            "SSH_AUTH_SOCK": "s", "HOME": "/h"}
     assert runner.scrub_environment(env, keep_registry_token=True) == "t"
     assert env == {"CI_JOB_ID": "1", "HOME": "/h"}
 
 
-def test_cli_t0_run_is_the_runner(tree, tmp_path):
+def test_cli_t0_run_is_the_runner(tree, tmp_path, runner):
     env = job_env(tmp_path, tree.request)
     m = tmp_path / "map.json"
     m.write_text(json.dumps(tree.url_map))
@@ -162,7 +167,7 @@ def test_cli_t0_run_is_the_runner(tree, tmp_path):
     assert SECRET not in p.stderr + p.stdout
 
 
-def test_cli_t0_finalise(at, tmp_path):
+def test_cli_t0_finalise(at, tmp_path, runner):
     from click.testing import CliRunner
     from nanosoc_rm.cli import main
     b = at.write_bundle(tmp_path, at.example_provenance(), at.example_verdicts())
@@ -170,7 +175,7 @@ def test_cli_t0_finalise(at, tmp_path):
 
 
 @pytest.mark.parametrize("statuses, code", [(["PASS", "SKIP"], 0), (["PASS", "INFRA"], 2), (["INFRA", "FAIL"], 1)])
-def test_exit_code_rule(statuses, code, monkeypatch, tree, tmp_path):
+def test_exit_code_rule(statuses, code, monkeypatch, tree, tmp_path, runner):
     seq = iter(statuses * 10)
     monkeypatch.setattr(gates, "run_with_control", lambda gid, ctx: (
         {"utc": "2026-10-01T00:00:00Z", "status": next(seq), "gate": gid, "detail": "d", "nonce": NONCE},
