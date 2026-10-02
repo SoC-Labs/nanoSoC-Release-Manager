@@ -37,7 +37,7 @@ from typing import Any
 from nanosoc_rm import clock, contracts, db
 from nanosoc_rm.ci import configs
 from nanosoc_rm.ci.client import CIClient, CIError, make_client
-from nanosoc_rm.ci.verify import RunRecord, read_provenance, read_rows, verify
+from nanosoc_rm.ci.verify import RunRecord, ci_settings, read_provenance, read_rows, verify
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["fetch_pending", "coverage", "results", "items", "bundle_dir", "default_night", "INFRA_FAILURES",
@@ -284,10 +284,13 @@ def fetch_pending(client: CIClient | None = None, *, config: Config | None = Non
                   now: dt.datetime | None = None) -> list[dict]:
     """interfaces.md section 10 Fetch: every pending run, once. Returns the t0_results that became final."""
     config = _cfg(config)
+    pending = db.runs(state="pending", config=config)
+    if pending:
+        ci_settings(config)                              # a config that cannot verify is exit 3, not a run error
     client = client if client is not None else make_client(config)
     now = now or clock.now()
     out, errors = [], []
-    for row in db.runs(state="pending", config=config):
+    for row in pending:
         run = _run_record(row)
         try:
             doc = _process(run, client, config, now)

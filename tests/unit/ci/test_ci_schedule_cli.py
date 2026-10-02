@@ -155,3 +155,24 @@ def test_the_service_side_never_imports_the_t0_runner():
             "nanosoc_rm.credentials; print('nanosoc_rm.t0.runner' in sys.modules)")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert out.returncode == 0 and out.stdout.strip() == "False", out.stderr
+
+
+def test_t0_fetch_without_the_verify_config_is_a_config_error(ce, tmp_path, monkeypatch):
+    """A pending run and no ci.project_id: `t0 fetch` cannot verify anything, so it says so (exit 3)."""
+    from nanosoc_rm.ci.verify import RunRecord
+    path = ce.write_config(tmp_path, monkeypatch)
+    path.write_text(path.read_text().replace("project_id = %d\n" % ce.CI_PROJECT_ID, ""))
+    assert invoke("t0", "fetch").exit_code == 0                                       # nothing pending: nothing to do
+    db.put_run(RunRecord(**ce.genuine_case().run))
+    r = invoke("t0", "fetch")
+    assert r.exit_code == 3 and "project_id" in r.output
+    assert db.runs(state="pending")
+
+
+def test_t0_trigger_all_reports_each_configuration(ce, ci_config, monkeypatch):
+    from nanosoc_rm.ci import trigger as trig
+    monkeypatch.setattr(trig, "make_client", lambda config: FakeCI())
+    r = invoke("t0", "trigger", "--all", "--by", "alice", "--json")
+    assert r.exit_code == 2                                  # eth-main, multicore-master and @registry: no commit
+    assert [json.loads(line)["fact"]["configuration"] for line in r.stdout.splitlines()] == ["eth-rc4"]
+    assert "eth-main" in r.stderr and "@registry" in r.stderr

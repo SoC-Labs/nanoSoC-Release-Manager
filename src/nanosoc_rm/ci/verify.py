@@ -32,7 +32,7 @@ from typing import Any, Callable
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.config import Config, load_config
 
-__all__ = ["RunRecord", "Verdict", "verify", "read_rows", "read_provenance", "ROW_SLACK_S"]
+__all__ = ["RunRecord", "Verdict", "verify", "ci_settings", "read_rows", "read_provenance", "ROW_SLACK_S"]
 
 ROW_SLACK_S = 60
 
@@ -224,7 +224,8 @@ def _check_scan(bundle: Path, scanner: Callable[[Path], Any]) -> None:
     raise _Fail(7, "check 7: the vendor scan could not run (%s); the bundle is refused and deleted" % why)
 
 
-def _ci_settings(config: Config) -> dict:
+def ci_settings(config: Config) -> dict:
+    """The ci keys check 1 needs; ConfigError (exit 3) naming the first one missing."""
     return {"project": config.require("ci", "project"), "project_id": config.require("ci", "project_id"),
             "allowed_refs": config.require("ci", "allowed_refs"), "job": config["ci"].get("job", "t0"),
             "allowed_runner_ids": config.require("ci", "allowed_runner_ids")}
@@ -234,7 +235,7 @@ def verify(run: RunRecord, pipeline: dict, job: dict, variables: list[dict], bun
            config: Config | None = None, scanner: Callable[[Path], Any] | None = None) -> Verdict:
     """interfaces.md section 10 Verify. `scanner` replaces nanosoc_rm.scan.scan_dir (unit tests only)."""
     config = config if config is not None else load_config()
-    ci = _ci_settings(config)
+    ci = ci_settings(config)
     try:
         _check_api(run, pipeline, job, ci)
         _check_variable(run, variables)
