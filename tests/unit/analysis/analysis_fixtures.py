@@ -123,9 +123,12 @@ class Mirror:
         git("--git-dir", self.path, "update-ref", "-d", self.ref(host, path, kind, name))
 
     def head(self, host, path, branch):
-        """Record the repo's default branch as the symbolic ref refs/r/<key>/HEAD (the CR proposal)."""
-        git("--git-dir", self.path, "symbolic-ref", "refs/r/%s/HEAD" % key(host, path),
-            self.ref(host, path, "heads", branch))
+        """Record the repo's default branch where the mirror module's sync records it: the mirror's own git
+        config, `nanosoc-rm.<key>.defaultbranch` (build/mirror-walker, mirror/layout.py set_default_branch)."""
+        git("--git-dir", self.path, "config", "nanosoc-rm.%s.defaultbranch" % key(host, path), branch)
+
+    def forget_head(self, host, path):
+        git("--git-dir", self.path, "config", "--unset", "nanosoc-rm.%s.defaultbranch" % key(host, path))
 
     def refs(self, host, path):
         return git("--git-dir", self.path, "for-each-ref", "--format=%(refname)", "refs/r/" + key(host, path)).split()

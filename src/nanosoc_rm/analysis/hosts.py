@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nanosoc_rm import db
 from nanosoc_rm.analysis import _inputs as inp
 from nanosoc_rm.config import Config
 
@@ -103,8 +102,8 @@ def _row(cfg: Config, component_id: str, mirror: Path, canonical: dict, copy: di
 
 def compare_hosts(component_id: str, *, config: Config | str | Path | None = None, store: bool = True) -> list[dict]:
     """host_compare observations for every copy of `component_id`, stored as one snapshot of scope
-    `host_compare:<component>` (an empty one when the component has no copy). UsageProblem for a component the
-    catalogue does not list."""
+    `host_compare:<component>` ([] and nothing stored when the component has no copy). UsageProblem for a
+    component the catalogue does not list."""
     cfg = inp.config_of(config)
     comp = inp.registry(cfg).component(component_id)
     mirror = inp.mirror_path(cfg, component_id)
@@ -113,12 +112,14 @@ def compare_hosts(component_id: str, *, config: Config | str | Path | None = Non
         canonical = _side(cfg, mirror, comp.repos[0])
         for copy_repo in comp.copies:
             docs.append(_row(cfg, component_id, mirror, canonical, _side(cfg, mirror, copy_repo)))
+    if not comp.copies:
+        return docs              # nothing to compare, and a scope that never holds a row: nothing stored
     scope = "host_compare:%s" % component_id
     snap = inp.new_snapshot(scope)
     for d in docs:
         d["snapshot"] = dict(snap)
     if store:
-        db.put_snapshot(scope, docs, config=cfg)
+        inp.store_snapshot(scope, docs, cfg)
     return docs
 
 

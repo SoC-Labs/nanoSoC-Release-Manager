@@ -14,17 +14,23 @@ TAGGED on the default branch (a lag). `covering_tags` are the tags ON THAT HOST 
 walker's per-host `tags`, a `--contains` census), and `covered` = at least one: coverage is judged by
 containment, never by tag name, so `keep/eth-rc4/tidelink-phy` covers component tidelink-gpio-phy.
 
-The same (component, commit, host) reached through several pins is one row with every tree path. A pin with no
-host state (LOCAL_URL, NO_GITLINK, an uncatalogued URL) gives no row: the walk itself reports those red.
+The same (component, commit, host) reached through several pins is one row with every tree path.
 
-A configuration that is neither frozen nor silicon gives `[]` (and an empty snapshot), not an error.
+A pin whose protection cannot be judged gives no row and is named in the result's `unanswered`: no host state
+(LOCAL_URL, NO_GITLINK, an uncatalogued URL), no child commit, or no state for the host its URL names. The CLI
+then exits 2 when no row is uncovered (could not answer), never 0: a silicon pin nobody judged is not "covered".
+A frozen configuration never walked is named there too when every configuration is asked; CannotAnswer when it
+is the only one asked, or when no frozen configuration has a stored tree.
+
+A configuration that is neither frozen nor silicon gives `[]`, not an error, and stores nothing (its scope can
+never hold a row).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from nanosoc_rm import db
 from nanosoc_rm.analysis import _inputs as inp
+from nanosoc_rm.analysis._inputs import Answer, CannotAnswer
 from nanosoc_rm.config import Config
 
 __all__ = ["silicon_protection", "is_protected_configuration", "reached_by_default"]
@@ -44,12 +50,28 @@ def reached_by_default(state: dict) -> bool:
     return state["state"] == "TAGGED" and state["lag"] is not None
 
 
-def _rows(configuration: str, tree: list[dict]) -> list[dict]:
+def _unjudged(f: dict) -> str | None:
+    """Why this pin's protection cannot be judged from its stored host states, or None when it can."""
+    if f["state"] is not None:
+        return "its pin state is %s (no host state)" % f["state"]
+    if not f["child"]["commit"]:
+        return "it has no child commit"
+    if not f["child"]["component"]:
+        return "its URL %s names no catalogued component" % f["url"]
+    if not any(st["pinned"] for st in f["hosts"].values()):
+        return "the walk recorded no state for the host its URL names"
+    return None
+
+
+def _rows(configuration: str, tree: list[dict], unanswered: list[str]) -> list[dict]:
     acc: dict[tuple[str, str, str], dict] = {}
     for doc in tree:
         f = doc["fact"]
         component, commit = f["child"]["component"], f["child"]["commit"]
-        if not component or not commit:
+        why = _unjudged(f)
+        if why:
+            unanswered.append("%s pin %s (%s): protection not judged, %s" % (
+                configuration, " ".join(f["tree_paths"]), (commit or "no commit")[:12], why))
             continue
         for host, st in sorted(f["hosts"].items()):
             if not (st["pinned"] or st["role"] == "canonical") or reached_by_default(st):
@@ -80,22 +102,36 @@ def _rows(configuration: str, tree: list[dict]) -> list[dict]:
 
 
 def silicon_protection(configuration: str | None = None, *, config: Config | str | Path | None = None,
-                       store: bool = True) -> list[dict]:
+                       store: bool = True) -> Answer:
     """silicon_protection observations of one configuration, or of every registered one (None). Each
     configuration's rows are stored as one snapshot of scope `silicon_protection:<configuration>`.
-    UsageProblem for an unknown configuration; CannotAnswer when a frozen one was never walked."""
+    `.unanswered` names the pins (and, for None, the frozen configurations never walked) that were not judged.
+    UsageProblem for an unknown configuration; CannotAnswer when no frozen configuration asked was walked."""
     cfg = inp.config_of(config)
     reg = inp.registry(cfg)
     targets = [reg.configuration(configuration)] if configuration is not None else reg.configurations()
-    trees = {c["id"]: inp.stored_tree(c["id"], cfg) for c in targets if is_protected_configuration(c)}
-    out: list[dict] = []
+    protected = [c for c in targets if is_protected_configuration(c)]
+    trees, unanswered = {}, []
+    for c in protected:
+        try:
+            trees[c["id"]] = inp.stored_tree(c["id"], cfg)
+        except CannotAnswer as e:
+            unanswered.append(str(e))
+    if unanswered and not trees:
+        raise CannotAnswer("; ".join(unanswered))
+    out = Answer([], unanswered)
     for c in targets:
-        docs = _rows(c["id"], trees[c["id"]]) if c["id"] in trees else []
+        if c["id"] not in trees:
+            # Never walked (named in unanswered), or neither frozen nor silicon: [] and nothing stored. Such a
+            # scope never holds a fact, and an empty snapshot's id is `<scope>@<second>` (db.put_snapshot), so
+            # two runs in one second would collide over nothing.
+            continue
+        docs = _rows(c["id"], trees[c["id"]], out.unanswered)
         scope = "silicon_protection:%s" % c["id"]
         snap = inp.new_snapshot(scope)
         for d in docs:
             d["snapshot"] = dict(snap)
         if store:
-            db.put_snapshot(scope, docs, config=cfg)
+            inp.store_snapshot(scope, docs, cfg)
         out += docs
     return out

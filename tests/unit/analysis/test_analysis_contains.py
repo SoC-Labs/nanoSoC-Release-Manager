@@ -149,21 +149,49 @@ def test_ambiguous_prefix_lists_the_candidates(fx):
 
 
 def test_never_walked_configuration_cannot_be_answered(tmp_path, monkeypatch):
-    """No stored tree is "could not answer" (exit 2), never `absent`."""
+    """No stored tree is "could not answer" (exit 2), never `absent`. AN-3: the configurations that were walked
+    are still answered, and the one that was not is named."""
     write_config(tmp_path, monkeypatch)
     g = Mirror(tmp_path / "data", "nanosoc_gen")
     a, b = g.chain(2)
     g.set(GEN["host"], GEN["path"], "heads", "main", b)
+    with pytest.raises(CannotAnswer, match="eth-rc4 has no stored tree"):
+        contains(b, component="nanosoc_gen", configurations=["eth-rc4"])   # the only one asked: nothing to answer
+    with pytest.raises(CannotAnswer, match="eth-main has no stored tree"):
+        contains(b, component="nanosoc_gen")                               # none walked at all
     store_tree("eth-rc4", [gen_pin("eth-rc4", PATH_B, a)])
     assert contains(b, component="nanosoc_gen", configurations=["eth-rc4"])[0]["fact"]["answer"] == "no"
-    with pytest.raises(CannotAnswer, match="eth-main has no stored tree"):
-        contains(b, component="nanosoc_gen")                       # None = every registered configuration
-    rc, _docs, r = cli_run("contains", b, "--component", "nanosoc_gen", "--json")
-    assert rc == 2 and "walk eth-main" in r.output
+    docs = contains(b, component="nanosoc_gen")                             # None = every registered configuration
+    assert [(d["fact"]["configuration"], d["fact"]["answer"]) for d in docs] == [("eth-rc4", "no")]
+    assert len(docs.unanswered) == 2 and all("has no stored tree" in u for u in docs.unanswered)
+    assert {u.split()[1] for u in docs.unanswered} == {"eth-main", "multicore-master"}
+    rc, rows, r = cli_run("contains", b, "--component", "nanosoc_gen", "--json")
+    assert rc == 2 and [d["fact"]["configuration"] for d in rows] == ["eth-rc4"], r.output
+    assert "walk eth-main" in r.stderr and "walk multicore-master" in r.stderr
     store_tree("eth-main", [])                                       # an empty walk is a complete answer: absent
     store_tree("multicore-master", [])
     docs = contains(b, component="nanosoc_gen")
-    assert [d["fact"]["answer"] for d in docs] == ["no", "absent", "absent"]
+    assert [d["fact"]["answer"] for d in docs] == ["no", "absent", "absent"] and docs.unanswered == []
+    rc, _rows, r = cli_run("contains", b, "--component", "nanosoc_gen", "--json")
+    assert rc == 0, r.output
+
+
+def test_no_mirror_is_could_not_answer_not_a_bad_sha(tmp_path, monkeypatch):
+    """AN-4: before the first sync a prefix cannot be resolved, which is missing data (exit 2), not a usage
+    error (exit 3); exit 3 stays for a prefix that matches nothing in mirrors that all exist."""
+    write_config(tmp_path, monkeypatch)
+    with pytest.raises(CannotAnswer, match="nanosoc_gen has not been mirrored yet"):
+        contains("036d381", component="nanosoc_gen", configurations=["eth-rc4"])
+    rc, _rows, r = cli_run("contains", "036d381", "--component", "nanosoc_gen", "--config", "eth-rc4", "--json")
+    assert rc == 2 and "mirror sync" in r.stderr, r.output
+    rc, _rows, r = cli_run("contains", "036d381", "--json")                 # every mirror: none exists
+    assert rc == 2 and "not been mirrored yet" in r.stderr, r.output
+    g = Mirror(tmp_path / "data", "nanosoc_gen")                             # one mirror, others still missing
+    g.set(GEN["host"], GEN["path"], "heads", "main", g.chain(1)[0])
+    rc, _rows, r = cli_run("contains", "0000000", "--json")
+    assert rc == 2 and "the 1 mirror(s) that exist" in r.stderr, r.output
+    rc, _rows, r = cli_run("contains", "0000000", "--component", "nanosoc_gen", "--json")
+    assert rc == 3 and "resolves to no commit in the nanosoc_gen mirror" in r.stderr, r.output
 
 
 def test_cli_exit_codes(fx):

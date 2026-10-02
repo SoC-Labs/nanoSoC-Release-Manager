@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tarfile
+from pathlib import Path
 
 import pytest
 import yaml
@@ -48,8 +49,8 @@ def test_directory_and_archive_inputs(cfg, tmp_path):
     (out / "rtl" / "top.v").write_text("module top; cpu_ss u (.cpu_ss_hsel(cpu_ss_hsel_w)); endmodule\n")
     (out / "rtl" / "sub" / "net.v").write_text("x .cpu_ss_hsel(UNCONNECTED_3) y\n")
     manifest = md5_manifest(out)
-    assert manifest.splitlines()[0].endswith("  rtl/sub/net.v") and len(manifest.splitlines()) == 2
-    assert input_md5(out) == hashlib.md5(manifest.encode()).hexdigest()
+    assert manifest.splitlines()[0].endswith(b"  rtl/sub/net.v") and len(manifest.splitlines()) == 2
+    assert input_md5(out) == hashlib.md5(manifest).hexdigest()
     assert run("SL-DEF-0001", "D2", out).result == "fired"
     tar = tmp_path / "build_soc.tar.gz"
     with tarfile.open(tar, "w:gz") as t:
@@ -163,3 +164,110 @@ def test_cli_exit_codes(cfg, tmp_path):
     assert rc == 3 and "no detector D9" in r.output
     rc, _docs, r = cli_run("detect", "SL-DEF-0001", "D2", "--input", str(clean))
     assert rc == 0 and "RESULT" in r.stdout and "pattern in the record" in r.stdout
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Review AN-2, AN-6, AN-7: how a detector ends, odd file names, hostile archives, a source that is not the pin
+# ---------------------------------------------------------------------------------------------------------
+EXIT2 = "import sys\nprint('detector: bad arguments')\nsys.exit(2)\n"
+ARGPARSE = '''import argparse
+p = argparse.ArgumentParser()
+p.add_argument("netlist")
+p.add_argument("--top", required=True)
+p.parse_args()
+'''
+
+
+@pytest.mark.parametrize("body", [EXIT2, ARGPARSE], ids=["sys.exit(2)", "argparse-usage-error"])
+def test_a_detector_exiting_2_is_could_not_run_never_fired(cfg, tmp_path, monkeypatch, body):
+    """AN-2: SystemExit with a code other than 0 or 1 (an argparse usage error exits 2) has no answer."""
+    _path, _data, registry = cfg
+    sha = publish_detector(tmp_path, monkeypatch, {"lintpkg/__init__.py": "", "lintpkg/check.py": body})
+    point_d1_at(registry, sha)
+    with pytest.raises(DetectorError, match=r"without an answer \(exit 3\)"):
+        run("SL-DEF-0001", "D1", tmp_path)
+    rc, docs, r = cli_run("detect", "SL-DEF-0001", "D1", "--input", str(tmp_path), "--json")
+    assert rc == 2 and docs == [], r.output
+
+
+def test_a_source_that_is_not_the_pinned_commit_is_refused(cfg, tmp_path, monkeypatch):
+    """AN-7 (M9): the pin names an annotated tag object. The fetch succeeds and checks out the tagged commit,
+    whose id differs from the pin: the run is refused rather than judged with code the record does not name."""
+    _path, _data, registry = cfg
+    sha = publish_detector(tmp_path, monkeypatch, {"lintpkg/__init__.py": "", "lintpkg/check.py": LINT})
+    bare = tmp_path / "hosts" / "gitlab" / "soclabs" / "nanosoc_gen.git"
+    git("--git-dir", bare, "tag", "-a", "-m", "detector release", "det-v1", sha)
+    tag_object = git("--git-dir", bare, "rev-parse", "refs/tags/det-v1")
+    assert tag_object != sha
+    point_d1_at(registry, tag_object)
+    with pytest.raises(DetectorError, match="not the pinned source %s" % tag_object):
+        run("SL-DEF-0001", "D1", tmp_path)
+
+
+def _tar_with(tar_path, members):
+    """A tar holding the given (name, data or None for a symlink to '../../outside') members, written raw."""
+    import io
+    with tarfile.open(tar_path, "w") as t:
+        for name, data in members:
+            info = tarfile.TarInfo(name)
+            if data is None:
+                info.type, info.linkname = tarfile.SYMTYPE, "../../outside"
+                t.addfile(info)
+            else:
+                info.size = len(data)
+                t.addfile(info, io.BytesIO(data))
+
+
+@pytest.mark.parametrize("member", ["../../escaped.v", "link"], ids=["dotdot", "symlink"])
+def test_an_archive_that_writes_outside_its_directory_is_refused(cfg, tmp_path, monkeypatch, member):
+    """AN-7 (M10): tar's `data` filter refuses a member that leaves the unpack directory; nothing is written."""
+    import tempfile
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(work))          # the unpack directory lives under tmp_path
+    tar = tmp_path / "evil.tar"
+    members = [("ok.v", b".cpu_ss_hsel(UNCONNECTED_1)\n")]
+    members += [(member, None), ("link/escaped.v", b"x\n")] if member == "link" else [(member, b"x\n")]
+    _tar_with(tar, members)
+    before = sorted(p for p in tmp_path.rglob("*") if p.name != "evil.tar")
+    with pytest.raises(DetectorError, match="cannot unpack"):
+        run("SL-DEF-0001", "D2", tar)
+    after = sorted(p for p in tmp_path.rglob("*") if p.name != "evil.tar")
+    assert after == before, set(after) - set(before)
+    assert not list(tmp_path.rglob("escaped.v"))
+
+
+def test_an_absolute_archive_member_lands_inside_the_unpack_directory(cfg, tmp_path, monkeypatch):
+    """The `data` filter strips a leading `/`: the member is judged where it belongs, never written at /abs."""
+    import tempfile
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(work))
+    tar = tmp_path / "abs.tar"
+    _tar_with(tar, [("/nanosoc-rm-unit-abs/net.v", b".cpu_ss_hsel(UNCONNECTED_1)\n")])
+    r = run("SL-DEF-0001", "D2", tar)
+    assert r.result == "fired" and "nanosoc-rm-unit-abs/net.v:1" in r.log
+    assert not Path("/nanosoc-rm-unit-abs").exists() and list(work.iterdir()) == []
+
+
+def test_directory_with_a_non_utf8_file_name(cfg, tmp_path):
+    """AN-6: the manifest is bytes, as md5sum prints it; a name that is not UTF-8 is hashed, not a crash."""
+    import os
+    import subprocess
+    d = tmp_path / "rtl"
+    d.mkdir()
+    (d / "top.v").write_text(".cpu_ss_hsel(hsel_w)\n")
+    bad = os.path.join(os.fsencode(d), b"net_\xff.v")
+    with open(bad, "wb") as f:
+        f.write(b".cpu_ss_hsel(UNCONNECTED_7)\n")
+    (d / "back\\slash.v").write_text("a\n")                     # md5sum escapes these two and marks the line
+    (d / "new\nline.v").write_text("b\n")
+    manifest = md5_manifest(d)
+    oracle = subprocess.run("find . -type f -printf '%P\\0' | LC_ALL=C sort -z | xargs -0 md5sum", shell=True,
+                            cwd=d, capture_output=True, check=True).stdout
+    assert manifest == oracle                                     # byte for byte what md5sum prints
+    assert input_md5(d) == hashlib.md5(oracle).hexdigest()
+    r = run("SL-DEF-0001", "D2", d)
+    assert (r.result, r.input["md5"]) == ("fired", hashlib.md5(oracle).hexdigest())
+    rc, docs, res = cli_run("detect", "SL-DEF-0001", "D2", "--input", str(d), "--json")
+    assert rc == 1 and docs[0]["result"] == "fired", res.output

@@ -7,9 +7,10 @@ erratum's `exposure.run`. The service never runs it (A4): no schedule or web rou
 
 **Input.** `built_output` is a generated-RTL archive (any tar), a directory, or one file (a netlist).
 `input.md5` is the md5 of the file given; for a directory, the md5 of its md5 manifest: one line
-`<md5 of the file>  <path relative to the directory>` per regular file, sorted by that path, `\\n`-terminated,
-as `md5sum` prints it (symbolic links are not followed and not listed). An archive is unpacked into a
-temporary directory (tar's `data` filter: no absolute paths, no links out) and judged there.
+`<md5 of the file>  <path relative to the directory>` per regular file, sorted by that path's bytes,
+`\\n`-terminated, byte for byte as GNU `md5sum` prints it (symbolic links are not followed and not listed).
+An archive is unpacked into a temporary directory (tar's `data` filter: a leading `/` is stripped, a member or
+link that would leave the directory is refused) and judged there.
 
 **Pattern detector** (`pattern`, a defect's netlist or RTL regex): applied by the tool to every regular file of
 the input (as text, UTF-8 with replacement). POSIX bracket classes (`[[:alpha:]]` and friends) are translated
@@ -89,23 +90,33 @@ def _md5_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def md5_manifest(directory: Path) -> str:
-    """The md5 manifest of a directory (module docstring): `<md5>  <relative path>` per regular file, sorted."""
+def _manifest_line(md5: str, rel: bytes) -> bytes:
+    """One md5sum line. GNU md5sum (coreutils 8) escapes a name holding `\\` or a newline and marks the line
+    with a leading backslash; any other byte, UTF-8 or not, is printed as it is."""
+    if b"\\" in rel or b"\n" in rel:
+        return b"\\" + md5.encode() + b"  " + rel.replace(b"\\", b"\\\\").replace(b"\n", b"\\n") + b"\n"
+    return md5.encode() + b"  " + rel + b"\n"
+
+
+def md5_manifest(directory: Path) -> bytes:
+    """The md5 manifest of a directory (module docstring), as the bytes md5sum prints: `<md5>  <relative path>`
+    per regular file, sorted by the path's bytes (`LC_ALL=C sort`). File names are bytes on Linux, not text."""
     directory = Path(directory)
     files = []
     for root, dirs, names in os.walk(directory, followlinks=False):
         for name in names:
             p = Path(root) / name
             if p.is_file() and not p.is_symlink():
-                files.append(p.relative_to(directory).as_posix())
-    return "".join("%s  %s\n" % (_md5_file(directory / rel), rel) for rel in sorted(files))
+                files.append(p.relative_to(directory))
+    files.sort(key=lambda rel: os.fsencode(rel))
+    return b"".join(_manifest_line(_md5_file(directory / rel), os.fsencode(rel)) for rel in files)
 
 
 def input_md5(path: Path) -> str:
     """md5 of a file, or of a directory's md5 manifest (interfaces.md section 6a)."""
     path = Path(path)
     if path.is_dir():
-        return hashlib.md5(md5_manifest(path).encode()).hexdigest()
+        return hashlib.md5(md5_manifest(path)).hexdigest()
     return _md5_file(path)
 
 
@@ -171,7 +182,8 @@ def _pattern_fired(pattern: str, root: Path) -> tuple[bool, str]:
         m = rx.search(text)
         if m:
             line = text.count("\n", 0, m.start()) + 1
-            hits.append("%s:%d" % (f.relative_to(root) if root.is_dir() else f.name, line))
+            name = os.fsencode(f.relative_to(root) if root.is_dir() else f.name).decode("utf-8", "backslashreplace")
+            hits.append("%s:%d" % (name, line))
     log = "pattern %s: %d file(s) scanned, %d matched%s" % (pattern, len(files), len(hits),
                                                             (": " + ", ".join(hits[:20])) if hits else "")
     return bool(hits), log

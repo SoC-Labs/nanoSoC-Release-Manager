@@ -14,10 +14,12 @@ Inputs and the contract each follows:
 - **Mirrors** (section 3): `<data_dir>/mirrors/<component>.git`; one namespace per repo,
   `refs/r/<host>/<quote(path, safe="")>/{heads,tags}/*`. Read with the one git runner, `-C <mirror>`.
 - **Mirror status** (section 3): the latest stored `mirror_status` of a repo (ok, last_success_at).
-- **Default branch of a repo on its host.** No contract says where the mirror records it (raised as a CR
-  candidate). `default_branch()` asks, first match wins: a symbolic ref `refs/r/<key>/HEAD` in the mirror
-  (the proposal), then `git ls-remote --symref <url> HEAD` on the host, then the newest stored pin_state host
-  state for that repo. Each answer carries the command that produced it.
+- **Default branch of a repo on its host.** The mirror module records it at each sync, as the host advertised
+  it, in the mirror's own git config: `nanosoc-rm.<key>.defaultbranch` (mirror/layout.py; not yet in the
+  section 3 text, raised as a CR candidate). `default_branch()` reads it there (through
+  `nanosoc_rm.mirror.layout.default_branch` once that module is merged), then falls back to the newest stored
+  pin_state host state for that repo. It never asks a host: the analysis reads stored data only, so a private
+  repo needs no credential here and the name always matches the refs the mirror holds.
 """
 from __future__ import annotations
 
@@ -31,9 +33,9 @@ from nanosoc_rm import clock, contracts, db
 from nanosoc_rm.config import Config, load_config
 from nanosoc_rm.gitrun import GitResult, run_git
 
-__all__ = ["AnalysisError", "UsageProblem", "CannotAnswer", "Component", "config_of", "registry", "Registry",
+__all__ = ["AnalysisError", "UsageProblem", "CannotAnswer", "Answer", "Component", "config_of", "registry", "Registry",
            "stored_tree", "repo_key", "ref_prefix", "mirror_path", "git", "mirror_status", "default_branch",
-           "new_snapshot", "oldest", "GIT_TIMEOUT_S"]
+           "new_snapshot", "store_snapshot", "oldest", "GIT_TIMEOUT_S"]
 
 GIT_TIMEOUT_S = 300
 
@@ -56,6 +58,17 @@ class CannotAnswer(AnalysisError):
     registry, a detector that could not run. CLI exit 2."""
 
     exit_code = 2
+
+
+class Answer(list):
+    """The observations a query produced (a plain list of documents to every caller that wants only rows), plus
+    `unanswered`: one sentence per part of the question the stored data could not answer (a configuration never
+    walked, a pin whose protection cannot be judged). Rows for the parts that could be answered are still
+    returned, so one gap never hides the rest; the CLI prints them and exits 2 (could not answer)."""
+
+    def __init__(self, docs=(), unanswered=()):
+        super().__init__(docs)
+        self.unanswered: list[str] = list(unanswered)
 
 
 def config_of(config: Config | str | Path | None) -> Config:
@@ -214,25 +227,30 @@ def mirror_status(cfg: Config, repo: dict) -> dict | None:
     return docs[-1] if docs else None
 
 
+DEFAULT_BRANCH_KEY = "nanosoc-rm.%s.defaultbranch"           # mirror/layout.py's config key, `%s` = repo_key
+
+
+def _recorded_default(mirror: Path, key: str) -> tuple[str | None, dict]:
+    """(the default branch the mirror's last sync recorded, the read that found it)."""
+    r = git(mirror, "config", "--get", DEFAULT_BRANCH_KEY % key, timeout=60)
+    try:                                                    # the mirror module, once merged, owns the layout
+        from nanosoc_rm.mirror.layout import default_branch as layout_default_branch
+    except ModuleNotFoundError as e:
+        if not (e.name or "").startswith("nanosoc_rm.mirror"):
+            raise
+        return (r.stdout.strip() or None) if r.ok else None, r.source()
+    return layout_default_branch(mirror, key), r.source()
+
+
 def default_branch(cfg: Config, mirror: Path, repo: dict) -> tuple[str | None, list[dict]]:
     """(default branch name or None, the sources that decided it). See the module docstring for the order."""
     key = repo_key(repo)
     tried: list[dict] = []
-    if mirror.is_dir():
-        r = git(mirror, "symbolic-ref", "--quiet", "refs/r/%s/HEAD" % key, timeout=60)
-        tried.append(r.source())
-        prefix = "refs/r/%s/heads/" % key
-        if r.ok and r.stdout.strip().startswith(prefix):
-            return r.stdout.strip()[len(prefix):], [r.source()]
-    base = cfg.get("hosts", {}).get(repo["host"], {}).get("git")
-    if base:
-        url = "%s/%s.git" % (base.rstrip("/"), repo["path"])
-        r = run_git("ls-remote", "--symref", url, "HEAD", timeout=60)
-        if r.ok:
-            for line in r.stdout.splitlines():
-                if line.startswith("ref: refs/heads/") and line.rstrip().endswith("HEAD"):
-                    return line[len("ref: refs/heads/"):].split("\t")[0].strip(), [r.source()]
-        tried.append(r.source())
+    if (mirror / "HEAD").is_file():
+        name, src = _recorded_default(mirror, key)
+        if name:
+            return name, [src]
+        tried.append(src)
     best = None
     for doc in db.latest("pin_state", config=cfg):
         for state in doc["fact"]["hosts"].values():
@@ -253,6 +271,25 @@ def new_snapshot(scope: str) -> dict:
     """A snapshot {id, scope} for one producer run; the id is unique to the microsecond."""
     now = dt.datetime.now(dt.timezone.utc)
     return {"id": "%s@%sZ" % (scope, now.strftime("%Y-%m-%dT%H:%M:%S.%f")), "scope": scope}
+
+
+def store_snapshot(scope: str, docs: list[dict], cfg: Config) -> None:
+    """db.put_snapshot, except for one case. An EMPTY run gets the id `<scope>@<now to the second>` from the store,
+    so a second empty run in the same second (two viewers of the same page) is refused as a duplicate id. When
+    the scope's newest complete snapshot is itself empty, the store already says exactly what this run found
+    (no rows, as of this second), so nothing is lost by not storing it again. Every other refusal is raised."""
+    try:
+        db.put_snapshot(scope, docs, config=cfg)
+    except db.ObservationRefused:
+        if docs:
+            raise
+        with db.connect(cfg) as con:
+            newest = con.execute("SELECT id FROM snapshots WHERE scope = ? AND completed_at IS NOT NULL "
+                                 "ORDER BY completed_at DESC LIMIT 1", (scope,)).fetchone()
+            rows = con.execute("SELECT COUNT(*) FROM observations WHERE snapshot_id = ?",
+                               (newest[0],)).fetchone()[0] if newest else None
+        if rows != 0:
+            raise
 
 
 def oldest(*times: str | None) -> str:

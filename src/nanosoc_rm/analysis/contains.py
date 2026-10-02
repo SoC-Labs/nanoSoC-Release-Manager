@@ -16,16 +16,19 @@
    from the pins: yes all true, no all false, partial both, unknown any null, absent no pins.
 5. A decided row's `sources` carry the existence proofs of both commits and the merge-base command (A3).
 
-A configuration that was never walked has no stored tree: CannotAnswer (exit 2), never `absent`.
+A configuration that was never walked has no stored tree, so it has no row (never `absent`): it is named in the
+result's `unanswered` and the CLI exits 2 after printing the rows of the configurations that were walked. When
+none of the asked configurations was walked: CannotAnswer (exit 2). A prefix found in no mirror while some of
+the searched components have no mirror yet is also CannotAnswer (exit 2): "not there" is unproven. Exit 3 is
+kept for a prefix that resolves to nothing, or to several commits, among mirrors that all exist.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from nanosoc_rm import db
 from nanosoc_rm.analysis import _inputs as inp
-from nanosoc_rm.analysis._inputs import UsageProblem
+from nanosoc_rm.analysis._inputs import Answer, CannotAnswer, UsageProblem
 from nanosoc_rm.config import Config
 from nanosoc_rm.gitrun import run_git
 
@@ -64,10 +67,11 @@ def resolve_commit(prefix: str, component: str | None = None, *, config: Config 
         ids = [c["id"] for c in reg.catalogue["components"]] + [e["id"] for e in reg.catalogue.get("external", [])]
     found: dict[str, list[str]] = {}
     sources: list[dict] = []
-    searched = []
+    searched, missing = [], []
     for cid in ids:
         mirror = inp.mirror_path(cfg, cid)
-        if not mirror.is_dir():
+        if not (mirror / "HEAD").is_file():
+            missing.append(cid)
             continue
         searched.append(cid)
         shas, src = _commits_in(mirror, p)
@@ -76,9 +80,13 @@ def resolve_commit(prefix: str, component: str | None = None, *, config: Config 
         for sha in shas:
             found.setdefault(sha, []).append(cid)
     if not found:
+        if missing:                                         # not found where we looked; not looked everywhere
+            raise CannotAnswer("%s resolves to no commit in %s, but %s not been mirrored yet (%s): run "
+                               "`nanosoc-rm mirror sync` first" % (
+                                   prefix, ("the %d mirror(s) that exist" % len(searched)) if searched else "any mirror",
+                                   ("%s has" % missing[0]) if len(missing) == 1 else ("%d components have" % len(missing)),
+                                   ", ".join(missing[:8]) + (", ..." if len(missing) > 8 else "")))
         where = ("the %s mirror" % component) if component else ("%d mirror(s)" % len(searched))
-        if component and not searched:
-            where = "no mirror of %s exists (%s)" % (component, inp.mirror_path(cfg, component))
         raise UsageProblem("%s resolves to no commit in %s" % (prefix, where))
     if len(found) > 1:
         raise UsageProblem("%s is ambiguous: %s" % (prefix, ", ".join(
@@ -159,9 +167,10 @@ def _row(cfg: Config, comp: inp.Component, sha: str, configuration: str, host: s
 
 
 def contains(commit: str, component: str | None = None, configurations: list[str] | None = None, *,
-             config: Config | str | Path | None = None, store: bool = True) -> list[dict]:
+             config: Config | str | Path | None = None, store: bool = True) -> Answer:
     """containment observations, one per (configuration, host where the component has a repo), stored as one
-    snapshot of scope `containment:<component>:<commit>`. See the module docstring."""
+    snapshot of scope `containment:<component>:<commit>`. See the module docstring. A configuration with no
+    stored tree has no row and is named in `.unanswered`; CannotAnswer when none of them has one."""
     cfg = inp.config_of(config)
     reg = inp.registry(cfg)
     cid, sha, resolved_by = resolve_commit(commit, component, config=cfg)
@@ -171,15 +180,22 @@ def contains(commit: str, component: str | None = None, configurations: list[str
     else:
         for c in configurations:
             reg.configuration(c)                            # UsageProblem for an unknown configuration
-    trees = {c: inp.stored_tree(c, cfg) for c in configurations}
+    trees, unanswered = {}, []
+    for c in configurations:
+        try:
+            trees[c] = inp.stored_tree(c, cfg)
+        except CannotAnswer as e:
+            unanswered.append(str(e))
+    if unanswered and not trees:
+        raise CannotAnswer("; ".join(unanswered))
     prover = _Prover(inp.mirror_path(cfg, cid), comp)
-    docs = [_row(cfg, comp, sha, c, host, trees[c], prover, resolved_by)
-            for c in configurations for host in comp.hosts()]
+    docs = Answer([_row(cfg, comp, sha, c, host, trees[c], prover, resolved_by)
+                   for c in configurations if c in trees for host in comp.hosts()], unanswered)
     scope = "containment:%s:%s" % (cid, sha)
     snap = inp.new_snapshot(scope)
     for d in docs:
         d["snapshot"] = dict(snap)
     if store:
-        db.put_snapshot(scope, docs, config=cfg)
+        inp.store_snapshot(scope, docs, cfg)
     return docs
 

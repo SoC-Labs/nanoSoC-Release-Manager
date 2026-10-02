@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 
 import pytest
 from click.testing import CliRunner
@@ -131,29 +130,38 @@ def test_unreadable_side_is_unknown_never_same(env):
     assert f["relation"] == "UNKNOWN" and f["copy"]["default_branch"] is None
 
 
-def test_default_branch_fallbacks(env, tmp_path, monkeypatch):
-    """No HEAD symref in the mirror: `ls-remote --symref` on the host, then the stored walk's host state."""
+def test_default_branch_is_read_where_the_mirror_records_it(env, tmp_path, monkeypatch):
+    """AN-1: the mirror module keeps each repo's default branch in the mirror's git config. The compare reads
+    it there and never asks a host (no anonymous ls-remote that a private GitLab repo would refuse)."""
+    hosts = route_hosts(tmp_path, monkeypatch)                    # both hosts reachable, but empty: no answer there
+    (hosts / "github").mkdir(parents=True)
+    (hosts / "gitlab").mkdir(parents=True)
+    d = compare_hosts("tidelink", store=False)[0]
+    f = d["fact"]
+    assert (f["relation"], f["canonical"]["default_branch"], f["copy"]["default_branch"]) == ("AHEAD", "main", "main")
+    commands = [s["command"] for s in d["sources"]]
+    assert not any("ls-remote" in c for c in commands), commands
+    assert any("config --get nanosoc-rm.%s.defaultbranch" % key(TL[1]["host"], TL[1]["path"]) in c
+               for c in commands), commands
+
+
+def test_default_branch_falls_back_to_the_stored_walk_never_to_a_host(env, tmp_path, monkeypatch):
+    """Nothing recorded in the mirror: the newest stored walk's host state names it; with no walk either, the
+    side is unreadable (UNKNOWN), and no host was asked."""
     tl = env["tidelink"]
     for r in TL:
-        git("--git-dir", tl.path, "symbolic-ref", "--delete", "refs/r/%s/HEAD" % key(r["host"], r["path"]))
-    hosts = route_hosts(tmp_path, monkeypatch)
-    for r, branch in zip(TL, ("main", "main")):
-        bare = hosts / r["host"] / ("%s.git" % r["path"])
-        git("init", "--quiet", "--bare", "--initial-branch", branch, bare)
-        git("--git-dir", bare, "fetch", "--quiet", tl.path, "%s:refs/heads/%s" % (tl.ref(r["host"], r["path"], "heads", branch), branch))
+        tl.forget_head(r["host"], r["path"])
+    route_hosts(tmp_path, monkeypatch)
     d = compare_hosts("tidelink")[0]
-    assert d["fact"]["relation"] == "AHEAD"
-    assert any(s["command"].startswith("git ls-remote --symref https://gitlab.example.invalid/soclabs/tidelink.git")
-               for s in d["sources"]), d["sources"]
-    # host unreachable: the stored walk's host state names the default branch
-    for r in TL:
-        shutil.rmtree(hosts / r["host"] / ("%s.git" % r["path"]))
+    assert (d["fact"]["relation"], d["fact"]["copy"]["default_branch"]) == ("UNKNOWN", None)
+    assert not any("ls-remote" in s["command"] for s in d["sources"]), d["sources"]
     store_tree("eth-rc4", [pin_doc("eth-rc4", "tidelink", "tidelink", "1" * 40, {
         "github": host_state(TL[0], "canonical", True, "MISSING"),
         "gitlab": host_state(TL[1], "copy", False, "MISSING")})])
     d = compare_hosts("tidelink")[0]
     assert d["fact"]["relation"] == "AHEAD"
     assert any(s["kind"] == "derived" and "pin_state:eth-rc4:tidelink" in s["command"] for s in d["sources"])
+    assert not any("ls-remote" in s["command"] for s in d["sources"])
 
 
 def test_cli_exit_codes(env):
@@ -173,5 +181,6 @@ def test_cli_exit_codes(env):
 def test_unknown_component_and_component_without_copies(env):
     with pytest.raises(UsageProblem):
         compare_hosts("no-such-component")
-    assert compare_hosts("nanosoc_gen") == []                     # no copy: nothing to compare, an empty snapshot
+    assert compare_hosts("nanosoc_gen") == []                     # no copy: nothing to compare, nothing stored
+    assert compare_hosts("nanosoc_gen") == []                     # twice in one second: no snapshot id to collide
     assert db.latest("host_compare", "host_compare:nanosoc_gen:") == []

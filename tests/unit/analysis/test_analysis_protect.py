@@ -5,6 +5,7 @@ import copy
 import json
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from nanosoc_rm import cli, contracts, db
@@ -56,6 +57,7 @@ def test_rc4_golden_13_rows(cfg):
     assert len(db.latest("silicon_protection", "silicon_protection:eth-rc4:")) == 13
     # neither frozen nor silicon: [] rather than an error (and nothing to walk)
     assert silicon_protection("eth-main") == [] and silicon_protection("multicore-master") == []
+    assert silicon_protection("eth-main") == []                  # again within the second: nothing stored, no clash
 
 
 def test_negative_control_lost_keep_tag_uncovers_exactly_that_row(cfg):
@@ -129,3 +131,59 @@ def test_all_configurations_and_exit_codes(cfg):
     assert rc == 0 and docs == [], r.output
     rc, _docs, r = cli_run("silicon-protection", "eth-rc4")
     assert rc == 0 and "COVERED" in r.stdout
+
+
+def test_a_pin_that_cannot_be_judged_is_never_a_clean_answer(cfg):
+    """AN-5: a silicon pin with no host state (LOCAL_URL here) gives no row, is named, and the CLI exits 2 rather
+    than 0. An uncovered row elsewhere still makes it exit 1 (a finding wins)."""
+    tree = rc4_tree()
+    tc = copy.deepcopy(next(d for d in tree if d["fact"]["tree_paths"] == ["tidechart"]))
+    tc["subject"] = "pin_state:eth-rc4:local/tidechart"
+    tc["fact"].update(url="/srv/tidechart.git", url_kind="local", state="LOCAL_URL", hosts={},
+                      tree_paths=["local/tidechart"], path="tidechart")
+    tc["fact"]["child"].update(component=None, catalogued_as="unknown", repo=None)
+    assert contracts.validate_observation(tc) == []
+    store_tree("eth-rc4", [tc])
+    rows = silicon_protection("eth-rc4")
+    assert rows == [] and len(rows.unanswered) == 1
+    assert "local/tidechart" in rows.unanswered[0] and "LOCAL_URL" in rows.unanswered[0]
+    rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
+    assert rc == 2 and docs == [] and "local/tidechart" in r.stderr, r.output
+    store_tree("eth-rc4", rc4_tree() + [tc], snap_id="pin_state:eth-rc4@later")
+    rows = silicon_protection("eth-rc4")
+    assert len(rows) == 13 and len(rows.unanswered) == 1
+    rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
+    assert rc == 1 and len(docs) == 2 and "local/tidechart" in r.stderr, r.output
+
+
+def test_every_configuration_answers_the_walked_ones(cfg, tmp_path):
+    """AN-3: with no CONFIG, a frozen configuration never walked is named, not allowed to hide the others."""
+    reg = cfg[2] / "eligibility.yaml"
+    doc = yaml.safe_load(reg.read_text())
+    doc["configurations"].append({"id": "eth-rc3", "component": "nanosoc-ethernet-chiplet", "ref": {"tag": "v0.9.0"},
+                                  "commit": "a" * 40, "frozen": True})
+    reg.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with pytest.raises(CannotAnswer, match="has no stored tree"):
+        silicon_protection()                                                 # no frozen configuration walked
+    store_tree("eth-rc4", rc4_tree())
+    rows = silicon_protection()
+    assert len(rows) == 13 and len(rows.unanswered) == 1 and "eth-rc3 has no stored tree" in rows.unanswered[0]
+    rc, docs, r = cli_run("silicon-protection", "--json")
+    assert rc == 1 and len(docs) == 13 and "walk eth-rc3" in r.stderr, r.output
+
+
+def test_an_empty_answer_asked_twice_in_one_second(cfg):
+    """A frozen configuration whose pins are all on their default branch has no row. The store names an empty
+    snapshot `<scope>@<second>`; asking twice in that second must not crash (it is the same, stored answer), while
+    a non-empty answer after it is still stored and an empty one after that supersedes it."""
+    gen = {"host": "gitlab", "path": "soclabs/nanosoc_gen"}
+    on_default = pin_doc("eth-rc4", "gen", "nanosoc_gen", "3" * 40,
+                         {"gitlab": host_state(gen, "canonical", True, "ON_DEFAULT", lag=0, branches=["main"])})
+    store_tree("eth-rc4", [on_default])
+    for _ in range(3):
+        assert silicon_protection("eth-rc4") == []
+        rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--json")
+        assert rc == 0 and docs == [], r.output
+    store_tree("eth-rc4", rc4_tree(), snap_id="pin_state:eth-rc4@later")
+    assert len(silicon_protection("eth-rc4")) == 13
+    assert len(db.latest("silicon_protection", "silicon_protection:eth-rc4:")) == 13

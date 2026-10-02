@@ -16,6 +16,6 @@ What this package reads, and nothing else (`_inputs.py` is the one place that to
 - the component mirrors `<data_dir>/mirrors/<id>.git`, refs `refs/r/<host>/<quote(path)>/{heads,tags}/*`
   (section 3), read through the one git runner.
 """
-from nanosoc_rm.analysis._inputs import AnalysisError, CannotAnswer, UsageProblem
+from nanosoc_rm.analysis._inputs import AnalysisError, Answer, CannotAnswer, UsageProblem
 
-__all__ = ["AnalysisError", "CannotAnswer", "UsageProblem"]
+__all__ = ["AnalysisError", "Answer", "CannotAnswer", "UsageProblem"]

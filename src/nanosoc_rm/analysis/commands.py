@@ -1,12 +1,14 @@
 """CLI front ends of the analysis functions (interfaces.md sections 5, 6, 6a, 7). No logic of their own.
 
     nanosoc-rm hosts [COMPONENT] [--json]                          1 any DIVERGED; 2 any UNKNOWN and none DIVERGED
-    nanosoc-rm contains SHA [--component ID] [--config ID]... [--json]   0 answered; 2 any unknown; 3 no / several commits
-    nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]  1 any row uncovered
+    nanosoc-rm contains SHA [--component ID] [--config ID]... [--json]   0 answered; 2 any unknown or any configuration
+                                                                   never walked; 3 no / several commits
+    nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]  1 any row uncovered; else 2 any pin not judged
     nanosoc-rm detect DEFECT DETECTOR --input PATH [--json]        0 clean; 1 fired; 2 could not run
 
 Every command: 3 for a usage problem (unknown component, configuration, defect or detector), 2 when the data
-to answer is missing (no stored walk, an invalid registry, a detector that could not run).
+to answer is missing (no stored walk, no mirror, an invalid registry, a detector that could not run). When only
+part of the data is missing, the rows that could be answered are printed and each gap is named on stderr.
 """
 from __future__ import annotations
 
@@ -20,6 +22,14 @@ from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, emit, exi
 def _fail(e: Exception) -> int:
     click.echo("nanosoc-rm: %s" % e, err=True)
     return getattr(e, "exit_code", EXIT_UNVERIFIED)
+
+
+def _unanswered(docs) -> bool:
+    """Name on stderr each part of the question the data could not answer; True when there was one."""
+    gaps = list(getattr(docs, "unanswered", []))
+    for gap in gaps:
+        click.echo("nanosoc-rm: could not answer: %s" % gap, err=True)
+    return bool(gaps)
 
 
 def _repo(side: dict) -> str:
@@ -82,7 +92,8 @@ def register(main: click.Group) -> None:
         except AnalysisError as e:
             return _fail(e)
         emit(docs, as_json, ("configuration", "host", "answer", "pins"), _contains_row)
-        return exit_code(unverified=any(d["fact"]["answer"] == "unknown" for d in docs))
+        gaps = _unanswered(docs)
+        return exit_code(unverified=gaps or any(d["fact"]["answer"] == "unknown" for d in docs))
 
     @main.command("silicon-protection")
     @click.argument("configuration", required=False)
@@ -99,7 +110,8 @@ def register(main: click.Group) -> None:
         shown = [d for d in docs if not d["fact"]["covered"]] if uncovered else docs
         emit(shown, as_json, ("configuration", "component", "commit", "host", "role", "state", "covered",
                               "covering_tags", "tree_paths"), _protect_row)
-        return exit_code(findings=any(not d["fact"]["covered"] for d in docs))
+        gaps = _unanswered(docs)
+        return exit_code(findings=any(not d["fact"]["covered"] for d in docs), unverified=gaps)
 
     @main.command("detect")
     @click.argument("defect")
