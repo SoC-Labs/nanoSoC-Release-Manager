@@ -20,7 +20,10 @@ For each pending run (every 2 minutes in `serve`):
   job_execution_timeout, scheduler_failure, api_failure, or exit 137) or UNVERIFIED. A run still unfinished after
   `ci.fetch_timeout_minutes` (120) is `no-bundle` / INFRA.
 
-A CI API call that fails leaves the run pending (and so it is retried), until the timeout.
+A CI API call that fails leaves the run pending (and so it is retried), until the timeout. So does an error in the
+service's own processing (FetchErrors names it); past the timeout such a run is made final as no-bundle / INFRA.
+A pending run with no pipeline id (the trigger never finished) is final at the timeout too. No run stays pending
+for ever, so the Run button is never disabled for good.
 """
 from __future__ import annotations
 
@@ -31,6 +34,7 @@ import re
 import shutil
 import sys
 import zipfile
+import zlib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -98,12 +102,17 @@ def _unzip(data: bytes, dest: Path) -> Path:
             if total > MAX_BUNDLE_BYTES:
                 raise _BadBundle("the artifact is larger than %d bytes" % MAX_BUNDLE_BYTES)
             target = dest.joinpath(*name.parts)
-            if info.is_dir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(info) as src, open(target, "wb") as out:
-                shutil.copyfileobj(src, out)
+            try:
+                if info.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(info) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+            except (OSError, EOFError, zipfile.BadZipFile, zlib.error, NotImplementedError, RuntimeError) as e:
+                # a file and a directory of one name, a bad CRC, an unknown compression, an encrypted entry
+                raise _BadBundle("the artifact cannot be unpacked at %r (%s)" % (info.filename, type(e).__name__)) \
+                    from None
     out = dest / "rm-bundle"
     if not out.is_dir():
         raise _BadBundle("the artifact has no rm-bundle/ directory")
@@ -193,24 +202,45 @@ def _waiver_alert(run: RunRecord, unused: list[dict], now: str, config: Config) 
                    at=now, config=config)
 
 
+def _timeout(config: Config) -> dt.timedelta:
+    return dt.timedelta(minutes=int(config.get("ci", {}).get("fetch_timeout_minutes", 120)))
+
+
+def _timed_out(run: RunRecord, config: Config, now: dt.datetime) -> bool:
+    return now - clock.parse(run.triggered_at) > _timeout(config)
+
+
+def _finalise(run: RunRecord, config: Config, stamp: str, sources: list[dict], acceptance: str, verdict: str,
+              reason: str | None, job: dict | None = None, **extra: Any) -> dict:
+    """Store the run's final state and its t0_result."""
+    run.state = acceptance
+    run.job_id = (job or {}).get("id") if isinstance((job or {}).get("id"), int) else run.job_id
+    db.put_run(run, config=config)
+    doc = _doc(run, stamp, sources, acceptance=acceptance, verdict=verdict, reason=reason, runner=_runner(job),
+               **extra)
+    db.put(doc, config=config)
+    return doc
+
+
 def _process(run: RunRecord, client: CIClient, config: Config, now: dt.datetime) -> dict | None:
     """The run's final t0_result, stored; None while it is still pending."""
     stamp = clock.iso(now)
+    timeout = _timeout(config)
+    timed_out = _timed_out(run, config, now)
+
+    if run.pipeline_id is None:
+        # The trigger never recorded a pipeline id: the process stopped during the POST (a failed trigger is
+        # stored final by trigger.py). Final once the timeout passes, so Run is enabled again (section 10).
+        if not timed_out:
+            return None
+        return _finalise(run, config, stamp, [{"kind": "ci_api", "command": client.command("POST", "trigger")}],
+                         "no-bundle", "INFRA", "the trigger never completed: no pipeline id was recorded within %d "
+                         "minutes of %s" % (timeout.total_seconds() // 60, run.triggered_at))
     sources = [{"kind": "ci_api", "command": client.command("GET", "pipeline", run.pipeline_id)}]
-    timeout = dt.timedelta(minutes=int(config.get("ci", {}).get("fetch_timeout_minutes", 120)))
-    timed_out = now - clock.parse(run.triggered_at) > timeout
 
     def final(acceptance: str, verdict: str, reason: str | None, job: dict | None = None, **extra: Any) -> dict:
-        run.state = acceptance
-        run.job_id = (job or {}).get("id") if isinstance((job or {}).get("id"), int) else run.job_id
-        db.put_run(run, config=config)
-        doc = _doc(run, stamp, sources, acceptance=acceptance, verdict=verdict, reason=reason,
-                   runner=_runner(job), **extra)
-        db.put(doc, config=config)
-        return doc
+        return _finalise(run, config, stamp, sources, acceptance, verdict, reason, job, **extra)
 
-    if run.pipeline_id is None:                          # a trigger that failed is final at once (trigger.py)
-        return None
     try:
         pipeline = client.pipeline(run.pipeline_id)
         sources.append({"kind": "ci_api", "command": client.command("GET", "jobs", run.pipeline_id)})
@@ -280,6 +310,24 @@ def _process(run: RunRecord, client: CIClient, config: Config, now: dt.datetime)
         shutil.rmtree(quarantine, ignore_errors=True)
 
 
+def _backstop(run: RunRecord, client: CIClient, config: Config, now: dt.datetime, e: Exception) -> dict | None:
+    """A run the service could not process (a bug, or a bundle it could not read) is retried until the timeout,
+    then made final as no-bundle / INFRA, so it never stays pending (and Run disabled) for ever. The reason names
+    the error's type only: its message may quote the untrusted bundle (D11)."""
+    if not _timed_out(run, config, now):
+        return None
+    try:
+        if (db.get_run(run.nonce, config=config) or {}).get("state") != "pending":
+            return None                                  # it became final before the error (e.g. an alert failed)
+        call = client.command("GET", "pipeline", run.pipeline_id) if run.pipeline_id is not None \
+            else client.command("POST", "trigger")
+        return _finalise(run, config, clock.iso(now), [{"kind": "ci_api", "command": call}], "no-bundle", "INFRA",
+                         "the service could not process this run within %d minutes (%s); it is final so that a "
+                         "new run can start" % (_timeout(config).total_seconds() // 60, type(e).__name__))
+    except Exception:                                    # the store itself is failing: leave it for the next call
+        return None
+
+
 def fetch_pending(client: CIClient | None = None, *, config: Config | None = None,
                   now: dt.datetime | None = None) -> list[dict]:
     """interfaces.md section 10 Fetch: every pending run, once. Returns the t0_results that became final."""
@@ -296,7 +344,9 @@ def fetch_pending(client: CIClient | None = None, *, config: Config | None = Non
             doc = _process(run, client, config, now)
         except Exception as e:                           # one broken run never blocks the others
             errors.append("%s: %s: %s" % (run.nonce, type(e).__name__, e))
-            continue
+            doc = _backstop(run, client, config, now, e)
+            if doc is None:
+                continue
         if doc is not None:
             out.append(doc)
     if errors:

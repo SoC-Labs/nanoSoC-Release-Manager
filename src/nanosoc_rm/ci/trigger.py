@@ -13,7 +13,10 @@
 5. If the POST fails (an HTTP error, a timeout, or a trigger that cannot be sent at all), the run is stored as
    `no-bundle` with `pipeline_id: null`, verdict INFRA for a 5xx, a timeout or no answer, else UNVERIFIED, and a
    reason naming the trigger call and the HTTP status. It is then not pending, so the Run button is enabled
-   again and a missed night is visible (D2).
+   again and a missed night is visible (D2). An unexpected error in the call is stored the same way
+   (UNVERIFIED), then re-raised. A config error found before the call (no `ci.project`) raises ConfigError and
+   stores nothing. A run left pending with no pipeline id (the process died during the POST) is made final by
+   fetch once the timeout passes.
 
 At most one pending manual run per configuration: a manual trigger while one is pending raises RunPending (the
 Run button is disabled in that state). The nightly schedule always triggers, so a stuck run never hides a night;
@@ -144,17 +147,20 @@ def trigger(configuration: str, by: str, kind: Literal["schedule", "manual"], cl
         raise RunPending("a run of %s is already pending; Run is disabled until it is fetched" % configuration)
     nonce = secrets.token_hex(16)
     req, sources = build_request(configuration, nonce, config)
+    # Everything that can fail on the service's own config is settled before the run is stored, so a config
+    # error (exit 3) never leaves a pending run behind (it would disable Run until the fetch timeout).
+    client = client if client is not None else make_client(config)
+    call = client.command("POST", "trigger")
+    ref = config.get("ci", {}).get("ref", "main")
     run = RunRecord(nonce=nonce, configuration=configuration, commit=req["commit"], request=request_bytes(req),
                     trigger=kind, triggered_by=by, triggered_at=clock.iso(), pipeline_id=None, job_id=None,
                     state="pending")
     db.put_run(run, config=config)
 
-    client = client if client is not None else make_client(config)
-    call = client.command("POST", "trigger")
     sources = [{"kind": "ci_api", "command": call}] + sources
-    acceptance, verdict, reason = "pending", None, None
+    acceptance, verdict, reason, unexpected = "pending", None, None, None
     try:
-        answer = client.trigger(config.get("ci", {}).get("ref", "main"), {"RM_REQUEST": run.request.decode()})
+        answer = client.trigger(ref, {"RM_REQUEST": run.request.decode()})
         pid = answer.get("id") if isinstance(answer, dict) else None
         if not isinstance(pid, int) or isinstance(pid, bool) or pid < 1:
             raise CIError(call, detail="the answer names no pipeline id")
@@ -165,10 +171,15 @@ def trigger(configuration: str, by: str, kind: Literal["schedule", "manual"], cl
     except (ConfigError, PermissionError) as e:
         acceptance, verdict = "no-bundle", "UNVERIFIED"
         reason = "the trigger was not sent (%s): %s; no pipeline was started" % (call, e)
+    except Exception as e:                               # a bug: the run is still made final, then re-raised
+        acceptance, verdict, unexpected = "no-bundle", "UNVERIFIED", e
+        reason = "the trigger did not complete (%s: %s); no pipeline id was recorded" % (call, type(e).__name__)
     run.state = acceptance
     db.put_run(run, config=config)
     if kind == "manual":
         db.log_action(by, "run_t0", configuration, acceptance, at=run.triggered_at, config=config)
     doc = _result(run, acceptance=acceptance, verdict=verdict, reason=reason, sources=sources)
     db.put(doc, config=config)
+    if unexpected is not None:
+        raise unexpected
     return doc

@@ -157,6 +157,29 @@ def test_the_service_side_never_imports_the_t0_runner():
     assert out.returncode == 0 and out.stdout.strip() == "False", out.stderr
 
 
+def test_no_service_side_module_imports_the_t0_runner_anywhere():
+    """Review CI-T3: the import check above sees module-level imports only. This one reads every import statement
+    (inside functions too) and every importlib call of the service-side modules (A4: the service never runs T0)."""
+    import ast
+    src = REPO / "src" / "nanosoc_rm"
+    files = sorted((src / "ci").glob("*.py")) + [src / "schedule.py", src / "credentials.py"]
+    found = []
+    for f in files:
+        for node in ast.walk(ast.parse(f.read_text(), str(f))):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module] + ["%s.%s" % (node.module, a.name) for a in node.names]
+            elif isinstance(node, ast.Call):                # importlib.import_module("..."), __import__("...")
+                fn = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+                if fn in ("import_module", "__import__", "spec_from_file_location", "run_module", "run_path"):
+                    names = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            found += ["%s:%d %s" % (f.name, node.lineno, n) for n in names
+                      if n.startswith("nanosoc_rm.t0.runner") or "t0.runner" in n or "t0/runner" in n]
+    assert found == []
+
+
 def test_t0_fetch_without_the_verify_config_is_a_config_error(ce, tmp_path, monkeypatch):
     """A pending run and no ci.project_id: `t0 fetch` cannot verify anything, so it says so (exit 3)."""
     from nanosoc_rm.ci.verify import RunRecord

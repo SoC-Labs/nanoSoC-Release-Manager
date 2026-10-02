@@ -67,6 +67,15 @@ def test_unreadable_runner_is_unverified(ce, runner_config):
     assert contracts.validate_observation(doc) == []
 
 
+@pytest.mark.parametrize("missing", ["locked", "run_untagged", "access_level", "is_shared"])
+def test_a_partial_runner_record_is_unverified_not_drift(ce, runner_config, missing):
+    """The token sees only part of the record: the setting is unknown, not wrong (review CI-T2)."""
+    raw = {k: v for k, v in GOOD_RUNNER.items() if k != missing}
+    (doc,) = runner_settings(FakeCI(runners={9001: raw}))
+    assert (doc["fact"]["readable"], doc["fact"]["verdict"]) == (False, "unverified")
+    assert db.alerts() == []
+
+
 def test_runner_cli_exit_codes(ce, runner_config, monkeypatch):
     from nanosoc_rm.ci import runners
     for runner, code in ((GOOD_RUNNER, 0), (dict(GOOD_RUNNER, run_untagged=True), 1), (404, 2)):
@@ -186,6 +195,17 @@ def test_record_problems_are_findings(sw, cred_config):
     assert v["bump_writer"]["verdict"] == "finding" and "Phase 4" in v["bump_writer"]["reason"]
     assert v["github_oauth"]["verdict"] == "finding" and "not configured" in v["github_oauth"]["reason"]
     assert v["github_read"]["verdict"] == "finding" and "expiry not recorded" in v["github_read"]["reason"]
+
+
+def test_scope_beyond_the_role_is_named(sw, cred_config):
+    """github_oauth must be exactly read:org; GitLab naming a write scope is called out as beyond read access."""
+    def wide(doc):
+        doc["credentials"]["github_oauth"]["scope"] = ["read:org", "repo"]
+    edit_config(sw, cred_config, wide)
+    get = fake_hosts(gitlab={"scopes": ["read_api", "read_repository", "write_repository"]})
+    v = {r["name"]: r for r in rows(check(today=TODAY, http_get=get))}
+    assert v["github_oauth"]["verdict"] == "finding" and "beyond its role" in v["github_oauth"]["reason"]
+    assert v["gitlab_read"]["verdict"] == "finding" and "beyond read access" in v["gitlab_read"]["reason"]
 
 
 def test_expiry_within_14_days_raises_one_alert_and_expired_is_a_finding(sw, cred_config):

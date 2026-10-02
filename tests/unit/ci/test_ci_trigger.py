@@ -204,3 +204,117 @@ def test_without_trigger_credentials_the_run_is_recorded_not_lost(ce, ci_config)
     """AT-D5 Then 3: a Run POST in a config with no trigger credential still records a run (no-bundle)."""
     f = trigger("eth-rc4", by="alice", kind="manual", client=GitLabCI(ci_config))["fact"]
     assert f["acceptance"] == "no-bundle" and f["run"]["pipeline_id"] is None and "not sent" in f["reason"]
+
+
+# ---- review CI-R1: no trigger path leaves a run pending for good --------------------------------------------------
+def test_a_config_error_before_the_call_stores_nothing(ce, tmp_path, monkeypatch):
+    """No [ci] project: the trigger cannot name its call. ConfigError (exit 3), and no pending run is left behind
+    to disable Run for that configuration."""
+    from nanosoc_rm.config import ConfigError, load_config
+    path = ce.write_config(tmp_path, monkeypatch)
+    ce.example_registry(tmp_path / "registry")
+    good = path.read_text()
+    path.write_text(good.replace('project = "%s"\n' % ce.CI_PROJECT, ""))
+    cfg = load_config(path)
+    with pytest.raises(ConfigError, match="project"):
+        trigger("eth-rc4", by="alice", kind="manual", client=GitLabCI(cfg), config=cfg)
+    assert db.runs() == [] and db.actions() == [] and db.latest("t0_result") == []
+    path.write_text(good)
+    assert trigger("eth-rc4", by="alice", kind="manual", client=FakeCI())["fact"]["acceptance"] == "pending"
+
+
+def test_an_unexpected_error_in_the_call_still_makes_the_run_final(ce, ci_config):
+    class Broken(FakeCI):
+        def trigger(self, ref, variables):
+            raise RuntimeError("a bug in the client")
+
+    with pytest.raises(RuntimeError, match="a bug"):
+        trigger("eth-rc4", by="alice", kind="manual", client=Broken())
+    (run,) = db.runs()
+    assert (run["state"], run["pipeline_id"]) == ("no-bundle", None)
+    (doc,) = db.latest("t0_result")
+    f = doc["fact"]
+    assert contracts.validate_observation(doc) == []
+    assert (f["acceptance"], f["verdict"]) == ("no-bundle", "UNVERIFIED") and "RuntimeError" in f["reason"]
+    assert [a["result"] for a in db.actions()] == ["no-bundle"]
+    trigger("eth-rc4", by="alice", kind="manual", client=FakeCI())            # Run is enabled again
+
+
+# ---- review CI-T2: request bytes, the pipeline-id answer, the action's time ---------------------------------------
+def test_the_request_is_stored_and_sent_as_compact_json(ce, ci_config):
+    fake = FakeCI()
+    doc = trigger("eth-rc4", by="schedule", kind="schedule", client=fake)
+    stored = db.get_run(doc["fact"]["run"]["nonce"])["request"]
+    assert stored == json.dumps(json.loads(stored), separators=(",", ":")).encode()       # section 9 Input
+    assert b" " not in stored and fake.triggered[0][1]["RM_REQUEST"].encode() == stored
+
+
+@pytest.mark.parametrize("answer", [{}, {"id": 0}, {"id": True}, {"id": "1000"}, []])
+def test_an_answer_without_a_pipeline_id_is_no_bundle(ce, ci_config, answer):
+    class Odd(FakeCI):
+        def trigger(self, ref, variables):
+            return answer
+
+    f = trigger("eth-rc4", by="alice", kind="manual", client=Odd())["fact"]
+    assert (f["acceptance"], f["run"]["pipeline_id"]) == ("no-bundle", None) and "no pipeline id" in f["reason"]
+
+
+def test_the_action_row_carries_the_trigger_time_not_a_later_one(ce, ci_config, monkeypatch):
+    import datetime as dt
+    from nanosoc_rm import clock
+    ticks = iter(dt.datetime(2026, 10, 1, 9, 0, s, tzinfo=dt.timezone.utc) for s in range(60))
+    monkeypatch.setattr(clock, "now", lambda: next(ticks))
+    doc = trigger("eth-rc4", by="alice", kind="manual", client=FakeCI())
+    (a,) = db.actions()
+    assert a["at"] == doc["fact"]["run"]["triggered_at"] == db.get_run(doc["fact"]["run"]["nonce"])["triggered_at"]
+
+
+# ---- review CI-T1: no credential in a URL, a query or a header other than the read token's ------------------------
+def _assert_tokens_confined(host):
+    for e in host.log:
+        where = json.dumps({"path": e["path"], "query": e["query"]})
+        headers = {k.lower(): v for k, v in e["headers"].items()}
+        body = e["body"].decode(errors="replace") if isinstance(e["body"], bytes) else str(e["body"] or "")
+        for tok in ("fake-trigger-token", "fake-read-token"):
+            assert tok not in where, (tok, e["method"], where)
+        assert "fake-trigger-token" not in json.dumps(headers), e["method"]
+        if e["method"] == "POST":
+            assert "fake-read-token" not in json.dumps(headers) and "fake-read-token" not in body
+        else:
+            assert headers.get("authorization") == "Bearer fake-read-token"
+            assert "fake-read-token" not in json.dumps({k: v for k, v in headers.items() if k != "authorization"})
+            assert "fake-trigger-token" not in body
+
+
+def test_no_token_travels_in_a_url_or_a_query(ce, sw, tmp_path, monkeypatch):
+    host = sw.FakeHost()
+    try:
+        sw.gitlab_ci(host)
+        cfg = gitlab_config(tmp_path, monkeypatch, ce, host)
+        client = GitLabCI(cfg)
+        doc = trigger("eth-rc4", by="alice", kind="manual", client=client)
+        pid = doc["fact"]["run"]["pipeline_id"]
+        client.pipeline(pid)
+        (job,) = client.jobs(pid)
+        client.variables(pid)
+        client.artifacts(job["id"])
+        assert [e["method"] for e in host.log] == ["POST", "GET", "GET", "GET", "GET"]
+        _assert_tokens_confined(host)
+    finally:
+        host.close()
+
+
+def test_a_redirected_trigger_is_not_followed(ce, sw, tmp_path, monkeypatch):
+    """One write (A2): a 307 on the trigger is an answer, never a second POST carrying the token elsewhere."""
+    host = sw.FakeHost()
+    try:
+        host.route("POST", r"/api/v4/projects/([^/]+)/trigger/pipeline",
+                   lambda m, q, hd, body: (307, {"Location": "/elsewhere"}, {"message": "moved"}))
+        host.route("POST", r"/elsewhere", lambda m, q, hd, body: (201, {}, {"id": 1000}))
+        cfg = gitlab_config(tmp_path, monkeypatch, ce, host)
+        f = trigger("eth-rc4", by="alice", kind="manual", client=GitLabCI(cfg))["fact"]
+        assert [e["path"] for e in host.log if e["method"] == "POST"] == [
+            "/api/v4/projects/%s/trigger/pipeline" % quote(ce.CI_PROJECT, safe="")]
+        assert f["acceptance"] == "no-bundle" and f["run"]["pipeline_id"] is None
+    finally:
+        host.close()

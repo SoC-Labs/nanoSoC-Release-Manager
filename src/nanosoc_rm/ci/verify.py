@@ -115,10 +115,10 @@ def _check_variable(run: RunRecord, variables: list[dict]) -> None:
 
 
 def read_provenance(bundle: Path) -> dict:
-    """rm-bundle/provenance.json as JSON. _Fail(3) when missing, unreadable or not JSON."""
+    """rm-bundle/provenance.json as JSON. _Fail(3) when missing, unreadable, not UTF-8 or not JSON."""
     path = Path(bundle) / "provenance.json"
     try:
-        doc = json.loads(path.read_text())
+        doc = json.loads(path.read_text(encoding="utf-8"))
     except OSError:
         raise _reject(3, "the bundle has no readable provenance.json") from None
     except ValueError as e:
@@ -133,6 +133,11 @@ def _check_provenance(prov: dict) -> None:
     problems = contracts.validate_provenance(prov)
     if problems:
         raise _reject(3, "provenance.json does not validate against result-bundle v1: %s" % "; ".join(problems[:3]))
+    for key in ("started_at", "finished_at"):            # the pattern admits month 13; RFC 3339 (defs utc) does not
+        try:
+            clock.parse(prov[key])
+        except (TypeError, ValueError):
+            raise _reject(3, "provenance %s %s is not a real time" % (key, prov[key])) from None
 
 
 def _check_identity(run: RunRecord, pipeline: dict, job: dict, prov: dict, ci: dict) -> dict:
@@ -168,9 +173,11 @@ def read_rows(bundle: Path) -> list[dict]:
     not 5 tab-separated fields."""
     path = Path(bundle) / "verdicts.tsv"
     try:
-        text = path.read_text()
+        text = path.read_bytes().decode("utf-8")
     except OSError:
         raise _reject(6, "the bundle has no readable verdicts.tsv") from None
+    except UnicodeDecodeError as e:
+        raise _reject(6, "verdicts.tsv is not UTF-8 (byte %d)" % e.start) from None
     rows, lines = [], text.split("\n")
     for n, line in enumerate(lines, 1):
         if line == "" and n == len(lines):
@@ -198,7 +205,10 @@ def _check_rows(run: RunRecord, job: dict, bundle: Path) -> None:
             raise _reject(6, "verdicts.tsv line %d is not a valid row: %s" % (n, "; ".join(problems[:2])))
         if row["nonce"] != run.nonce:
             raise _reject(6, "verdicts.tsv line %d carries nonce %s, not this run's %s" % (n, row["nonce"], run.nonce))
-        t = clock.parse(row["utc"])
+        try:
+            t = clock.parse(row["utc"])
+        except ValueError:
+            raise _reject(6, "verdicts.tsv line %d is stamped %s, which is not a real time" % (n, row["utc"])) from None
         if not lo <= t <= hi:
             raise _reject(6, "verdicts.tsv line %d is stamped %s, outside the job's run %s to %s (+/- %d s)"
                           % (n, row["utc"], job["started_at"], job["finished_at"], ROW_SLACK_S))

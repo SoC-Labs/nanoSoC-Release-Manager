@@ -95,7 +95,8 @@ def register(main: click.Group) -> None:
     @json_option
     def runs_cmd(configuration: str | None, as_json: bool) -> int:
         """Stored T0 runs, oldest first (latest state of each). Exit 1 when the latest final run of a listed
-        configuration is red (FAIL, UNVERIFIED or INFRA)."""
+        configuration is red (FAIL, UNVERIFIED or INFRA). The command answered from the store, so a red run is a
+        finding (1), never could-not-answer (2): AT-D2 reads `t0 runs` with `rc in (0, 1)`."""
         from nanosoc_rm.ci.fetch import results
         docs = emit(results(configuration), as_json, _RUN_COLUMNS, _run_row)
         last: dict[str, dict] = {}

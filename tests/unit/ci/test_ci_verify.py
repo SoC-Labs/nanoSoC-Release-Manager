@@ -6,6 +6,7 @@ using the acceptance file's own case builders (conftest `ce`)."""
 from __future__ import annotations
 
 import dataclasses
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -134,3 +135,35 @@ def test_verify_needs_the_ci_project_id(ce, tmp_path, monkeypatch, scanner_clean
 def test_run_record_has_the_runs_table_fields():
     from nanosoc_rm import db
     assert [f.name for f in dataclasses.fields(RunRecord)] == list(db._RUN_FIELDS)
+
+
+# ---- review CI-T2: contracted facts the 13 AT-D5 tampers do not reach ---------------------------------------------
+def _pretty_request(c):
+    c.variables[0]["value"] = json.dumps(json.loads(c.variables[0]["value"]), indent=1)     # JSON-equal, not bytes
+
+
+def _status_maybe(c):
+    rows = c.verdicts.split("\n")
+    f = rows[0].split("\t")
+    f[1] = "MAYBE"                                           # 5 fields, right nonce and time; not a valid status
+    rows[0] = "\t".join(f)
+    c.verdicts = "\n".join(rows)
+
+
+@pytest.mark.parametrize("label, check, change, words", [
+    ("the job's pipeline is in another project", 1,
+     lambda c: c.job["pipeline"].update(project_id=c.job["pipeline"]["project_id"] + 1), "job belongs to project"),
+    ("RM_REQUEST equal as JSON, not as bytes", 2, _pretty_request, "differs from the stored request"),
+    ("two RM_REQUEST variables", 2, lambda c: c.variables.append(dict(c.variables[0])), "2 RM_REQUEST"),
+    ("ci.job_id differs from the API", 4, lambda c: c.prov["ci"].update(job_id=c.prov["ci"]["job_id"] + 1), "ci.job_id"),
+    ("ci.project differs", 4, lambda c: c.prov["ci"].update(project="soclabs/other-ci"), "ci.project"),
+    ("ci.job_name differs", 4, lambda c: c.prov["ci"].update(job_name="t0-debug"), "ci.job_name"),
+    ("tier t1", 4, lambda c: c.prov.update(tier="t1"), "tier"),
+    ("a row whose status is not one of the six", 6, _status_maybe, "not a valid row"),
+])
+def test_each_contracted_fact_is_checked(ce, ci_config, tmp_path, scanner_clean, label, check, change, words):
+    case = ce.genuine_case()
+    change(case)
+    v = run(ce, case, tmp_path / "x", scanner_clean)
+    assert (v.acceptance, v.check) == ("rejected", check), (label, v)
+    assert v.reason.startswith("check %d: " % check) and words in v.reason, (label, v.reason)

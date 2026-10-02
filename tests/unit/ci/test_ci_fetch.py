@@ -186,6 +186,7 @@ def test_an_unsafe_artifact_is_rejected_and_nothing_escapes(ce, ci_config, tmp_p
 @pytest.mark.parametrize("job_change, now, want", [
     ({"status": "failed", "failure_reason": "runner_system_failure"}, NOW, ("no-bundle", "INFRA")),
     ({"status": "failed", "failure_reason": "script_failure"}, NOW, ("no-bundle", "UNVERIFIED")),
+    ({"status": "failed", "failure_reason": "script_failure", "exit_code": 137}, NOW, ("no-bundle", "INFRA")),
     ({"status": "canceled", "failure_reason": None}, NOW, ("no-bundle", "UNVERIFIED")),
     ({"status": "running"}, NOW, None),
     ({"status": "running"}, at("2026-10-01T04:03:11Z"), ("no-bundle", "INFRA")),
@@ -282,3 +283,156 @@ def test_coverage_names_every_configuration_without_an_accepted_scheduled_run(ce
     assert "no-bundle" in rows["eth-main"]["reason"] and rows["eth-main"]["runs"][0]["nonce"] == "2" * 32
     assert rows["multicore-master"]["reason"] == "no scheduled run was triggered"
     assert [r["configuration"] for r in coverage(dt.date(2026, 9, 30))] == ["eth-rc4", "eth-main", "multicore-master"]
+
+
+# ---- review CI-R1 / CI-R2: no run stays pending for ever ----------------------------------------------------------
+LATE = at("2026-10-01T06:00:00Z")                               # past the 120-minute timeout of the 02:03:10Z trigger
+
+
+def assert_run_is_enabled_again(case):
+    from nanosoc_rm.ci.trigger import trigger
+    assert db.get_run(case.run["nonce"])["state"] != "pending"
+    assert trigger("eth-rc4", by="alice", kind="manual", client=FakeCI())["fact"]["acceptance"] == "pending"
+
+
+def test_a_run_whose_trigger_never_finished_is_final_at_the_timeout(ce, ci_config):
+    """The process stopped during the POST: a pending run with no pipeline id."""
+    case = ce.genuine_case()
+    db.put_run(RunRecord(**dict(case.run, pipeline_id=None)))
+    fake = FakeCI()
+    assert fetch_pending(client=fake, now=NOW) == [] and db.get_run(case.run["nonce"])["state"] == "pending"
+    (doc,) = fetch_pending(client=fake, now=LATE)
+    f = doc["fact"]
+    assert contracts.validate_observation(doc) == []
+    assert (f["acceptance"], f["verdict"], f["run"]["pipeline_id"]) == ("no-bundle", "INFRA", None)
+    assert "trigger never completed" in f["reason"] and doc["sources"][0]["command"].startswith("POST ")
+    assert_run_is_enabled_again(case)
+
+
+def _zip(entries):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in entries:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+def _bad_utf8(case, bundle_root):
+    case.verdicts = case.verdicts.encode() + b"\xff\xfe\n"
+
+
+def _bad_month(case, bundle_root):
+    rows = case.verdicts.split("\n")
+    rows[0] = "2026-13-01" + rows[0][len("2026-10-01"):]
+    case.verdicts = "\n".join(rows)
+
+
+def _bad_started_at(case, bundle_root):
+    case.prov["started_at"] = "2026-10-32T02:03:30Z"
+
+
+@pytest.mark.parametrize("label, change, check, words", [
+    ("verdicts.tsv is not UTF-8", _bad_utf8, 6, "not UTF-8"),
+    ("a row stamped in month 13", _bad_month, 6, "not a real time"),
+    ("provenance started on October 32", _bad_started_at, 3, "not a real time"),
+])
+def test_a_malformed_bundle_is_rejected_at_once(ce, ci_config, tmp_path, scanner_clean, t0, label, change, check,
+                                                words):
+    """The job is the untrusted party (D5): what it writes is rejected, never a crash that keeps the run pending."""
+    case = ce.genuine_case()
+    change(case, tmp_path)
+    if isinstance(case.verdicts, bytes):                       # write_bundle writes text: put the bytes in after
+        raw, case.verdicts = case.verdicts, case.verdicts.decode(errors="replace")
+        case, fake = setup_run(ce, tmp_path / "b", case=case)
+        (fake.artifact_store[case.job["id"]] / "verdicts.tsv").write_bytes(raw)
+    else:
+        case, fake = setup_run(ce, tmp_path / "b", case=case)
+    (doc,) = fetch_pending(client=fake, now=NOW)
+    f = doc["fact"]
+    assert (f["acceptance"], f["verdict"]) == ("rejected", "UNVERIFIED"), (label, f["reason"])
+    assert f["reason"].startswith("check %d:" % check) and words in f["reason"], (label, f["reason"])
+    assert list(ci_config.quarantine.rglob("*")) == []
+    assert_run_is_enabled_again(case)
+
+
+@pytest.mark.parametrize("label, entries, words", [
+    ("a file and a directory of one name", [("rm-bundle/a", "x"), ("rm-bundle/a/b", "y")], "cannot be unpacked"),
+    ("a directory and a file of one name", [("rm-bundle/a/b", "y"), ("rm-bundle/a", "x")], "cannot be unpacked"),
+])
+def test_an_artifact_that_cannot_be_unpacked_is_rejected_at_check_3(ce, ci_config, tmp_path, label, entries, words):
+    case, fake = setup_run(ce, tmp_path / "b")
+    fake.artifact_store[case.job["id"]] = _zip(entries)
+    (doc,) = fetch_pending(client=fake, now=NOW)
+    f = doc["fact"]
+    assert f["acceptance"] == "rejected" and f["reason"].startswith("check 3:") and words in f["reason"], f["reason"]
+    assert list(ci_config.quarantine.rglob("*")) == []
+    assert_run_is_enabled_again(case)
+
+
+def test_a_corrupt_entry_is_rejected_at_check_3(ce, ci_config, tmp_path):
+    case, fake = setup_run(ce, tmp_path / "b")
+    data = bytearray(_zip([("rm-bundle/verdicts.tsv", "PAYLOAD-PAYLOAD-PAYLOAD")]))
+    i = data.index(b"PAYLOAD-PAYLOAD")
+    data[i:i + 7] = b"XXXXXXX"                                 # the CRC no longer matches
+    fake.artifact_store[case.job["id"]] = bytes(data)
+    f = fetch_pending(client=fake, now=NOW)[0]["fact"]
+    assert f["acceptance"] == "rejected" and f["reason"].startswith("check 3:") and "BadZipFile" in f["reason"]
+
+
+def test_any_processing_error_is_retried_then_final_at_the_timeout(ce, ci_config, tmp_path, scanner_clean,
+                                                                  monkeypatch):
+    """The backstop: an error the code does not foresee keeps the run pending (and is reported) until the timeout,
+    then the run is no-bundle / INFRA, naming the error's type only (its message may quote the bundle, D11)."""
+    def broken(*a, **k):
+        raise RuntimeError("VENDOR TEXT FROM THE BUNDLE")
+    monkeypatch.setattr(fetch, "verify", broken)
+    case, fake = setup_run(ce, tmp_path / "b")
+    with pytest.raises(FetchErrors, match=case.run["nonce"]):
+        fetch_pending(client=fake, now=NOW)
+    assert db.get_run(case.run["nonce"])["state"] == "pending"
+    with pytest.raises(FetchErrors):                           # reported once more, and now final
+        fetch_pending(client=fake, now=LATE)
+    (doc,) = [d for d in db.latest("t0_result") if d["fact"]["run"]["nonce"] == case.run["nonce"]]
+    f = doc["fact"]
+    assert contracts.validate_observation(doc) == []
+    assert (f["acceptance"], f["verdict"]) == ("no-bundle", "INFRA") and "RuntimeError" in f["reason"]
+    assert "VENDOR TEXT" not in f["reason"]
+    assert fetch_pending(client=fake, now=LATE) == []          # final: nothing left to report
+    assert list(ci_config.quarantine.rglob("*")) == []
+    assert_run_is_enabled_again(case)
+
+
+def test_the_backstop_never_overwrites_a_run_that_became_final(ce, ci_config, tmp_path, scanner_clean, t0,
+                                                               monkeypatch):
+    def alert_fails(*a, **k):
+        raise RuntimeError("the alert could not be stored")
+    monkeypatch.setattr(fetch, "_waiver_alert", alert_fails)
+    case, fake = setup_run(ce, tmp_path / "b", files=example_item_files(ce, ce.AHB_QSPI_TREE_PATH))
+    with pytest.raises(FetchErrors):
+        fetch_pending(client=fake, now=LATE)
+    assert db.get_run(case.run["nonce"])["state"] == "accepted"
+    assert [d["fact"]["acceptance"] for d in db.latest("t0_result")] == ["accepted"]
+
+
+# ---- review CI-T2: the artifact guards ----------------------------------------------------------------------------
+def test_an_oversize_artifact_is_rejected_at_check_3(ce, ci_config, tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "MAX_BUNDLE_BYTES", 64)
+    case, fake = setup_run(ce, tmp_path / "b")
+    f = fetch_pending(client=fake, now=NOW)[0]["fact"]
+    assert f["acceptance"] == "rejected" and f["reason"].startswith("check 3:") and "larger than 64" in f["reason"]
+    assert list(ci_config.quarantine.rglob("*")) == []
+
+
+def test_a_symbolic_link_in_the_artifact_is_rejected_at_check_3(ce, ci_config, tmp_path, scanner_clean, t0):
+    case, fake = setup_run(ce, tmp_path / "b")
+    genuine = fake.artifacts(case.job["id"])
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(genuine)) as src, zipfile.ZipFile(buf, "w") as z:
+        for info in src.infolist():
+            z.writestr(info, src.read(info))
+        link = zipfile.ZipInfo("rm-bundle/logs/passwd")
+        link.external_attr = (0o120777 << 16)
+        z.writestr(link, "/etc/passwd")
+    fake.artifact_store[case.job["id"]] = buf.getvalue()
+    f = fetch_pending(client=fake, now=NOW)[0]["fact"]
+    assert f["acceptance"] == "rejected" and f["reason"].startswith("check 3:") and "symbolic link" in f["reason"]
