@@ -198,21 +198,26 @@ def run(out: str | os.PathLike, *, environ: dict | os._Environ = os.environ,
     return EXIT_OK
 
 
-def finalise_bundle(dir: str | os.PathLike, rules=None):
-    """The job's last step before upload (D11): scan `dir`, delete every flagged or unscannable file, and record
-    the scan in provenance.json's `scan` (locations only, never text). When the rules are not armed nothing can
-    be trusted, so every file but provenance.json is deleted. Returns the ScanResult."""
+def finalise_bundle(dir: str | os.PathLike, rules=None, toolkit=None):
+    """The job's last step before upload (D11): scan `dir` (this package's rules and $RM_SCAN_RULES, plus the
+    toolkit scanner $RM_SCAN_TOOLKIT names), delete every flagged or unscannable file, and record the scan in
+    provenance.json's `scan` (locations only, never text). When the scan cannot vouch for the files (a rule not
+    armed, a rule file or toolkit copy that cannot be used, a toolkit run that did not finish), every file but
+    provenance.json is deleted. Returns the ScanResult."""
     from nanosoc_rm.scan.rules import RulesError, rule_set
     from nanosoc_rm.scan.scan import ScanResult, scan_dir
+    from nanosoc_rm.scan.toolkit import toolkit as find_toolkit
     root = Path(dir)
     try:
         rs = rules or rule_set()
+        tk = toolkit if toolkit is not None else find_toolkit()
     except RulesError as e:
-        rs, res = None, ScanResult("unverified", [], 0, {}, "nanosoc-rm scan", "rules unusable: %s" % e)
+        n = sum(1 for p in root.rglob("*") if p.is_file() or p.is_symlink())
+        res = ScanResult("unverified", [], n, {}, "nanosoc-rm scan", "rules unusable: %s" % e)
     else:
-        res = scan_dir(root, rs)
+        res = scan_dir(root, rs, toolkit=tk)
     prov_path = root / "provenance.json"
-    if res.verdict == "unverified" and res.files_scanned and (rs is None or not all(res.armed.values())):
+    if res.verdict == "unverified" and res.files_scanned:
         doomed = [p.relative_to(root).as_posix() for p in root.rglob("*")
                   if (p.is_file() or p.is_symlink()) and p != prov_path]
     else:

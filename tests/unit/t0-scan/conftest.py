@@ -33,7 +33,7 @@ def at():
 @pytest.fixture(autouse=True)
 def _no_ci_job(monkeypatch):
     """Unit tests run as a developer would, never as a CI job, and with no private rule file."""
-    for k in ("CI_JOB_ID", "CI_SERVER_URL", "RM_SCAN_RULES", "RM_PROBE_URLS", "NANOSOC_RM_CONFIG"):
+    for k in ("CI_JOB_ID", "CI_SERVER_URL", "RM_SCAN_RULES", "RM_SCAN_TOOLKIT", "RM_PROBE_URLS", "NANOSOC_RM_CONFIG"):
         monkeypatch.delenv(k, raising=False)
 
 

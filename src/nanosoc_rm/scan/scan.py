@@ -12,9 +12,16 @@ because the log of a scan is itself a copy. A file that cannot be scanned (unrea
 larger than MAX_FILE_BYTES) is a finding of rule `scan.unscannable` with line null: the caller deletes it like
 any flagged file.
 
-The toolkit scanner reads git trees and is private; this engine reads the same two kinds of input natively:
-a directory (`scan_dir`, a bundle), files in place (`scan_paths`, read-only), and a commit's tree in a local
-repo (`scan_tree`, the T0 gate `t0.vendor.no-arm-ip`), through the one git runner.
+Two engines, one result:
+
+- this package's own (`arm.banner`, plus any private regex rule file; nanosoc_rm.scan.rules), which reads a
+  directory (`scan_dir`, a bundle), files in place (`scan_paths`, read-only), and a commit's tree in a local repo
+  (`scan_tree`, the T0 gate `t0.vendor.no-arm-ip`), through the one git runner;
+- the toolkit's `check-vendor-collateral.sh` (the lab's rule set, private: GATE2 Q4), when a pinned copy is named
+  by `toolkit=` or $RM_SCAN_TOOLKIT (nanosoc_rm.scan.toolkit). It runs on a throwaway git repo over a directory
+  and on a fetched tree in place, and its findings are merged in. It is armed as `armed["toolkit"]`; when it
+  cannot vouch for the corpus the scan is `unverified`. `scan_paths` (the lab-only realism check of one vendor
+  file, read in place) uses this package's rules only, so no copy of that file is ever made.
 """
 from __future__ import annotations
 
@@ -24,7 +31,8 @@ from pathlib import Path
 from typing import Iterable, Iterator, Literal
 
 from nanosoc_rm.gitrun import run_git
-from nanosoc_rm.scan.rules import RuleSet, arm, rule_set
+from nanosoc_rm.scan.rules import RuleSet, RulesError, arm, rule_set
+from nanosoc_rm.scan.toolkit import ARMED_KEY, Toolkit, ToolkitRun, run_toolkit, scan_dir_toolkit, toolkit
 
 __all__ = ["ScanResult", "scan_dir", "scan_paths", "scan_tree", "scan_texts", "MAX_FILE_BYTES", "UNSCANNABLE"]
 
@@ -90,6 +98,40 @@ def scan_texts(items: Iterable[tuple[str, bytes | None]], rules: RuleSet | None 
     return ScanResult(verdict, findings, n, armed, rules.describe(), why, flagged)
 
 
+_FROM_ENV = object()       # toolkit= default: the copy $RM_SCAN_TOOLKIT names, if any
+
+
+def _toolkit_or_why(tk) -> tuple[Toolkit | None, str]:
+    """(the toolkit to run, or None; why it cannot be used). `tk`: a Toolkit, a path, None (no toolkit) or
+    _FROM_ENV."""
+    if isinstance(tk, Toolkit):
+        return tk, ""
+    try:
+        return toolkit(None if tk is _FROM_ENV else tk) if tk is not None else None, ""
+    except RulesError as e:
+        return None, str(e)
+
+
+def _merge(res: ScanResult, run: ToolkitRun | None, tk: Toolkit | None, broken: str = "") -> ScanResult:
+    """The native result with the toolkit's findings and arming merged in (README of this module)."""
+    if run is None and not broken:
+        return res
+    armed = dict(res.armed)
+    armed[ARMED_KEY] = bool(run and run.armed)
+    findings = list(res.findings) + (list(run.findings) if run else [])
+    flagged = list(dict.fromkeys(f["file"] for f in findings))
+    tool = res.tool + (" + " + tk.describe() if tk else " + toolkit (unusable)")
+    if res.verdict == "unverified":
+        verdict, why = "unverified", res.why
+    elif broken or (run and run.why):
+        verdict, why = "unverified", broken or run.why
+    elif findings:
+        verdict, why = "finding", ""
+    else:
+        verdict, why = "clean", ""
+    return ScanResult(verdict, findings, res.files_scanned, armed, tool, why, flagged)
+
+
 def _read(p: Path) -> bytes | None:
     try:
         if p.is_symlink() or not p.is_file() or p.stat().st_size > MAX_FILE_BYTES:
@@ -108,13 +150,18 @@ def _dir_items(root: Path) -> Iterator[tuple[str, bytes | None]]:
             yield p.relative_to(root).as_posix(), _read(p)
 
 
-def scan_dir(path: str | os.PathLike, rules: RuleSet | None = None) -> ScanResult:
-    """Scan every file under `path` (a bundle directory). Symlinks are never followed: each is unscannable."""
+def scan_dir(path: str | os.PathLike, rules: RuleSet | None = None, toolkit=_FROM_ENV) -> ScanResult:
+    """Scan every file under `path` (a bundle directory). Symlinks are never followed: each is unscannable.
+    `toolkit`: the toolkit scanner to run as well (a Toolkit or a path; default $RM_SCAN_TOOLKIT; None: none)."""
     root = Path(path)
     if not root.is_dir():
         return ScanResult("unverified", [], 0, arm((rules or rule_set()).rules), (rules or rule_set()).describe(),
                           "not a directory: %s" % root)
-    return scan_texts(_dir_items(root), rules)
+    res = scan_texts(_dir_items(root), rules)
+    tk, broken = _toolkit_or_why(toolkit)
+    if broken or (tk is not None and res.files_scanned):
+        return _merge(res, scan_dir_toolkit(tk, root) if tk is not None else None, tk, broken)
+    return res
 
 
 def scan_paths(paths: list[str | os.PathLike], rules: RuleSet | None = None) -> ScanResult:
@@ -169,7 +216,12 @@ def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | N
 
 
 def scan_tree(repo: str | os.PathLike, commit: str, rules: RuleSet | None = None, prefix: str = "",
-              env: dict | None = None, isolate: bool = True) -> ScanResult:
-    """Scan the tree of `commit` in local repo `repo` (blobs must be present: a depth-1 fetch without a filter).
-    Finding paths are `prefix/<path in the tree>`. Reads objects only; writes nothing."""
-    return scan_texts(_tree_items(repo, commit, prefix, env, isolate), rules)
+              env: dict | None = None, isolate: bool = True, toolkit=_FROM_ENV) -> ScanResult:
+    """Scan the tree of `commit` in local repo `repo` (blobs must be present: a depth-1 fetch without a filter;
+    the toolkit scanner also needs a non-bare repo). Finding paths are `prefix/<path in the tree>`. Reads
+    objects only; writes nothing in `repo`."""
+    res = scan_texts(_tree_items(repo, commit, prefix, env, isolate), rules)
+    tk, broken = _toolkit_or_why(toolkit)
+    if broken or (tk is not None and res.files_scanned):
+        return _merge(res, run_toolkit(tk, repo, commit, prefix) if tk is not None else None, tk, broken)
+    return res

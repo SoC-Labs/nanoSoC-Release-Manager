@@ -665,9 +665,10 @@ def _upgrade_control(ctx: Context) -> Context:
 def _vendor_check(ctx: Context) -> tuple[str, str]:
     from nanosoc_rm.scan.rules import RulesError, rule_set
     from nanosoc_rm.scan.scan import scan_dir, scan_tree
+    from nanosoc_rm.scan.toolkit import toolkit
     items = ctx._begin("t0.vendor.no-arm-ip")
     try:
-        rules = rule_set()
+        rules, tk = rule_set(), toolkit()       # $RM_SCAN_RULES, $RM_SCAN_TOOLKIT: compat-ci's pinned copies
     except RulesError as e:
         return "UNVERIFIED", "scanner rules unusable: %s" % e
     targets: list[tuple[str, Any]] = []
@@ -690,12 +691,12 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
     found = []
     for tp, (kind, obj) in targets:
         if kind == "dir":
-            res, commit, host = scan_dir(obj, rules), None, None
+            res, commit, host = scan_dir(obj, rules, toolkit=tk), None, None
         else:
             f = ctx.git.fetch_commit(obj.resolved or obj.url, obj.commit)
             key = (f.repo, obj.commit)
             if key not in cache:
-                cache[key] = scan_tree(f.repo, obj.commit, rules, env=ctx.git.env)
+                cache[key] = scan_tree(f.repo, obj.commit, rules, env=ctx.git.env, toolkit=tk)
             res, commit, host = cache[key], obj.commit, ctx.git.host_of(obj.resolved or obj.url)
         item = {"tree_path": tp, "component": None, "commit": commit, "host": host}
         if res.verdict == "finding":
