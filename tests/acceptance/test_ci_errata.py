@@ -837,7 +837,6 @@ def test_AT_D1():
 
 
 @pytest.mark.requirement("D1")
-@NOT_BUILT
 def test_AT_D1_negative_control():
     """AT-D1 control: an over-budget T0 is flagged; a tier with no budget fails validation."""
     from nanosoc_rm.t0 import tiers                      # PROPOSED (G1)
@@ -1309,7 +1308,6 @@ def test_AT_D6(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("D6")
-@NOT_BUILT
 def test_AT_D6_negative_control(tmp_path, monkeypatch):
     """AT-D6 control: a gate that cannot fail is caught (its control does not fire, the gate is
     UNVERIFIED); missing, unfired and duplicated rows never show PASS."""
