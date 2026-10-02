@@ -1,0 +1,4 @@
+<div class="run-started" data-configuration-run="{{ run.fact.configuration }}">
+  {% if status == 409 %}A run is already pending: {% endif %}{{ fact(run, run.fact.acceptance ~ (' ' ~ run.fact.verdict if run.fact.verdict else '')) }}
+  <a href="/runs/{{ run.fact.run.nonce }}">run {{ short(run.fact.run.nonce, 12) }}</a>{% if run.fact.reason %}: {{ run.fact.reason }}{% endif %}
+</div>

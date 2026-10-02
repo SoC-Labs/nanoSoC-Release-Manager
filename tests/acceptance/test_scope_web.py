@@ -2307,7 +2307,6 @@ def test_AT_A3():
 
 
 @pytest.mark.requirement("A3")
-@NOT_BUILT
 def test_AT_A3_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: a page of the 11 real silicon rows passes; a missing link, a missing data age,
     # an age measured from the newest fact, and a stored fact with no sources are each caught.
@@ -2449,7 +2448,6 @@ def test_AT_A4_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
 
 # ----- A5 -------------------------------------------------------------------------------------
 @pytest.mark.requirement("A5")
-@NOT_BUILT
 def test_AT_A5(tmp_path, fake_github, fake_gitlab, monkeypatch):
     from fastapi.testclient import TestClient
     # Given the offline service (example registry, the real rc4 observations seeded, fake GitHub)
@@ -2483,7 +2481,6 @@ def test_AT_A5(tmp_path, fake_github, fake_gitlab, monkeypatch):
 
 
 @pytest.mark.requirement("A5")
-@NOT_BUILT
 def test_AT_A5_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     from fastapi.testclient import TestClient
     from starlette.responses import JSONResponse
@@ -2732,7 +2729,6 @@ def test_AT_H2(tmp_path, fake_github, fake_gitlab, monkeypatch):
 
 
 @pytest.mark.requirement("H2")
-@NOT_BUILT
 def test_AT_H2_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     from fastapi.testclient import TestClient
     # Checker level: bob opening a page, carol given a session, a token in the cookie, a Run with no

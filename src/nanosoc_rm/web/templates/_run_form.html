@@ -1,0 +1,5 @@
+{# Run T0 (section 13): POST to /configurations/<id>/runs with the CSRF field; disabled while a run is pending. #}
+<form data-run-t0 method="post" action="/configurations/{{ cid }}/runs" hx-post="/configurations/{{ cid }}/runs" hx-swap="outerHTML">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <button type="submit"{% if pending %} disabled title="a run is pending"{% endif %}>Run T0</button>
+</form>

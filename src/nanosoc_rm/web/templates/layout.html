@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · nanoSoC Release Manager</title>
+<link rel="stylesheet" href="/static/rm.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">nanoSoC Release Manager</a>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a href="/silicon-protection">Silicon protection</a>
+    <a href="/contains">Contains commit</a>
+    <a href="/defects">Defects and errata</a>
+  </nav>
+  {% if identity %}<span class="who">{{ identity.login }} · <a href="/auth/logout">sign out</a></span>{% endif %}
+</header>
+<main>
+{% for p in problems %}
+  <p class="banner problem">{{ p }}</p>
+{% endfor %}
+  <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}">
+    Data age: <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %}, measured from the oldest fact on this page ({{ oldest }}){% endif %}. Rendered {{ now }}.
+  </p>
+  <h1>{{ title }}</h1>
+{{ body }}
+</main>
+</body>
+</html>

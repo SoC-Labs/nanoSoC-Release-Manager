@@ -1,0 +1,9 @@
+{% set rec = e.fact.record %}
+{% set x = rec.exposure %}
+<tr data-erratum="{{ e.fact.id }}" data-exposure="{{ x.level }}" data-method="{{ x.method }}" class="{{ EXPOSURE_CLASS.get(x.level, '') }}">
+  <td>{{ fact(e, e.fact.id) }}</td><td><a href="/defects/{{ rec.defect }}">{{ rec.defect }}</a></td>
+  <td>{{ rec.configuration }}</td><td>{{ rec.status }}</td>
+  <td><strong>{{ x.level }}</strong> by {{ x.method }}{% if x.detector %} ({{ x.detector }}){% endif %}: {{ x.evidence }}
+    {% if x.run %}<br>run: {{ x.run.result }} on input md5 {{ x.run.input.md5 }}{% endif %}</td>
+  <td>{{ rec.workaround.rules if rec.workaround else '' }}</td>
+</tr>

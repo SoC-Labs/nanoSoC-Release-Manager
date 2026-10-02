@@ -1,0 +1,16 @@
+<p>Commits in frozen or silicon trees that their component's default branch cannot reach, on the host the pin names and on the canonical host. Uncovered rows first.</p>
+<table>
+  <thead><tr><th>Configuration</th><th>Host</th><th>Component</th><th>Commit</th><th>State</th><th>Covered by</th><th>Tree paths</th></tr></thead>
+  <tbody>
+{% for r in rows %}
+  {% set f = r.fact %}
+  <tr class="{{ 'state-green' if f.covered else 'state-red' }}">
+    <td>{{ f.configuration }}</td><td>{{ f.repo.host }}{% if f.pinned %} (pinned){% endif %}{% if f.canonical %} (canonical){% endif %}</td>
+    <td>{{ fact(r, f.component) }}</td><td><code>{{ short(f.commit) }}</code></td><td>{{ f.state }}</td>
+    <td>{% for t in f.covering_tags %}<code>{{ t }}</code> {% else %}<strong>uncovered</strong>{% endfor %}</td>
+    <td>{{ f.tree_paths|join(', ') }}</td>
+  </tr>
+{% else %}<tr><td colspan="7">no rows stored</td></tr>
+{% endfor %}
+  </tbody>
+</table>

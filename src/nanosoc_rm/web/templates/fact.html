@@ -1,0 +1,13 @@
+<p>{{ fact(obs, obs.subject) }}{% if not current %} <span class="warn">not current: a newer complete snapshot no longer holds it</span>{% endif %}</p>
+<table class="kv">
+  <tr><th>Kind</th><td>{{ obs.kind }}</td></tr>
+  <tr><th>Observed at</th><td>{{ obs.observed_at }}</td></tr>
+  {% if obs.snapshot %}<tr><th>Snapshot</th><td>{{ obs.snapshot.id }}</td></tr>{% endif %}
+</table>
+<h2>How it was found</h2>
+<ul class="sources">
+{% for s in obs.sources %}<li>{{ s.kind }}: <code>{{ verbatim(s.command) }}</code></li>{% endfor %}
+{% if obs.kind == 'pin_state' %}{% for host, h in obs.fact.hosts|dictsort %}{% for s in h.sources %}<li>{{ host }} ({{ h.observed_at }}) {{ s.kind }}: <code>{{ verbatim(s.command) }}</code></li>{% endfor %}{% endfor %}{% endif %}
+</ul>
+<h2>The observation</h2>
+<pre>{{ verbatim(to_json(obs)) }}</pre>
