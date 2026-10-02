@@ -74,7 +74,9 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
     phases = {g.get("phase"): g for g in (register or {}).get("phases", []) if isinstance(g, dict)}
     ids = sorted(phase_of, key=len, reverse=True)
-    ids_rx = re.compile(r"\b(%s)\b" % "|".join(map(re.escape, ids))) if ids else None
+    # A requirement id stands alone: `E1`, `(E1)`, `E1,`. A review label such as `CI-E1` or `MW-R1` contains an id
+    # after a hyphen and names a review finding, not the requirement (found at integration: build/ci's message).
+    ids_rx = re.compile(r"(?<![\w-])(%s)(?![\w-])" % "|".join(map(re.escape, ids))) if ids else None
     out = []
     for ph in LATER_PHASES:
         problems: list[str] = []

@@ -65,6 +65,13 @@ def test_return_value_is_the_exit_code_and_a_crash_is_2():
         raise ConfigError("[ci] project_id is required")
     assert CliRunner().invoke(_group_with(cfg), ["x"]).exit_code == 3
 
+    def broken_registry():                         # integration: a registry that does not load is missing data
+        from nanosoc_rm.registry import Problem, RegistryError
+        raise RegistryError([Problem("eligibility.yaml", "/configurations/0/component", "rule-2", "planted")])
+    r = CliRunner().invoke(_group_with(broken_registry), ["x"])
+    assert r.exit_code == 2 and "registry does not load" in r.output and "planted [rule-2]" in r.output
+    assert "internal error" not in r.output and "Traceback" not in r.output
+
 
 def test_emit_json_lines_and_table(capsys):
     docs = [{"subject": "a:1", "observed_at": "2026-10-01T00:00:00Z"}, {"subject": "a:2", "observed_at": "x"}]
@@ -122,7 +129,10 @@ def test_real_main_registers_no_later_phase_command():
     # AT-A7: no Phase 2-5 command before its entry gate.
     assert not {"matrix", "release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
     assert "lock" not in cli.PLUGIN_MODULES
-    assert "nanosoc_rm.t0.runner" not in sys.modules
+    # In a fresh interpreter: in the merged suite other tests import the runner into this process (AT-A4).
+    probe = subprocess.run([sys.executable, "-c", "import sys, nanosoc_rm.cli, nanosoc_rm.web; "
+                            "sys.exit(1 if 'nanosoc_rm.t0.runner' in sys.modules else 0)"], capture_output=True, text=True)
+    assert probe.returncode == 0, probe.stderr
 
 
 def test_alerts_command(rm_config):

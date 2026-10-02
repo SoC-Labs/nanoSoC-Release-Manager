@@ -61,6 +61,17 @@ def test_an_implementation_commit_before_its_gate_is_caught(tmp_path):
     assert phasegates.check(late, PHASE_OF, commits, ["/"], ["walk"])[0]["problems"], "the gate was checked after the code"
 
 
+def test_a_review_label_is_not_a_requirement_id():
+    """Integration: `Review CI-E1 rejected` in build/ci's message was read as Phase 4's E1."""
+    commits = [{"sha": "a" * 40, "at": "2026-10-02T10:00:00Z", "files": ["src/x.py"],
+                "message": "ci: fixes\n\nReview CI-E1 rejected; MW-R1 fixed.\n\nRequirements: A2, D5\n"}]
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, commits, ["/"], ["walk"])}
+    assert res["Phase 4"] == [] and res["Phase 2"] == []
+    named = [dict(commits[0], message="feat: bump writer (E1)\n\nRequirements: E1, A2\n")]
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, named, ["/"], ["walk"])}
+    assert any("['E1']" in p for p in res["Phase 4"])
+
+
 def test_surfaces_and_register_shape_are_checked():
     res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x"],
                                                                 ["walk", "lock", "matrix"])}

@@ -6,7 +6,8 @@ Conventions every command keeps (section 0.1, 0.2):
 - It takes `--json` (`@json_option`) and then prints one JSON document per line (`emit`); without it, a table.
 - It returns its exit code: 0 answered (no finding, PASS), 1 finding or FAIL, 2 could not answer (missing
   data, unreadable host, UNVERIFIED), 3 usage or config error. `main` maps click's usage errors and every
-  ConfigError to 3, and an unexpected exception to 2 with its traceback on stderr: a crash is never read as a
+  ConfigError to 3, a registry that does not load (RegistryError) to 2 with its problems, and any other
+  exception to 2 with its traceback on stderr: a crash is never read as a
   finding (1) or an answer (0).
 
 The helpers (`json_option`, `emit`, `table`, `exit_code`, `subgroup`, the EXIT_* codes) live in
@@ -65,9 +66,16 @@ class RMGroup(click.Group):
         except click.ClickException as e:                 # e.g. an unreadable file argument
             e.show()
             code = EXIT_USAGE
-        except Exception:                                 # a bug: say so, and do not pretend to an answer
-            traceback.print_exc()
-            click.echo("nanosoc-rm: internal error: the command could not answer", err=True)
+        except Exception as e:
+            from nanosoc_rm.registry import RegistryError
+            if isinstance(e, RegistryError):              # the registry checkout does not load: missing data, not a bug
+                click.echo("nanosoc-rm: the registry does not load (%d problem(s)); see `nanosoc-rm registry "
+                           "validate`:" % len(e.problems), err=True)
+                for p in e.problems:
+                    click.echo("  %s" % p, err=True)
+            else:                                         # a bug: say so, and do not pretend to an answer
+                traceback.print_exc()
+                click.echo("nanosoc-rm: internal error: the command could not answer", err=True)
             code = EXIT_UNVERIFIED
         else:
             code = rv if isinstance(rv, int) and not isinstance(rv, bool) else EXIT_OK
