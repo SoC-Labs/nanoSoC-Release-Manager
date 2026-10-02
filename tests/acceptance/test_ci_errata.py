@@ -1620,7 +1620,6 @@ def test_AT_F1():
 
 
 @pytest.mark.requirement("F1")
-@NOT_BUILT
 def test_AT_F1_negative_control(tmp_path):
     """AT-F1 control: the rc4 erratum copied to non-silicon eth-main, still `permanent`, is
     refused; an erratum naming a form the defect lacks is refused."""
@@ -1934,7 +1933,6 @@ def test_AT_F5(tmp_path):
 
 
 @pytest.mark.requirement("F5")
-@NOT_BUILT
 def test_AT_F5_negative_control(tmp_path):
     """AT-F5 control: the example ledger (all pending) is reported not done; a ledger missing
     one censused item is reported not done, naming the item."""
