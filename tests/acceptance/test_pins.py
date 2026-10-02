@@ -1332,7 +1332,6 @@ def test_AT_B3_negative_control(request, hermetic):
 # ============================================================================================
 @pytest.mark.requirement("B4")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B4(live):
     # Given eth-rc4, eth-main and multicore-master walked, and nanosoc_gen mirrored (GitLab only).
     # ASSUMED (G16): walk() stores its pin_state observations, and contains() and
@@ -1382,7 +1381,6 @@ def test_AT_B4(live):
 
 @pytest.mark.requirement("B4")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B4_negative_control(shadow):
     # Given rc4's real mirrors where d04de2e is still an object but no branch or tag reaches it
     gen = shadow.mirror("nanosoc_gen")
@@ -1462,7 +1460,6 @@ def test_AT_B5_negative_control(shadow):
 # ============================================================================================
 @pytest.mark.requirement("B6")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B6(live, shadow):
     golden = host_compare_golden()
     # Given the three components' mirrors replayed at the heads observed on 2026-09-30 (shadow)
@@ -1490,7 +1487,6 @@ def test_AT_B6(live, shadow):
 
 @pytest.mark.requirement("B6")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B6_negative_control(shadow):
     golden = host_compare_golden()
     replay_heads(shadow, golden)

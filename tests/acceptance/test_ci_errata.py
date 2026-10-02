@@ -1781,7 +1781,6 @@ def _refs_gate(tmp_path, registry_dir, name):
 
 @pytest.mark.requirement("F3")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_F3(tmp_path):
     """AT-F3: with every cited commit pushed, t0.registry.refs-resolve passes and names each
     commit it proved on its canonical host."""
