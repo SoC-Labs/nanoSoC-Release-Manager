@@ -65,7 +65,7 @@ def env(tmp_path, monkeypatch):
 
 def test_counts_are_rev_list_in_one_mirror_and_match_raw_git(env):
     docs = compare_hosts("tidelink") + compare_hosts("ahb_qspi") + compare_hosts("asic-flow")
-    tl, qs, fl = env["tidelink"], env["ahb_qspi"], env["asic-flow"]
+    tl = env["tidelink"]
     gh = lambda r, b: tl.ref(r["host"], r["path"], "heads", b)                      # noqa: E731
     expected = {
         "tidelink": {"relation": "AHEAD", "canonical_only": raw(tl, gh(TL[1], "main"), gh(TL[0], "main")),
