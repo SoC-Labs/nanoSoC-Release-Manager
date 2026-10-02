@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 
 from nanosoc_rm import auth, clock, contracts, db
 from nanosoc_rm.web import create_app, views
-from webfix import EXAMPLES, Hooks, make_registry, write_config
+from nanosoc_rm.config import load_config
+from webfix import EXAMPLES, Hooks, git, make_registry, write_config
 
 RC4 = "eth-rc4"
 NONCE = "5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f"
@@ -209,6 +210,25 @@ def test_open_errata_and_host_drift(site):
     assert "tidelink AHEAD" in drift                                  # in rc4's tree (the example pins)
     assert "unknown: nanosoc_gen" in drift and "nanosoc_gen UNKNOWN" not in drift
     assert "ahb_qspi" not in drift, "a component outside the tree's stored pins is not this tree's drift"
+
+
+def test_open_errata_counts_open_and_permanent_only(site):
+    """Review W3: section 13's "open errata" are status open or permanent. Every other status of the erratum
+    schema (fixed, wont-fix, not-affected) is stored and listed on the errata page, but not counted."""
+    reg = site["registry"]
+    base = example("erratum.ETH-R0P0-ERR-001.example.yaml")[0]
+    for n, (cid, status) in enumerate([(RC4, "open"), (RC4, "wont-fix"), (RC4, "not-affected"), (RC4, "fixed"),
+                                       ("eth-main", "fixed"), ("eth-main", "wont-fix")], start=2):
+        doc = dict(copy.deepcopy(base), id="ETH-R0P0-ERR-%03d" % n, configuration=cid, status=status)
+        (reg / "errata" / cid).mkdir(parents=True, exist_ok=True)
+        (reg / "errata" / cid / ("ERR-%03d.yaml" % n)).write_text(json.dumps(doc, indent=1) + "\n")
+    git("add", "-A", ".", cwd=reg)
+    git("commit", "-q", "-m", "errata of every status", cwd=reg)
+    text = site["client"].get("/").text
+    p, sw = cells(text)
+    assert sw.first_int(p.items[(RC4, "open-errata")]) == 2          # ERR-001 permanent + ERR-002 open
+    assert sw.first_int(p.items[("eth-main", "open-errata")]) == 0
+    assert len(views.errata(load_config(site["cfg"]), RC4)) == 5, "every status is stored and listed"
 
 
 def test_runner_status_and_alert_banner(site):

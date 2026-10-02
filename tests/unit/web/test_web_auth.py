@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import base64
+import datetime
 import json
+import time
 import urllib.parse
 import zlib
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocketDisconnect
 
 from nanosoc_rm import auth, clock
 from nanosoc_rm.config import load_config
@@ -182,13 +185,45 @@ def test_tampered_session_cookie_is_anonymous(service):
     assert c.get("/", follow_redirects=False).status_code == 303
 
 
+CONTRACT_SESSION_S = 8 * 3600                 # section 14: "valid 8 h" (not read from the module under test)
+_REAL_TIME = time.time
+_REAL_NOW = clock.now
+
+
+def _shift(monkeypatch, seconds):
+    """Move both clocks the session depends on (itsdangerous's signature timestamp and nanosoc_rm.clock)
+    `seconds` ahead of the real time."""
+    monkeypatch.setattr(time, "time", lambda: _REAL_TIME() + seconds)
+    monkeypatch.setattr(clock, "now", lambda: _REAL_NOW() + datetime.timedelta(seconds=seconds))
+
+
 def test_session_expires_after_eight_hours(service, monkeypatch):
-    import itsdangerous.timed
     c = TestClient(create_app(service["cfg"]))
     sign_in(c, "alice")
     assert c.get("/", follow_redirects=False).status_code == 200
-    real = itsdangerous.timed.time.time
-    monkeypatch.setattr(itsdangerous.timed.time, "time", lambda: real() + auth.SESSION_MAX_AGE_S + 5)
+    jar = dict(c.cookies)
+    _shift(monkeypatch, int(7.9 * 3600))
+    assert c.get("/", follow_redirects=False).status_code == 200, "7.9 h after sign-in the session holds"
+    c.cookies.clear()
+    c.cookies.update(jar)                        # the cookie as signed at sign-in (no re-sign in between)
+    _shift(monkeypatch, CONTRACT_SESSION_S + 5)
+    assert c.get("/", follow_redirects=False).status_code == 303
+
+
+def test_session_ends_eight_hours_after_sign_in_however_often_it_is_used(service, monkeypatch):
+    """Review W2: each hourly re-check re-signs the cookie; that must not extend the session."""
+    gh = service["github"]
+    c = TestClient(create_app(service["cfg"]))
+    sign_in(c, "alice")
+    statuses = []
+    for hours in (2, 4, 6, 7.9):
+        _shift(monkeypatch, int(hours * 3600))
+        statuses.append(c.get("/", follow_redirects=False).status_code)
+    assert statuses == [200, 200, 200, 200]
+    assert len([x for x in gh.log if x[1].startswith("/orgs/")]) == 4, "re-checked (and re-signed) each time"
+    _shift(monkeypatch, CONTRACT_SESSION_S + 5)
+    assert c.get("/", follow_redirects=False).status_code == 303
+    _shift(monkeypatch, 3 * CONTRACT_SESSION_S)
     assert c.get("/", follow_redirects=False).status_code == 303
 
 
@@ -206,6 +241,28 @@ def test_a_route_added_after_construction_is_guarded(service):
     assert alice.get("/late").status_code == 200
 
 
+def test_a_websocket_added_after_construction_is_guarded(service):
+    """Review W5: the guard covers websocket scopes too; only lifespan passes unchecked."""
+    async def late_ws(ws):
+        await ws.accept()
+        await ws.send_text(RC4)
+        await ws.close()
+    app = create_app(service["cfg"])
+    app.router.routes.append(WebSocketRoute("/late-ws", late_ws))
+    for who in (None, "bob"):
+        c = TestClient(app)
+        if who:
+            sign_in(c, who)
+        with pytest.raises(WebSocketDisconnect) as e:
+            with c.websocket_connect("/late-ws") as ws:
+                ws.receive_text()
+        assert e.value.code == 1008, who
+    alice = TestClient(app)
+    sign_in(alice, "alice")
+    with alice.websocket_connect("/late-ws") as ws:
+        assert ws.receive_text() == RC4
+
+
 def test_static_is_open_and_holds_no_data_or_templates(service):
     app = create_app(service["cfg"])
     mounts = [r for r in app.routes if getattr(getattr(r, "app", None), "directory", None)]
@@ -218,8 +275,9 @@ def test_static_is_open_and_holds_no_data_or_templates(service):
 def _age_session(client, cfg, hours):
     sessions = auth.Sessions.from_config(load_config(cfg))
     d = sessions.load_session(client.cookies[auth.SESSION_COOKIE])
-    old = clock.iso(clock.now() - __import__("datetime").timedelta(hours=hours))
-    replace_cookie(client, auth.SESSION_COOKIE, sessions.dump_session(d["login"], d["status"], d["sid"], old))
+    old = clock.iso(clock.now() - datetime.timedelta(hours=hours))
+    replace_cookie(client, auth.SESSION_COOKIE, sessions.dump_session(d["login"], d["status"], d["sid"], old,
+                                                                      iat=d["iat"]))
 
 
 def test_membership_is_rechecked_hourly_and_a_removed_member_is_refused(service):
@@ -245,6 +303,26 @@ def test_recheck_that_github_cannot_answer_keeps_the_session(service):
     gh.member_check_status = 500
     _age_session(c, service["cfg"], 2)
     assert c.get("/", follow_redirects=False).status_code == 200
+
+
+def test_a_failed_recheck_is_not_retried_on_every_request(service, monkeypatch):
+    """Review W4: during a GitHub outage the re-check is still at most hourly, not one call per request."""
+    gh = service["github"]
+    c = TestClient(create_app(service["cfg"]))
+    sign_in(c, "alice")
+
+    def checks():
+        return len([x for x in gh.log if x[1].startswith("/orgs/")])
+    gh.member_check_status = 500
+    _age_session(c, service["cfg"], 2)
+    n = checks()
+    assert [c.get("/", follow_redirects=False).status_code for _ in range(5)] == [200] * 5
+    assert checks() == n + 1, "one attempt, then none until an hour has passed"
+    _shift(monkeypatch, 3600 + 5)
+    gh.member_check_status = None
+    gh.states["alice"] = None                                          # GitHub answers again: she was removed
+    assert c.get("/", follow_redirects=False).status_code == 403
+    assert checks() == n + 2
 
 
 def test_is_member_reads_the_org_membership_with_the_service_token(service):

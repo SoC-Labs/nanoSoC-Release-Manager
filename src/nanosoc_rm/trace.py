@@ -4,7 +4,9 @@
         requirement -> acceptance tests -> commits. Tests come from the `requirement("<ID>")` markers in tests/
         (read statically, nothing is imported or run); commits from the `Requirements:` trailer lines of the
         git log (PR7). Exit 1 when a v1 or All-phase Must requirement has no acceptance test, or a trailer names
-        an ID that REQUIREMENTS.md does not have; else 0.
+        an ID that REQUIREMENTS.md does not have; else 0. With --requirement, only that requirement's row and
+        findings count (exit 1 only when it has no acceptance test), and an ID REQUIREMENTS.md does not have is
+        a usage error (exit 3).
 
     nanosoc-rm phase-gates [--repo PATH] [--json]
         The A7 check of nanosoc_rm.phasegates over docs/phase-gates.yaml, the git log, the web app's routes and
@@ -24,7 +26,7 @@ import click
 from nanosoc_rm import phasegates
 from nanosoc_rm.cliutil import EXIT_USAGE, emit, exit_code, json_option
 
-__all__ = ["requirement_markers", "commit_trailers", "trace", "register"]
+__all__ = ["requirement_markers", "commit_trailers", "trace", "UnknownRequirement", "register"]
 
 _TRAILER = re.compile(r"^Requirements:\s*(.+?)\s*$", re.M | re.I)
 _ID_TOKEN = re.compile(r"[A-Z]+[0-9]+")
@@ -62,18 +64,29 @@ def commit_trailers(commits: list[dict]) -> list[dict]:
     return out
 
 
-def trace(repo: Path) -> tuple[list[dict], list[str]]:
-    """(one row per requirement {requirement, priority, phase, tests, commits}, problems)."""
+class UnknownRequirement(LookupError):
+    """`trace(only=...)` names an ID that REQUIREMENTS.md does not have."""
+
+
+def trace(repo: Path, only: str | None = None) -> tuple[list[dict], list[str]]:
+    """(one row per requirement {requirement, priority, phase, tests, commits}, problems). With `only`, the
+    one requirement's row and its own problems; UnknownRequirement if REQUIREMENTS.md lacks it."""
     index = phasegates.requirement_index((repo / phasegates.REQUIREMENTS).read_text())
+    if only is not None and only not in index:
+        raise UnknownRequirement("%s is not a requirement in %s" % (only, phasegates.REQUIREMENTS))
     markers = requirement_markers(repo / "tests")
     trailers = commit_trailers(phasegates.git_commits(repo))
     rows, problems = [], []
     for rid, meta in index.items():
+        if only is not None and rid != only:
+            continue
         commits = [{"sha": t["sha"], "at": t["at"], "subject": t["subject"]} for t in trailers if rid in t["ids"]]
         rows.append({"requirement": rid, "priority": meta["priority"], "phase": meta["phase"],
                      "tests": sorted(markers.get(rid, [])), "commits": commits})
         if meta["priority"] == "Must" and meta["phase"] in ("v1", "All") and not markers.get(rid):
             problems.append("%s (Must, %s) has no acceptance test" % (rid, meta["phase"]))
+    if only is not None:
+        return rows, problems                    # the other findings concern other IDs
     for t in trailers:
         unknown = [i for i in t["ids"] if i not in index]
         if unknown:
@@ -98,9 +111,11 @@ def register(main: click.Group) -> None:
         if repo is None:
             click.echo("nanosoc-rm: no tool repo checkout found (docs/phase-gates.yaml and .git); use --repo", err=True)
             return EXIT_USAGE
-        rows, problems = trace(repo)
-        if only:
-            rows = [r for r in rows if r["requirement"] == only]
+        try:
+            rows, problems = trace(repo, only)
+        except UnknownRequirement as e:
+            click.echo("nanosoc-rm: %s" % e, err=True)
+            return EXIT_USAGE
 
         def row(d: dict) -> dict[str, Any]:
             return {"requirement": d["requirement"], "priority": d["priority"], "phase": d["phase"],

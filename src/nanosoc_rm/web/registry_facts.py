@@ -11,14 +11,20 @@ observation, so a registry fact carries an age and a command like every other fa
 `refresh(config)` reads the checkout at `registry.path` when its HEAD differs from the commit of the stored
 records. The registry is loaded with the contracted validator first (`nanosoc_rm.registry.load_registry`):
 a registry with any problem is not loaded, and the service keeps serving the last good records and shows
-the problems (interfaces.md section 2 "Errors"). The records themselves are read with
-`git show <commit>:<file>`, exactly the command the fact cites. Files that disappeared get an empty snapshot,
-so a deleted record leaves the current view.
+the problems (interfaces.md section 2 "Errors").
+
+What is stored is exactly what was validated. The loader reads the checkout's files and reports the commit it
+read them at (`Registry.commit`); a checkout with uncommitted changes or untracked files has no such commit,
+and is not loaded either. The records are then read with `git show <Registry.commit>:<file>`, the command the
+fact cites, and compared with the loaded Registry's records (`configurations()`, `components()`, `defects()`,
+`errata()`, `imports()`): any difference means the two reads saw different trees, and nothing is stored.
+Files that disappeared get an empty snapshot, so a deleted record leaves the current view.
 
 `refresh` never raises: what went wrong is returned as problem strings, which pages show as a banner.
 """
 from __future__ import annotations
 
+import json
 import threading
 from typing import Any
 
@@ -102,20 +108,41 @@ def _read_files(path: str, commit: str) -> dict[str, Any]:
     return files
 
 
-def _validate(path: str) -> list[str]:
-    """The contracted loader's verdict on the checkout: [] when it loads, else its problems. A missing
+def _load(path: str) -> tuple[Any, list[str]]:
+    """(the contracted loader's Registry, []) when the checkout loads, else (None, its problems). A missing
     loader is a problem too: the web never trusts registry files nothing has validated."""
     try:
         from nanosoc_rm.registry import RegistryError, load_registry
     except ImportError as e:
-        return ["the registry loader (nanosoc_rm.registry) is not installed: %s" % e]
+        return None, ["the registry loader (nanosoc_rm.registry) is not installed: %s" % e]
     from pathlib import Path
     try:
-        load_registry(Path(path))
+        return load_registry(Path(path)), []
     except RegistryError as e:
         probs = getattr(e, "problems", None) or [e]
-        return ["registry problem: %s" % _problem_text(p) for p in probs]
-    return []
+        return None, ["registry problem: %s" % _problem_text(p) for p in probs]
+
+
+def _differences(reg: Any, by_file: dict[str, list[dict]]) -> list[str]:
+    """Where the records read at the commit differ from the records the loader validated ([] = none)."""
+    got: dict[str, list] = {}
+    for rows in by_file.values():
+        for d in rows:
+            got.setdefault(d["fact"]["record_kind"], []).append(d["fact"]["record"])
+    imports = reg.imports()
+    want = {"configuration": reg.configurations(), "component": reg.components(), "defect": reg.defects(),
+            "erratum": reg.errata(), "import_source": list((imports or {}).get("sources") or [])}
+
+    def key(r: Any) -> str:
+        return json.dumps(r, sort_keys=True, default=str)
+    out = []
+    for kind, records in sorted(want.items()):
+        a, b = got.get(kind, []), list(records or [])
+        if kind in ("defect", "erratum"):                      # one file each: the order is not the files'
+            a, b = sorted(a, key=key), sorted(b, key=key)
+        if a != b:
+            out.append("%s records (%d read at the commit, %d validated)" % (kind, len(a), len(b)))
+    return out
 
 
 def _problem_text(p: Any) -> str:
@@ -137,12 +164,23 @@ def refresh(config: Config) -> list[str]:
             return ["%s: showing the last stored records" % e]
         if stored_commit(config) == head:
             return []
-        problems = _validate(path)
+        reg, problems = _load(path)
         if problems:
             return problems + ["the registry at %s was not loaded: showing the last good records" % head[:12]]
+        commit = getattr(reg, "commit", None)
+        if not commit:
+            return ["the registry checkout has changes that are not committed (or untracked files), so no "
+                    "`git show <commit>:<file>` reproduces what was validated: not loaded, showing the last "
+                    "good records"]
+        if stored_commit(config) == commit:
+            return []
         try:
             at = clock.iso()
-            by_file = records_from_files(_read_files(path, head), head, at)
+            by_file = records_from_files(_read_files(path, commit), commit, at)
+            diff = _differences(reg, by_file)
+            if diff:
+                return ["the registry at %s was not loaded: what was validated differs from what %s holds: %s"
+                        % (commit[:12], commit[:12], "; ".join(diff))]
             stored_scopes = {d["snapshot"]["scope"] for d in db.latest(KIND, config=config)}
             for file, docs in by_file.items():
                 db.put_snapshot("%s:%s" % (KIND, file), docs, config=config)
@@ -151,7 +189,7 @@ def refresh(config: Config) -> list[str]:
         except db.ObservationRefused as e:
             return ["registry records refused by the store: %s" % "; ".join(e.problems[:3])]
         except Exception as e:                                   # noqa: BLE001
-            return ["reading the registry at %s failed: %s" % (head[:12], e)]
+            return ["reading the registry at %s failed: %s" % (commit[:12], e)]
     return []
 
 

@@ -188,10 +188,41 @@ class FakeRegistryError(Exception):
         super().__init__("; ".join(map(str, problems)))
 
 
+class FakeRegistry:
+    """What the contracted loader returns (interfaces.md section 2): the records it validated, read from the
+    checkout's files, and `commit`, the commit they were read at. Like the real loader, a checkout with
+    uncommitted changes or untracked files has no commit (`commit = None`, `dirty = True`)."""
+
+    def __init__(self, path: Path):
+        from nanosoc_rm import contracts
+        self.path = Path(path)
+        self.dirty = bool(_git("status", "--porcelain", "--untracked-files=all", cwd=path))
+        self.commit = None if self.dirty else _git("rev-parse", "HEAD", cwd=path)
+        self._files = {p.relative_to(self.path).as_posix(): contracts.load_yaml(p.read_text())
+                       for p in sorted(self.path.rglob("*.yaml"))}
+
+    def configurations(self):
+        return list(self._files["eligibility.yaml"]["configurations"])
+
+    def components(self):
+        return list(self._files["catalogue.yaml"]["components"])
+
+    def defects(self):
+        return [d for f, d in sorted(self._files.items()) if f.startswith("defects/")]
+
+    def errata(self, configuration=None):
+        return [d for f, d in sorted(self._files.items()) if f.startswith("errata/")
+                and (configuration is None or d.get("configuration") == configuration)]
+
+    def imports(self):
+        return self._files.get("imports.yaml")
+
+
 @pytest.fixture
 def fake_registry_module(monkeypatch):
-    """A test double of the contracted loader (interfaces.md section 2): load_registry(path) succeeds unless
-    the checkout holds a file named BROKEN. Injected as nanosoc_rm.registry for this test only."""
+    """A test double of the contracted loader (interfaces.md section 2): load_registry(path) raises
+    RegistryError when the checkout holds a file named BROKEN, else returns a FakeRegistry. Injected as
+    nanosoc_rm.registry for this test only. `mod.tamper`, if set, edits each loaded FakeRegistry."""
     mod = types.ModuleType("nanosoc_rm.registry")
     calls = []
 
@@ -207,11 +238,15 @@ def fake_registry_module(monkeypatch):
                 rule: str
                 message: str
             raise FakeRegistryError([Problem("eligibility.yaml", "/configurations/0", "2", "planted problem")])
-        return types.SimpleNamespace(commit=_git("rev-parse", "HEAD", cwd=path))
+        reg = FakeRegistry(Path(path))
+        if mod.tamper:
+            mod.tamper(reg)
+        return reg
 
     mod.load_registry = load_registry
     mod.RegistryError = FakeRegistryError
     mod.calls = calls
+    mod.tamper = None
     monkeypatch.setitem(sys.modules, "nanosoc_rm.registry", mod)
     return mod
 

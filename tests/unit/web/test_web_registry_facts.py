@@ -100,3 +100,45 @@ def test_records_from_files_layout():
     assert [d["subject"] for d in out["eligibility.yaml"]] == ["registry_record:eligibility.yaml#/configurations/0",
                                                               "registry_record:eligibility.yaml#/configurations/1"]
     assert all(db.check_observation(d) == [] for rows in out.values() for d in rows)
+
+
+def test_a_dirty_checkout_is_not_loaded_and_its_head_is_not_stored(service, fake_registry_module):
+    """Review W1: HEAD holds a registry the loader refuses; the working tree holds a valid one, uncommitted.
+    What the loader validated (the working tree) is not what `git show HEAD:<file>` reads, so nothing is
+    stored, the last good records stay, and the page is told why."""
+    reg = make_registry(service["tmp"] / "registry")
+    config = _config(service, reg)
+    assert registry_facts.refresh(config) == []
+    good = git("rev-parse", "HEAD", cwd=reg)
+    (reg / "BROKEN").write_text("x\n")                         # the loader refuses this tree...
+    git("add", "BROKEN", cwd=reg)
+    git("commit", "-q", "-m", "broken at HEAD", cwd=reg)
+    bad = git("rev-parse", "HEAD", cwd=reg)
+    (reg / "BROKEN").unlink()                                  # ...and accepts the working tree, uncommitted
+    problems = registry_facts.refresh(config)
+    assert any("not committed" in p for p in problems), problems
+    assert {d["fact"]["commit"] for d in registry_facts.current(config)} == {good} != {bad}
+    git("checkout", "-q", "--", "BROKEN", cwd=reg)             # clean again: HEAD is refused as itself
+    assert any("planted problem" in p for p in registry_facts.refresh(config))
+    assert {d["fact"]["commit"] for d in registry_facts.current(config)} == {good}
+
+
+def test_records_that_differ_from_what_was_validated_are_not_stored(service, fake_registry_module):
+    """The records read at Registry.commit must be the records the loader validated: a loader that saw
+    another tree (here, one configuration renamed) gets nothing stored."""
+    reg = make_registry(service["tmp"] / "registry")
+    config = _config(service, reg)
+    assert registry_facts.refresh(config) == []
+    first = git("rev-parse", "HEAD", cwd=reg)
+    make_registry(reg, extra_configs=[{"id": "estate-main", "component": "nanosoc-ethernet-chiplet",
+                                       "ref": {"branch": "main"}}])
+
+    def renamed(r):
+        r._files["eligibility.yaml"]["configurations"][-1]["id"] = "something-else"
+    fake_registry_module.tamper = renamed
+    problems = registry_facts.refresh(config)
+    assert any("differs" in p and "configuration records" in p for p in problems), problems
+    assert {d["fact"]["commit"] for d in registry_facts.current(config)} == {first}
+    fake_registry_module.tamper = None
+    assert registry_facts.refresh(config) == []
+    assert "estate-main" in {d["fact"]["id"] for d in registry_facts.current(config, "configuration")}

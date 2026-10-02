@@ -66,9 +66,12 @@ def errata(config: Config, configuration: str | None = None) -> list[dict]:
     return sorted(docs, key=lambda d: d["fact"]["id"])
 
 
+OPEN_ERRATUM_STATUSES = ("open", "permanent")        # section 13: the dashboard's "open errata"
+
+
 def open_errata(config: Config, configuration: str) -> list[dict]:
     """Errata with status open or permanent (section 13 dashboard)."""
-    return [d for d in errata(config, configuration) if d["fact"]["record"].get("status") in ("open", "permanent")]
+    return [d for d in errata(config, configuration) if d["fact"]["record"].get("status") in OPEN_ERRATUM_STATUSES]
 
 
 def defects(config: Config) -> list[dict]:
@@ -209,7 +212,7 @@ def dashboard(config: Config, now=None) -> dict:
         tree = {d["fact"]["child"]["component"] for d in p if d["fact"].get("child", {}).get("component")}
         drifting, unknown, in_tree = drift(compares, tree)
         er = errata(config, cid)
-        op = [d for d in er if d["fact"]["record"].get("status") in ("open", "permanent")]
+        op = [d for d in er if d["fact"]["record"].get("status") in OPEN_ERRATUM_STATUSES]
         row_facts = [rec] + p + r[:1] + in_tree + er + runners
         oldest = min((d["observed_at"] for d in row_facts), key=clock.parse)
         rows.append({

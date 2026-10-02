@@ -6,6 +6,8 @@ import os
 import shutil
 import subprocess
 
+import pytest
+
 from nanosoc_rm import phasegates, trace
 from webfix import REPO, git
 
@@ -154,4 +156,29 @@ def test_trace_flags_an_untested_must_and_an_unknown_id(tmp_path):
     assert "A1 (Must, v1) has no acceptance test" in problems
     assert not any(p.startswith("D3") for p in problems), "a later phase gets its tests at its own gate 2"
     assert any("unknown requirement Z9" in p for p in problems)
+    assert _cli("trace", "--repo", str(repo)).returncode == 1
+
+
+def test_trace_one_requirement_unknown_id_is_usage_and_findings_are_its_own(tmp_path):
+    """Review W7: --requirement with an ID REQUIREMENTS.md lacks is a usage error (3, section 0); with a known
+    ID, only that requirement's findings set the exit code."""
+    repo = tmp_path / "r"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "docs" / "REQUIREMENTS.md").write_text("### A1 · Must · v1\n\n### A2 · Must · v1\n")
+    (repo / "docs" / "phase-gates.yaml").write_text("phases: []\n")
+    (repo / "tests" / "test_a2.py").write_text(
+        "import pytest\n\n@pytest.mark.requirement(\"A2\")\ndef test_AT_A2():\n    pass\n")
+    git("init", "-q", "-b", "main", ".", cwd=repo)
+    git("add", "-A", ".", cwd=repo)
+    git("commit", "-q", "-m", "x\n\nRequirements: A2, Z9", cwd=repo)
+    p = _cli("trace", "--json", "--requirement", "NOPE", "--repo", str(repo))
+    assert p.returncode == 3 and p.stdout == "" and "NOPE" in p.stderr
+    with pytest.raises(trace.UnknownRequirement):
+        trace.trace(repo, "NOPE")
+    rows, problems = trace.trace(repo, "A2")
+    assert [r["requirement"] for r in rows] == ["A2"] and problems == []
+    p = _cli("trace", "--json", "--requirement", "A2", "--repo", str(repo))
+    assert p.returncode == 0, p.stderr                       # A1 untested and Z9 unknown are not A2's findings
+    assert _cli("trace", "--requirement", "A1", "--repo", str(repo)).returncode == 1
     assert _cli("trace", "--repo", str(repo)).returncode == 1

@@ -13,8 +13,11 @@ the service config. Everything else is refused.
   of being sent round the login loop.
 - **Roles:** `roles.default` for every active member, plus `roles."<login>"` (section 1). v1's one role,
   `member`, allows viewing and Run T0. No role means refused, so an empty table refuses everyone.
-- **Session:** a cookie signed with `session.secret_file` (itsdangerous), valid 8 hours. Membership is
-  re-checked at most hourly with the service's read token, `is_member(config, login)`.
+- **Session:** a cookie signed with `session.secret_file` (itsdangerous), valid 8 hours from sign-in. The
+  sign-in time (`iat`) is in the signed payload and is never moved: re-signing the cookie after a re-check
+  does not extend the session. Membership is re-checked at most hourly with the service's read token,
+  `is_member(config, login)`. When GitHub cannot answer, the session is kept and the failed attempt is
+  recorded (`attempt_at`), so GitHub is asked again an hour later, not on every request.
 - **CSRF:** every form carries `csrf_token`, an HMAC of the session id and login. It is checked on every POST
   authenticated by the session cookie (the only ambient credential a browser sends cross-site).
 - **Test seam:** `create_app(config_path, auth=FakeMembership(login=...))` signs every request in as that
@@ -42,7 +45,7 @@ from nanosoc_rm.config import Config, ConfigError
 __all__ = ["SESSION_COOKIE", "STATE_COOKIE", "SESSION_MAX_AGE_S", "STATE_MAX_AGE_S", "RECHECK_S", "MEMBER_ROLE",
            "AUTH_PREFIX", "LOGIN_PATH", "CALLBACK_PATH", "LOGOUT_PATH", "CSRF_FIELD", "Identity", "AuthError",
            "FakeMembership", "GitHubAuth", "roles_for", "is_member", "authorize_url", "exchange_code",
-           "user_login", "membership_state", "github_org", "Sessions"]
+           "user_login", "membership_state", "github_org", "Sessions", "session_seconds_left"]
 
 SESSION_COOKIE = "rm_session"
 STATE_COOKIE = "rm_oauth_state"
@@ -70,7 +73,18 @@ class Identity:
     via: str
     sid: str = ""
     checked_at: str = ""
+    iat: str = ""                                               # sign-in time; the session ends 8 h after it
+    attempt_at: str = ""                                        # last re-check GitHub could not answer
     refreshed: dict | None = field(default=None, repr=False)   # a re-checked session to write back
+
+    def session(self, **changes: str) -> dict:
+        """This identity as a session payload (for write-back), with `changes` applied."""
+        d = {"login": self.login, "status": self.status, "sid": self.sid, "checked_at": self.checked_at,
+             "iat": self.iat}
+        if self.attempt_at:
+            d["attempt_at"] = self.attempt_at
+        d.update(changes)
+        return {k: v for k, v in d.items() if v}
 
 
 def github_org(config: Mapping[str, Any]) -> str:
@@ -182,6 +196,23 @@ def is_member(config: Config, login: str, client: httpx.Client | None = None) ->
 # ---------------------------------------------------------------------------------------------------------
 # Sessions
 # ---------------------------------------------------------------------------------------------------------
+def _age_s(stamp: str | None) -> float | None:
+    """Seconds since a contract timestamp; None if it is missing or unreadable."""
+    try:
+        return (clock.now() - clock.parse(stamp)).total_seconds()
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def session_seconds_left(d: Mapping[str, Any]) -> int | None:
+    """Seconds until a session payload ends (8 h after its `iat`); None if it has no readable `iat`. A sign-in
+    time in the future (beyond a minute of clock skew) is not a session."""
+    age = _age_s(d.get("iat"))
+    if age is None or age < -60:
+        return None
+    return int(SESSION_MAX_AGE_S - age)
+
+
 class Sessions:
     """Signed cookies: the session ({login, status, sid, checked_at}) and the OAuth state. The session secret
     is `session.secret_file`; without it nobody can sign in (the login page says so)."""
@@ -197,16 +228,27 @@ class Sessions:
             return None
         return cls(config.read_secret("session"))
 
-    def dump_session(self, login: str, status: str, sid: str | None = None, checked_at: str | None = None) -> str:
-        return self._session.dumps({"login": login, "status": status, "sid": sid or secrets.token_hex(16),
-                                    "checked_at": checked_at or clock.iso()})
+    def dump_session(self, login: str, status: str, sid: str | None = None, checked_at: str | None = None,
+                     iat: str | None = None, attempt_at: str | None = None) -> str:
+        """The signed session. `iat` (default now) is the sign-in time: pass it through on every re-sign."""
+        now = clock.iso()
+        d = {"login": login, "status": status, "sid": sid or secrets.token_hex(16),
+             "checked_at": checked_at or now, "iat": iat or now}
+        if attempt_at:
+            d["attempt_at"] = attempt_at
+        return self._session.dumps(d)
 
     def load_session(self, value: str) -> dict | None:
+        """The session, or None: bad signature, malformed, or more than 8 h since sign-in (`iat`), however
+        recently the cookie was re-signed."""
         try:
             d = self._session.loads(value, max_age=SESSION_MAX_AGE_S)
         except BadSignature:
             return None
         if not isinstance(d, dict) or d.get("status") not in ("member", "refused") or not d.get("login"):
+            return None
+        left = session_seconds_left(d)
+        if left is None or left <= 0:
             return None
         return d
 
@@ -241,25 +283,26 @@ class GitHubAuth:
         if d is None:
             return None
         ident = Identity(login=d["login"], status=d["status"], via="session", sid=d.get("sid", ""),
-                         checked_at=d.get("checked_at", ""))
+                         checked_at=d.get("checked_at", ""), iat=d.get("iat", ""), attempt_at=d.get("attempt_at", ""))
         if ident.status != "member":
             return ident
-        try:
-            age = (clock.now() - clock.parse(ident.checked_at)).total_seconds()
-        except (TypeError, ValueError):
-            age = RECHECK_S + 1
-        if age > RECHECK_S:
+        checked, attempted = _age_s(ident.checked_at), _age_s(ident.attempt_at)
+        due = (checked is None or checked > RECHECK_S) and (attempted is None or attempted > RECHECK_S)
+        if due:
             try:
                 still = self._check_member(config, ident.login)
             except (AuthError, ConfigError):
-                # GitHub could not be asked. The session is at most 8 h old, so a member keeps access through
-                # an outage and a removed member keeps it at most until the session ends.
+                # GitHub could not be asked. The session ends 8 h after sign-in, so a member keeps access through
+                # an outage and a removed member keeps it at most until then. The attempt is written back, so the
+                # next one is an hour away: an outage does not put a GitHub call in front of every request.
+                ident.attempt_at = clock.iso()
+                ident.refreshed = ident.session()
                 return ident
             ident.checked_at = clock.iso()
+            ident.attempt_at = ""
             if not still:
                 ident.status = "refused"
-            ident.refreshed = {"login": ident.login, "status": ident.status, "sid": ident.sid,
-                               "checked_at": ident.checked_at}
+            ident.refreshed = ident.session()
         return ident
 
 
@@ -274,7 +317,8 @@ class FakeMembership:
         self.login = login
 
     def identify(self, cookies: Mapping[str, str], config: Config, sessions: "Sessions | None") -> Identity:
-        return Identity(login=self.login, status="member", via="fake", sid="fake", checked_at=clock.iso())
+        now = clock.iso()
+        return Identity(login=self.login, status="member", via="fake", sid="fake", checked_at=now, iat=now)
 
     def __repr__(self) -> str:
         return "FakeMembership(login=%r)" % self.login

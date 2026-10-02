@@ -4,7 +4,8 @@
 change of roles or registry takes effect without a restart.
 
 Guard. One ASGI middleware sits in front of EVERY route, including a route someone appends to the router
-after construction: only `/auth/*` and `/static/*` pass without a member. Anonymous: pages redirect to
+after construction, and a websocket route too: only `/auth/*` and `/static/*` pass without a member (http),
+and a websocket without a member is closed with 1008. Only the ASGI lifespan scope passes unchecked. Anonymous: pages redirect to
 `/auth/login`, `/api` and non-GET requests get 401. A refused session (not an active member, or no role)
 gets 403 everywhere. Refusals carry no data and never echo the path.
 
@@ -23,9 +24,10 @@ from typing import Any, Callable
 
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
-from starlette.requests import Request
+from starlette.requests import HTTPConnection, Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
+from starlette.websockets import WebSocketClose
 
 from nanosoc_rm import auth as authmod
 from nanosoc_rm import clock, db
@@ -84,8 +86,14 @@ class Guard:
         self.state = state
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
-        if scope["type"] != "http":
+        kind = scope["type"]
+        if kind == "lifespan":                     # startup/shutdown: no request, nothing served
             await self.app(scope, receive, send)
+            return
+        if kind == "websocket":
+            await self._websocket(scope, receive, send)
+            return
+        if kind != "http":                         # an ASGI scope this app does not know: served to nobody
             return
         path = scope.get("path", "")
         if any(_is_under(path, p) for p in _OPEN_PREFIXES):
@@ -130,12 +138,36 @@ class Guard:
         await self.app(scope, receive, send)
 
 
+    async def _websocket(self, scope: dict, receive: Callable, send: Callable) -> None:
+        """The same rule for a websocket (none is routed today; one added later is guarded): a member with a
+        role connects; anyone else is closed with 1008 (policy violation) before the handshake completes."""
+        try:
+            config = self.state.config()
+            ident = await run_in_threadpool(self.state.auth.identify, HTTPConnection(scope).cookies, config,
+                                            self.state.sessions(config))
+        except ConfigError:
+            ident, config = None, None
+        if ident is None or ident.status != "member" or \
+                authmod.MEMBER_ROLE not in authmod.roles_for(config, ident.login):
+            await WebSocketClose(code=1008)(scope, receive, send)
+            return
+        scope.setdefault("state", {})
+        scope["state"]["identity"] = ident
+        scope["state"]["config"] = config
+        await self.app(scope, receive, send)
+
+
 def _set_session(resp: Response, sessions: authmod.Sessions | None, d: dict, *, secure: bool) -> None:
+    """Write session `d`. Its `iat` (sign-in time) is kept, so the cookie lives only as long as the session
+    has left: re-signing after a re-check never extends it (section 14: valid 8 h)."""
     if sessions is None:
         return
+    iat = d.get("iat") or clock.iso()
+    left = authmod.session_seconds_left({"iat": iat})
     resp.set_cookie(authmod.SESSION_COOKIE, sessions.dump_session(d["login"], d["status"], d.get("sid"),
-                                                                  d.get("checked_at")),
-                    max_age=authmod.SESSION_MAX_AGE_S, httponly=True, samesite="lax", secure=secure, path="/")
+                                                                  d.get("checked_at"), iat, d.get("attempt_at")),
+                    max_age=max(1, left if left is not None else 0), httponly=True, samesite="lax", secure=secure,
+                    path="/")
 
 
 def _session_header(sessions: authmod.Sessions | None, d: dict, *, secure: bool) -> str:
