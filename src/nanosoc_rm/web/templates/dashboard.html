@@ -1,0 +1,49 @@
+{% for a in d.alerts %}
+  <p class="banner alert">{{ fact(a, a.fact.alert_kind ~ ': ' ~ a.fact.message) }} (raised {{ a.fact.raised_at }})</p>
+{% endfor %}
+{% if not d.rows %}
+  <p>No configuration is registered yet (or the registry has not been read).</p>
+{% endif %}
+<table class="dash">
+  <thead><tr><th>Configuration</th><th>T0</th><th>Red pins</th><th>Open errata</th><th>Host drift</th><th>Runner</th><th>Data age</th><th></th></tr></thead>
+  <tbody>
+{% for r in d.rows %}
+  {% set last = r.last %}
+  {% set rv = (last.fact.verdict or '') if last else '' %}
+  <tr data-configuration="{{ r.id }}" data-verdict="{{ rv }}" class="{{ VERDICT_CLASS.get(rv, '') if rv == 'WAIVED' else '' }}">
+    <td><a href="/configurations/{{ r.id }}">{{ r.id }}</a> {{ fact(r.record, 'registry') }}{% if r.frozen %} <span class="badge">frozen</span>{% endif %}</td>
+    <td data-item="t0-result">
+      {% if last %}
+        {% set v = last.fact.verdict or last.fact.acceptance %}
+        <span class="{{ VERDICT_CLASS.get(last.fact.verdict, '') }}">{{ fact(last, v) }}</span>
+        <a href="/runs/{{ last.fact.run.nonce }}">run</a>, {{ page.age_of(last.observed_at) }} ago
+        {% if last.fact.over_budget %}<span class="warn">over budget</span>{% endif %}
+        {% if r.not_run %}<span class="note">NOT-RUN: {{ r.not_run }}</span>{% endif %}
+      {% else %}no run yet{% endif %}
+    </td>
+    <td data-item="red-pins">
+      <details><summary>{{ r.red|length }} red of {{ r.pins|length }} pins</summary>
+        <ul>{% for p in r.pins %}<li class="{{ 'state-red' if p in r.red else '' }}">{{ fact(p, p.fact.tree_paths[0]) }}</li>{% endfor %}</ul>
+      </details>
+    </td>
+    <td data-item="open-errata">
+      <details><summary>{{ r.open_errata|length }} open</summary>
+        <ul>{% for e in r.errata %}<li>{{ fact(e, e.fact.id ~ ' (' ~ e.fact.record.status ~ ')') }}</li>{% endfor %}</ul>
+      </details>
+    </td>
+    <td data-item="host-drift">
+      {% if r.drifting %}{% for h in r.drifting %}{{ fact(h, h.fact.component ~ ' ' ~ h.fact.relation) }} {% endfor %}{% else %}none{% endif %}
+      {% if r.unknown %}; unknown: {% for h in r.unknown %}{{ fact(h, h.fact.component) }} {% endfor %}{% endif %}
+      {% set same = r.in_tree|rejectattr('fact.relation', 'in', ['AHEAD', 'BEHIND', 'DIVERGED', 'UNRELATED', 'UNKNOWN'])|list %}
+      {% if same %}<details><summary>same</summary>{% for h in same %}{{ fact(h, h.fact.component) }} {% endfor %}</details>{% endif %}
+    </td>
+    <td data-item="runner-status">
+      {% for s in d.runners %}{{ fact(s, 'runner ' ~ s.fact.runner_id ~ ': ' ~ s.fact.verdict) }} {% else %}unknown: no runner settings read yet{% endfor %}
+      {% for a in r.pending_age_s %}<span class="note">job pending {{ human_age(a) }}</span>{% endfor %}
+    </td>
+    <td data-item="data-age">{{ human_age(r.age_s) }}</td>
+    <td>{% with cid = r.id, pending = r.pending %}{% include "_run_form.html" %}{% endwith %}</td>
+  </tr>
+{% endfor %}
+  </tbody>
+</table>

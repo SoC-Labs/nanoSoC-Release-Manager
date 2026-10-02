@@ -1,0 +1,29 @@
+{% set f = run.fact %}
+<table class="kv">
+  <tr data-verdict="{{ f.verdict or '' }}" class="{{ VERDICT_CLASS.get(f.verdict, '') }}"><th>Verdict</th><td>{{ fact(run, f.verdict or 'pending') }}{% if f.over_budget %} <span class="warn">over the 120 s budget</span>{% endif %}</td></tr>
+  <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a> at <code>{{ short(f.commit, 12) }}</code></td></tr>
+  <tr><th>Acceptance</th><td>{{ f.acceptance }}{% if f.reason %}: {{ f.reason }}{% endif %}</td></tr>
+  <tr><th>Triggered</th><td>{{ f.run.trigger }} by {{ f.run.triggered_by }} at {{ f.run.triggered_at }}</td></tr>
+  <tr><th>Pipeline / job</th><td>{{ f.run.pipeline_id or 'none' }} / {{ f.run.job_id or 'none' }}</td></tr>
+  <tr><th>Times</th><td>{{ f.started_at or '' }} to {{ f.finished_at or '' }}</td></tr>
+  <tr><th>Runner</th><td>{% if f.runner %}{{ f.runner.id }} {{ f.runner.description or '' }} [{{ f.runner.tags|join(', ') }}]{% else %}none{% endif %}</td></tr>
+  <tr><th>Bundle</th><td>{% if f.bundle %}{{ f.bundle.store }}: {{ f.bundle.path }}{% else %}none{% endif %}</td></tr>
+</table>
+<p class="note">T0 judges reachability from inside the lab network (GATE2 Q5).</p>
+<h2>Gates</h2>
+<table>
+  <thead><tr><th>Gate</th><th>Verdict</th><th>Control</th><th>Detail</th></tr></thead>
+  <tbody>
+{% for g in f.gates %}
+  <tr data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}" data-control="{{ g.control }}"{% if g.raw_verdict %} data-raw-verdict="{{ g.raw_verdict }}"{% endif %} class="{{ VERDICT_CLASS.get(g.verdict, '') }}">
+    <td>{{ g.id }}</td><td>{{ g.verdict }}{% if g.raw_verdict %} (raw {{ g.raw_verdict }}){% endif %}</td><td>{{ g.control }}</td><td>{{ g.detail }}</td>
+  </tr>
+  {% for w in g.waived or [] %}
+  <tr data-waived="{{ w.tree_path }}" class="waived">
+    <td colspan="2">waived: {{ w.tree_path }} ({{ w.result }})</td><td>approved by {{ w.approved_by }}</td><td>{{ w.reason }}{% if w.covered_by != w.tree_path %} (rides on {{ w.covered_by }}){% endif %}</td>
+  </tr>
+  {% endfor %}
+{% else %}<tr><td colspan="4">no gates (nothing was judged)</td></tr>
+{% endfor %}
+  </tbody>
+</table>

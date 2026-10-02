@@ -1,0 +1,42 @@
+{% set rec = c.record %}
+{% if rec %}<p>{{ fact(rec, 'registry record') }}: component {{ rec.fact.record.component }},
+  ref {{ rec.fact.record.ref }}{% if rec.fact.record.commit %}, commit {{ short(rec.fact.record.commit, 12) }}{% endif %}
+  {% if c.frozen %}<span class="badge">frozen</span>{% endif %}
+  · <a href="/errata/{{ c.id }}">errata ({{ c.errata|length }})</a></p>{% endif %}
+{% with cid = c.id, pending = c.pending %}{% include "_run_form.html" %}{% endwith %}
+
+<h2>Pins ({{ c.pins|length }}, {{ c.red|length }} red on their pinned host)</h2>
+<table>
+  <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>State per host</th><th>Lag</th><th>Tags</th><th>Split</th></tr></thead>
+  <tbody>
+{% for p in c.pins %}
+  {% set f = p.fact %}
+  <tr class="{{ 'state-red' if p in c.red else '' }}">
+    <td>{{ fact(p, f.tree_paths|join(', ')) }}</td>
+    <td>{% if f.child.component %}<a href="/components/{{ f.child.component }}">{{ f.child.component }}</a>{% else %}{{ f.child.catalogued_as }}{% endif %}</td>
+    <td><code>{{ short(f.child.commit) }}</code>{% if f.url_kind == 'ssh' %} <span class="badge">ssh</span>{% endif %}</td>
+    <td>{% if f.state %}<span class="state-red">{{ f.state }}</span>{% endif %}
+      {% for host, h in f.hosts|dictsort %}<span class="{{ STATE_CLASS.get(h.state, 'state-red') }}">{{ host }}{% if h.pinned %}*{% endif %}: {{ h.state }}</span> {% endfor %}</td>
+    <td>{% for host, h in f.hosts|dictsort %}{% if h.lag is not none %}{{ host }} {{ h.lag }} {% endif %}{% endfor %}</td>
+    <td>{% for host, h in f.hosts|dictsort %}{% for t in h.tags %}<code>{{ t }}</code> {% endfor %}{% endfor %}</td>
+    <td>{{ 'split' if f.split else '' }}</td>
+  </tr>
+{% endfor %}
+  </tbody>
+</table>
+<p class="note">* the host the pinned URL names.</p>
+
+<h2>T0 history</h2>
+<table>
+  <thead><tr><th>Run</th><th>Verdict</th><th>Acceptance</th><th>Triggered</th><th>By</th></tr></thead>
+  <tbody>
+{% for r in c.runs %}
+  <tr data-verdict="{{ r.fact.verdict or '' }}" class="{{ VERDICT_CLASS.get(r.fact.verdict, '') }}">
+    <td><a href="/runs/{{ r.fact.run.nonce }}">{{ short(r.fact.run.nonce, 12) }}</a></td>
+    <td>{{ fact(r, r.fact.verdict or 'pending') }}</td><td>{{ r.fact.acceptance }}</td>
+    <td>{{ r.fact.run.triggered_at }}</td><td>{{ r.fact.run.triggered_by }}</td>
+  </tr>
+{% else %}<tr><td colspan="5">no run yet</td></tr>
+{% endfor %}
+  </tbody>
+</table>

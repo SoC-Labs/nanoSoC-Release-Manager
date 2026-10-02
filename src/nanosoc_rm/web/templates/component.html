@@ -1,0 +1,39 @@
+{% if c.record %}<p>{{ fact(c.record, 'registry record') }}: class {{ c.record.fact.record['class'] }},
+  canonical {{ c.record.fact.record.canonical.host }}:{{ c.record.fact.record.canonical.path }}</p>{% endif %}
+
+<h2>Host comparison</h2>
+<table>
+  <thead><tr><th>Copy</th><th>Relation</th><th>Canonical only</th><th>Copy only</th><th>Branches</th></tr></thead>
+  <tbody>
+{% for h in c.host_compares %}
+  {% set f = h.fact %}
+  <tr><td>{{ fact(h, f['copy'].repo.host ~ ':' ~ f['copy'].repo.path) }}</td>
+    <td class="{{ 'state-red' if f.relation == 'DIVERGED' else ('state-amber' if f.relation in ['AHEAD', 'BEHIND', 'UNRELATED'] else '') }}">{{ f.relation|lower if f.relation == 'UNKNOWN' else f.relation }}</td>
+    <td>{{ f.canonical_only if f.canonical_only is not none else '' }}</td><td>{{ f.copy_only if f.copy_only is not none else '' }}</td>
+    <td>{{ f.canonical.default_branch }} vs {{ f['copy'].default_branch }}{% if f.default_branch_mismatch %} <span class="warn">default branches differ: the rows compare differently named branches</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="5">no copy compared</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+
+<h2>Mirrors</h2>
+<ul>{% for m in c.mirrors %}<li>{{ fact(m, m.fact.repo.host ~ ':' ~ m.fact.repo.path ~ (' ok' if m.fact.ok else ' FAILED')) }}{% if m.fact.last_success_at %}, last fetched {{ page.age_of(m.fact.last_success_at) }} ago{% endif %}</li>{% else %}<li>none</li>{% endfor %}</ul>
+
+<h2>Tags seen on the pinned commits</h2>
+<ul>{% for host, ts in c.tags.items() %}<li>{{ host }}: {% for t in ts %}<code>{{ t }}</code> {% else %}none{% endfor %}</li>{% else %}<li>none</li>{% endfor %}</ul>
+
+<h2>Consumers</h2>
+<table>
+  <thead><tr><th>Configuration</th><th>Tree path</th><th>Commit</th><th>Lag on the default branch</th></tr></thead>
+  <tbody>
+{% for p in c.consumers %}
+  <tr><td><a href="/configurations/{{ p.fact.configuration }}">{{ p.fact.configuration }}</a></td>
+    <td>{{ fact(p, p.fact.tree_paths[0]) }}</td><td><code>{{ short(p.fact.child.commit) }}</code></td>
+    <td>{% for host, h in p.fact.hosts|dictsort %}{{ host }}: {{ h.state }}{% if h.lag is not none %} ({{ h.lag }} behind){% endif %} {% endfor %}</td></tr>
+{% else %}<tr><td colspan="4">no configuration pins it</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+
+<h2>Defects citing it</h2>
+<ul>{% for d in c.defects %}<li><a href="/defects/{{ d.fact.id }}">{{ d.fact.id }}</a> {{ fact(d, d.fact.record.title) }}</li>{% else %}<li>none</li>{% endfor %}</ul>

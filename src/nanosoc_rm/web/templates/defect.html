@@ -1,0 +1,19 @@
+{% set r = d.fact.record %}
+<p>{{ fact(d, r.title) }}</p>
+<p>Component <a href="/components/{{ r.component }}">{{ r.component }}</a>. Trigger: {{ r.trigger }}</p>
+<h2>Origin</h2>
+<ul>{% for o in r.origin %}<li>{{ o.component }} <code>{{ short(o.commit, 12) }}</code></li>{% endfor %}</ul>
+<h2>Forms</h2>
+<ul>{% for f in r.forms %}<li>{{ f.id }}: {{ f.name }}{% for x in f.fixed_in or [] %}; fixed in {{ x.component }} <code>{{ short(x.commit, 12) }}</code>{% endfor %}</li>{% endfor %}</ul>
+<h2>Detectors</h2>
+<ul>{% for x in r.detectors %}<li>{{ x.id }} ({{ x.kind }}, forms {{ x.forms|join(', ') }}){% if x.source %}: {{ x.source.component }} <code>{{ short(x.source.commit, 12) }}</code>{% endif %}</li>{% endfor %}</ul>
+<h2>Effects</h2>
+<ul>{% for x in r.effects %}<li>{{ x.id }} (forms {{ x.forms|join(', ') }}){% for k, v in x|dictsort if k not in ['id', 'forms'] %}; {{ k }}: {{ v }}{% endfor %}</li>{% endfor %}</ul>
+{% if r.regression_test %}<h2>Bench</h2><p>{{ r.regression_test.component }} <code>{{ short(r.regression_test.commit, 12) }}</code></p>{% endif %}
+<h2>Errata</h2>
+<table>
+  <thead><tr><th>Erratum</th><th>Defect</th><th>Configuration</th><th>Status</th><th>Exposure</th><th>Workaround</th></tr></thead>
+  <tbody>
+{% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6">no errata</td></tr>{% endfor %}
+  </tbody>
+</table>

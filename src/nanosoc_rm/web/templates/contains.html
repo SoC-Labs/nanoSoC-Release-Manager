@@ -1,0 +1,19 @@
+<form method="get" action="/contains">
+  <label>Commit <input name="sha" value="{{ sha }}" size="42" pattern="[0-9a-fA-F]{4,40}"></label>
+  <label>Component <input name="component" value="{{ component or '' }}"></label>
+  <button type="submit">Ask</button>
+</form>
+{% if sha %}
+<p>{{ rows|length }} row(s){% if computed %}, answered now{% endif %}. One row per configuration and host; <em>no</em> means every pin was proven not to contain the commit; <em>unknown</em> means a pin could not be decided.</p>
+<table>
+  <thead><tr><th>Configuration</th><th>Host</th><th>Answer</th><th>Pins</th></tr></thead>
+  <tbody>
+{% for r in rows %}
+  {% set f = r.fact %}
+  <tr><td>{{ f.configuration }}</td><td>{{ f.host }}</td>
+    <td class="{{ {'yes': 'state-green', 'no': 'state-red', 'partial': 'state-amber', 'unknown': 'state-amber'}.get(f.answer, '') }}">{{ fact(r, f.answer) }}</td>
+    <td>{% for p in f.pins %}{{ p.tree_path }} <code>{{ short(p.commit) }}</code>: {{ p.contains }}{% if p.reason %} ({{ p.reason }}){% endif %}<br>{% endfor %}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+{% endif %}

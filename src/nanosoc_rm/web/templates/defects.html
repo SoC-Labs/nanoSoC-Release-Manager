@@ -1,0 +1,17 @@
+<h2>Defects</h2>
+<table>
+  <thead><tr><th>Defect</th><th>Component</th><th>Title</th></tr></thead>
+  <tbody>
+{% for d in defects %}
+  <tr><td><a href="/defects/{{ d.fact.id }}">{{ d.fact.id }}</a></td><td>{{ d.fact.record.component }}</td><td>{{ fact(d, d.fact.record.title) }}</td></tr>
+{% else %}<tr><td colspan="3">no defects recorded</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+<h2>Errata</h2>
+<table>
+  <thead><tr><th>Erratum</th><th>Defect</th><th>Configuration</th><th>Status</th><th>Exposure</th><th>Workaround</th></tr></thead>
+  <tbody>
+{% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6">no errata recorded</td></tr>{% endfor %}
+  </tbody>
+</table>
