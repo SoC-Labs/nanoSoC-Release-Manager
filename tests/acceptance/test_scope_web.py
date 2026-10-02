@@ -2545,7 +2545,6 @@ def test_AT_A6(tmp_path, fake_github, fake_gitlab, monkeypatch):
 
 
 @pytest.mark.requirement("A6")
-@NOT_BUILT
 def test_AT_A6_negative_control(tmp_path):
     # Checker level: a planted fork push and a planted silicon tag delete are caught; an unguarded
     # write is caught; the git runner's guard refuses a push; eligibility with a yank field, or with
@@ -2586,7 +2585,6 @@ def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
 
 
 @pytest.mark.requirement("A7")
-@NOT_BUILT
 def test_AT_A7_negative_control(tmp_path):
     # Checker level (the whole control, A7 being a process requirement): a D3 implementation commit
     # before the Phase 2 gate, a /releases route and a `lock` command before the Phase 5 gate, and a

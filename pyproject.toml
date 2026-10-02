@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nanosoc-rm"
+dynamic = ["version"]
+description = "nanoSoC Release Manager: monitors the nanoSoC repos, tests SoC references against submodule versions, and manages errata and releases."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1,<9",
+    "pydantic>=2.5,<3",
+    "httpx>=0.27,<1",
+    "fastapi>=0.110",
+    "jinja2>=3.1,<4",
+    "uvicorn>=0.29",
+    "PyYAML>=6.0,<7",
+    "jsonschema>=4.18,<5",        # 4.18 added the `referencing` registry the contracts loader uses
+    "referencing>=0.30",
+    "python-multipart>=0.0.9",    # FastAPI form posts (the Run T0 button)
+    "itsdangerous>=2.1,<3",       # signed session cookies (interfaces.md section 14)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<10",
+    "pyflakes>=3.0",
+]
+
+[project.scripts]
+nanosoc-rm = "nanosoc_rm.cli:main"
+
+[tool.hatch.version]
+path = "src/nanosoc_rm/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nanosoc_rm"]
+
+# The schemas stay in schemas/ (the single source, PR3). The wheel carries them inside the package, where
+# nanosoc_rm.contracts loads them; an editable install reads schemas/ in place (contracts/__init__.py).
+[tool.hatch.build.targets.wheel.force-include]
+"schemas" = "nanosoc_rm/contracts/schemas"
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "schemas/", "docs/", "tests/", "scripts/", "README.md", "requirements-dev.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,223 @@
+"""The gate-2 contracts at run time: the packaged schemas, validate(), the strict YAML reader, WRITE_CALLS.
+
+The schemas in the repo's `schemas/` directory are the single source (PR3). A wheel carries them inside this
+package (`contracts/schemas/`, pyproject force-include); an editable install reads `schemas/` in place. Either
+way they are loaded here and nowhere else, so a module never opens a schema file itself.
+
+    validate("eligibility", doc)                          -> list of problems, [] = valid
+    validate("result-bundle", row, "/$defs/verdict_row")  -> one $defs entry
+    validate_observation(doc)                             -> observation (+ pin-state for kind pin_state)
+
+Problems read `<instance path>: <message>` (`<root>` for the document itself), as the acceptance tests'
+own validate() prints them.
+"""
+from __future__ import annotations
+
+import functools
+import json
+from pathlib import Path
+from typing import Any, Iterator
+
+import yaml
+from jsonschema import Draft202012Validator
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
+
+__all__ = ["SchemaError", "schemas_dir", "load_schemas", "schema_names", "validator", "validate", "require_valid",
+           "validate_observation", "validate_gate_item", "validate_verdict_row", "validate_rm_request",
+           "validate_provenance", "validate_detector_run", "validate_t0_waiver", "parse_verdict_row",
+           "VERDICT_COLUMNS", "load_yaml", "docs_in", "WRITE_CALLS", "WRITE_EFFECTS"]
+
+_PACKAGED = Path(__file__).resolve().parent / "schemas"
+_IN_REPO = Path(__file__).resolve().parents[3] / "schemas"      # src/nanosoc_rm/contracts -> repo root
+
+
+class SchemaError(ValueError):
+    """A document does not satisfy its contract. `problems` lists each breach."""
+
+    def __init__(self, schema_name: str, problems: list[str]):
+        self.schema_name = schema_name
+        self.problems = list(problems)
+        super().__init__("%s: %s" % (schema_name, "; ".join(self.problems)))
+
+
+def schemas_dir() -> Path:
+    """Where the schemas are: inside the installed package (wheel), else the repo's schemas/ (editable)."""
+    for d in (_PACKAGED, _IN_REPO):
+        if (d / "defs.schema.json").is_file():
+            return d
+    raise FileNotFoundError("contract schemas not found in %s or %s" % (_PACKAGED, _IN_REPO))
+
+
+@functools.lru_cache(maxsize=1)
+def load_schemas() -> tuple[dict[str, dict], Registry]:
+    """(name -> schema, a referencing Registry of every schema). Each is checked to be valid Draft 2020-12.
+    Cached: the schemas are package data and do not change while the process runs."""
+    schemas, resources = {}, []
+    for path in sorted(schemas_dir().glob("*.schema.json")):
+        doc = json.loads(path.read_text())
+        Draft202012Validator.check_schema(doc)
+        name = path.name[: -len(".schema.json")]
+        schemas[name] = doc
+        resources.append((doc["$id"], Resource.from_contents(doc, default_specification=DRAFT202012)))
+    if not schemas:
+        raise FileNotFoundError("no *.schema.json in %s" % schemas_dir())
+    return schemas, Registry().with_resources(resources)
+
+
+def schema_names() -> list[str]:
+    return sorted(load_schemas()[0])
+
+
+@functools.lru_cache(maxsize=None)
+def validator(schema_name: str, pointer: str | None = None) -> Draft202012Validator:
+    """A validator for one schema, or for one of its $defs entries (`pointer`, e.g. "/$defs/gate_item")."""
+    schemas, registry = load_schemas()
+    if schema_name not in schemas:
+        raise KeyError("unknown schema %r; known: %s" % (schema_name, ", ".join(sorted(schemas))))
+    schema = schemas[schema_name]
+    if pointer:
+        schema = {"$ref": schema["$id"] + "#" + pointer}
+    return Draft202012Validator(schema, registry=registry)
+
+
+def validate(schema_name: str, doc: Any, pointer: str | None = None) -> list[str]:
+    """Every breach of `doc` against the schema (or its $defs entry at `pointer`); [] means valid."""
+    errs = sorted(validator(schema_name, pointer).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path)))
+    return ["%s: %s" % ("/".join(map(str, e.absolute_path)) or "<root>", e.message) for e in errs]
+
+
+def require_valid(schema_name: str, doc: Any, pointer: str | None = None) -> Any:
+    """`doc` itself if valid; SchemaError otherwise."""
+    problems = validate(schema_name, doc, pointer)
+    if problems:
+        raise SchemaError(schema_name + (pointer or ""), problems)
+    return doc
+
+
+def validate_observation(doc: Any) -> list[str]:
+    """An observation envelope and its fact. A pin_state also meets pin-state.schema.json (stricter subject)."""
+    problems = validate("observation", doc)
+    if isinstance(doc, dict) and doc.get("kind") == "pin_state":
+        problems += ["pin-state: " + p for p in validate("pin-state", doc)]
+    return problems
+
+
+def validate_gate_item(doc: Any) -> list[str]:
+    """One line of rm-bundle/items/<gate>.jsonl."""
+    return validate("result-bundle", doc, "/$defs/gate_item")
+
+
+def validate_verdict_row(row: Any) -> list[str]:
+    """One verdicts.tsv row as a dict {utc, status, gate, detail, nonce} (see parse_verdict_row)."""
+    return validate("result-bundle", row, "/$defs/verdict_row")
+
+
+def validate_rm_request(doc: Any) -> list[str]:
+    """The RM_REQUEST pipeline variable, parsed."""
+    return validate("result-bundle", doc, "/$defs/rm_request")
+
+
+def validate_provenance(doc: Any) -> list[str]:
+    """rm-bundle/provenance.json."""
+    return validate("result-bundle", doc)
+
+
+def validate_detector_run(doc: Any) -> list[str]:
+    """An erratum's exposure.run (interfaces.md section 6a)."""
+    return validate("erratum", doc, "/$defs/detector_run")
+
+
+def validate_t0_waiver(doc: Any) -> list[str]:
+    """One entry of a configuration's t0_waivers (GATE2 Q1)."""
+    return validate("eligibility", doc, "/$defs/t0_waiver")
+
+
+# verdicts.tsv: columns 1 to 4 are the toolkit's `_ci_record` output; column 5 is the run nonce (README §2).
+VERDICT_COLUMNS = ("utc", "status", "gate", "detail", "nonce")
+
+
+def parse_verdict_row(line: str) -> dict[str, str]:
+    """One verdicts.tsv line (without its newline) as {utc, status, gate, detail, nonce}.
+    ValueError unless it has exactly 5 tab-separated fields. Validity of the fields: validate_verdict_row."""
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) != len(VERDICT_COLUMNS):
+        raise ValueError("expected %d tab-separated fields, got %d" % (len(VERDICT_COLUMNS), len(fields)))
+    return dict(zip(VERDICT_COLUMNS, fields))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# YAML exactly as the contracts read it (README section 3 rule 8): timestamps stay strings, and a duplicate
+# key is an error, never a silent overwrite.
+# ---------------------------------------------------------------------------------------------------------
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader without the timestamp resolver, rejecting duplicate keys."""
+
+
+_StrictLoader.yaml_implicit_resolvers = {
+    k: [(tag, rx) for tag, rx in v if tag != "tag:yaml.org,2002:timestamp"]
+    for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _no_dup_mapping(loader, node, deep=False):
+    seen = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in seen:
+            raise yaml.constructor.ConstructorError(None, None, "duplicate key %r" % (key,), key_node.start_mark)
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
+
+
+def load_yaml(text: str) -> Any:
+    """One YAML document, strictly (no timestamp conversion, duplicate keys refused: yaml.YAMLError)."""
+    return yaml.load(text, Loader=_StrictLoader)
+
+
+def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
+    """(label, document) for each document in a .json, .jsonl or .yaml/.yml file (as check_examples.py)."""
+    path = Path(path)
+    text = path.read_text()
+    if path.suffix == ".jsonl":
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.strip():
+                yield "%s:%d" % (path.name, n), json.loads(line)
+    elif path.suffix == ".json":
+        yield path.name, json.loads(text)
+    else:
+        yield path.name, load_yaml(text)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# WRITE_CALLS (interfaces.md section 17.5; A2, A6). Every call site a static census of this package could
+# mistake for an outbound write must be covered by one entry: same file (path as the census prints it,
+# relative to the directory holding the package), kind and method. AT-A2 and AT-A6 hold the package to it.
+#
+#   write       exactly one: POST projects/:id/trigger/pipeline, guarded to the configured CI project
+#   read-post   only the OAuth code exchange login/oauth/access_token
+#   local       a call the census mistakes for HTTP, only in a file that imports no HTTP library (none yet)
+#   git-runner  at most one: nanosoc_rm.gitrun, which refuses push, send-pack and receive-pack at run time
+#
+# `file` names where the contract layout (interfaces.md sections 0.5, 10, 14) puts the call. A builder who
+# puts the call in a different file moves the entry with it, in the same commit.
+# ---------------------------------------------------------------------------------------------------------
+WRITE_EFFECTS = ("write", "read-post", "local", "git-runner")
+
+WRITE_CALLS: list[dict[str, str]] = [
+    {"file": "nanosoc_rm/ci/client.py", "kind": "http", "method": "POST", "target": "trigger/pipeline",
+     "effect": "write",
+     "guard": "target is the configured ci.project only; the trigger token is scoped to that project",
+     "reason": "Run T0: the one outbound write of v1 (A2, A4; interfaces.md section 10 Trigger step 3)"},
+    {"file": "nanosoc_rm/auth.py", "kind": "http", "method": "POST", "target": "login/oauth/access_token",
+     "effect": "read-post",
+     "reason": "GitHub OAuth code exchange: a POST that writes nothing (H2; interfaces.md section 14)"},
+    {"file": "nanosoc_rm/gitrun.py", "kind": "exec", "method": "?", "target": "git with unresolved subcommand",
+     "effect": "git-runner",
+     "guard": "check_argv() refuses push, send-pack, receive-pack and every subcommand or form not on its "
+              "read/local allowlist, before git is started",
+     "reason": "the one git runner: every git call of the package goes through nanosoc_rm.gitrun.run_git"},
+]
