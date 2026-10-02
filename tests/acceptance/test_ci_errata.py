@@ -1181,7 +1181,6 @@ def test_AT_D5(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("D5")
-@NOT_BUILT
 def test_AT_D5_negative_control(tmp_path, monkeypatch):
     """AT-D5 control (the done-when): the genuine bundle with only the captured superproject
     commit changed to rc4's real parent is rejected, and stored as UNVERIFIED."""
