@@ -2,9 +2,8 @@
 
 The registry checkout is `[registry] path` of the service config (interfaces.md section 1). Its `catalogue.yaml`
 and `eligibility.yaml` are read strictly (contracts.load_yaml: timestamps stay strings, duplicate keys refused) and
-validated against their schemas. When the registry loader (`nanosoc_rm.registry.load_registry`, interfaces.md
-section 2) is installed, it is run first, so a registry with any cross-file problem is never used ("never
-partial"); its error is raised as is.
+validated against their schemas by the registry loader (`nanosoc_rm.registry.load_registry`, interfaces.md
+section 2), so a registry with any cross-file problem is never used ("never partial"); its error is raised as is.
 
 Repo roles (A1, B9): `canonical` and `copy` are independent repos of a component; an `alias` is another name of
 the same repo (a host redirect), so it is never mirrored separately; an `external` is a third-party repo pinned in a
@@ -12,12 +11,11 @@ registered tree; an `ignored` repo is listed by the inventory and never mirrored
 """
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from nanosoc_rm import contracts
 from nanosoc_rm.config import Config, ConfigError
+from nanosoc_rm.registry import load_registry
 
 __all__ = ["Catalogue", "Entry", "CatalogueError", "load_catalogue"]
 
@@ -116,37 +114,12 @@ class Catalogue:
         raise KeyError(configuration_id)
 
 
-def _read(path: Path, name: str) -> dict:
-    try:
-        text = path.read_text()
-    except OSError as e:
-        raise CatalogueError("registry %s: cannot read %s (%s)" % (path.parent, path.name, e.strerror)) from None
-    try:
-        doc = contracts.load_yaml(text)
-    except Exception as e:                                  # yaml.YAMLError, a duplicate key
-        raise CatalogueError("registry %s: %s is not valid YAML: %s" % (path.parent, path.name, e)) from None
-    problems = contracts.validate(name, doc)
-    if problems:
-        raise CatalogueError("registry %s: %s breaks %s.schema.json: %s"
-                             % (path.parent, path.name, name, "; ".join(problems[:5])))
-    return doc
-
-
-def _run_loader(path: Path) -> None:
-    """Run the registry loader when it is installed (it enforces README section 3's cross-file rules)."""
-    try:
-        registry = importlib.import_module("nanosoc_rm.registry")
-    except ModuleNotFoundError as e:
-        if e.name == "nanosoc_rm.registry":
-            return
-        raise
-    registry.load_registry(path)
-
-
 def load_catalogue(config: Config) -> Catalogue:
-    """The catalogue and configurations of the registry checkout named by the config, read now."""
+    """The catalogue and configurations of the registry checkout named by the config, read now through the
+    registry loader (`nanosoc_rm.registry.load_registry`): any problem in any file raises its RegistryError as
+    is, so a registry with a cross-file problem is never used ("never partial")."""
     path = Path(config.require("registry", "path"))
-    _run_loader(path)
-    catalogue = _read(path / "catalogue.yaml", "component-catalogue")
-    eligibility = _read(path / "eligibility.yaml", "eligibility") if (path / "eligibility.yaml").exists() else None
-    return Catalogue(catalogue, eligibility, path)
+    if not path.is_dir():
+        raise CatalogueError("registry %s: not a directory" % path)
+    files = load_registry(path).files()
+    return Catalogue(files["catalogue.yaml"], files.get("eligibility.yaml"), path)

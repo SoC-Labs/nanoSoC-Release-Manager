@@ -307,8 +307,6 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
             run = await run_in_threadpool(views.run_t0, config, cid, ident.login)
         except views.RunPending as e:
             run, status = e.run, 409
-        except views.TriggerUnavailable as e:
-            return PlainTextResponse("503 Service Unavailable: %s" % e, 503)
         except ConfigError as e:
             return PlainTextResponse("503 Service Unavailable: %s" % e, 503)
         except (LookupError, ValueError) as e:

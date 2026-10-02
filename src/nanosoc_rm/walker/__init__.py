@@ -27,7 +27,7 @@ from nanosoc_rm import clock, db
 from nanosoc_rm.config import Config, load_config
 from nanosoc_rm.mirror.catalogue import Catalogue, load_catalogue
 from nanosoc_rm.mirror.layout import alert_once, git_env, mirror_path, repo_key, run_in, snapshot_id
-from nanosoc_rm.walker.gitmodules import parse_gitmodules
+from nanosoc_rm.gitmodules import parse_gitmodules
 from nanosoc_rm.walker.states import GREEN_STATES, RED_STATES, HostJudge, WalkError
 from nanosoc_rm.walker.urls import classify, repo_url
 

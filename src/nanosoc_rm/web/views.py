@@ -6,8 +6,8 @@ produced and stored them (walker, analysis, ci, mirror, credentials, registry). 
 module functions through their contracted names: `containment` runs `analysis.contains.contains` for a query
 nothing has answered yet, and `run_t0` calls `ci.trigger.trigger`, the Run button's function.
 
-A module that is not installed, or that fails, never turns a page into a 500: the page shows what is stored
-and says what could not be done (`problems`).
+A module function that fails never turns a page into a 500: the page shows what is stored and says what could
+not be done (`problems`).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ __all__ = ["RED_STATES", "DRIFT_RELATIONS", "configurations", "configuration_rec
            "red_pins", "runs", "latest_run", "pending_runs", "host_compares", "drift", "runner_settings",
            "errata", "open_errata", "defects", "dashboard", "configuration_page", "component_page",
            "containment", "silicon_protection", "run_by_nonce", "fact_by_subject", "mirrors", "inventory",
-           "run_t0", "RunPending", "TriggerUnavailable", "is_valid_id"]
+           "run_t0", "RunPending", "is_valid_id"]
 
 # README section 5: red states. LOCAL_URL and NO_GITLINK are pin-level (fact.state); the rest per host.
 RED_STATES = {"LOCAL_URL", "NO_GITLINK", "UNREADABLE", "REWRITTEN", "PR_ONLY", "ORPHAN", "MISSING"}
@@ -288,11 +288,7 @@ def containment(config: Config, sha: str, component: str | None = None) -> tuple
               and (component is None or d["fact"]["query"]["component"] == component)]
     if stored:
         return sorted(stored, key=lambda d: d["subject"]), [], False
-    try:
-        from nanosoc_rm.analysis.contains import contains
-    except ImportError:
-        return [], ["nothing stored answers this query, and the containment query (nanosoc_rm.analysis) is "
-                    "not installed"], False
+    from nanosoc_rm.analysis.contains import contains
     try:
         docs = [db.as_doc(d) for d in contains(sha, component=component)]
     except Exception as e:                                       # noqa: BLE001 - shown, never a 500
@@ -311,10 +307,6 @@ class RunPending(Exception):
         super().__init__("run %s is still pending" % run["fact"]["run"]["nonce"])
 
 
-class TriggerUnavailable(Exception):
-    """The CI trigger (nanosoc_rm.ci.trigger) is not installed."""
-
-
 def run_t0(config: Config, cid: str, login: str) -> dict:
     """Press Run T0 for `cid` as `login`: `ci.trigger.trigger(cid, by=login, kind="manual")`, which stores the
     run, makes the one write call, and logs the `run_t0` action (section 10 Trigger steps 2 to 5). Returns
@@ -322,8 +314,5 @@ def run_t0(config: Config, cid: str, login: str) -> dict:
     pend = pending_runs(runs(config, cid))
     if pend:
         raise RunPending(pend[0])
-    try:
-        from nanosoc_rm.ci.trigger import trigger
-    except ImportError as e:
-        raise TriggerUnavailable("the CI trigger (nanosoc_rm.ci) is not installed: %s" % e) from None
+    from nanosoc_rm.ci.trigger import trigger
     return db.as_doc(trigger(cid, by=login, kind="manual"))

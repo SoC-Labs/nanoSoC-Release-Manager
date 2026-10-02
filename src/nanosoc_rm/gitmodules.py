@@ -1,5 +1,5 @@
-"""A reader for `.gitmodules` text (git-config syntax), so the walker reads exactly the blob at the parent commit
-(`git cat-file -p <commit>:.gitmodules`) without writing anything.
+"""A reader for `.gitmodules` text (git-config syntax): the one parser, shared by the walker (which reads the blob at
+the parent commit, `git cat-file -p <commit>:.gitmodules`, without writing anything) and the T0 gates.
 
 Handles `[submodule "name"]` (and the legacy `[submodule.name]`), case-insensitive keys, quoted values with
 `\\"`, `\\\\`, `\\n`, `\\t` escapes, `#`/`;` comments outside quotes, and backslash line continuations. Returns the

@@ -37,7 +37,7 @@ def _two_host_fixture(at_pins, h):
     h.push("github", "SoC-Labs/dual", pr, "refs/pull/3/head")
     h.push("github", "SoC-Labs/dual", shas[1], "main", to_host="gitlab", to_path="soclabs/dual")
     catalogue = {"schema": 1, "components": [
-        {"id": "dual", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/dual"},
+        {"id": "dual", "class": "soc_ref", "canonical": {"host": "github", "path": "SoC-Labs/dual"},
          "copies": [{"host": "gitlab", "path": "soclabs/dual"}]}]}
     eligibility = {"schema": 1, "configurations": [{"id": "dual-main", "component": "dual", "ref": {"branch": "main"}}]}
     return at_pins.write_registry(h.root / "registry-dual", catalogue, eligibility, examples=False), shas, pr
@@ -136,7 +136,7 @@ def test_inventory_follows_absolute_github_links_and_fails_whole(at_web, tmp_pat
             return 200, headers, chunk
         gh.route("GET", r"/orgs/SoC-Labs/repos", page)
         gl.route("GET", r"/api/v4/groups/soclabs/projects", lambda m, q, hd, b: (500, {}, {"message": "boom"}))
-        cat = {"schema": 1, "components": [{"id": "r1", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/r1"}}]}
+        cat = {"schema": 1, "components": [{"id": "r1", "class": "soc_ref", "canonical": {"host": "github", "path": "SoC-Labs/r1"}}]}
         registry = at_web.write_registry(tmp_path / "reg", catalogue=cat,
                                          eligibility={"schema": 1, "configurations": [
                                              {"id": "x", "component": "r1", "ref": {"branch": "main"}}]})

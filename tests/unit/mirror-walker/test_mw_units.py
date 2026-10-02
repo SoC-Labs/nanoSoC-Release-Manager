@@ -6,7 +6,7 @@ import pytest
 from nanosoc_rm.config import load_config
 from nanosoc_rm.mirror.catalogue import Catalogue
 from nanosoc_rm.mirror.layout import git_env, ref_prefix, repo_key, split_key
-from nanosoc_rm.walker.gitmodules import parse_gitmodules
+from nanosoc_rm.gitmodules import parse_gitmodules
 from nanosoc_rm.walker.urls import classify, join_relative
 
 HOSTS = {

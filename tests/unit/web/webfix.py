@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import threading
 import types
 import urllib.parse
@@ -116,10 +115,10 @@ def make_registry(root: Path, *, extra_configs=(), drop_defect=False) -> Path:
     elig = load("eligibility.example.yaml")
     elig["configurations"] += list(extra_configs)
     files = {"catalogue.yaml": load("component-catalogue.example.yaml"), "eligibility.yaml": elig,
-             "imports.yaml": load("import-ledger.example.yaml"),
-             "errata/eth-rc4/ERR-001.yaml": load("erratum.ETH-R0P0-ERR-001.example.yaml")}
-    if not drop_defect:
+             "imports.yaml": load("import-ledger.example.yaml")}
+    if not drop_defect:                    # the erratum cites the defect (README section 3 rule 4): both or neither
         files["defects/SL-DEF-0001.yaml"] = load("defect.SL-DEF-0001.example.yaml")
+        files["errata/eth-rc4/ERR-001.yaml"] = load("erratum.ETH-R0P0-ERR-001.example.yaml")
     for rel in [p.relative_to(root) for p in root.rglob("*.yaml")]:
         if str(rel) not in files:
             (root / rel).unlink()
@@ -182,73 +181,30 @@ def service(tmp_path, fake_github, monkeypatch, seeded_db):
     return {"cfg": cfg, "tmp": tmp_path, "github": fake_github}
 
 
-class FakeRegistryError(Exception):
-    def __init__(self, problems):
-        self.problems = problems
-        super().__init__("; ".join(map(str, problems)))
-
-
-class FakeRegistry:
-    """What the contracted loader returns (interfaces.md section 2): the records it validated, read from the
-    checkout's files, and `commit`, the commit they were read at. Like the real loader, a checkout with
-    uncommitted changes or untracked files has no commit (`commit = None`, `dirty = True`)."""
-
-    def __init__(self, path: Path):
-        from nanosoc_rm import contracts
-        self.path = Path(path)
-        self.dirty = bool(_git("status", "--porcelain", "--untracked-files=all", cwd=path))
-        self.commit = None if self.dirty else _git("rev-parse", "HEAD", cwd=path)
-        self._files = {p.relative_to(self.path).as_posix(): contracts.load_yaml(p.read_text())
-                       for p in sorted(self.path.rglob("*.yaml"))}
-
-    def configurations(self):
-        return list(self._files["eligibility.yaml"]["configurations"])
-
-    def components(self):
-        return list(self._files["catalogue.yaml"]["components"])
-
-    def defects(self):
-        return [d for f, d in sorted(self._files.items()) if f.startswith("defects/")]
-
-    def errata(self, configuration=None):
-        return [d for f, d in sorted(self._files.items()) if f.startswith("errata/")
-                and (configuration is None or d.get("configuration") == configuration)]
-
-    def imports(self):
-        return self._files.get("imports.yaml")
-
-
 @pytest.fixture
-def fake_registry_module(monkeypatch):
-    """A test double of the contracted loader (interfaces.md section 2): load_registry(path) raises
-    RegistryError when the checkout holds a file named BROKEN, else returns a FakeRegistry. Injected as
-    nanosoc_rm.registry for this test only. `mod.tamper`, if set, edits each loaded FakeRegistry."""
-    mod = types.ModuleType("nanosoc_rm.registry")
-    calls = []
+def registry_spy(monkeypatch):
+    """The real registry loader (nanosoc_rm.registry.load_registry), as the web calls it, with its calls recorded
+    in `.calls`. To plant a problem the loader refuses, write a stray file under defects/ (README section 3
+    rule 7: every file under defects/ is a record): `plant_problem(reg)`."""
+    from nanosoc_rm.registry import load_registry as real
+    from nanosoc_rm.web import registry_facts
+    spy = types.SimpleNamespace(calls=[])
 
     def load_registry(path):
-        calls.append(Path(path))
-        if (Path(path) / "BROKEN").exists():
-            from dataclasses import dataclass
+        spy.calls.append(Path(path))
+        return real(path)
+    monkeypatch.setattr(registry_facts, "load_registry", load_registry)
+    return spy
 
-            @dataclass
-            class Problem:
-                file: str
-                pointer: str
-                rule: str
-                message: str
-            raise FakeRegistryError([Problem("eligibility.yaml", "/configurations/0", "2", "planted problem")])
-        reg = FakeRegistry(Path(path))
-        if mod.tamper:
-            mod.tamper(reg)
-        return reg
 
-    mod.load_registry = load_registry
-    mod.RegistryError = FakeRegistryError
-    mod.calls = calls
-    mod.tamper = None
-    monkeypatch.setitem(sys.modules, "nanosoc_rm.registry", mod)
-    return mod
+PLANTED = "defects/BROKEN.txt"
+
+
+def plant_problem(reg: Path, *, commit: bool = True) -> None:
+    (reg / PLANTED).write_text("not a record\n")
+    if commit:
+        _git("add", PLANTED, cwd=reg)
+        _git("commit", "-q", "-m", "broken", cwd=reg)
 
 
 def git(*args, cwd):

@@ -1,7 +1,7 @@
 """`nanosoc-rm serve` (interfaces.md section 0.5): the one long-running process.
 
 It serves the web app (sections 13, 14) and runs the schedules by calling `nanosoc_rm.schedule.tick(now)` every
-30 s (section 12a), when that module is installed. The config is `$NANOSOC_RM_CONFIG`, read per request and per
+30 s (section 12a). The config is `$NANOSOC_RM_CONFIG`, read per request and per
 tick. Bind to localhost behind the lab's reverse proxy; the app sets its session cookie `Secure` when the
 request arrives over https.
 """
@@ -18,11 +18,7 @@ TICK_S = 30
 
 def _ticker(stop: threading.Event) -> None:
     from nanosoc_rm import clock
-    try:
-        from nanosoc_rm.schedule import tick
-    except ImportError:
-        click.echo("nanosoc-rm serve: nanosoc_rm.schedule is not installed; no schedules run", err=True)
-        return
+    from nanosoc_rm.schedule import tick
     while not stop.is_set():
         try:
             tick(clock.now())

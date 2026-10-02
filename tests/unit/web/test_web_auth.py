@@ -15,7 +15,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocketDisconnect
 
 from nanosoc_rm import auth, clock
-from nanosoc_rm.config import load_config
+from nanosoc_rm.config import ConfigError, load_config
 from nanosoc_rm.web import create_app
 from webfix import write_config
 
@@ -349,13 +349,13 @@ def _form(html, cid):
     return m.group(1) if m else None
 
 
-def test_session_post_needs_its_csrf_token(service, monkeypatch, fake_registry_module):
+def test_session_post_needs_its_csrf_token(service, monkeypatch, registry_spy):
     from nanosoc_rm.web import views
     calls = []
 
     def fake_run(config, cid, login):
         calls.append((cid, login))
-        raise views.TriggerUnavailable("test: trigger not called")
+        raise ConfigError("test: trigger not called")          # shown as 503
     monkeypatch.setattr(views, "run_t0", fake_run)
     c = TestClient(create_app(service["cfg"]))
     sign_in(c, "alice")

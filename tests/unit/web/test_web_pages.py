@@ -29,7 +29,7 @@ def example(name):
 
 
 @pytest.fixture
-def site(service, fake_registry_module, tmp_path):
+def site(service, registry_spy, tmp_path):
     """The seeded service with a registry checkout (eth-rc4, eth-main, multicore-master) and a member client."""
     reg = make_registry(tmp_path / "registry")
     cfg = write_config(service["cfg"], data=tmp_path / "data", github_url=service["github"].url, registry=reg)
@@ -103,7 +103,8 @@ def test_registry_facts_link_to_their_git_show_command(site):
     c.get("/")
     head = __import__("webfix").git("rev-parse", "HEAD", cwd=site["registry"])
     body = c.get("/facts/" + urllib.parse.quote("registry_record:eligibility.yaml#/configurations/1", safe="")).text
-    assert "git -C &lt;registry&gt; show %s:eligibility.yaml" % head in body
+    # registry.store_records (the one producer) cites the checkout's own path (interfaces.md section 2).
+    assert "git -C %s show %s:eligibility.yaml" % (site["registry"].resolve(), head) in body
 
 
 def test_unknown_fact_is_404_and_old_fact_says_not_current(site):
@@ -213,12 +214,14 @@ def test_open_errata_and_host_drift(site):
 
 
 def test_open_errata_counts_open_and_permanent_only(site):
-    """Review W3: section 13's "open errata" are status open or permanent. Every other status of the erratum
-    schema (fixed, wont-fix, not-affected) is stored and listed on the errata page, but not counted."""
+    """Review W3: section 13's "open errata" are status open or permanent. Every other status (here wont-fix)
+    is stored and listed on the errata page, but not counted."""
     reg = site["registry"]
     base = example("erratum.ETH-R0P0-ERR-001.example.yaml")[0]
-    for n, (cid, status) in enumerate([(RC4, "open"), (RC4, "wont-fix"), (RC4, "not-affected"), (RC4, "fixed"),
-                                       ("eth-main", "fixed"), ("eth-main", "wont-fix")], start=2):
+    # The real loader (found at integration) refuses what the old fake accepted: only rc4 has an errata_prefix
+    # (README section 3 rule 11), a silicon configuration is never `fixed` (rule 10), and `not-affected` needs a
+    # detector run (erratum schema). So: rc4 errata of the other statuses a silicon erratum may hold.
+    for n, (cid, status) in enumerate([(RC4, "open"), (RC4, "wont-fix"), (RC4, "wont-fix")], start=2):
         doc = dict(copy.deepcopy(base), id="ETH-R0P0-ERR-%03d" % n, configuration=cid, status=status)
         (reg / "errata" / cid).mkdir(parents=True, exist_ok=True)
         (reg / "errata" / cid / ("ERR-%03d.yaml" % n)).write_text(json.dumps(doc, indent=1) + "\n")
@@ -228,7 +231,7 @@ def test_open_errata_counts_open_and_permanent_only(site):
     p, sw = cells(text)
     assert sw.first_int(p.items[(RC4, "open-errata")]) == 2          # ERR-001 permanent + ERR-002 open
     assert sw.first_int(p.items[("eth-main", "open-errata")]) == 0
-    assert len(views.errata(load_config(site["cfg"]), RC4)) == 5, "every status is stored and listed"
+    assert len(views.errata(load_config(site["cfg"]), RC4)) == 4, "every status is stored and listed"
 
 
 def test_runner_status_and_alert_banner(site):
@@ -293,12 +296,6 @@ def test_api_run_returns_the_run_as_an_observation(site, fake_trigger):
 def test_htmx_run_returns_a_fragment(site, fake_trigger):
     r = site["client"].post("/configurations/eth-main/runs", data={}, headers={"HX-Request": "true"})
     assert r.status_code == 202 and "<html" not in r.text and "t0_result:eth-main:" in r.text
-
-
-def test_run_without_the_ci_module_is_503_not_a_crash(site, monkeypatch):
-    monkeypatch.setitem(sys.modules, "nanosoc_rm.ci.trigger", None)
-    r = site["client"].post("/configurations/eth-main/runs", data={})
-    assert r.status_code == 503 and "not installed" in r.text
 
 
 def test_a_trigger_that_raises_is_reported_not_a_crash(site, monkeypatch):
@@ -413,10 +410,10 @@ def test_contains_runs_the_query_when_nothing_is_stored(site, monkeypatch):
     assert r.status_code == 200 and calls == [("abcdef1", "nanosoc_gen")] and "answered now" in r.text
 
 
-def test_contains_problems_are_shown_not_raised(site, monkeypatch):
-    monkeypatch.setitem(sys.modules, "nanosoc_rm.analysis.contains", None)
+def test_contains_problems_are_shown_not_raised(site):
+    # The real query (nanosoc_rm.analysis.contains): this site has no mirrors, so it cannot answer.
     r = site["client"].get("/contains?sha=abcdef1")
-    assert r.status_code == 200 and "not installed" in r.text
+    assert r.status_code == 200 and "could not answer" in r.text
     assert "not a commit id" in site["client"].get("/contains?sha=xyz").text
     assert site["client"].get("/api/v1/contains/xyz").status_code == 422
 

@@ -28,7 +28,6 @@ import json
 import secrets
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
 
 from nanosoc_rm import clock, contracts, db
 from nanosoc_rm.ci import configs
@@ -36,6 +35,7 @@ from nanosoc_rm.ci.client import CIClient, CIError, make_client
 from nanosoc_rm.ci.verify import RunRecord
 from nanosoc_rm.config import Config, ConfigError, load_config
 from nanosoc_rm.gitrun import run_git
+from nanosoc_rm.mirror import layout
 
 __all__ = ["trigger", "build_request", "request_bytes", "RunPending", "TriggerError", "pending_runs"]
 
@@ -58,9 +58,8 @@ def _resolve(git_dir: Path, rev: str, what: str) -> tuple[str, dict]:
 
 def _mirror_ref(config: Config, component: str, repo: dict, ref: dict) -> tuple[str, dict]:
     """A branch or tag of `repo`, resolved in the component's mirror (interfaces.md section 3 layout)."""
-    key = "%s/%s" % (repo["host"], quote(repo["path"], safe=""))
     kind, name = ("heads", ref["branch"]) if "branch" in ref else ("tags", ref["tag"])
-    return _resolve(config.mirrors_dir / ("%s.git" % component), "refs/r/%s/%s/%s" % (key, kind, name),
+    return _resolve(layout.mirror_path(config, component), "%s/%s/%s" % (layout.ref_prefix(repo["host"], repo["path"]), kind, name),
                     "%s %s of %s:%s" % ("branch" if kind == "heads" else "tag", name, repo["host"], repo["path"]))
 
 

@@ -136,9 +136,16 @@ def test_t0_items_prints_the_stored_bundle(ce, ci_config):
 # ---- A2: the one write, on the real package ----------------------------------------------------------------------
 def test_the_census_finds_exactly_one_write_and_it_is_the_trigger(sw):
     census = sw.write_call_census(REPO / "src" / "nanosoc_rm")
-    writes = [c for c in census if c["kind"] == "http"]
-    assert [(c["file"], c["method"]) for c in writes] == [("nanosoc_rm/ci/client.py", "POST")]
+    posts = [c for c in census if c["kind"] == "http"]
+    # On the integrated tree the web's OAuth code exchange is the one other POST; it is declared read-post
+    # (interfaces.md section 17.5), so the trigger is still the only write.
+    assert sorted((c["file"], c["method"]) for c in posts) == [("nanosoc_rm/auth.py", "POST"),
+                                                               ("nanosoc_rm/ci/client.py", "POST")]
+    writes = [c for c in posts if c["file"] == "nanosoc_rm/ci/client.py"]
     assert sw.allowed(writes[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
+    oauth = [c for c in posts if c["file"] == "nanosoc_rm/auth.py"]
+    assert sw.allowed(oauth[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
+    assert not sw.allowed(oauth[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
     creds = {"github_read": {"scope": ["contents:read", "metadata:read", "members:read"]},
              "gitlab_read": {"scope": ["read_api", "read_repository"]},
              "ci_trigger": {"scope": ["trigger"], "project": sw.CI_PROJECT}, "github_oauth": {"scope": ["read:org"]}}

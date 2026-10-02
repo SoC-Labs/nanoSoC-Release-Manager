@@ -153,7 +153,7 @@ def test_inventory_refuses_a_next_link_off_the_api_base(at_web, tmp_path):
         gh.route("GET", r"/orgs/SoC-Labs/repos", page)
         gl.route("GET", r"/api/v4/groups/soclabs/projects", lambda m, q, hd, b: (200, {}, []))
         evil.route("GET", r"/collect", lambda m, q, hd, b: (200, {}, []))
-        cat = {"schema": 1, "components": [{"id": "r0", "class": "ip_tech",
+        cat = {"schema": 1, "components": [{"id": "r0", "class": "soc_ref",
                                             "canonical": {"host": "github", "path": "SoC-Labs/r0"}}]}
         registry = at_web.write_registry(tmp_path / "reg", catalogue=cat, eligibility={
             "schema": 1, "configurations": [{"id": "x", "component": "r0", "ref": {"branch": "main"}}]})

@@ -1,10 +1,9 @@
 """The registered configurations, as the CI module needs them (interfaces.md section 10; registry README section 1).
 
-Read from the registry checkout (`registry.path`): `eligibility.yaml` for the configurations, `catalogue.yaml`
-for each configuration's canonical repo. Both are read with the contracts' strict YAML reader and validated
-against their schemas before use; a registry that does not validate is refused whole (RegistryUnreadable),
-never read in part. The cross-file rules (README section 3) are the registry loader's and T0's job
-(`t0.registry.schema`); this module only reads the fields a trigger and a roll-up need.
+Read from the registry checkout (`registry.path`) through the registry loader (`nanosoc_rm.registry.
+load_registry`): `eligibility.yaml` for the configurations, `catalogue.yaml` for each configuration's canonical
+repo. A registry with any problem (schema or cross-file rule) is refused whole (RegistryUnreadable), never read
+in part; this module only reads the fields a trigger and a roll-up need.
 
     configurations(config)            every configuration, in file order
     configuration(cfg_id, config)     one, or UnknownConfiguration
@@ -16,10 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
-from nanosoc_rm import contracts
 from nanosoc_rm.config import Config, load_config
+from nanosoc_rm.registry import RegistryError, load_registry
 
 __all__ = ["REGISTRY_JOB", "RegistryUnreadable", "UnknownConfiguration", "configurations", "configuration",
            "canonical_repo", "waivers", "registry_repo"]
@@ -42,23 +39,19 @@ def _cfg(config: Config | None) -> Config:
     return config if config is not None else load_config()
 
 
-def _read(config: Config, name: str, schema: str) -> dict:
-    path = Path(config.require("registry", "path")) / name
+def _registry(config: Config):
+    """The registry checkout at `registry.path`, through the registry loader (never partial)."""
+    path = Path(config.require("registry", "path"))
+    if not path.is_dir():
+        raise RegistryUnreadable("registry checkout %s is missing" % path)
     try:
-        doc = contracts.load_yaml(path.read_text())
-    except OSError as e:
-        raise RegistryUnreadable("registry file %s is unreadable (%s)" % (path, e.strerror)) from None
-    except yaml.YAMLError as e:
-        raise RegistryUnreadable("registry file %s is not valid YAML: %s" % (path, e)) from None
-    problems = contracts.validate(schema, doc)
-    if problems:
-        raise RegistryUnreadable("registry file %s does not validate against %s: %s"
-                                 % (path, schema, "; ".join(problems[:5])))
-    return doc
+        return load_registry(path)
+    except RegistryError as e:
+        raise RegistryUnreadable("the registry at %s does not load: %s" % (path, e)) from None
 
 
 def configurations(config: Config | None = None) -> list[dict]:
-    return list(_read(_cfg(config), "eligibility.yaml", "eligibility")["configurations"])
+    return _registry(_cfg(config)).configurations()
 
 
 def configuration(cfg_id: str, config: Config | None = None) -> dict:
@@ -69,10 +62,10 @@ def configuration(cfg_id: str, config: Config | None = None) -> dict:
 
 
 def canonical_repo(component: str, config: Config | None = None) -> dict:
-    for c in _read(_cfg(config), "catalogue.yaml", "component-catalogue")["components"]:
-        if c["id"] == component:
-            return {"host": c["canonical"]["host"], "path": c["canonical"]["path"]}
-    raise UnknownConfiguration("component %r is not in the catalogue" % component)
+    c = _registry(_cfg(config)).component(component)
+    if c is None:
+        raise UnknownConfiguration("component %r is not in the catalogue" % component)
+    return {"host": c["canonical"]["host"], "path": c["canonical"]["path"]}
 
 
 def waivers(cfg_id: str, config: Config | None = None) -> list[dict]:

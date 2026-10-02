@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlsplit
 
+from nanosoc_rm.gitmodules import parse_gitmodules as _parse_gitmodules
 from nanosoc_rm.gitrun import GitResult, run_git
 
 __all__ = ["Fetch", "Clone", "Pin", "GitWork", "parse_gitmodules", "url_kind", "to_https", "resolve_relative",
@@ -144,35 +145,15 @@ def _tail(result: GitResult) -> str:
 # ---------------------------------------------------------------------------------------------------------
 # .gitmodules
 # ---------------------------------------------------------------------------------------------------------
-_SECTION = re.compile(r'^\s*\[\s*submodule\s+"((?:[^"\\]|\\.)*)"\s*\]\s*$')
-_OTHER_SECTION = re.compile(r"^\s*\[")
-_KEY = re.compile(r"^\s*([A-Za-z][A-Za-z0-9-]*)\s*=\s*(.*?)\s*$")
-
-
 def parse_gitmodules(text: str) -> list[dict]:
-    """[{name, path, url, branch}] in file order. Comments (# ;) and other sections are ignored; a quoted
-    value is unquoted. An entry without path or url is dropped (git ignores it too)."""
-    out, cur = [], None
-    for line in (text or "").splitlines():
-        s = line.strip()
-        if not s or s[0] in "#;":
-            continue
-        m = _SECTION.match(line)
-        if m:
-            cur = {"name": m.group(1), "path": None, "url": None, "branch": None}
-            out.append(cur)
-            continue
-        if _OTHER_SECTION.match(line):
-            cur = None
-            continue
-        m = _KEY.match(line)
-        if m and cur is not None:
-            key, val = m.group(1).lower(), m.group(2)
-            if len(val) >= 2 and val[0] == val[-1] == '"':
-                val = val[1:-1]
-            if key in ("path", "url", "branch"):
-                cur[key] = val
-    return [e for e in out if e["path"] and e["url"]]
+    """[{name, path, url, branch}] in file order, from the shared git-config reader (nanosoc_rm.gitmodules). An
+    entry without path or url is dropped (git ignores it too)."""
+    out = []
+    for m in _parse_gitmodules(text or ""):
+        e = {"name": m["name"], "path": m.get("path"), "url": m.get("url"), "branch": m.get("branch")}
+        if e["path"] and e["url"]:
+            out.append(e)
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------
