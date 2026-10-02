@@ -1189,7 +1189,6 @@ def test_AT_B1(registry_under_test, tmp_path):
 
 
 @pytest.mark.requirement("B1")
-@NOT_BUILT
 def test_AT_B1_negative_control(tmp_path):
     # Given five registries, each the example with one deliberate defect
     def broken(name, catalogue_edit=None, eligibility_edit=None):
