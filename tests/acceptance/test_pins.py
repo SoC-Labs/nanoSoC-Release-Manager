@@ -1169,7 +1169,6 @@ def replay_heads(env, golden):
 # ============================================================================================
 @pytest.mark.requirement("B1")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B1(registry_under_test, tmp_path):
     # Given the real registry catalogue (NANOSOC_RM_REGISTRY). The example catalogue's classes are
     #   judgement, so the AT does not fall back to it (coverage review Medium 5).
