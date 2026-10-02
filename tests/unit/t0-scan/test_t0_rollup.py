@@ -135,3 +135,11 @@ def test_a_waived_run_is_a_valid_t0_result(at):
     doc["fact"]["gates"] = base
     doc["fact"]["verdict"] = gates.run_verdict(base)[0]
     assert doc["fact"]["verdict"] == "FAIL" and validate_observation(doc) == []
+
+
+def test_a_not_reached_item_rides_only_on_a_covered_item_above_it_not_on_a_name_prefix(at):
+    base = gates.rollup(at.parse_rows(at.example_verdicts()), "configuration")
+    sibling = copy.deepcopy(at.example_items())             # "tidelink-extra" is not below "tidelink"
+    sibling["t0.pins.fetchable"].append({"tree_path": "tidelink-extra/x", "result": "not-reached", "why": "w"})
+    out = {g["id"]: g for g in gates.apply_waivers(base, sibling, at.example_waivers())[0]}
+    assert out["t0.pins.fetchable"]["verdict"] == "FAIL"
