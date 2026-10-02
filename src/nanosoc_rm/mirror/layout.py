@@ -15,13 +15,12 @@ nor the helper is in any argv, so no recorded command carries a credential.
 from __future__ import annotations
 
 import os
-import secrets
 import urllib.parse
 from pathlib import Path
 
 import httpx
 
-from nanosoc_rm import clock, db
+from nanosoc_rm import db
 from nanosoc_rm.config import Config
 from nanosoc_rm.gitrun import GitResult, run_git
 
@@ -112,8 +111,8 @@ def git_env(config: Config, host: str) -> dict[str, str]:
 
 
 def snapshot_id(scope: str) -> str:
-    """A new, unique snapshot id for one producer run of `scope`."""
-    return "%s@%s#%s" % (scope, clock.iso(), secrets.token_hex(4))
+    """A new, unique snapshot id for one producer run of `scope` (the store's one generator)."""
+    return db.new_snapshot_id(scope)
 
 
 def alert_once(alert_kind: str, about: str, message: str, sources: list[dict], *, config: Config) -> dict | None:

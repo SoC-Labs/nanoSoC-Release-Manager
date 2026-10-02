@@ -31,6 +31,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import json
+import secrets
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -40,7 +41,7 @@ from nanosoc_rm import clock, contracts
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc", "subject_of",
-           "check_observation", "database_path", "connect", "put", "put_snapshot", "latest", "history",
+           "check_observation", "database_path", "connect", "put", "put_snapshot", "new_snapshot_id", "latest", "history",
            "data_age", "put_run", "get_run", "runs", "log_action", "actions", "raise_alert", "alerts",
            "clear_alert"]
 
@@ -242,11 +243,18 @@ def put(obs: Any, *, config: Config | str | Path | None = None) -> None:
         _insert(con, doc)
 
 
+def new_snapshot_id(scope: str) -> str:
+    """A new snapshot id for one producer run of `scope`: `<scope>@<now>#<8 hex>`. The random suffix makes two
+    runs of one scope in the same clock second (or under a frozen test clock) distinct; every producer that
+    names its own snapshot uses this."""
+    return "%s@%s#%s" % (scope, clock.iso(), secrets.token_hex(4))
+
+
 def put_snapshot(scope: str, docs: Iterable[Any], *, config: Config | str | Path | None = None) -> str:
     """Store one producer run of a set kind for `scope` atomically, mark it complete, return its id.
     Every document must be of the scope's kind, name this scope, and share one snapshot id, which must be
-    new. An empty run is a complete, empty snapshot (the scope now has no current facts); its id is
-    `<scope>@<now>`."""
+    new. An empty run is a complete, empty snapshot (the scope now has no current facts); its id is a fresh
+    `new_snapshot_id(scope)`, so two empty runs of one scope in the same second are both stored."""
     docs = [as_doc(d) for d in docs]
     kind = scope.split(":", 1)[0]
     problems = []
@@ -263,7 +271,7 @@ def put_snapshot(scope: str, docs: Iterable[Any], *, config: Config | str | Path
         problems.append("one snapshot, several ids: %s" % sorted(map(str, ids)))
     if problems:
         raise ObservationRefused(problems)
-    snap_id = ids.pop() if docs else "%s@%s" % (scope, clock.iso())
+    snap_id = ids.pop() if docs else new_snapshot_id(scope)
     with connect(config) as con, con:
         if con.execute("SELECT 1 FROM snapshots WHERE id = ?", (snap_id,)).fetchone():
             raise ObservationRefused(["snapshot id %s already exists: each producer run has its own" % snap_id])

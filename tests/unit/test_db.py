@@ -105,6 +105,20 @@ def test_put_snapshot_replaces_the_current_set(rm_config):
     assert db.latest("silicon_protection") == []
 
 
+def test_two_empty_runs_in_one_second_are_both_stored(rm_config, monkeypatch):
+    """Integration defect (analysis CR): an empty run's id was `<scope>@<now to the second>`, so a second empty
+    run of the same scope in the same second was refused as a duplicate id (the CLI showed an internal error)."""
+    from nanosoc_rm import clock
+    monkeypatch.setattr(clock, "iso", lambda *a, **k: "2026-10-02T12:00:00Z")    # one frozen second
+    first = db.put_snapshot("silicon_protection:eth-rc4", [])
+    second = db.put_snapshot("silicon_protection:eth-rc4", [])
+    assert first != second
+    assert first.startswith("silicon_protection:eth-rc4@2026-10-02T12:00:00Z#")
+    assert rows(rm_config, "SELECT count(*) FROM snapshots WHERE scope = 'silicon_protection:eth-rc4' "
+                           "AND completed_at IS NOT NULL")[0][0] == 2
+    assert db.latest("silicon_protection") == []
+
+
 def test_put_snapshot_is_atomic(rm_config):
     good = silicon()
     db.put_snapshot("silicon_protection:eth-rc4", good)

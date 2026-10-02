@@ -31,7 +31,6 @@ No token value is ever printed, logged or stored: tokens travel only in the Auth
 from __future__ import annotations
 
 import datetime as dt
-import secrets
 from dataclasses import asdict, dataclass
 from typing import Callable
 
@@ -234,7 +233,7 @@ def check(config: Config | None = None, *, today: dt.date | None = None, http_ge
             row.sources.append({"kind": "derived", "command": "nanosoc-rm credentials check"})
         rows.append((row, _check_expiry(row, today) if name in tables else None))
 
-    snap = {"id": "credential_status:all@%s#%s" % (stamp, secrets.token_hex(4)), "scope": "credential_status:all"}
+    snap = {"id": db.new_snapshot_id("credential_status:all"), "scope": "credential_status:all"}
     docs = []
     for row, _left in rows:
         fact = asdict(row.done())

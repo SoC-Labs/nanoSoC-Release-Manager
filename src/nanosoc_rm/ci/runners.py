@@ -11,7 +11,6 @@ observation is stored as its own snapshot (scope `runner_settings:<id>`).
 from __future__ import annotations
 
 import datetime as dt
-import secrets
 
 from nanosoc_rm import clock, db
 from nanosoc_rm.ci.client import CIClient, CIError, make_client
@@ -75,7 +74,7 @@ def runner_settings(client: CIClient | None = None, *, config: Config | None = N
         scope = "runner_settings:%s" % rid
         doc = {"schema": 1, "kind": "runner_settings", "subject": scope, "observed_at": stamp,
                "sources": [{"kind": "ci_api", "command": command}],
-               "snapshot": {"id": "%s@%s#%s" % (scope, stamp, secrets.token_hex(4)), "scope": scope}, "fact": fact}
+               "snapshot": {"id": db.new_snapshot_id(scope), "scope": scope}, "fact": fact}
         db.put_snapshot(scope, [doc], config=config)
         if fact["verdict"] == "drift":
             subject = "alert:runner_drift:%s" % scope
