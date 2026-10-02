@@ -70,7 +70,11 @@ class _Node:
 
 
 def _read_node(config: Config, node: _Node, catalogue: Catalogue) -> None:
-    """Fill node.edges from the node commit's own .gitmodules and tree."""
+    """Fill node.edges from the node commit's own .gitmodules and tree.
+
+    The root's commit is checked to be in its mirror before the walk starts. Below the root, a commit the mirror
+    lacks has no green state on its pinned host (green and BRANCH_ONLY commits are reachable from a mirrored ref,
+    a never-synced mirror stops the walk in HostJudge), so its pin is already red when its subtree is unread."""
     mirror = mirror_path(config, node.component)
     if not (mirror / "HEAD").is_file():
         return
@@ -160,6 +164,16 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
     root_entry = catalogue.entry(cfg["component"])
     root_commit, root_sources = _resolve_commit(config, catalogue, cfg)
     canon = root_entry.canonical
+    # The root commit must be in the mirror: otherwise its .gitmodules cannot be read, and an empty walk would be
+    # stored and read as "no pins" (README section 4: a producer that cannot finish writes no snapshot).
+    root_mirror = mirror_path(config, root_entry.id)
+    if not (root_mirror / "HEAD").is_file():
+        raise WalkError("configuration %s: component %s has no mirror yet (run `nanosoc-rm mirror sync`)"
+                        % (configuration_id, root_entry.id))
+    held = run_in(root_mirror, "cat-file", "-e", "%s^{commit}" % root_commit, env=git_env(config, canon["host"]))
+    if not held.ok:
+        raise WalkError("configuration %s: commit %s is not in the mirror of %s (not on %s:%s, or not synced since)"
+                        % (configuration_id, root_commit, root_entry.id, canon["host"], canon["path"]))
     hosts = config.get("hosts", {})
     root_url = repo_url(hosts, canon["host"], canon["path"]) if canon["host"] in hosts else ""
     root = _Node(root_entry.id, dict(canon), root_commit, root_url)

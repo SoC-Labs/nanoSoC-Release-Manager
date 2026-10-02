@@ -3,7 +3,8 @@
 For one pinned commit and one host holding a copy of the child, first match wins:
 
     UNREADABLE        the repo's latest mirror_status is not ok and the mirror holds no refs for it; or the host
-                      answered 401/403/404 for the repo itself
+                      answered 401/403/404 for the repo itself. A repo with no mirror_status at all (never
+                      synced) is asked the host: 401/403/404 is UNREADABLE, anything else is WalkError (exit 2)
     TAGGED            a tag other than keep/* points exactly at the commit
     ON_DEFAULT        reachable from the default branch; lag = commits the pin lacks
     PROTECTED_BY_TAG  not on the default branch, reachable from at least one tag
@@ -97,6 +98,18 @@ class HostJudge:
         now = clock.iso()
         status = view.status or {}
         observed_at = status.get("last_success_at") or now
+        if not view.has_refs and view.status is None:
+            # Never synced: the mirror proves nothing. Only the host itself can make it UNREADABLE (README
+            # section 5); a readable repo with no mirror is missing data, so the walk cannot answer (exit 2).
+            sources = []
+            base = self._repo_api_path(repo)
+            whole = self._get(repo["host"], base, sources)
+            if whole.status in (401, 403, 404):
+                return "UNREADABLE", None, None, [], [], sources, now
+            raise WalkError("%s:%s (component %s) has never been synced, so the mirror cannot judge %s there "
+                            "(the host answered %s; run `nanosoc-rm mirror sync --component %s`)"
+                            % (repo["host"], repo["path"], entry.id, commit[:12], whole.error or whole.status,
+                               entry.id))
         if not view.has_refs and not status.get("ok"):
             src = {"kind": "derived", "command": "mirror_status:%s:%s ok=%s, and git -C %s for-each-ref refs/r/%s/ "
                                                  "lists no ref" % (repo["host"], repo["path"], status.get("ok"),
@@ -170,14 +183,19 @@ class HostJudge:
         sources.append(ans.source)
         return ans
 
+    @staticmethod
+    def _repo_api_path(repo: dict) -> str:
+        if repo["host"] == "github":
+            return "repos/%s" % repo["path"]
+        return "projects/%s" % urllib.parse.quote(repo["path"], safe="")
+
     def _ask_host(self, repo: dict, commit: str, sources: list) -> str:
         """PR_ONLY, ORPHAN, MISSING or UNREADABLE, from the host's read API (GET only)."""
-        host, path = repo["host"], repo["path"]
+        host = repo["host"]
+        base = self._repo_api_path(repo)
         if host == "github":
-            base = "repos/%s" % path
             commit_path, prs_path = "%s/commits/%s" % (base, commit), "%s/commits/%s/pulls" % (base, commit)
         else:
-            base = "projects/%s" % urllib.parse.quote(path, safe="")
             commit_path = "%s/repository/commits/%s" % (base, commit)
             prs_path = "%s/repository/commits/%s/merge_requests" % (base, commit)
         ans = self._get(host, commit_path, sources)

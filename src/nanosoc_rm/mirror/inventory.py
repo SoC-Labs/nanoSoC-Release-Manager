@@ -4,7 +4,8 @@
 
 Listing, GET only, every page followed:
 
-- GitHub: `GET orgs/<org>/repos?type=all&per_page=100`, following the `Link: <...>; rel="next"` header;
+- GitHub: `GET orgs/<org>/repos?type=all&per_page=100`, following the `Link: <...>; rel="next"` header (never
+  off the configured API base: the read token goes with every page);
 - GitLab: `GET groups/<group>/projects?include_subgroups=true&per_page=100`, following `X-Next-Page`.
 
 Each repo is classified against the catalogue: canonical, copy, alias, external, ignored, or `unclassified`
@@ -41,6 +42,13 @@ def _visibility(host: str, item: dict) -> str:
     return "private" if item.get("private") else "public"
 
 
+def _under(url: str, api: str) -> bool:
+    """True when `url` is on the same scheme and host as the API base, at or below its path."""
+    u, b = urllib.parse.urlsplit(url), urllib.parse.urlsplit(api.rstrip("/"))
+    return (u.scheme.lower(), u.netloc.lower()) == (b.scheme.lower(), b.netloc.lower()) and \
+        (u.path == b.path or u.path.startswith(b.path + "/"))
+
+
 def list_host(config: Config, host: str) -> list[tuple[dict, dict]]:
     """[(item, source)] for every repo the host lists for the configured org or group, all pages."""
     table = config.host(host)
@@ -69,6 +77,10 @@ def list_host(config: Config, host: str) -> list[tuple[dict, dict]]:
                     return out
                 base = url or "%s/%s?%s" % (table["api"].rstrip("/"), path, urllib.parse.urlencode(params))
                 url = urllib.parse.urljoin(base, m.group(1))
+                if not _under(url, table["api"]):
+                    # The read token goes with every page: never follow a link off the configured API (0.3).
+                    raise InventoryError("github listing: rel=next link leaves the configured API (%s)"
+                                         % urllib.parse.urlsplit(url).netloc)
             else:
                 nxt = (ans.headers.get("x-next-page") or "").strip()
                 if not nxt:
