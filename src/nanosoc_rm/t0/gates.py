@@ -7,7 +7,10 @@ module never imports the runner.
   that returns the BROKEN input only. `run_with_control` runs the gate's own check twice, on the real input and
   on the broken one, in one run with one nonce; the control's row `<gate>.negctl` is PASS only when the check
   went red (FAIL) on the broken input. So a check that cannot fail has a control that does not fire, and the
-  gate rolls up UNVERIFIED (D6).
+  gate rolls up UNVERIFIED (D6). The controls of the gates that walk the pinned tree (fetchable, reachable,
+  no-ssh, manifest, vendor) build a scratch superproject holding the defect and hand it to the gate as its
+  request, so the broken input goes through the same walk, parser and scanner as the real one. Those walks also
+  census themselves: a .gitmodules that declares submodules under which no gitlink pin was found is `unverified`.
 - `rollup(rows, scope)`: README section 6, one gate item per declared gate of the scope.
 - `apply_waivers(gates, items, waivers)`: GATE2 Q1, pure.
 - `run_verdict(gates)`: FAIL > UNVERIFIED (or no PASS gate) > INFRA > WAIVED > PASS, with the NOT-RUN count.
@@ -48,11 +51,20 @@ def clean_detail(text: Any) -> str:
     return " ".join(str(text).replace("\t", " ").replace("\r", " ").split("\n")).strip()
 
 
+_URL_WITH_PASSWORD = re.compile(r"[a-z][a-z0-9+.-]*://[^/@\s:]*:[^/@\s]*@", re.I)
+
+
 def credential_vars(env: Mapping[str, str]) -> list[str]:
-    """The CI credential variables the job must not hold after the scrub: CI_*TOKEN*, CI_*PASSWORD*,
-    CI_JOB_JWT* (interfaces.md section 9, Environment)."""
-    return sorted(k for k in env if k.startswith("CI_") and ("TOKEN" in k or "PASSWORD" in k
-                                                            or k.startswith("CI_JOB_JWT")))
+    """The variables the job must not hold after the scrub: CI_*TOKEN*, CI_*PASSWORD*, CI_JOB_JWT*
+    (interfaces.md section 9, Environment), and every variable whose value carries a credential: a URL with a
+    password in it (GitLab's CI_REPOSITORY_URL is https://gitlab-ci-token:<CI_JOB_TOKEN>@...), or CI_JOB_TOKEN's
+    value itself. Names only: a value is never returned."""
+    token = env.get("CI_JOB_TOKEN") or ""
+    out = {k for k in env if k.startswith("CI_") and ("TOKEN" in k or "PASSWORD" in k or k.startswith("CI_JOB_JWT"))}
+    for k, v in env.items():
+        if isinstance(v, str) and (_URL_WITH_PASSWORD.search(v) or (len(token) >= 8 and token in v)):
+            out.add(k)
+    return sorted(out)
 
 
 def synthetic_commit(nonce: str, what: str) -> str:
@@ -109,9 +121,6 @@ class Context:
         self._repo_url: str | None = None
         self._items: dict[str, list[dict]] = {}
         self._shared: dict[str, Any] = {}          # the walk, shared with derived contexts of the same request
-        self.pins_override: list[Pin] | None = None
-        self.trees_override: list[tuple[str, Path]] | None = None
-        self.manifests_override: list[tuple[str, str | None, str]] | None = None
         self.citations_override: list[dict] | None = None
 
     @classmethod
@@ -312,7 +321,7 @@ def _hardened_check(ctx: Context) -> tuple[str, str]:
     if bad:
         return "FAIL", "; ".join(bad)
     return "PASS", ("protected ref; HOME and TMPDIR empty at start; %s is the service account; no CI_*TOKEN*, "
-                    "CI_*PASSWORD* or CI_JOB_JWT* variable left after the scrub" % user_var)
+                    "CI_*PASSWORD* or CI_JOB_JWT* variable and no URL with a password left after the scrub" % user_var)
 
 
 def _hardened_control(ctx: Context) -> Context:
@@ -343,19 +352,15 @@ def _fetch_item(ctx: Context, pin: Pin) -> tuple[dict, bool]:
 
 def _fetchable_check(ctx: Context) -> tuple[str, str]:
     items, infra = ctx._begin("t0.pins.fetchable"), False
-    if ctx.pins_override is not None:
-        pins = ctx.pins_override
-    else:
-        root = ctx.walk()
-        if root is None:
-            return "UNVERIFIED", "no request: nothing to walk"
-        rf = ctx.root_fetch()
-        if not rf.ok:
-            item, infra = _fetch_item(ctx, root)
-            ctx._add(items, dict(item, tree_path="."))
-        pins = list(iter_pins(root))
-    for pin in pins:
-        up = None if ctx.pins_override is not None else ctx.unfetched_ancestor(pin)
+    root = ctx.walk()
+    if root is None:
+        return "UNVERIFIED", "no request: nothing to walk"
+    rf = ctx.root_fetch()
+    if not rf.ok:
+        item, infra = _fetch_item(ctx, root)
+        ctx._add(items, dict(item, tree_path="."))
+    for pin in iter_pins(root):
+        up = ctx.unfetched_ancestor(pin)
         if up is not None:
             ctx._add(items, {"tree_path": pin.tree_path, "component": None, "commit": pin.commit,
                              "host": ctx.git.host_of(pin.resolved or pin.url), "result": "not-reached",
@@ -364,33 +369,103 @@ def _fetchable_check(ctx: Context) -> tuple[str, str]:
         item, down = _fetch_item(ctx, pin)
         infra = infra or down
         ctx._add(items, item)
-    if not items and ctx.pins_override is not None:
-        return "UNVERIFIED", "no pin to judge"
+    gaps = _census(ctx, root, items, "t0.pins.fetchable")
     n, passed = len(items), sum(1 for i in items if i["result"] == "pass")
     status = "FAIL" if any(i["result"] == "fail" for i in items) else "INFRA" if infra else \
         "UNVERIFIED" if passed < n else "PASS"
-    detail = "%d of %d pins fetched anonymously" % (passed, n)
+    detail = "%d of %d pins fetched anonymously" % (passed, n - len(gaps))
     if any(i["result"] == "fail" for i in items):
         detail += "; not fetched: %s" % _paths(items, "fail")
     if any(i["result"] == "not-reached" for i in items):
         detail += "; not reached: %d below them" % sum(1 for i in items if i["result"] == "not-reached")
-    if any(i["result"] == "unverified" for i in items):
-        detail += "; undecided: %s" % _paths(items, "unverified")
+    if any(i["result"] == "unverified" for i in items if i not in gaps):
+        detail += "; undecided: %s" % _paths([i for i in items if i not in gaps], "unverified")
+    if gaps:
+        detail += "; " + _census_detail(gaps)
     return status, detail
 
 
-def _synthetic_pin(ctx: Context) -> list[Pin]:
-    url = ctx.repo_url
-    if not url:
-        return []
-    canonical = ctx.git.canonical_for(url, url, ctx.canonical_urls())
-    return [Pin("negctl/synthetic-pin", url, synthetic_commit(ctx.nonce, "pin"), resolved=url,
-                kind=url_kind(url), canonical=canonical, host=ctx.git.host_of(canonical))]
+# A .gitmodules section header, counted on the raw text: the census that a blind parser or walk cannot fool.
+_SUBMODULE_HEADER = re.compile(r"^[ \t]*\[[ \t]*submodule\b", re.M)
+
+
+def _declared(text: str | None) -> int:
+    return len(_SUBMODULE_HEADER.findall(text or ""))
+
+
+def _census(ctx: Context, root: Pin, items: list[dict], gate_id: str) -> list[dict]:
+    """The walk's census (D6: zero pins is never a PASS by default). Every parent whose .gitmodules declares a
+    submodule but under which the walk found no gitlink pin gets an `unverified` item: the gate cannot vouch for
+    the tree below it. Returns those items."""
+    gaps = []
+    for p in [root] + list(iter_pins(root)):
+        if p.duplicate or not p.gitmodules or p.children:
+            continue
+        n = _declared(p.gitmodules)
+        if n:
+            gap = {"tree_path": p.tree_path or ".", "component": None, "commit": p.commit,
+                   "host": ctx.git.host_of(p.resolved or p.url), "result": "unverified",
+                   "why": "its .gitmodules declares %d submodule(s) but the walk found no gitlink pin below it" % n}
+            ctx._add(items, gap)
+            gaps.append(items[-1])
+    return gaps
+
+
+def _census_detail(gaps: list[dict]) -> str:
+    return "census: %d parent(s) declare submodules but no gitlink pin was found below them (%s)" % (
+        len(gaps), ", ".join(g["tree_path"] for g in gaps[:8]))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Controls of the walking gates: a scratch superproject, walked and judged exactly as the real one
+# ---------------------------------------------------------------------------------------------------------
+NEGCTL_HOST = "negctl.nanosoc-rm.invalid"      # a reserved name (RFC 2606): no host answers for it
+
+
+def _negctl_url(ctx: Context, name: str) -> str:
+    return "https://%s/%s/%s.git" % (NEGCTL_HOST, ctx.nonce[:8], name)
+
+
+def _scratch_superproject(ctx: Context, what: str, files: Mapping[str, str] | None = None,
+                          pins: Iterable[tuple[str, str | None]] = (),
+                          routes: Mapping[str, str] | None = None) -> Context:
+    """A Context whose request is a scratch superproject built here: `files` committed, and each pin
+    (path, url) a gitlink to a commit made only in this work dir (no host serves it). A url of None pins the
+    scratch superproject's own repo, which does not hold that commit. The superproject is served at a reserved
+    `.invalid` URL routed to the scratch repo with url.insteadOf (the same routing as the tests' url_map, applied
+    only to URLs this control made up), so the gate's own walk fetches it, reads its .gitmodules and gitlinks,
+    and judges it with the same code as the real input."""
+    git = ctx.git.derived(extra_env=_COMMIT_ENV)
+    d = git._slot("negctl-" + what, ctx.nonce)
+    url = _negctl_url(ctx, what)
+    git.run("init", "-q", d).check()
+    for rel, text in (files or {}).items():
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        (d / rel).write_text(text)
+    sections = []
+    for path, pin_url in pins:
+        sub = d / path
+        git.run("init", "-q", sub).check()
+        (sub / "NEGCTL").write_text("nanosoc-rm negative control %s %s\n" % (what, ctx.nonce))
+        git.run("add", "NEGCTL", cwd=sub).check()
+        git.run("commit", "-q", "-m", "negctl " + what, cwd=sub).check()
+        sections.append('[submodule "%s"]\n\tpath = %s\n\turl = %s\n' % (path, path, pin_url or url))
+    if sections:
+        (d / ".gitmodules").write_text("".join(sections))
+    git.run("add", "-A", cwd=d).check()
+    git.run("commit", "-q", "--allow-empty", "-m", "negctl " + what, cwd=d).check()
+    sha = git.run("rev-parse", "HEAD", cwd=d).check().stdout.strip()
+    base = ctx.request or {"configuration": "negctl", "repo": {"host": "github", "path": "SoC-Labs/nanosoc-rm-negctl"},
+                           "canonical_urls": {}}
+    req = dict(base, commit=sha, upgrade_from=None)
+    return ctx.derive(url_map=dict(ctx.url_map, **{url: str(d)}, **dict(routes or {})), request=req, _repo_url=url,
+                      parents=None, new_request=True)
 
 
 def _pins_control(ctx: Context) -> Context:
-    """A synthetic pin at a commit that does not exist, in the real public superproject repo."""
-    return ctx.derive(pins_override=_synthetic_pin(ctx))
+    """A scratch superproject pinning a commit that does not exist on the host: in the real public
+    superproject repo when the request names one (so the real host answers), else in the scratch repo itself."""
+    return _scratch_superproject(ctx, "pins", pins=[("negctl/synthetic-pin", ctx.repo_url)])
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -416,17 +491,12 @@ def _reach_item(ctx: Context, pin: Pin) -> tuple[dict, bool]:
 
 def _reachable_check(ctx: Context) -> tuple[str, str]:
     items, infra = ctx._begin("t0.pins.reachable"), False
-    if ctx.pins_override is not None:
-        pins = ctx.pins_override
-        if not pins:
-            return "UNVERIFIED", "no pin to judge"
-    else:
-        root = ctx.walk()
-        if root is None:
-            return "UNVERIFIED", "no request: nothing to walk"
-        if root.gitmodules is None:
-            return "UNVERIFIED", "the superproject could not be read anonymously by its pinned or canonical URL"
-        pins = list(iter_pins(root))
+    root = ctx.walk()
+    if root is None:
+        return "UNVERIFIED", "no request: nothing to walk"
+    if root.gitmodules is None:
+        return "UNVERIFIED", "the superproject could not be read anonymously by its pinned or canonical URL"
+    pins = list(iter_pins(root))
     unreadable: set[str] = set()
     for pin in pins:
         above = next((a for a in pin.ancestors() if a.tree_path in unreadable), None)
@@ -441,20 +511,23 @@ def _reachable_check(ctx: Context) -> tuple[str, str]:
         if item["result"] == "unverified":
             unreadable.add(pin.tree_path)
         ctx._add(items, item)
-    n, passed = len(items), sum(1 for i in items if i["result"] == "pass")
+    gaps = _census(ctx, root, items, "t0.pins.reachable")
+    n, passed = len(items) - len(gaps), sum(1 for i in items if i["result"] == "pass")
     fails = [i for i in items if i["result"] == "fail"]
     undecided = [i for i in items if i["result"] in ("unverified", "not-reached")]
     status = "FAIL" if fails else "UNVERIFIED" if undecided and not infra else "INFRA" if infra else "PASS"
     parts = ["%d of %d pins reachable from a branch or tag of their canonical repo" % (passed, n)]
     if fails:
         parts.append("unreachable: %s" % ", ".join("%s %s" % (i["tree_path"], _s7(i["commit"])) for i in fails[:8]))
-    if any(i["result"] == "unverified" for i in undecided):
-        parts.append("unverified: %s" % _paths(undecided, "unverified"))
+    if any(i["result"] == "unverified" for i in undecided if i not in gaps):
+        parts.append("unverified: %s" % _paths([i for i in undecided if i not in gaps], "unverified"))
     nr = sum(1 for i in undecided if i["result"] == "not-reached")
     if nr:
         parts.append("not reached: %d" % nr)
     if not pins:
         parts = ["the superproject pins nothing"]
+    if gaps:
+        parts.append(_census_detail(gaps))
     return status, "; ".join(p for p in parts if p)
 
 
@@ -471,10 +544,17 @@ def _no_ssh_check(ctx: Context) -> tuple[str, str]:
     parents = {k: v for k, v in ctx.parents_map().items() if v.get("public")}
     if not parents:
         return "UNVERIFIED", "no public parent was read: nothing to check"
-    offenders = {}
+    offenders, gaps = {}, []
     for key, p in parents.items():
         links = p.get("gitlinks") or {}
-        for e in parse_gitmodules(p.get("gitmodules") or ""):
+        entries = parse_gitmodules(p.get("gitmodules") or "")
+        declared = _declared(p.get("gitmodules"))
+        if declared and not entries:                   # the census: a header the parser did not see
+            ctx._add(items, {"tree_path": p.get("tree_path") or ".", "component": None, "commit": None, "host": None,
+                             "result": "unverified", "why": "its .gitmodules declares %d submodule(s) but none "
+                             "was parsed" % declared})
+            gaps.append(_label(key))
+        for e in entries:
             tp = "/".join(x for x in (p.get("tree_path") or "", e["path"]) if x)
             item = {"tree_path": tp, "component": None, "commit": links.get(tp), "host": ctx.git.host_of(e["url"])}
             if url_kind(e["url"]) == "ssh":
@@ -485,14 +565,25 @@ def _no_ssh_check(ctx: Context) -> tuple[str, str]:
     if offenders:
         return "FAIL", "; ".join("public parent %s pins by ssh URL: %s" % (_label(k), ", ".join(v))
                                  for k, v in offenders.items())
+    if gaps:
+        return "UNVERIFIED", "census: %d public parent(s) declare submodules but none was parsed (%s)" % (
+            len(gaps), ", ".join(gaps[:8]))
     return "PASS", "%d public parent(s), %d pins, none by ssh URL" % (len(parents), len(items))
 
 
 def _no_ssh_control(ctx: Context) -> Context:
+    """A public parent pinning by ssh URL. Given parents (the seam a caller fills from the parents it read)
+    get one more such parent, judged by the same parse; otherwise a scratch superproject whose .gitmodules pins
+    by ssh URL is walked like the real tree."""
     sha = synthetic_commit(ctx.nonce, "public-parent")
-    return ctx.derive(parents={"github/SoC-Labs/nanosoc-rm-negctl@%s" % sha: {
-        "public": True, "tree_path": "negctl",
-        "gitmodules": '[submodule "x"]\n\tpath = x\n\turl = git@github.com:SoC-Labs/nanosoc-rm-negctl-x.git\n'}})
+    if ctx.parents is not None:
+        return ctx.derive(parents={"github/SoC-Labs/nanosoc-rm-negctl@%s" % sha: {
+            "public": True, "tree_path": "negctl",
+            "gitmodules": '[submodule "x"]\n\tpath = x\n\turl = git@github.com:SoC-Labs/nanosoc-rm-negctl-x.git\n'}})
+    ssh = "git@%s:SoC-Labs/nanosoc-rm-negctl-x.git" % NEGCTL_HOST
+    absent = ctx.workdir / "negctl-absent.git"           # its https form leads nowhere, without a DNS lookup
+    return _scratch_superproject(ctx, "no-ssh", pins=[("negctl/x", ssh)],
+                                 routes={"https://%s/SoC-Labs/nanosoc-rm-negctl-x.git" % NEGCTL_HOST: str(absent)})
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -526,10 +617,7 @@ def _walk_manifests(ctx: Context) -> tuple[list[tuple[str, str | None, str]], in
 
 def _manifest_check(ctx: Context) -> tuple[str, str]:
     items = ctx._begin("t0.manifest.valid")
-    if ctx.manifests_override is not None:
-        manifests, unfetched = ctx.manifests_override, 0
-    else:
-        manifests, unfetched = _walk_manifests(ctx)
+    manifests, unfetched = _walk_manifests(ctx)
     if not manifests:
         return "SKIP", "no %s at any pinned commit%s" % (
             MANIFEST, "" if not unfetched else " (%d tree%s not fetched)" % (unfetched, "" if unfetched == 1 else "s"))
@@ -554,10 +642,9 @@ def _manifest_check(ctx: Context) -> tuple[str, str]:
 
 
 def _manifest_control(ctx: Context) -> Context:
-    """A manifest whose version is "1.0", not SemVer: the only defect."""
+    """A scratch superproject whose manifest's version is "1.0", not SemVer: the only defect."""
     bad = dict(_MANIFEST_DOC, version="1.0")
-    return ctx.derive(manifests_override=[("negctl", synthetic_commit(ctx.nonce, "manifest"),
-                                           yaml.safe_dump(bad, sort_keys=False))])
+    return _scratch_superproject(ctx, "manifest", files={MANIFEST: yaml.safe_dump(bad, sort_keys=False)})
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -663,42 +750,35 @@ def _upgrade_control(ctx: Context) -> Context:
 # t0.vendor.no-arm-ip (D2, D11)
 # ---------------------------------------------------------------------------------------------------------
 def _vendor_check(ctx: Context) -> tuple[str, str]:
+    from nanosoc_rm.scan import scan as scanmod
     from nanosoc_rm.scan.rules import RulesError, rule_set
-    from nanosoc_rm.scan.scan import scan_dir, scan_tree
     from nanosoc_rm.scan.toolkit import toolkit
     items = ctx._begin("t0.vendor.no-arm-ip")
     try:
         rules, tk = rule_set(), toolkit()       # $RM_SCAN_RULES, $RM_SCAN_TOOLKIT: compat-ci's pinned copies
     except RulesError as e:
         return "UNVERIFIED", "scanner rules unusable: %s" % e
-    targets: list[tuple[str, Any]] = []
-    if ctx.trees_override is not None:
-        targets = [(tp, ("dir", path)) for tp, path in ctx.trees_override]
-    else:
-        root = ctx.walk()
-        if root is None:
-            return "UNVERIFIED", "no request: nothing to scan"
-        for p in [root] + list(iter_pins(root)):
-            tp = p.tree_path or "."
-            up = None if p is root else ctx.unfetched_ancestor(p)
-            if up is not None or not ctx.pinned_ok(p):
-                ctx._add(items, {"tree_path": tp, "component": None, "commit": p.commit,
-                                 "host": ctx.git.host_of(p.resolved or p.url), "result": "not-reached",
-                                 "why": "not fetched (t0.pins.fetchable), so not scanned"})
-                continue
-            targets.append((tp, ("tree", p)))
-    cache: dict[tuple, Any] = {}
+    root = ctx.walk()
+    if root is None:
+        return "UNVERIFIED", "no request: nothing to scan"
+    cache: dict[str, Any] = {}
     found = []
-    for tp, (kind, obj) in targets:
-        if kind == "dir":
-            res, commit, host = scan_dir(obj, rules, toolkit=tk), None, None
-        else:
-            f = ctx.git.fetch_commit(obj.resolved or obj.url, obj.commit)
-            key = obj.commit                   # same commit, same tree, whichever URL served it
-            if key not in cache:
-                cache[key] = scan_tree(f.repo, obj.commit, rules, env=ctx.git.env, toolkit=tk)
-            res, commit, host = cache[key], obj.commit, ctx.git.host_of(obj.resolved or obj.url)
-        item = {"tree_path": tp, "component": None, "commit": commit, "host": host}
+    for p in [root] + list(iter_pins(root)):
+        tp = p.tree_path or "."
+        item = {"tree_path": tp, "component": None, "commit": p.commit, "host": ctx.git.host_of(p.resolved or p.url)}
+        up = None if p is root else ctx.unfetched_ancestor(p)
+        if up is not None or not ctx.pinned_ok(p):
+            ctx._add(items, dict(item, result="not-reached", why="not fetched (t0.pins.fetchable), so not scanned"))
+            continue
+        try:
+            if p.commit not in cache:           # same commit, same tree, whichever URL served it
+                f = ctx.git.fetch_commit(p.resolved or p.url, p.commit)
+                cache[p.commit] = scanmod.scan_tree(f.repo, p.commit, rules, env=ctx.git.env, toolkit=tk)
+            res = cache[p.commit]
+        except Exception as e:                  # one tree's problem stays that tree's item
+            msg = str(e).splitlines()[0] if str(e) else ""
+            ctx._add(items, dict(item, result="unverified", why="scan raised %s: %s" % (type(e).__name__, msg[:200])))
+            continue
         if res.verdict == "finding":
             locs = ["%s at %s:%s" % (h["rule"], h["file"], h["line"] if h["line"] is not None else "-")
                     for h in res.findings[:5]]
@@ -721,12 +801,11 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
 
 
 def _vendor_control(ctx: Context) -> Context:
-    """A scratch tree with the arm.banner specimen planted in a file."""
+    """A scratch superproject with the arm.banner specimen planted in a committed file: fetched by the walk and
+    scanned by scan_tree (and the toolkit scanner, in place) like every real tree."""
     from nanosoc_rm.scan.rules import specimen
-    d = ctx.git._slot("vendor-negctl", ctx.nonce)
-    (d / "rtl").mkdir(parents=True, exist_ok=True)
-    (d / "rtl" / "planted.v").write_text(specimen("arm.banner") + "\nmodule planted; endmodule\n")
-    return ctx.derive(trees_override=[("negctl", d)])
+    return _scratch_superproject(ctx, "vendor",
+                                 files={"rtl/planted.v": specimen("arm.banner") + "\nmodule planted; endmodule\n"})
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1029,7 +1108,8 @@ def rollup(rows: list[dict], scope: str) -> list[dict]:
 def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: list[dict]) -> tuple[list[dict], list[dict]]:
     """GATE2 Q1 (README section 6): (gates with WAIVED, raw_verdict and waived set where every non-pass item is
     covered, the waivers that covered nothing). An item is covered by a waiver naming its gate, tree path and
-    result, or, when it is `not-reached`, by a directly covered item above it in the same gate. A gate becomes
+    result, or, when it is `not-reached`, by a directly covered item above it in the same gate (the superproject's
+    item, tree path '.', is above every other). A gate becomes
     WAIVED only when its verdict is FAIL or UNVERIFIED, its control fired, it has at least one non-pass item and
     every one is covered. Pure: the inputs are never changed."""
     out, used = [], set()
@@ -1054,7 +1134,8 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
             if (tp, i["result"]) in direct:
                 cover, n = tp, direct[(tp, i["result"])]
             elif i["result"] == "not-reached":
-                cover = next((t for t in sorted(covered_paths, key=len, reverse=True) if tp.startswith(t + "/")), None)
+                cover = next((t for t in sorted(covered_paths, key=len, reverse=True)
+                              if (t == "." and tp != ".") or tp.startswith(t + "/")), None)
                 n = covered_paths.get(cover) if cover is not None else None
             else:
                 cover = None

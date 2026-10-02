@@ -7,21 +7,27 @@ Job contract:
 1. **Input** is one pipeline variable, `RM_REQUEST` (result-bundle.schema.json#/$defs/rm_request). Missing or
    invalid: the runner writes no verdict rows (it has no nonce to stamp), says why on stderr and exits 3.
 2. **Environment.** HOME and TMPDIR are listed before anything is written (t0.runner.hardened checks they were
-   empty at start). Before the first git call every `CI_*TOKEN*`, `CI_*PASSWORD*` and `CI_JOB_JWT*` variable and
-   the ssh agent socket are removed from the process environment. The one exception is the `@registry` job's
-   single fetch of the private registry (GATE2 Q3): CI_JOB_TOKEN is held in a local variable, handed to that one
-   git call through a credential helper's environment (never the argv or a URL), then dropped. Every git call is
-   isolated (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`), never prompts, and uses ssh BatchMode.
+   empty at start). Before the first git call every `CI_*TOKEN*`, `CI_*PASSWORD*` and `CI_JOB_JWT*` variable, every
+   variable whose value carries a credential (CI_REPOSITORY_URL holds CI_JOB_TOKEN; any URL with a password; any
+   value holding the token) and the ssh agent socket are removed from the process environment. The one exception
+   is the `@registry` job's single fetch of the private registry (GATE2 Q3): CI_JOB_TOKEN is held in a local
+   variable, handed to that one git call through a credential helper's environment (never the argv or a URL),
+   then dropped. Every git call is isolated (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`), never
+   prompts, and uses ssh BatchMode. Negative controls route only the reserved `.invalid` URLs of their own scratch
+   repos (gates.NEGCTL_HOST) with url.insteadOf.
 3. **Gates** of the request's scope (`@registry`: the two registry gates; otherwise the eight configuration
    gates), each with its negative control in the same run. When `t0.infra.probe` reports INFRA the
    host-dependent gates are recorded INFRA without running (D7: an unreachable host is never a FAIL).
 4. **Output** `rm-bundle/`: `verdicts.tsv` (5 columns, every row stamped with the nonce), `items/<gate>.jsonl`,
    `provenance.json` and `logs/t0.log`.
 5. **finalise_bundle** is the last step, whatever happened before it: it scans `rm-bundle/`, deletes every
-   flagged or unscannable file, and records the scan in `provenance.scan` (locations only). The job uploads
-   `rm-bundle/` with `when: always`, so nothing the scan flags may still be there at upload time (D11).
+   flagged or unscannable file, and records the scan in `provenance.scan` (locations only). It is idempotent:
+   after_script runs it again, and a second run keeps the first one's findings and never improves its verdict.
+   The job uploads `rm-bundle/` with `when: always`, so nothing the scan flags may still be there at upload time
+   (D11).
 6. **Exit** 0 all PASS or SKIP, 1 any FAIL or UNVERIFIED (a control that did not fire included), 2 INFRA,
-   3 no usable RM_REQUEST. The service ignores the exit code and reads the bundle.
+   3 no usable RM_REQUEST. The service ignores the exit code and reads the bundle. `--json` prints the verdict
+   rows, one JSON document per line, after the bundle is final.
 
 `url_map` (a JSON file {URL: local repo}) is a test-only seam, refused when CI_JOB_ID is set.
 """
@@ -198,16 +204,43 @@ def run(out: str | os.PathLike, *, environ: dict | os._Environ = os.environ,
     return EXIT_OK
 
 
+_SEVERITY = {"clean": 0, "finding": 1, "unverified": 2}
+
+
+def _prior_scan(prov: object) -> dict | None:
+    """provenance.scan as an earlier finalise_bundle wrote it, or None (no prior scan: the runner's own
+    placeholder has tool "pending")."""
+    sc = prov.get("scan") if isinstance(prov, dict) else None
+    if not isinstance(sc, dict) or sc.get("tool") == "pending" or sc.get("verdict") not in _SEVERITY:
+        return None
+    ok = [f for f in sc.get("findings") or [] if isinstance(f, dict) and set(f) == {"rule", "file", "line"}
+          and isinstance(f["rule"], str) and isinstance(f["file"], str)
+          and (f["line"] is None or isinstance(f["line"], int))]
+    return {"verdict": sc["verdict"], "findings": ok}
+
+
 def finalise_bundle(dir: str | os.PathLike, rules=None, toolkit=None):
     """The job's last step before upload (D11): scan `dir` (this package's rules and $RM_SCAN_RULES, plus the
     toolkit scanner $RM_SCAN_TOOLKIT names), delete every flagged or unscannable file, and record the scan in
     provenance.json's `scan` (locations only, never text). When the scan cannot vouch for the files (a rule not
-    armed, a rule file or toolkit copy that cannot be used, a toolkit run that did not finish), every file but
-    provenance.json is deleted. Returns the ScanResult."""
+    armed, a rule file or toolkit copy that cannot be used, a toolkit run that did not finish, a flagged path that
+    is not there to delete), every file but provenance.json is deleted.
+
+    Idempotent: the job runs it at the end of `t0 run` and again in after_script. A scan an earlier call
+    recorded is merged in, never replaced: its findings are kept and the verdict only gets worse
+    (clean < finding < unverified). Returns the ScanResult of the merged scan."""
     from nanosoc_rm.scan.rules import RulesError, rule_set
     from nanosoc_rm.scan.scan import ScanResult, scan_dir
     from nanosoc_rm.scan.toolkit import toolkit as find_toolkit
     root = Path(dir)
+    prov_path = root / "provenance.json"
+    prov = None
+    if prov_path.is_file() and not prov_path.is_symlink():
+        try:
+            prov = json.loads(prov_path.read_text())
+        except ValueError:
+            prov = None
+    prior = _prior_scan(prov)
     try:
         rs = rules or rule_set()
         tk = toolkit if toolkit is not None else find_toolkit()
@@ -216,28 +249,29 @@ def finalise_bundle(dir: str | os.PathLike, rules=None, toolkit=None):
         res = ScanResult("unverified", [], n, {}, "nanosoc-rm scan", "rules unusable: %s" % e)
     else:
         res = scan_dir(root, rs, toolkit=tk)
-    prov_path = root / "provenance.json"
-    if res.verdict == "unverified" and res.files_scanned:
-        doomed = [p.relative_to(root).as_posix() for p in root.rglob("*")
-                  if (p.is_file() or p.is_symlink()) and p != prov_path]
-    else:
-        doomed = list(res.flagged_files)
+    verdict, why = res.verdict, res.why
+    if prior is not None and _SEVERITY[prior["verdict"]] > _SEVERITY[verdict]:
+        verdict, why = prior["verdict"], "an earlier scan of this bundle was %s" % prior["verdict"]
+    everything = lambda: [p.relative_to(root).as_posix() for p in root.rglob("*")
+                          if (p.is_file() or p.is_symlink()) and p != prov_path]
+    doomed = everything() if verdict == "unverified" else list(res.flagged_files)
+    missing = [rel for rel in doomed if not ((root / rel).is_symlink() or (root / rel).exists())]
+    if missing:                            # a flagged name that names no file here: the scan cannot vouch
+        verdict, why = "unverified", "%d flagged path(s) not found to delete" % len(missing)
+        doomed = everything()
     for rel in doomed:
         p = root / rel
         if p.is_symlink() or p.is_file():
             p.unlink()
         elif p.is_dir():
             shutil.rmtree(p)
-    if prov_path.is_file() and not prov_path.is_symlink():
-        try:
-            prov = json.loads(prov_path.read_text())
-        except ValueError:
-            prov = None
-        if isinstance(prov, dict):
-            scan = {"tool": res.tool, "verdict": res.verdict, "findings": list(res.findings)}
-            prov["scan"] = scan
-            prov_path.write_text(json.dumps(prov, indent=2) + "\n")
-    return res
+    findings = list(prior["findings"]) if prior else []
+    findings += [f for f in res.findings if f not in findings]
+    flagged = list(dict.fromkeys(f["file"] for f in findings))
+    if isinstance(prov, dict):
+        prov["scan"] = {"tool": res.tool, "verdict": verdict, "findings": findings}
+        prov_path.write_text(json.dumps(prov, indent=2) + "\n")
+    return ScanResult(verdict, findings, res.files_scanned, res.armed, res.tool, why, flagged)
 
 
 def main(argv: list[str] | None = None) -> int:

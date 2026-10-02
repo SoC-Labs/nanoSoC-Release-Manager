@@ -1,8 +1,9 @@
 """CLI commands of the t0 module (interfaces.md section 9).
 
 - `nanosoc-rm tiers [CONFIG] [--json]`: the tier table (D1). Exit 0, or 1 if the table itself is invalid.
-- `nanosoc-rm t0 run --out DIR`: the CI job (compat-ci only). The runner is imported inside the command, so the
-  service process, which imports every plug-in, never imports it (AT-A4).
+- `nanosoc-rm t0 run --out DIR [--json]`: the CI job (compat-ci only); prints the bundle's verdict rows. The
+  runner is imported inside the command, so the service process, which imports every plug-in, never imports it
+  (AT-A4).
 - `nanosoc-rm t0 finalise DIR [--json]`: the bundle's last step on its own (the job's after_script runs it again,
   so a job killed mid-run still uploads nothing the scan flags). Exit 0 clean, 1 finding, 2 unverified.
 
@@ -40,8 +41,11 @@ def register(main: click.Group) -> None:
                   help="The bundle directory the job uploads.")
     @click.option("--url-map", "url_map", default=None, type=click.Path(dir_okay=False, exists=True, path_type=Path),
                   help="TESTS ONLY: JSON {URL: local repo}. Refused when CI_JOB_ID is set.")
-    def run_cmd(out: Path, url_map: Path | None) -> int:
-        """Run T0 for the RM_REQUEST pipeline variable and write the bundle (compat-ci job t0 only)."""
+    @json_option
+    def run_cmd(out: Path, url_map: Path | None, as_json: bool) -> int:
+        """Run T0 for the RM_REQUEST pipeline variable and write the bundle (compat-ci job t0 only). Prints the
+        verdict rows the bundle holds once it is final."""
+        from nanosoc_rm.contracts import parse_verdict_row
         from nanosoc_rm.t0 import runner              # never at import time: the service must not load it
         mapping = None
         if url_map is not None:
@@ -50,7 +54,11 @@ def register(main: click.Group) -> None:
             except ValueError as e:
                 click.echo("nanosoc-rm t0 run: --url-map is not JSON: %s" % e, err=True)
                 return EXIT_USAGE
-        return runner.run(out, url_map=mapping)
+        code = runner.run(out, url_map=mapping)
+        tsv = Path(out) / "verdicts.tsv"
+        rows = [parse_verdict_row(x) for x in tsv.read_text().splitlines() if x] if tsv.is_file() else []
+        emit(rows, as_json, columns=("status", "gate", "detail"), row=lambda r: r)
+        return code
 
     @t0.command("finalise")
     @click.argument("directory", type=click.Path(file_okay=False, exists=True, path_type=Path))

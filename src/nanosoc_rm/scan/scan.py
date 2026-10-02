@@ -10,7 +10,8 @@ The method is the toolkit's `check-vendor-collateral.sh`:
 Findings are LOCATIONS ONLY: `{rule, file, line}`. The matched text is never returned, logged or stored,
 because the log of a scan is itself a copy. A file that cannot be scanned (unreadable, a symlink in a bundle,
 larger than MAX_FILE_BYTES) is a finding of rule `scan.unscannable` with line null: the caller deletes it like
-any flagged file.
+any flagged file. A tree path that is not UTF-8 is scanned like any other and named with its bad bytes written
+`\\xNN` (path_label).
 
 Two engines, one result:
 
@@ -32,7 +33,8 @@ from typing import Iterable, Iterator, Literal
 
 from nanosoc_rm.gitrun import run_git
 from nanosoc_rm.scan.rules import RuleSet, RulesError, arm, rule_set
-from nanosoc_rm.scan.toolkit import ARMED_KEY, Toolkit, ToolkitRun, run_toolkit, scan_dir_toolkit, toolkit
+from nanosoc_rm.scan.toolkit import (ARMED_KEY, Toolkit, ToolkitRun, path_label, run_toolkit, scan_dir_toolkit,
+                                    toolkit)
 
 __all__ = ["ScanResult", "scan_dir", "scan_paths", "scan_tree", "scan_texts", "MAX_FILE_BYTES", "UNSCANNABLE"]
 
@@ -160,7 +162,8 @@ def scan_dir(path: str | os.PathLike, rules: RuleSet | None = None, toolkit=_FRO
     res = scan_texts(_dir_items(root), rules)
     tk, broken = _toolkit_or_why(toolkit)
     if broken or (tk is not None and res.files_scanned):
-        return _merge(res, scan_dir_toolkit(tk, root) if tk is not None else None, tk, broken)
+        return _merge(res, scan_dir_toolkit(tk, root, expect_files=res.files_scanned) if tk is not None else None,
+                      tk, broken)
     return res
 
 
@@ -173,7 +176,7 @@ def scan_paths(paths: list[str | os.PathLike], rules: RuleSet | None = None) -> 
 def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | None,
                 isolate: bool) -> Iterator[tuple[str, bytes | None]]:
     ls = run_git("ls-tree", "-r", "-l", "-z", "--full-tree", commit, cwd=repo, env=env, isolate=isolate,
-                 timeout=300).check()
+                 timeout=300, text=False).check()
     batch: list[tuple[str, str]] = []
     size = 0
 
@@ -196,11 +199,12 @@ def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | N
             pos = nl + 1 + n + 1
         batch.clear()
 
-    for entry in ls.stdout.split("\0"):
+    for entry in ls.stdout.split(b"\0"):
         if not entry:
             continue
-        meta, rel = entry.split("\t", 1)
-        mode, kind, sha, bsize = meta.split()
+        raw_meta, raw_rel = entry.split(b"\t", 1)
+        mode, kind, sha, bsize = raw_meta.decode("ascii").split()
+        rel = path_label(raw_rel)
         if kind != "blob":
             continue                              # gitlinks are other trees, scanned on their own
         rel = (prefix + "/" + rel) if prefix else rel

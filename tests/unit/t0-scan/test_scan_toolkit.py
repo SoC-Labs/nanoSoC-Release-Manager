@@ -204,16 +204,19 @@ def test_finalise_bundle_with_an_unusable_toolkit_keeps_only_provenance(at, tmp_
     assert json.loads((b / "provenance.json").read_text())["scan"]["verdict"] == "unverified"
 
 
-def test_vendor_gate_uses_the_toolkit_and_a_broken_one_is_unverified(tmp_path, monkeypatch):
+def test_vendor_gate_uses_the_toolkit_and_a_broken_one_is_unverified(at, tmp_path, monkeypatch):
     from nanosoc_rm.t0 import gates
-    tree = bundle(tmp_path / "tree", {"lib/cells.lef": "x\n", "rtl/a.v": "module a; endmodule\n"})
-    ctx = gates.Context.for_tests(nonce="3" * 32, workdir=tmp_path / "w")
-    ctx.trees_override = [("ASIC/x", tree)]
+    bare = tmp_path / "rm-tk.git"
+    sha = at.fx_commit(bare, files={"lib/cells.lef": "x\n", "rtl/a.v": "module a; endmodule\n"}, ref="refs/heads/main")
+    req = {"configuration": "rm-tk", "repo": {"host": "github", "path": "SoC-Labs/rm-tk"}, "commit": sha,
+           "upgrade_from": None, "canonical_urls": {}}
+    ctx = gates.Context.for_tests(nonce="3" * 32, workdir=tmp_path / "w", request=req,
+                                  url_map={"https://github.com/SoC-Labs/rm-tk.git": str(bare)})
     monkeypatch.setenv(TOOLKIT_ENV, str(fake_toolkit(tmp_path / "tk")))
     status, detail = gates.GATES["t0.vendor.no-arm-ip"].check(ctx)
-    assert status == "FAIL" and "ASIC/x" in detail
+    assert status == "FAIL" and "1 with findings" in detail, detail
     (item,) = ctx.items("t0.vendor.no-arm-ip")
-    assert "file.ext at lib/cells.lef:-" in item["why"]
+    assert item["tree_path"] == "." and "file.ext at lib/cells.lef:-" in item["why"]
     monkeypatch.setenv(TOOLKIT_ENV, str(tmp_path / "absent.sh"))
     status, detail = gates.GATES["t0.vendor.no-arm-ip"].check(ctx)
     assert status == "UNVERIFIED" and "not a file" in detail

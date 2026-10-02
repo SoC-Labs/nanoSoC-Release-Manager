@@ -16,7 +16,8 @@ Two walks share one pass over the tree (interfaces.md section 9):
   still listed (G15 in the gate-2 gap index).
 
 `url_map` (tests only; Context refuses it under CI_JOB_ID) routes URLs to local repos with `url.insteadOf`
-in a per-run git config file, so the gates run the same git commands as in a real job.
+in a per-run git config file, so the gates run the same git commands as in a real job. In a real job the only
+routes are the negative controls' own: reserved `.invalid` URLs of scratch repos they built (gates.NEGCTL_HOST).
 """
 from __future__ import annotations
 
