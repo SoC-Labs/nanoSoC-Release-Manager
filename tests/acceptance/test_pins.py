@@ -1225,7 +1225,6 @@ def test_AT_B1_negative_control(tmp_path):
 # ============================================================================================
 @pytest.mark.requirement("B2")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B2(live):
     # Given eth-rc4 registered frozen at ab73e40 and every repo in its tree mirrored
     # When the walker resolves it from that commit's own .gitmodules and gitlinks
@@ -1243,7 +1242,6 @@ def test_AT_B2(live):
 
 @pytest.mark.requirement("B2")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B2_negative_control(live):
     # Given a different real tree: eth main frozen at its 2026-09-30 head (43 pins, 13 shared with rc4)
     with live.active():
@@ -1300,7 +1298,6 @@ def test_AT_B3(request, hermetic):
 
 @pytest.mark.requirement("B3")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B3_negative_control(request, hermetic):
     # Hermetic half first (see test_AT_B3).
     # Given the hermetic table with tag v1.0.0 deleted on the host after the fixture was built
