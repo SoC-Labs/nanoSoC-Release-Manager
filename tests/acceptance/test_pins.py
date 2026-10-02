@@ -1523,7 +1523,6 @@ def test_AT_B6_negative_control(shadow):
 # AT-B8
 # ============================================================================================
 @pytest.mark.requirement("B8")
-@NOT_BUILT
 def test_AT_B8(hermetic):
     # Given a local test repo standing in for a GitLab repo, main = A-B-C-D-E, mirrored once,
     # and a registered frozen configuration pinning D
@@ -1557,7 +1556,6 @@ def test_AT_B8(hermetic):
 
 
 @pytest.mark.requirement("B8")
-@NOT_BUILT
 def test_AT_B8_negative_control(hermetic):
     # Given the same fixture, mirrored once
     fx = build_rewrite_fixture(hermetic)
