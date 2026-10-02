@@ -210,7 +210,9 @@ class GitWork:
 
     def __init__(self, workdir: Path, *, url_map: Mapping[str, str] | None = None,
                  host_bases: Mapping[str, str] | None = None, extra_env: Mapping[str, str] | None = None):
-        self.workdir = Path(workdir)
+        # Absolute: git reads GIT_CONFIG_GLOBAL (the routing file under workdir) AFTER `-C <dir>`, so a relative
+        # workdir (`t0 run --out rm-bundle`) made every routed URL unreachable (the controls never fired).
+        self.workdir = Path(workdir).absolute()
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.url_map = dict(url_map or {})
         self.host_bases = {"github": GITHUB_WEB}

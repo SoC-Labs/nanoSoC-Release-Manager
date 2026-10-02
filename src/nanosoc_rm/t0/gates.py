@@ -105,7 +105,7 @@ class Context:
                  probe_urls: list[str] | None = None, start_listing: Mapping[str, list[str]] | None = None,
                  git_env: Mapping[str, str] | None = None):
         self.nonce = nonce
-        self.workdir = Path(workdir)
+        self.workdir = Path(workdir).absolute()            # see GitWork: git resolves paths after `-C`
         self.workdir.mkdir(parents=True, exist_ok=True)
         self.request = copy.deepcopy(request) if request else None
         self.parents = copy.deepcopy(parents) if parents is not None else None
@@ -790,11 +790,13 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
             ctx._add(items, dict(item, result="pass", why="%d files scanned, 0 findings" % res.files_scanned))
     scanned = sum(1 for i in items if i["result"] in ("pass", "fail"))
     detail = "%d of %d trees scanned, %d with findings" % (scanned, len(items), len(found))
+    if found:                       # the list belongs to "with findings", never to the not-fetched count after it
+        detail += ": " + ", ".join(found[:8]) + (" and %d more" % (len(found) - 8) if len(found) > 8 else "")
     nr = sum(1 for i in items if i["result"] == "not-reached")
     if nr:
-        detail += "; %d not fetched, so not scanned" % nr
+        detail += "; %d not fetched, so not scanned: %s" % (nr, _paths(items, "not-reached"))
     if found:
-        return "FAIL", detail + ": " + ", ".join(found[:8])
+        return "FAIL", detail
     if not items or any(i["result"] in ("unverified", "not-reached") for i in items):
         return "UNVERIFIED", detail
     return "PASS", detail

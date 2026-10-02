@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +84,8 @@ def test_vendor_scans_fetched_trees_only(tree, tmp_path):
     assert (row["status"], ctl["status"]) == ("UNVERIFIED", "PASS"), (row, ctl)
     assert {k: v["result"] for k, v in items.items()} == {
         ".": "pass", "sub-a": "pass", "sub-b": "not-reached", "sub-b/leaf": "not-reached", "sub-c": "pass"}
+    # Integration (eth-rc4 run): the not-fetched count names the trees it counts, not the trees with findings.
+    assert row["detail"].endswith("2 not fetched, so not scanned: sub-b, sub-b/leaf"), row["detail"]
 
 
 def test_captured_records_gitlinks_read_and_null_below_an_unfetched_parent(tree, tmp_path):
@@ -216,3 +219,17 @@ def test_importing_gates_does_not_import_the_runner():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          env=dict(os.environ, NANOSOC_RM_CONFIG=""))
     assert out.stdout.strip() == "False", out.stderr
+
+
+@pytest.mark.parametrize("gid", ["t0.pins.fetchable", "t0.manifest.valid", "t0.vendor.no-arm-ip"])
+def test_controls_fire_when_the_work_dir_is_relative(tmp_path, monkeypatch, gid):
+    """Integration (found running T0 locally on eth-rc4): `t0 run --out rm-bundle` makes the work dir the RELATIVE
+    path rm-bundle.work. The controls' routing file (GIT_CONFIG_GLOBAL) was then a relative path, which git reads
+    after `-C <fetch dir>`, so the routed scratch repo was never found: the fetchable control reported INFRA, the
+    manifest control SKIP and the vendor control UNVERIFIED, i.e. none fired. Here no url_map is given (as in a
+    real job) and the control's own scratch superproject is the only route."""
+    monkeypatch.chdir(tmp_path)
+    ctx = gates.Context.for_tests(nonce="ef" * 16, workdir=Path("rm-bundle.work"))
+    gate = gates.GATES[gid]
+    status, detail = gates._safe_check(gate, gate.control(ctx))
+    assert status == "FAIL", (status, detail)
