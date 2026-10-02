@@ -2174,7 +2174,6 @@ def test_AT_A1():
 
 
 @pytest.mark.requirement("A1")
-@NOT_BUILT
 def test_AT_A1_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: a consistent inventory passes; unclassified, truncated at a page boundary,
     # duplicated in the catalogue and mis-roled each fail.
