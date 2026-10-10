@@ -5,6 +5,8 @@
                                                                    never walked; 3 no / several commits
     nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]  1 any row uncovered; else 2 any pin not judged
     nanosoc-rm detect DEFECT DETECTOR --input PATH [--json]        0 clean; 1 fired; 2 could not run
+    nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]   (CR8)
+                                                                   0 no deletable branch; 1 some; 2 no mirror
 
 Every command: 3 for a usage problem (unknown component, configuration, defect or detector), 2 when the data
 to answer is missing (no stored walk, no mirror, an invalid registry, a detector that could not run). When only
@@ -56,6 +58,15 @@ def _protect_row(d: dict) -> dict:
     return {"configuration": f["configuration"], "component": f["component"], "commit": f["commit"][:12],
             "host": f["repo"]["host"], "role": role, "state": f["state"], "covered": "yes" if f["covered"] else "NO",
             "covering_tags": " ".join(f["covering_tags"]), "tree_paths": " ".join(f["tree_paths"])}
+
+
+def _branch_row(d: dict) -> dict:
+    f = d["fact"]
+    return {"branch": f["branch"], "verdict": f["verdict"], "tip": f["tip"][:12], "ahead": f["ahead"], "behind": f["behind"],
+            "last_commit": f["last_commit_at"][:10], "tags": " ".join(f["tags"]),
+            "pins": " ".join(sorted({"%s:%s" % (p["configuration"], p["tree_path"]) for p in f["pins"]})),
+            "cited": " ".join(sorted({"%s#%s" % (c["file"], c["pointer"]) for c in f["cited"]})),
+            "deletable": "yes" if f["deletable"] else ""}
 
 
 def register(main: click.Group) -> None:
@@ -137,3 +148,39 @@ def register(main: click.Group) -> None:
                                             if d["detector_source"] else "pattern in the record"),
                         "command": d["command"]})
         return EXIT_FINDING if doc["result"] == "fired" else EXIT_OK
+
+    @main.command("branches")
+    @click.argument("target")
+    @click.option("--all", "all_repos", is_flag=True, help="Every repo of the component (canonical and copies), not only the canonical.")
+    @click.option("--delete-list", is_flag=True,
+                  help="Print only the deletable branches (MERGED or STALE, no pin, no citation, no tag) as "
+                       "`git push origin --delete <branch>` lines for a person to review. Never run by the tool.")
+    @click.option("--stale-days", type=click.IntRange(0), default=None, show_default="90",
+                  help="An unmerged, unheld branch whose last commit is older than this is STALE.")
+    @click.option("--sync", "sync", is_flag=True, help="Fetch the component's mirror first (mirror sync --component).")
+    @json_option
+    def branches_cmd(target: str, all_repos: bool, delete_list: bool, stale_days: int | None, sync: bool,
+                     as_json: bool) -> int:
+        """CR8: every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the
+        default branch, merged, tags on the tip, registered pins and registry citations reaching into it, and a
+        verdict MERGED | PROTECTED | PINNED | STALE | ACTIVE. Exit 0 when nothing is deletable, 1 when
+        something is, 2 when there is no mirror (use --sync) or a repo could not be judged."""
+        from nanosoc_rm.analysis.branches import DEFAULT_STALE_DAYS, branches, delete_commands
+        from nanosoc_rm.analysis.branches import delete_list as deletable_rows
+        try:
+            docs = branches(target, all_repos=all_repos, sync=sync,
+                            stale_days=DEFAULT_STALE_DAYS if stale_days is None else stale_days)
+        except AnalysisError as e:
+            return _fail(e)
+        dele = deletable_rows(docs)
+        if delete_list:
+            if as_json:
+                emit(dele, True)
+            else:
+                for line in delete_commands(dele) or ["# nothing to delete: no MERGED or STALE branch without a pin, citation or tag"]:
+                    click.echo(line)
+        else:
+            emit(docs, as_json, ("branch", "verdict", "tip", "ahead", "behind", "last_commit", "tags", "pins", "cited",
+                                 "deletable"), _branch_row)
+        gaps = _unanswered(docs)
+        return exit_code(findings=bool(dele), unverified=gaps)

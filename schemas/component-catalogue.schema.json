@@ -30,9 +30,44 @@
           "reason": { "type": "string", "minLength": 1 }
         }
       }
+    },
+    "vendor_allowlist": {
+      "description": "CR-6a (D2, D11; David's U1 decision, 2026-10-10): scanner findings the registry owner has judged. The no-arm-ip gate treats a finding matched by an `allow` entry as clean (recorded as allowed in the item's `why`) and a finding matched by a `warn` entry as WARN (amber: listed, never FAIL, never hidden). A finding no entry matches stays FAIL. Optional; added without a schema bump (README section 2 rule 4).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/vendor_allow" }
     }
   },
   "$defs": {
+    "vendor_allow": {
+      "type": "object",
+      "required": ["rule", "match", "severity", "reason", "approved_by", "approved_on"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {
+          "description": "The scanner rule id the entry covers (e.g. arm.banner), gate-id style.",
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*(\\.[a-z0-9][a-z0-9_-]*)+$"
+        },
+        "match": {
+          "description": "What the entry covers; every key given must hold. `component`: the catalogue component (or external) whose tree holds the file. `path_glob`: fnmatch glob on the file's path inside that tree (`*` crosses `/`). `file_sha`: the blob id of the file, so the entry stops covering a changed file.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+            "path_glob": { "type": "string", "minLength": 1 },
+            "file_sha": { "$ref": "defs.schema.json#/$defs/sha" }
+          }
+        },
+        "severity": {
+          "description": "`allow`: the finding is clean. `warn`: the gate row is WARN and names the item. There is no `block`: an uncovered finding is FAIL already.",
+          "enum": ["allow", "warn"]
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "approved_by": { "type": "string", "minLength": 1 },
+        "approved_on": { "$ref": "defs.schema.json#/$defs/date" }
+      }
+    },
     "component": {
       "type": "object",
       "required": ["id", "class", "canonical"],

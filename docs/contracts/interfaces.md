@@ -264,6 +264,35 @@ def silicon_protection(configuration: str | None = None) -> list[dict]   # kind 
 - **CLI:** `nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]`. Exit 1 if any row is uncovered.
 - **Golden (2026-09-30, `observation.example.jsonl`):** eth-rc4 gives 13 rows. The 11 pinned-host rows are all covered by `keep/eth-rc4/*` (the B5 done-when). The 2 canonical-host rows are uncovered: nanosoc_arch_tech `ecf76aa` is BRANCH_ONLY on GitHub, and ahb_qspi `e908ac8` is MISSING on GitHub. `--uncovered` therefore exits 1 today.
 
+## 7a. Branch inventory (CR8, MVP S1)
+
+Requirement: CR8 (`docs/CHANGES.md`); reads only sections 3 and 4 data.
+
+```python
+def branches(target: str, *, all_repos=False, stale_days=90, sync=False) -> Answer   # kind branch_state; one snapshot per repo
+def delete_list(docs) -> list[dict]                                                   # the deletable rows
+def delete_commands(docs, remote="origin") -> list[str]                                # TEXT for a person; never run
+```
+
+- **Target:** a catalogue component or external id (its canonical repo; `all_repos` adds the copies), or one repo as
+  `<host>:<path>`. Everything is read from the component mirror; no host is asked. No mirror → CannotAnswer (exit 2)
+  unless `sync=True` fetched it first (`mirror.sync_component`).
+- **Per branch** (every head of the repo's namespace but the default branch): `tip`; `ahead`/`behind` the default
+  branch (`rev-list --left-right --count`); `merged` (`merge-base --is-ancestor tip default`); `last_commit_at`
+  (committer date); `tags` whose tip IS the branch tip (`keep_tags` the `keep/*` subset); `pins`: every pin of every
+  stored walk (section 4 "Storage", never re-walked) of this component whose commit the tip reaches and the default
+  branch does not; `cited`: the registry's structured citations of this component (section 9 `registry_citations`)
+  reached the same way. A commit the mirror does not hold is reached by nothing.
+- **Verdict**, first match: `MERGED`, `PROTECTED` (a tag on the tip), `PINNED` (a pin or a citation), `STALE` (unmerged,
+  unheld, last commit older than `stale_days`), `ACTIVE`. `deletable` = MERGED or STALE with no pin, no citation and
+  no tag; the schema refuses `deletable: true` beside a pin, a citation or a tag.
+- **CLI:** `nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]`. `--delete-list`
+  prints one `git push origin --delete <branch>` line per deletable branch under a comment naming the repo, as text
+  for a person (A2: the tool never deletes; the git runner refuses push). Exit 0 nothing deletable, 1 something is,
+  2 no mirror or a repo not judged, 3 unknown target.
+- **Observation:** `branch_state` (observation.schema.json `$defs/branch_state`, added as an optional kind without a
+  schema bump; README section 4 row). Example `observation.branch-state.example.jsonl`.
+
 ## 8. Rewrite detector and alerts
 
 Requirement: B8. Runs inside `sync_component` for each repo's default branch.
@@ -394,7 +423,7 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 | `t0.urls.no-ssh-public` | no | no public parent (one that is fetchable anonymously) pins by an ssh URL (`git@…`, `ssh://…`) | a synthetic public parent with a `git@` URL | D2 |
 | `t0.manifest.valid` | yes | every `nanosoc-component.yaml` at every pinned commit validates against component-manifest v1. None anywhere → SKIP | the example manifest with `version: "1.0"` | D2, C11 |
 | `t0.clone.upgrade-path` | yes | if `upgrade_from`: anonymous recursive clone of it, check out `commit`, `git submodule update --init --recursive` **without** sync must resolve every pin; then `git submodule sync --recursive` and update again. No `upgrade_from` → SKIP | a synthetic pair where the second commit moves a submodule to a new URL and pins a commit the old URL does not serve (a host move whose old host was frozen: breaking under C8) | D2 |
-| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11). A tree that was not fetched is not scanned, so the gate is UNVERIFIED | a scratch copy with a planted Arm banner file | D2, D11 |
+| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11). A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). README section 6 rolls a WARN row up as UNVERIFIED (amber) until a CR changes that table. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
 
 **Registry job** (`configuration: "@registry"`, `repo` = the registry repo, `commit` = its `main` head):
 
@@ -518,6 +547,12 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
   1. Arm every rule against an invented specimen, and a counter-specimen for the near miss, before scanning. A rule that does not fire on its specimen makes the scan `unverified`.
   2. Census the corpus: zero files scanned is `unverified`.
   3. Allowlist entries each carry a reason and an owner.
+  4. **CR-6a, catalogue `vendor_allowlist`** (component-catalogue.schema.json `vendor_allow`; `nanosoc_rm.scan.allowlist`):
+     `{rule, match: {component?, path_glob?, file_sha?}, severity: allow|warn, reason, approved_by, approved_on}`.
+     `scan_tree(..., allowlist=, component=)` sorts findings into `findings` (uncovered), `warnings` (warn-covered)
+     and `allowed`, each covered one naming its entry; the verdict is `finding` > `warn` > `clean`, and `unverified`
+     is never changed by the allowlist. `scan_dir` (bundles) takes no allowlist: a bundle is deleted or kept, never
+     warned about. An `allow` entry wins over a `warn` entry for one finding.
 - **Rules:**
   - the toolkit scanner's rule set: foundry file, value and inventory shapes, and Arm product codes;
   - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header. The toolkit scanner has no such rule. D11's done-when plants exactly this banner. Its specimen is invented; no vendor text is ever written into this repo.

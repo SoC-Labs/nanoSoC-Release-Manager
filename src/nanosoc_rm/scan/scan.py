@@ -44,17 +44,24 @@ UNSCANNABLE = "scan.unscannable"
 
 @dataclass
 class ScanResult:
-    verdict: Literal["clean", "finding", "unverified"]
-    findings: list[dict]                      # [{rule, file, line}], locations only
+    verdict: Literal["clean", "finding", "warn", "unverified"]
+    findings: list[dict]                      # [{rule, file, line}], locations only; uncovered by any allowlist
     files_scanned: int
     armed: dict[str, bool]                    # rule id -> fired on its specimen (and not on its near misses)
     tool: str = "nanosoc-rm scan"
     why: str = ""                             # why the verdict is unverified, when it is
-    flagged_files: list[str] = field(default_factory=list)   # distinct files with a finding, in order
+    flagged_files: list[str] = field(default_factory=list)   # distinct files with an uncovered finding, in order
+    # CR-6a: findings a catalogue vendor_allowlist entry covers (scan.allowlist.apply_allowlist), each with `by`.
+    # `warn` makes the verdict "warn" (the gate row WARN); `allowed` is clean and recorded only.
+    warnings: list[dict] = field(default_factory=list)
+    allowed: list[dict] = field(default_factory=list)
 
     def as_doc(self) -> dict:
-        return {"verdict": self.verdict, "findings": list(self.findings), "files_scanned": self.files_scanned,
-                "armed": dict(self.armed), "tool": self.tool, "why": self.why}
+        doc = {"verdict": self.verdict, "findings": list(self.findings), "files_scanned": self.files_scanned,
+               "armed": dict(self.armed), "tool": self.tool, "why": self.why}
+        if self.warnings or self.allowed:
+            doc["warnings"], doc["allowed"] = list(self.warnings), list(self.allowed)
+        return doc
 
 
 def _line_of(text: str, offset: int) -> int:
@@ -174,7 +181,8 @@ def scan_paths(paths: list[str | os.PathLike], rules: RuleSet | None = None) -> 
 
 
 def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | None,
-                isolate: bool) -> Iterator[tuple[str, bytes | None]]:
+                isolate: bool, shas: dict[str, str] | None = None) -> Iterator[tuple[str, bytes | None]]:
+    """(path, content) of every blob in the tree; `shas`, when given, is filled with path -> blob id."""
     ls = run_git("ls-tree", "-r", "-l", "-z", "--full-tree", commit, cwd=repo, env=env, isolate=isolate,
                  timeout=300, text=False).check()
     batch: list[tuple[str, str]] = []
@@ -208,6 +216,8 @@ def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | N
         if kind != "blob":
             continue                              # gitlinks are other trees, scanned on their own
         rel = (prefix + "/" + rel) if prefix else rel
+        if shas is not None:
+            shas[rel] = sha
         if bsize.isdigit() and int(bsize) > MAX_FILE_BYTES:
             yield rel, None
             continue
@@ -220,12 +230,19 @@ def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | N
 
 
 def scan_tree(repo: str | os.PathLike, commit: str, rules: RuleSet | None = None, prefix: str = "",
-              env: dict | None = None, isolate: bool = True, toolkit=_FROM_ENV) -> ScanResult:
+              env: dict | None = None, isolate: bool = True, toolkit=_FROM_ENV, allowlist=(),
+              component: str | None = None) -> ScanResult:
     """Scan the tree of `commit` in local repo `repo` (blobs must be present: a depth-1 fetch without a filter;
     the toolkit scanner also needs a non-bare repo). Finding paths are `prefix/<path in the tree>`. Reads
-    objects only; writes nothing in `repo`."""
-    res = scan_texts(_tree_items(repo, commit, prefix, env, isolate), rules)
+    objects only; writes nothing in `repo`.
+
+    `allowlist` (CR-6a): the catalogue's vendor_allowlist entries (scan.allowlist.VendorAllow), applied after
+    every engine has reported, with `component` as the tree's catalogue component: covered findings move to
+    `warnings` or `allowed`; the rest stay findings."""
+    from nanosoc_rm.scan.allowlist import apply_allowlist
+    shas: dict[str, str] = {}
+    res = scan_texts(_tree_items(repo, commit, prefix, env, isolate, shas), rules)
     tk, broken = _toolkit_or_why(toolkit)
     if broken or (tk is not None and res.files_scanned):
-        return _merge(res, run_toolkit(tk, repo, commit, prefix) if tk is not None else None, tk, broken)
-    return res
+        res = _merge(res, run_toolkit(tk, repo, commit, prefix) if tk is not None else None, tk, broken)
+    return apply_allowlist(res, tuple(allowlist), component, shas) if allowlist else res

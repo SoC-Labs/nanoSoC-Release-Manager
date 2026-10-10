@@ -1,0 +1,8 @@
+# expect-error: enum at /vendor_allowlist/0/severity ~ 'block'
+# CR-6a: severity is allow or warn only. There is no `block`: a finding no entry covers is FAIL already.
+schema: 1
+components:
+  - {id: tidechart, class: ip_tech, canonical: {host: gitlab, path: soclabs/tidechart}}
+vendor_allowlist:
+  - {rule: arm.banner, match: {component: tidechart}, severity: block,
+     reason: "never allowed", approved_by: David, approved_on: "2026-10-10"}

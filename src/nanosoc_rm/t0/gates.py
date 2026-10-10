@@ -747,10 +747,60 @@ def _upgrade_control(ctx: Context) -> Context:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# t0.vendor.no-arm-ip (D2, D11)
+# t0.vendor.no-arm-ip (D2, D11; CR-6a)
 # ---------------------------------------------------------------------------------------------------------
+def _catalogue_index(registry_dir: Path | None) -> dict[tuple[str, str], str]:
+    """(host, casefolded path) -> component or external id, for every catalogue repo (canonical, copies,
+    aliases, externals). {} without a registry checkout."""
+    if registry_dir is None or not (registry_dir / "catalogue.yaml").is_file():
+        return {}
+    cat = load_yaml((registry_dir / "catalogue.yaml").read_text()) or {}
+    out: dict[tuple[str, str], str] = {}
+    for c in cat.get("components") or []:
+        if not isinstance(c, dict) or not isinstance(c.get("id"), str):
+            continue
+        for r in [c.get("canonical")] + list(c.get("copies") or []) + list(c.get("aliases") or []):
+            if isinstance(r, dict) and isinstance(r.get("host"), str) and isinstance(r.get("path"), str):
+                out.setdefault((r["host"], r["path"].casefold()), c["id"])
+    for e in cat.get("external") or []:
+        r = e.get("repo") if isinstance(e, dict) else None
+        if isinstance(r, dict) and isinstance(e.get("id"), str) and isinstance(r.get("path"), str):
+            out.setdefault((r.get("host"), r["path"].casefold()), e["id"])
+    return out
+
+
+def _component_of(ctx: Context, index: Mapping[tuple[str, str], str], url: str | None) -> str | None:
+    host = ctx.git.host_of(url)
+    if url is None or host is None:
+        return None
+    return index.get((host, url_path(url).casefold()))
+
+
+def _locs(findings: list[dict], limit: int = 5) -> str:
+    out = ["%s at %s:%s%s" % (h["rule"], h["file"], h["line"] if h["line"] is not None else "-",
+                              (" (%s)" % h["by"]) if h.get("by") else "") for h in findings[:limit]]
+    more = len(findings) - limit
+    return "; ".join(out) + ("; and %d more" % more if more > 0 else "")
+
+
 def _vendor_check(ctx: Context) -> tuple[str, str]:
+    """Scan every fetched tree at its pinned commit (interfaces.md sections 9 and 11).
+
+    CR-6a (catalogue `vendor_allowlist`, David's U1 decision 2026-10-10): a finding an `allow` entry covers is
+    clean and is recorded as allowed in the item's `why`; a finding a `warn` entry covers keeps its item `pass`
+    (the gate_item result enum has no warn) with a `why` starting "WARN:", and makes the ROW status WARN when,
+    and only when, every finding in the run is warn-covered and every tree was scanned. An uncovered finding is
+    FAIL as before; a tree that was not fetched is UNVERIFIED as before (FAIL > UNVERIFIED > WARN > PASS).
+
+    Roll-up note: README section 6 maps a WARN row to gate verdict UNVERIFIED (shown amber, detail prefixed
+    "WARN:"), so a warn-only run rolls up UNVERIFIED-amber, not PASS and not FAIL, until a CR changes that table.
+    The allowlist is read from the registry checkout the runner fetched (`ctx.registry_dir`); without one, no
+    entry applies. The negative control plants its banner in a scratch superproject served at a reserved URL
+    that names no catalogue component, so a `component` entry never covers it; a path-only entry wide enough to
+    cover the planted file (`path_glob: "*"`) also stops the control firing, and the gate then reports
+    UNVERIFIED rather than a PASS the allowlist bought."""
     from nanosoc_rm.scan import scan as scanmod
+    from nanosoc_rm.scan.allowlist import load_vendor_allowlist
     from nanosoc_rm.scan.rules import RulesError, rule_set
     from nanosoc_rm.scan.toolkit import toolkit
     items = ctx._begin("t0.vendor.no-arm-ip")
@@ -758,14 +808,21 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
         rules, tk = rule_set(), toolkit()       # $RM_SCAN_RULES, $RM_SCAN_TOOLKIT: compat-ci's pinned copies
     except RulesError as e:
         return "UNVERIFIED", "scanner rules unusable: %s" % e
+    try:
+        allowlist = load_vendor_allowlist(ctx.registry_dir)
+        index = _catalogue_index(ctx.registry_dir)
+    except Exception as e:                      # a catalogue that does not parse: the registry job says why
+        return "UNVERIFIED", "catalogue.yaml unreadable, vendor_allowlist unknown: %s" % str(e).splitlines()[0][:200]
     root = ctx.walk()
     if root is None:
         return "UNVERIFIED", "no request: nothing to scan"
     cache: dict[str, Any] = {}
-    found = []
+    found, warned, allowed_n = [], [], 0
     for p in [root] + list(iter_pins(root)):
         tp = p.tree_path or "."
-        item = {"tree_path": tp, "component": None, "commit": p.commit, "host": ctx.git.host_of(p.resolved or p.url)}
+        component = _component_of(ctx, index, p.canonical or p.resolved or p.url)
+        item = {"tree_path": tp, "component": component, "commit": p.commit,
+                "host": ctx.git.host_of(p.resolved or p.url)}
         up = None if p is root else ctx.unfetched_ancestor(p)
         if up is not None or not ctx.pinned_ok(p):
             ctx._add(items, dict(item, result="not-reached", why="not fetched (t0.pins.fetchable), so not scanned"))
@@ -773,25 +830,38 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
         try:
             if p.commit not in cache:           # same commit, same tree, whichever URL served it
                 f = ctx.git.fetch_commit(p.resolved or p.url, p.commit)
-                cache[p.commit] = scanmod.scan_tree(f.repo, p.commit, rules, env=ctx.git.env, toolkit=tk)
+                cache[p.commit] = scanmod.scan_tree(f.repo, p.commit, rules, env=ctx.git.env, toolkit=tk,
+                                                    allowlist=allowlist, component=component)
             res = cache[p.commit]
         except Exception as e:                  # one tree's problem stays that tree's item
             msg = str(e).splitlines()[0] if str(e) else ""
             ctx._add(items, dict(item, result="unverified", why="scan raised %s: %s" % (type(e).__name__, msg[:200])))
             continue
+        covered = ""
+        if res.warnings:
+            covered += "; %d warn-covered by vendor_allowlist: %s" % (len(res.warnings), _locs(res.warnings))
+        if res.allowed:
+            covered += "; %d allowed by vendor_allowlist: %s" % (len(res.allowed), _locs(res.allowed))
+            allowed_n += len(res.allowed)
         if res.verdict == "finding":
-            locs = ["%s at %s:%s" % (h["rule"], h["file"], h["line"] if h["line"] is not None else "-")
-                    for h in res.findings[:5]]
             found.append(tp)
-            ctx._add(items, dict(item, result="fail", why="%d finding(s): %s" % (len(res.findings), "; ".join(locs))))
+            ctx._add(items, dict(item, result="fail", why="%d finding(s): %s%s" % (len(res.findings), _locs(res.findings), covered)))
+        elif res.verdict == "warn":
+            warned.append(tp)
+            ctx._add(items, dict(item, result="pass", why="WARN: 0 uncovered findings%s" % covered))
         elif res.verdict == "unverified":
             ctx._add(items, dict(item, result="unverified", why="scan unverified: %s" % res.why))
         else:
-            ctx._add(items, dict(item, result="pass", why="%d files scanned, 0 findings" % res.files_scanned))
+            ctx._add(items, dict(item, result="pass", why="%d files scanned, 0 findings%s" % (res.files_scanned, covered)))
     scanned = sum(1 for i in items if i["result"] in ("pass", "fail"))
     detail = "%d of %d trees scanned, %d with findings" % (scanned, len(items), len(found))
     if found:                       # the list belongs to "with findings", never to the not-fetched count after it
         detail += ": " + ", ".join(found[:8]) + (" and %d more" % (len(found) - 8) if len(found) > 8 else "")
+    if warned:
+        detail += "; %d with warn-covered findings only (vendor_allowlist): %s" % (
+            len(warned), ", ".join(warned[:8]) + (" and %d more" % (len(warned) - 8) if len(warned) > 8 else ""))
+    if allowed_n:
+        detail += "; %d finding(s) allowed by vendor_allowlist" % allowed_n
     nr = sum(1 for i in items if i["result"] == "not-reached")
     if nr:
         detail += "; %d not fetched, so not scanned: %s" % (nr, _paths(items, "not-reached"))
@@ -799,6 +869,8 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
         return "FAIL", detail
     if not items or any(i["result"] in ("unverified", "not-reached") for i in items):
         return "UNVERIFIED", detail
+    if warned:
+        return "WARN", detail
     return "PASS", detail
 
 

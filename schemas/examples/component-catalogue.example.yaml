@@ -41,3 +41,23 @@ ignored:  # A1: in the GitHub org but not nanoSoC-related; classified, never tra
   - {"repo": {"host": "github", "path": "SoC-Labs/.github"}, "reason": "organisation profile and templates"}
   - {"repo": {"host": "github", "path": "SoC-Labs/demo-repository"}, "reason": "GitHub demo repository, no nanoSoC content"}
   - {"repo": {"host": "github", "path": "SoC-Labs/SoC-Labs-Drupal-Demo"}, "reason": "website demo, no nanoSoC content"}
+# CR-6a (David, 2026-10-10, U1): scanner findings the registry owner has judged. `allow` = clean; `warn` = the
+# no-arm-ip gate row is WARN (amber) and names the item; anything no entry matches stays FAIL. The warn entries
+# below are the Arm-banner trees the 2026-10-02 scan found; path globs are JUDGEMENT for the owner to tighten.
+vendor_allowlist:
+  - {rule: arm.banner, match: {component: sldma230_tech}, severity: allow,
+     reason: "David 2026-10-10: DMA-230 cleared", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: nanosoc-multicore-system, path_glob: "src/rtl/vendored/dma_230/*"}, severity: allow,
+     reason: "David 2026-10-10: DMA-230 cleared (PL230 files vendored into the multicore tree)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: nanosoc_arch_tech}, severity: warn,
+     reason: "Arm-banner tree found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: ethernet-subsystem-ahb, path_glob: "build_soc_phc/*interconnect*"}, severity: warn,
+     reason: "Arm-banner files in the generated build_soc_phc interconnect, found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: socdebug_tech}, severity: warn,
+     reason: "Arm-banner tree found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: slcorem0_tech}, severity: warn,
+     reason: "Arm-banner tree found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: inter-processor-communications-ahb}, severity: warn,
+     reason: "Arm-banner tree found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+  - {rule: arm.banner, match: {component: sldma350_tech, path_glob: "*config*"}, severity: warn,
+     reason: "Arm-banner files in the DMA-350 config tree, found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
