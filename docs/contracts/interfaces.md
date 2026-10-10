@@ -106,9 +106,12 @@ returns dicts or models whose `model_dump(mode="json", by_alias=True)` is the do
   - host redirects come from catalogue `aliases`;
   - a relative URL (`../x.git`) is resolved against `parent`'s pinned URL, as git does, and reported `relative`.
 
-  A URL that resolves to no component, external or ignored entry gives `unknown`, and the walker raises an alert.
+  A URL that resolves to no component or external entry gives `unknown`, and the walker raises an `unknown_url` alert.
+  K1 (option a, David 2026-10-10): that includes an `ignored` repo pinned in a registered tree. `ignored` keeps a repo
+  out of the inventory's "unclassified" list and out of the mirrors; a registered tree that pins it makes it a
+  dependency, so it is flagged to be classified, never hidden (README section 5 "Unknown URL").
 - **Errors:** never partial. A registry with any problem is not loaded; the service keeps serving the last good one and shows the problems.
-- **Facts (A3, H1):** each record the web shows is also a `registry_record` observation (source `git -C <registry> show <commit>:<file>`), so registry facts carry an age and a command like every other fact.
+- **Facts (A3, H1):** each record the web shows is also a `registry_record` observation (source `git -C <registry> show <commit>:<file>`), so registry facts carry an age and a command like every other fact. K2 (option a, David 2026-10-10): the one producer, `registry.store_records`, stores the real checkout path in the command (the CLI, the JSON API and the store keep it); HTML pages show the literal placeholder `<registry>` in its place, so no page carries the service VM's filesystem layout.
 
 ### 2a. F5 import census
 
@@ -262,7 +265,7 @@ def silicon_protection(configuration: str | None = None) -> list[dict]   # kind 
 - A configuration that is neither frozen nor silicon gives `[]`, not an error.
 - Which hosts B5 judges is question 9 in GATE2.md; this contract implements the recommendation (both).
 - **CLI:** `nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]`. Exit 1 if any row is uncovered.
-- **Golden (2026-09-30, `observation.example.jsonl`):** eth-rc4 gives 13 rows. The 11 pinned-host rows are all covered by `keep/eth-rc4/*` (the B5 done-when). The 2 canonical-host rows are uncovered: nanosoc_arch_tech `ecf76aa` is BRANCH_ONLY on GitHub, and ahb_qspi `e908ac8` is MISSING on GitHub. `--uncovered` therefore exits 1 today.
+- **Golden (`observation.example.jsonl`; CR-2, re-derived 2026-10-10):** on the example catalogue eth-rc4 gives 13 rows. The 11 pinned-host rows are all covered by `keep/eth-rc4/*` (the B5 done-when). The 2 canonical-host rows are covered since David's 2026-10-01 GitHub tags: nanosoc_arch_tech `ecf76aa` by `keep/eth-rc4/nanosoc_arch_tech`, ahb_qspi `e908ac8` by `keep/eth-rc4/ahb_qspi`. On the live registry, DEC6 also makes ethernet-mac-ahb, hostio4 and socdebug_tech canonical on GitHub, which adds 3 rows (16 in all): `44ff8b7` and `50359ee` MISSING on GitHub, `51348de` BRANCH_ONLY there (decision R1). `--uncovered` exits 1 until those 3 are pushed and tagged; with only the example catalogue it exits 0.
 
 ## 7a. Branch inventory (CR8, MVP S1)
 
@@ -282,7 +285,11 @@ def delete_commands(docs, remote="origin") -> list[str]                         
   (committer date); `tags` whose tip IS the branch tip (`keep_tags` the `keep/*` subset); `pins`: every pin of every
   stored walk (section 4 "Storage", never re-walked) of this component whose commit the tip reaches and the default
   branch does not; `cited`: the registry's structured citations of this component (section 9 `registry_citations`)
-  reached the same way. A commit the mirror does not hold is reached by nothing.
+  that this branch holds. **CR-10:** a citation the default branch does not reach holds at most one branch: none
+  when a tag of the repo reaches it; else the only branch that reaches it; else one of the branches that reach it
+  that is already kept (tag on the tip, or a pin), otherwise the one whose tip is fewest commits past it (`rev-list
+  --count`), ties by name. So deleting every deletable branch never loses a cited commit, and a commit shared by many
+  branches no longer pins all of them. Pins are unchanged. A commit the mirror does not hold is reached by nothing.
 - **Verdict**, first match: `MERGED`, `PROTECTED` (a tag on the tip), `PINNED` (a pin or a citation), `STALE` (unmerged,
   unheld, last commit older than `stale_days`), `ACTIVE`. `deletable` = MERGED or STALE with no pin, no citation and
   no tag; the schema refuses `deletable: true` beside a pin, a citation or a tag.
@@ -318,7 +325,7 @@ def clear_alert(subject: str, by: str) -> None          # logged in `actions` as
 
 ## 9. T0: definition and runner
 
-Requirements: D1, D2, D6, D10, D11, C11, F3, D7 (probe).
+Requirements: D1, D2, D6, D10, D11, C11, F3. (The `t0.infra.probe` gate serves D7, a Phase 2 requirement; CR-5 took D7 off this line so v1 commits do not name it.)
 
 T0 runs **only** in the GitLab CI job `t0` of the compat-ci project (A4). The service never runs it.
 compat-ci is a **private** project: bundles can carry registry content and pinned-tree paths.
@@ -423,7 +430,7 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 | `t0.urls.no-ssh-public` | no | no public parent (one that is fetchable anonymously) pins by an ssh URL (`git@…`, `ssh://…`) | a synthetic public parent with a `git@` URL | D2 |
 | `t0.manifest.valid` | yes | every `nanosoc-component.yaml` at every pinned commit validates against component-manifest v1. None anywhere → SKIP | the example manifest with `version: "1.0"` | D2, C11 |
 | `t0.clone.upgrade-path` | yes | if `upgrade_from`: anonymous recursive clone of it, check out `commit`, `git submodule update --init --recursive` **without** sync must resolve every pin; then `git submodule sync --recursive` and update again. No `upgrade_from` → SKIP | a synthetic pair where the second commit moves a submodule to a new URL and pins a commit the old URL does not serve (a host move whose old host was frozen: breaking under C8) | D2 |
-| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11). A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). README section 6 rolls a WARN row up as UNVERIFIED (amber) until a CR changes that table. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
+| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11). A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). **CR-9:** README section 6 rolls a WARN row with its control fired up as gate verdict **WARN** (amber); a warn-only run is WARN, never PASS and never FAIL. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
 
 **Registry job** (`configuration: "@registry"`, `repo` = the registry repo, `commit` = its `main` head):
 
@@ -438,11 +445,11 @@ The registry is private, so this job needs read access to it from compat-ci (que
 - eth-rc4's raw T0 (README section 6 table, before waivers) is FAIL on three gates and UNVERIFIED on one:
   - `t0.pins.fetchable`: TideLink and ASIC-Toolkit use ssh URLs (and ASIC-Toolkit is private); the 5 pins below TideLink are `not-reached`;
   - `t0.urls.no-ssh-public`: same two URLs;
-  - `t0.pins.reachable`: ahb_qspi `e908ac8` (GitHub is canonical, GATE2 Q2) until it is pushed there; ASIC/asic-toolkit is `unverified` (private);
+  - `t0.pins.reachable`: on the example catalogue only ASIC/asic-toolkit is `unverified` (private), so the gate is UNVERIFIED: ahb_qspi `e908ac8` is on GitHub since the 2026-10-01 keep tag (CR-2). On the live registry (DEC6) ethernet-mac-ahb `44ff8b7` and socdebug_tech `50359ee` fail until decision R1 is carried out;
   - `t0.vendor.no-arm-ip`: UNVERIFIED, the 7 trees that were never fetched are `not-reached`.
-- With the 8 `t0_waivers` of `eligibility.example.yaml` registered, every one of those items is covered, so the
-  four gates and the run roll up **WAIVED** (`observation.t0-result-waived.example.jsonl`). Once `e908ac8` is on
-  GitHub, the reachable waiver covers nothing and raises `waiver_unused`.
+- With the 7 `t0_waivers` of `eligibility.example.yaml` registered, every one of those items is covered, so the
+  four gates and the run roll up **WAIVED** (`observation.t0-result-waived.example.jsonl`). The eighth waiver, for
+  ahb_qspi `e908ac8`, covered nothing once that commit was on GitHub (`waiver_unused`) and was retired (CR-2).
 - `t0.manifest.valid` and `t0.clone.upgrade-path` are NOT-RUN on rc4 (no manifest; no `upgrade_from`). eth-main declares `upgrade_from: v1.0.0`, so its upgrade-path gate runs (and fails today on rc4's ssh pins).
 - The registry job is FAIL on `t0.registry.refs-resolve`: bench `6aafc94` is not pushed.
 
@@ -450,7 +457,7 @@ The registry is private, so this job needs read access to it from compat-ci (que
 
 ## 10. CI trigger, fetch and verify
 
-Requirements: A2, A4, D2, D5, D7, D10, H2.
+Requirements: A2, A4, D2, D5, D10, H2. (CR-5: D7 removed.)
 
 ```python
 class CIClient(Protocol):           # nanosoc_rm.ci.client; the real one uses httpx and the config's tokens
@@ -658,7 +665,7 @@ Requirements: A5, H2.
 - **Login:** a GitHub OAuth app with scope `read:org`. The OAuth code exchange (`POST login/oauth/access_token`) is a POST that writes nothing (declared `read-post` in `WRITE_CALLS`). On callback, `state` must match; then `GET /user/memberships/orgs/SoC-Labs` must say `state: active` (a `pending` invitee is refused). The user's token is then discarded: it is kept in neither the session nor the database.
 - **Session:** a signed cookie (itsdangerous, as in fpgahub), valid 8 h.
 - **Refused session:** a user who completed the callback but is not an active member, or has no role, gets a signed "refused" session and **403** on every route, including `/api`. An anonymous user (no session) gets a redirect to `/auth/login` for pages and 401 for `/api`.
-- **Re-check:** membership is re-checked at most hourly with the service's read token: `auth.is_member(config, login)` calls `GET /orgs/SoC-Labs/members/{login}`, which must return 204.
+- **Re-check:** membership is re-checked at most hourly with the service's read token: `auth.is_member(config, login)` calls `GET /orgs/SoC-Labs/members/{login}`, which must return 204. K3 (option a, David 2026-10-10): when GitHub cannot answer, the session is kept and the re-check is retried 10 minutes later (not on every request, and not an hour later), so a revoked member is caught soon after GitHub is back. The session still ends 8 hours after sign-in.
 - **Roles:** from the service config (H2): `roles.default` for every active member, plus per-login additions. v1's only role, `member`, allows viewing and Run T0. An empty table refuses everyone.
 - **CSRF:** every form carries `csrf_token`, bound to the session.
 - **Logging:** every write action (in v1, Run T0 and clearing an alert) is logged in `actions` with the login (A2, H2): `action` is `run_t0` or `clear_alert`, `target` the configuration id or the alert subject.
@@ -693,7 +700,7 @@ For the coverage checker (PR5):
 | B2 | section 4 | the 44 pin keys of `release-lock.eth-rc4.example.yaml` |
 | B3 | section 4, README section 5 | the 3 pins in `pin-state.example.jsonl`, plus a hand check of rc4 and multicore-master |
 | B4 | section 6 | 036d381 → eth-rc4 `no` on gitlab |
-| B5 | section 7 | 11 pinned-host rows, all covered; 2 canonical-host rows, uncovered |
+| B5 | section 7 | 11 pinned-host rows, all covered; 2 canonical-host rows, covered since 2026-10-01; on the live registry 3 more canonical-host rows (R1), uncovered (CR-2) |
 | B6 | section 5 | tidelink AHEAD 298; ahb_qspi and asic-flow DIVERGED |
 | B8 | section 8 | local fixture force-push → one rewrite_alert |
 | D1 | section 9 tiers | T0 budget 120 s; t0..t6 each with a budget or a reason |
@@ -809,6 +816,10 @@ status: not-met|gate-met|started, checked: {at, by, evidence}}]`. A phase moves 
 `checked.at` and `checked.by` filled in by a person. A commit that changes `src/` and names (in its message or
 its `Requirements:` trailer) a requirement of a later phase must come after that phase's `checked.at`.
 Contracts, schemas, docs and tests for later phases are gate-2 work and do not count (section 15).
+**Exemptions (CR-5):** an optional top-level `exemptions: [{commit, ids, cr, reason}]` names a commit that named a
+later-phase id before a CR corrected the text that told it to. It takes exactly `ids` out of that one commit (full
+sha), and counts only while `docs/CHANGES.md` has a row whose CR column is `cr` and which names the commit's first 7
+characters. The one entry today is build/ci `a8736cb` (D7, CR-5). History is not rewritten.
 
 ### 17.7 Gap index
 

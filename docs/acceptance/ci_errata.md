@@ -156,17 +156,19 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    **3b. Waivers (GATE2 Q1).** The reference oracle `reference_apply_waivers` (README §6) is applied to those raw
    verdicts, the live items of the four non-pass gates and rc4's `t0_waivers` from the live registry. The stored
    gate verdicts and the run verdict must equal its answer. The run is FAIL or WAIVED, never PASS. Each waiver
-   that covered nothing has an open `waiver_unused` alert naming its gate and tree path. With the 8 waivers of
-   `eligibility.example.yaml` registered, the four gates and the run are WAIVED; after the GATE2 Q2 push the
-   ahb_qspi waiver covers nothing.
+   that covered nothing has an open `waiver_unused` alert naming its gate and tree path. With the 7 waivers of
+   `eligibility.example.yaml` registered, the four gates and the run are WAIVED. The eighth, for ahb_qspi, covered
+   nothing after the 2026-10-01 GitHub keep tag and was retired (CR-2).
 4. **`t0.pins.reachable` on rc4:**
    - All 44 pins are judged, each on its component's canonical host (externals on their own repo). (G15, now contracted).
    - **TideLink host drift:** `tidelink` `5e8bdb5` passes on GitHub, although the GitLab copy lacks it.
    - **Keep tags:** the 10 keep-tag pins other than `ASIC/asic-toolkit` all pass.
    - `ASIC/asic-toolkit` is UNVERIFIED: its canonical repo is private.
-   - The failures are exactly the pins off their canonical host, read from the catalogue (GATE2 Q2: both GitHub):
-     `nanosoc-multicore-system/ahb_qspi` (`e908ac8`) if ahb_qspi is canonical on GitHub, and `ASIC/asic-flows`
-     (`3824aaa`) if asic-flow is canonical on GitLab. With the catalogue example (both GitHub), that is ahb_qspi only.
+   - The failures are exactly the pins off their canonical host. CR-2: the set is computed, not written down: each
+     pin's canonical repo comes from the live catalogue, and a pin an anonymous depth-1 fetch of that repo cannot get
+     is expected to fail (the private toolkit and the externals excepted). On 2026-10-10 that is ethernet-mac-ahb
+     `44ff8b7` and socdebug_tech `50359ee` (DEC6 makes both canonical on GitHub; decision R1); ahb_qspi `e908ac8`
+     passes since its 2026-10-01 keep tag.
    - The gate is FAIL if that set is not empty, else UNVERIFIED.
 5. `@registry`: `t0.registry.refs-resolve` judges SL-DEF-0001's bench commit (it must be among the items), FAIL while it is unpushed (`6aafc94` today) and PASS once anonymously fetchable (AT-F3).
 6. The dashboard lists every configuration with tonight's verdict and a data age under 24 h.
@@ -278,7 +280,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 - The golden rc4 `verdicts.tsv`.
 - The gate table in `nanosoc_rm/t0/gates.py`.
 - rc4's real `.gitmodules` at `ab73e40` (5 entries, 2 ssh URLs).
-- rc4's non-pass items (`result-bundle.items.*.example.jsonl`) and its 8 `t0_waivers` (`eligibility.example.yaml`).
+- rc4's non-pass items (`result-bundle.items.*.example.jsonl`) and its 7 `t0_waivers` (`eligibility.example.yaml`).
 
 **When**
 1. The rows are rolled up (README §6).
@@ -569,7 +571,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 **Negative control (the done-when, real data)**
 1. **R0 with the bench restored** to `6aafc943f2750be92e80b31be99f0cd60f8927e4`, which is the real record today.
    - Must happen: the gate FAILs; the detail and the gate's items (G11) name `defects/SL-DEF-0001.yaml`, pointer `/regression_test/commit` and `6aafc94`. The run verdict is FAIL.
-2. **R0 plus a defect citing an ahb_qspi commit that exists only on the non-canonical host.** ahb_qspi is DIVERGED, so one exists whichever host question 2 makes canonical: `e908ac8` is GitLab-only (used while GitHub is canonical, as in the catalogue example) and `71f8d1c` is GitHub-only.
+2. **R0 plus a defect citing an ahb_qspi commit that exists only on the non-canonical host.** ahb_qspi is DIVERGED, so one exists whichever host question 2 makes canonical: `1e5117e` is GitLab-only (used while GitHub is canonical, as in the catalogue example; CR-2 replaced `e908ac8`, which is on GitHub since the 2026-10-01 keep tag) and `71f8d1c` is GitHub-only.
    - Must happen: FAIL, with the item judged on the canonical host. This proves the gate checks the canonical host, not any host.
 3. **R0 plus an import source at QuickStart `1f2f06e`**, which is committed only locally.
    - Must happen: FAIL.
@@ -640,7 +642,7 @@ are self-checks: each proves a control's input is what its AT claims, with an or
 | `test_selfcheck_D2_gate_fixtures` | the good upgrade pair updates without sync; the example manifest validates; the clean tree has no specimen; the example registry validates | the frozen-old-host pair fails without sync; `version: "1.0"` fails; the planted tree holds the specimen; the no-class catalogue fails |
 | `test_selfcheck_D5_tampers` | a reference verify accepts the genuine case | each of the 13 tampers fails exactly the check it is listed under; the control fails check 5 and differs only in provenance |
 | `test_selfcheck_D6_rollup_oracle` | a reference README section 6 roll-up of the golden TSV equals `EXPECTED_RC4_ROLLUP` (FAIL, 2 not run); the schema accepts it | control deleted, flipped, doubled: UNVERIFIED; all-skip and no gates: UNVERIFIED; the schema refuses the same gates claimed PASS, and a PASS over NOT-RUN gates only |
-| `test_selfcheck_D6_waiver_oracle` (GATE2 Q1) | rc4's 8 waivers turn exactly its 4 non-pass gates WAIVED (run WAIVED, 2 not run, none unused); the stored example equals it item for item and validates | a new failure, a `fail` below a waived pin, an unfired control and an orphaned `not-reached` item each stay FAIL; the pushed ahb_qspi waiver is unused; the schema refuses a WAIVED run with a FAIL gate and a WAIVED gate without `raw_verdict`. Three mutants of the oracle (ignore the control, let a prefix cover any result, never report unused) each fail it |
+| `test_selfcheck_D6_waiver_oracle` (GATE2 Q1) | rc4's 7 waivers turn exactly its 4 non-pass gates WAIVED (run WAIVED, 2 not run, none unused); the stored example equals it item for item and validates | a new failure, a `fail` below a waived pin, an unfired control and an orphaned `not-reached` item each stay FAIL; the retired ahb_qspi waiver (CR-2) is unused against today's items and covers the pre-push item; the schema refuses a WAIVED run with a FAIL gate and a WAIVED gate without `raw_verdict`. Three mutants of the oracle (ignore the control, let a prefix cover any result, never report unused) each fail it |
 | `test_selfcheck_D10_environments` | the good job environment breaks nothing | each synthetic environment breaks exactly its one property |
 | `test_selfcheck_D11_planted_line` | the bundle writer writes exactly 3 files | the planted specimen starts at `logs/t0.log` line 3 |
 | `test_selfcheck_F1_F2_variants` | the rc4 erratum validates and is permanent on a silicon configuration | the eth-main copy breaks rule 6 only; form C and D9 are not in the defect; the ancestry example fails `required` at `/exposure`; D2's pattern matches only the fired netlist |

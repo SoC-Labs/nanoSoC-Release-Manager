@@ -79,6 +79,7 @@ FIX_A = "036d3811e630c89b2344b56aa617b40a99cd652b"         # nanosoc_gen, SL-DEF
 DEFECT = "SL-DEF-0001"
 ERRATUM = "ETH-R0P0-ERR-001"
 CI_PROJECT = "soclabs/nanosoc-compat-ci"
+CI_PROJECT_ID = 4242                     # CR-3: the fake compat-ci project's numeric id
 GITHUB_ORG = "SoC-Labs"
 GITLAB_GROUP = "soclabs"
 NON_MEMBER = "octocat"                                    # GET orgs/SoC-Labs/members/octocat -> 404
@@ -479,9 +480,10 @@ def _form_or_json(body):
         return {k: v[0] for k, v in urllib.parse.parse_qs(body.decode()).items()}
 
 
-def paged(items, query, *, style):
-    """Answer one page the way the host does (GitLab: X-Total headers; GitHub: Link header)."""
-    per = min(int((query.get("per_page") or ["30" if style == "github" else "20"])[0]), 100)
+def paged(items, query, *, style, cap=100):
+    """Answer one page the way the host does (GitLab: X-Total headers; GitHub: Link header). `cap` is the
+    largest page the host serves whatever per_page asks for (CR-4: lets a control force GitHub paging)."""
+    per = min(int((query.get("per_page") or ["30" if style == "github" else "20"])[0]), cap)
     page = int((query.get("page") or ["1"])[0])
     chunk = items[(page - 1) * per: page * per]
     pages = max(1, -(-len(items) // per))
@@ -522,11 +524,12 @@ def github_identities(h, states):
     h.route("GET", r"/orgs/%s/members/([^/]+)" % GITHUB_ORG, member_check)
 
 
-def github_listing(h, repos):
-    """repos: list of (path, visibility). GET orgs/<org>/repos (paged) and GET orgs/<org> (totals)."""
+def github_listing(h, repos, cap=100):
+    """repos: list of (path, visibility). GET orgs/<org>/repos (paged, at most `cap` per page) and GET orgs/<org>
+    (totals)."""
     items = [{"full_name": p, "name": p.split("/")[-1], "private": v != "public", "visibility": v,
               "default_branch": "main", "fork": False, "archived": False} for p, v in repos]
-    h.route("GET", r"/orgs/%s/repos" % GITHUB_ORG, lambda m, q, hd, b: paged(items, q, style="github"))
+    h.route("GET", r"/orgs/%s/repos" % GITHUB_ORG, lambda m, q, hd, b: paged(items, q, style="github", cap=cap))
     h.route("GET", r"/orgs/%s" % GITHUB_ORG, lambda m, q, hd, b: (200, {}, {
         "login": GITHUB_ORG, "public_repos": sum(1 for _, v in repos if v == "public"),
         "total_private_repos": sum(1 for _, v in repos if v != "public")}))
@@ -564,8 +567,8 @@ def gitlab_ci(h, *, trigger_status=201, foreign_nonce=None, job_status="success"
         p = state["pipelines"].get(int(m.group(2)))
         if not p:
             return 404, {}, {"message": "404"}
-        return 200, {}, {"id": int(m.group(2)), "ref": p["ref"], "source": "trigger", "status": job_status,
-                         "sha": "0" * 39 + "1"}
+        return 200, {}, {"id": int(m.group(2)), "project_id": CI_PROJECT_ID, "ref": p["ref"], "source": "trigger",
+                         "status": job_status, "sha": "0" * 39 + "1"}
 
     def jobs(m, q, hd, body):
         p = state["pipelines"].get(int(m.group(2)))
@@ -743,7 +746,9 @@ def write_config(path, *, data, registry, github, gitlab, git_bases=None, overri
                        "git": gb.get("gitlab", gitlab.url), "group": GITLAB_GROUP},
         },
         "registry": {"repo": "soclabs/nanosoc-registry", "ref": "main", "path": str(registry)},
-        "ci": {"project": CI_PROJECT, "ref": "main", "job": "t0", "allowed_refs": ["main"], "fetch_timeout_minutes": 120},
+        # CR-3: verify step 1 needs the project's numeric id and the runner allowlist (interfaces.md section 1).
+        "ci": {"project": CI_PROJECT, "project_id": CI_PROJECT_ID, "ref": "main", "job": "t0", "allowed_refs": ["main"],
+               "allowed_runner_ids": [1], "fetch_timeout_minutes": 120},
         "credentials": {
             "github_read": {"token_file": str(tok / "github_read"), "scope": ["contents:read", "metadata:read", "members:read"], "expires": "2027-06-30"},
             "gitlab_read": {"token_file": str(tok / "gitlab_read"), "scope": ["read_api", "read_repository"], "expires": "2027-06-30"},
@@ -1409,14 +1414,23 @@ def git_commits(repo):
 IMPLEMENTATION_PREFIXES = ("src/",)      # contracts, schemas, docs and tests for later phases are gate-2 work (§15)
 
 
-def check_a7(gates_doc, phase_of, commits, routes, cli_commands):
+def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
     """A7: each later phase has a written, checked entry gate before its code or surfaces appear.
     Only commits that change implementation (src/) count: PR3 writes later phases' formats and
-    tests before any code (interfaces.md §15), and that is not starting the phase."""
+    tests before any code (interfaces.md §15), and that is not starting the phase.
+    CR-5: a register `exemptions` entry {commit, ids, cr} takes its ids out of that one commit, and only
+    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha."""
     probs = []
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
+    rows = [r for r in (changes or "").splitlines() if r.startswith("|") and r.count("|") > 2]
+    exempt = {}
+    for e in (gates_doc or {}).get("exemptions") or []:
+        sha, cr = str(e.get("commit") or ""), str(e.get("cr") or "")
+        if len(sha) == 40 and cr and any(r.split("|")[1].strip() == cr and sha[:7] in r for r in rows):
+            exempt.setdefault(sha, set()).update(e.get("ids") or [])
     gates = {g.get("phase"): g for g in (gates_doc or {}).get("phases", [])}
-    ids_rx = re.compile(r"\b(%s)\b" % "|".join(sorted(phase_of, key=len, reverse=True)))
+    # CR-3: an id stands alone; a review label such as `CI-E1` is not requirement E1.
+    ids_rx = re.compile(r"(?<![\w-])(%s)(?![\w-])" % "|".join(sorted(phase_of, key=len, reverse=True)))
     for ph in LATER_PHASES:
         g = gates.get(ph)
         if not g:
@@ -1435,12 +1449,13 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands):
             if met and not (checked_at and checked.get("by")):
                 probs.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
         ph_ids = {i for i, p in phase_of.items() if p == ph}
-        naming = [c for c in commits if set(ids_rx.findall(c["message"])) & ph_ids]
+        named = lambda c: set(ids_rx.findall(c["message"])) - exempt.get(c["sha"], set())
+        naming = [c for c in commits if named(c) & ph_ids]
         if naming:
             first = min(naming, key=lambda c: utc(c["at"]))
             if not met or not checked_at or utc(first["at"]) < utc(checked_at):
                 probs.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
-                             % (ph, first["sha"][:7], first["at"], sorted(set(ids_rx.findall(first["message"])) & ph_ids)))
+                             % (ph, first["sha"][:7], first["at"], sorted(named(first) & ph_ids)))
         if not met:
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
@@ -1890,12 +1905,12 @@ def _nc_A3_checker():
     assert "/silicon-protection: fact %s has no source link" % s0 in probs
     probs = check_a3_page("/silicon-protection", fixture_page("/silicon-protection", obs, now=now, drop_age=True), stored, now, fetch)
     assert "/silicon-protection: 0 data-age elements, want exactly 1" in probs
-    newest = dict(obs[-1], observed_at="2026-09-30T18:05:01Z")
+    newest = dict(obs[-1], observed_at="2026-10-03T00:00:01Z")     # CR-2: newer than every re-derived row
     mixed = obs[:-1] + [newest]
     stored2 = dict(stored, **{newest["subject"]: newest})
     probs = check_a3_page("/silicon-protection", fixture_page("/silicon-protection", mixed, now=now, age_from="newest"),
                           stored2, now, fixture_source_pages(mixed).get)
-    assert any("data age is measured from 2026-09-30T18:05:01Z" in p for p in probs), probs
+    assert any("data age is measured from 2026-10-03T00:00:01Z" in p for p in probs), probs
     sourceless = dict(obs[1], sources=[])
     probs = check_a3_page("/silicon-protection", good, dict(stored, **{obs[1]["subject"]: sourceless}), now, fetch)
     assert "/silicon-protection: %s has no sources in the store" % obs[1]["subject"] in probs
@@ -1999,6 +2014,13 @@ def _nc_A7_checker(tmp):
     assert "Phase 5: route /releases exists before its entry gate" in probs
     assert "Phase 5: command `lock` exists before its entry gate" in probs
     assert "Phase 2: no entry gate written down" in check_a7({"phases": met["phases"][1:]}, phase_of, [], [], [])
+    # CR-5: an exemption for the D3 commit counts only with a CHANGES.md row for its CR naming that commit
+    d3 = next(c for c in git_commits(repo) if "D3" in c["message"])
+    ex = dict(gates, exemptions=[{"commit": d3["sha"], "ids": ["D3"], "cr": "CR-5"}])
+    row = "| CR-5 | 2026-10-10 | D7 | %s names it | why | David |" % d3["sha"][:7]
+    assert not [p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=row) if "Phase 2" in p]
+    for changes in (None, row.replace("CR-5", "CR-9"), row.replace(d3["sha"][:7], "0000000")):
+        assert any("['D3']" in p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=changes))
 
 
 def _nc_H1_checker():
@@ -2180,9 +2202,10 @@ def test_AT_A1_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
     _nc_A1_checker()
     # System level: fake hosts serve the real totals (57 + 101, paged as the hosts page them, so
     # GitLab needs 2 pages at per_page=100), and the catalogue has secworks-sha256-project removed.
+    # CR-4: GitHub serves at most 25 per page, so its 57 repos need 3 pages and the Link header is exercised.
     cat, listing = fixture_catalogue_and_listing()
     cat["components"] = [c for c in cat["components"] if c["id"] != "secworks-sha256-project"]
-    github_listing(fake_github, [(p, "public") for h, p, _, _ in listing if h == "github"])
+    github_listing(fake_github, [(p, "public") for h, p, _, _ in listing if h == "github"], cap=25)
     gitlab_listing(fake_gitlab, [(p, "public") for h, p, _, _ in listing if h == "gitlab"])
     registry = write_registry(tmp_path / "registry", catalogue=cat, eligibility=example("eligibility.example.yaml")[0],
                               defects=example("defect.SL-DEF-0001.example.yaml"),
@@ -2198,6 +2221,7 @@ def test_AT_A1_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
     rc, docs, _ = cli(cfg_path, "inventory", "--json")
     assert check_a1(docs, dict(OBSERVED_TOTALS), cat) == ["unclassified: gitlab:soclabs/secworks-sha256-project"]
     assert any(e["query"].get("page") == ["2"] for e in fake_gitlab.log), "the tool never asked for GitLab's page 2"
+    assert any(e["query"].get("page") == ["3"] for e in fake_github.log), "the tool never followed GitHub's Link to page 3"
 
 
 # ----- A2 -------------------------------------------------------------------------------------
@@ -2328,7 +2352,9 @@ def test_AT_A3_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
     assert bad["subject"] not in shown or any(bad["subject"] in p for p in probs), \
         "a fact without sources was shown and the audit did not catch it"
     # And put refuses the invalid example.
-    with pytest.raises(Exception):
+    # CR-4: refused as an observation (ObservationRefused), not any crash.
+    from nanosoc_rm.db import ObservationRefused
+    with pytest.raises(ObservationRefused):
         resolve("put")(load_docs(INVALID / "observation.without-observed-at.yaml")[0])
 
 
@@ -2397,7 +2423,6 @@ def test_AT_A4(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("A4")
-@NOT_BUILT
 def test_AT_A4_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Checker level: no pipeline, a foreign nonce, two t0 jobs, still pending, another job's id: caught.
     _nc_A4_checker()
@@ -2421,7 +2446,14 @@ def test_AT_A4_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
     probs = check_a4(docs[0], None, [], [], configuration=ESTATE_CONFIG["id"], commit=svc["estate"]["s1"], login="alice")
     assert probs, "a trigger answered 401 must not satisfy A4"
     assert all(run["fact"]["acceptance"] != "accepted" for run in docs)
-    assert "nanosoc_rm.t0.runner" not in sys.modules, "the service must not fall back to running T0 itself"
+    # CR-3: probed in a fresh interpreter (in the merged suite other tests import the runner into this one):
+    # the same failing trigger, driven through the CLI, never imports the T0 runner.
+    probe = subprocess.run([sys.executable, "-c",
+                            "import sys\nfrom nanosoc_rm.cli import main\n"
+                            "try:\n    main(['t0', 'trigger', sys.argv[1], '--by', 'alice'])\nexcept SystemExit:\n    pass\n"
+                            "sys.exit(9 if 'nanosoc_rm.t0.runner' in sys.modules else 0)", ESTATE_CONFIG["id"]],
+                           capture_output=True, text=True, env=dict(os.environ, NANOSOC_RM_CONFIG=str(svc["cfg_path"])))
+    assert probe.returncode == 0, "the service must not fall back to running T0 itself: %s" % probe.stderr[-2000:]
     assert not [c for c in shim_calls(svc["shim_log"]) if git_subcommand(c) == "fetch" and "--depth=1" in c]
     # System level 2: the pipeline's RM_REQUEST carries a foreign nonce; the fetched run is rejected
     # at verify step 2 (interfaces.md §10), and check_a4 names the mismatch.
@@ -2555,7 +2587,6 @@ def test_AT_A6_negative_control(tmp_path):
 
 # ----- A7 -------------------------------------------------------------------------------------
 @pytest.mark.requirement("A7")
-@NOT_BUILT
 def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Given the phase-gate register (gap G12), the requirement -> phase map from REQUIREMENTS.md,
     #   the tool repo's log (PR7: commits name requirement IDs), and the app's routes and CLI commands.
@@ -2575,7 +2606,8 @@ def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Then each later phase has a written entry gate whose every criterion has a check; no commit
     #   that changes src/ names a later-phase requirement before that phase's gate was checked; and
     #   no later-phase route or command exists before its gate.
-    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands) == []
+    changes = (REPO / "docs" / "CHANGES.md").read_text()                  # CR-5: recorded exemptions
+    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes) == []
 
 
 @pytest.mark.requirement("A7")
@@ -2785,6 +2817,9 @@ def test_AT_H3_negative_control(tmp_path, fake_github, fake_gitlab, monkeypatch)
     rc, docs, _ = cli(svc["cfg_path"], *ASSUMED["credentials_cli"], "--json")
     assert rc == 1, "a poller token wider than its record must be a finding (exit 1)"
     rows = [d["fact"] for d in docs]
+    # CR-4: the exit 1 must come from the gitlab_read row itself (the fixture's github_read is unrelated).
+    gl = [r for r in rows if r["name"] == "gitlab_read"]
+    assert len(gl) == 1 and gl[0]["verdict"] == "finding" and gl[0]["live_scope"] == ["api"], gl
     probs = check_h3(rows, today=dt.date(2026, 10, 1), ci_project=CI_PROJECT, gitlab_self={"scopes": ["api"]})
     assert any(p.startswith("gitlab_read: live scope ['api'] differs") for p in probs), probs
 

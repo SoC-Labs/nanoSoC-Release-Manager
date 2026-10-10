@@ -191,8 +191,8 @@
       }
     },
     "gate_verdict": {
-      "description": "The service's verdict for one gate after reading the rows and the control. WAIVED: the gate's raw verdict was FAIL or UNVERIFIED, its control fired, and every non-pass item is covered by a T0 waiver of a frozen configuration (README section 6). FLAKY, XFAIL and XPASS arrive in Phase 2 (D8).",
-      "enum": ["PASS", "FAIL", "UNVERIFIED", "NOT-RUN", "INFRA", "WAIVED", "FLAKY", "XFAIL", "XPASS"]
+      "description": "The service's verdict for one gate after reading the rows and the control. WAIVED: the gate's raw verdict was FAIL or UNVERIFIED, its control fired, and every non-pass item is covered by a T0 waiver of a frozen configuration (README section 6). WARN (CR-9): the row was WARN and its control fired; amber, never a failure and never a plain pass. FLAKY, XFAIL and XPASS arrive in Phase 2 (D8).",
+      "enum": ["PASS", "FAIL", "UNVERIFIED", "NOT-RUN", "INFRA", "WAIVED", "WARN", "FLAKY", "XFAIL", "XPASS"]
     },
     "gate_item": {
       "description": "One line of rm-bundle/items/<gate>.jsonl: one item the gate judged (interfaces.md section 9, Output item 2). Configuration gates judge pins (`tree_path`); registry gates judge citations (`file` + `pointer`). `nanosoc-rm t0 items NONCE GATE` prints them from the stored bundle. T0 waivers match items by gate, `tree_path` and `result` (eligibility.schema.json `t0_waivers`, README section 6). `not-reached`: the item could not be judged because an item above it failed (a pin below an unfetched parent; a tree that was never fetched, so never scanned).",

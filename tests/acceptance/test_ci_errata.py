@@ -60,7 +60,10 @@ RC4_PIN_COUNT = 44
 RC4_SSH_PINS = ("tidelink", "ASIC/asic-toolkit")            # the only ssh URLs in rc4's tree
 RC4_BELOW_TIDELINK = 5                                      # pins below tidelink, never reached anonymously
 TIDELINK_PIN = "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed"   # = v0.90 on GitHub; MISSING on the GitLab copy
-AHB_QSPI_GITLAB_ONLY = "e908ac843845d5b293616265f93a802804555540"  # rc4's ahb_qspi pin; GitHub answers 422
+AHB_QSPI_GITLAB_ONLY = "e908ac843845d5b293616265f93a802804555540"  # rc4's ahb_qspi pin; on GitHub since the
+                                                                   # 2026-10-01 tag keep/eth-rc4/ahb_qspi
+# CR-2: a commit that IS GitLab-only today (anonymous fetch 2026-10-10: GitLab ok, GitHub "not our ref").
+AHB_QSPI_GITLAB_ONLY_NOW = "1e5117e1e8aec174c4bcd9bf17110cd732b57382"
 AHB_QSPI_GITHUB_ONLY = "71f8d1ce46dfa76e9f1e16f7ab186e51d1b31520"  # GitHub master; GitLab answers 404
 ASIC_FLOW_GITHUB_ONLY = "3824aaaf9cee33b647d149b5f00b55d44022b488"  # rc4's ASIC/asic-flows pin; GitHub
                                                                    # lpddr4-pll (its default) only
@@ -140,19 +143,27 @@ EXPECTED_RC4_ROLLUP = {
     "t0.infra.probe": ("PASS", "fired"),
     "t0.runner.hardened": ("PASS", "fired"),
     "t0.pins.fetchable": ("FAIL", "fired"),
-    "t0.pins.reachable": ("FAIL", "fired"),
+    "t0.pins.reachable": ("UNVERIFIED", "fired"),   # CR-2: e908ac8 on GitHub since 10-01; the toolkit is private
     "t0.urls.no-ssh-public": ("FAIL", "fired"),
     "t0.manifest.valid": ("NOT-RUN", NOT_RUN_CONTROL),
     "t0.clone.upgrade-path": ("NOT-RUN", NOT_RUN_CONTROL),
     "t0.vendor.no-arm-ip": ("UNVERIFIED", "fired"),
 }
 
-# GATE2 Q1 (decided 2026-10-01): with the 8 t0_waivers of eligibility.example.yaml, rc4's four non-pass
+# GATE2 Q1 (decided 2026-10-01): with the 7 t0_waivers of eligibility.example.yaml (8 until CR-2), rc4's four non-pass
 # gates roll up WAIVED (README section 6). The raw roll-up above is unchanged; each WAIVED gate stores it
 # as raw_verdict.
 RC4_WAIVED_GATES = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public", "t0.vendor.no-arm-ip")
 EXPECTED_RC4_WAIVED_ROLLUP = dict(EXPECTED_RC4_ROLLUP, **{g: ("WAIVED", "fired") for g in RC4_WAIVED_GATES})
 AHB_QSPI_TREE_PATH = "nanosoc-multicore-system/ahb_qspi"
+# CR-2: the waiver eligibility.example.yaml carried until e908ac8 reached GitHub (tag keep/eth-rc4/ahb_qspi,
+# 2026-10-01), and the item it covered. The waiver-retirement checks below replay that history.
+RETIRED_AHB_QSPI_WAIVER = {"gate": "t0.pins.reachable", "tree_path": AHB_QSPI_TREE_PATH, "result": "fail",
+                           "approved_by": "member-a", "approved_on": "2026-10-01",
+                           "reason": "e908ac8 exists only on the GitLab copy (retired by CR-2)"}
+AHB_QSPI_UNREACHABLE_ITEM = {"tree_path": AHB_QSPI_TREE_PATH, "component": "ahb_qspi",
+                             "commit": "e908ac843845d5b293616265f93a802804555540", "host": "github", "result": "fail",
+                             "why": "e908ac8 is on no branch or tag of the canonical repo SoC-Labs/AHB-QSPI (before 2026-10-01)"}
 # SYNTHETIC: a failure rc4's waivers do not cover (a pin that vanished from its canonical repo).
 NEW_FAILURE = {"tree_path": "tidechart", "component": "tidechart", "commit": "1" * 40, "host": "gitlab",
                "result": "fail", "why": "SYNTHETIC: the pinned commit is on no branch or tag any more"}
@@ -469,6 +480,28 @@ def example_registry(root):
     return root
 
 
+def prime_for_trigger(tmp_path):
+    """CR-3: what section 10 Trigger step 1 reads, for the example registry under tmp_path/registry: the registry
+    as a git checkout on `main` (the @registry job asks for its head), and each non-frozen configuration's ref
+    and upgrade_from in its component's mirror (section 3 layout, canonical repo's namespace)."""
+    from nanosoc_rm.mirror.layout import ref_prefix
+    reg = Path(tmp_path) / "registry"
+    _fx_git("init", "-q", "-b", "main", reg)
+    _fx_git("-C", reg, "add", "-A")
+    _fx_git("-C", reg, "commit", "-q", "-m", "registry")
+    comps = {c["id"]: c for c in load_yaml(reg / "catalogue.yaml")["components"]}
+    for c in load_yaml(reg / "eligibility.yaml")["configurations"]:
+        if c.get("frozen"):
+            continue
+        canon = comps[c["component"]]["canonical"]
+        mirror = Path(tmp_path) / "data" / "mirrors" / ("%s.git" % c["component"])
+        for ref in filter(None, (c.get("ref"), c.get("upgrade_from"))):
+            kind, name = ("heads", ref["branch"]) if "branch" in ref else ("tags", ref["tag"])
+            fx_commit(mirror, files={"README": "%s %s\n" % (c["id"], name)},
+                      ref="%s/%s/%s" % (ref_prefix(canon["host"], canon["path"]), kind, name))
+    return reg
+
+
 def edit_yaml(path, fn):
     doc = load_yaml(path)
     fn(doc)
@@ -664,7 +697,8 @@ def reference_rollup(rows, declared):
         else:
             status = main[0]["status"]
             verdict = {"PASS": "PASS" if control == "fired" else "UNVERIFIED", "FAIL": "FAIL",
-                       "UNVERIFIED": "UNVERIFIED", "WARN": "UNVERIFIED", "INFRA": "INFRA",
+                       "UNVERIFIED": "UNVERIFIED", "INFRA": "INFRA",
+                       "WARN": "WARN" if control == "fired" else "UNVERIFIED",      # CR-9: WARN is amber
                        "SKIP": "NOT-RUN" if gid in MAY_SKIP else "UNVERIFIED"}[status]
         if verdict == "NOT-RUN":
             control = NOT_RUN_CONTROL
@@ -673,17 +707,20 @@ def reference_rollup(rows, declared):
 
 
 def reference_run_verdict(items):
-    """(run verdict, NOT-RUN count). PASS needs at least one PASS gate (README section 6)."""
+    """(run verdict, NOT-RUN count). PASS needs at least one PASS gate (README section 6). CR-9: a WARN gate
+    counts as checked, and the ladder is FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS."""
     verdicts = [v for v, _c in items.values()]
     not_run = verdicts.count("NOT-RUN")
     if "FAIL" in verdicts:
         return "FAIL", not_run
-    if "UNVERIFIED" in verdicts or "PASS" not in verdicts:
+    if "UNVERIFIED" in verdicts or not ({"PASS", "WARN"} & set(verdicts)):
         return "UNVERIFIED", not_run
     if "INFRA" in verdicts:
         return "INFRA", not_run
     if "WAIVED" in verdicts:
         return "WAIVED", not_run
+    if "WARN" in verdicts:
+        return "WARN", not_run
     return "PASS", not_run
 
 
@@ -867,23 +904,17 @@ def test_AT_D2(tmp_path):
     """AT-D2: every configuration and @registry has tonight's accepted T0 report; rc4's raw gates
     go red on its known real items, and its registered waivers (GATE2 Q1) cover exactly those; every
     pin is judged on its canonical host (TideLink drift, keep tags)."""
-    from nanosoc_rm.registry import Repo, load_registry
+    from nanosoc_rm.registry import load_registry
     from nanosoc_rm.t0 import gates
 
     # Given: the live registry and one completed night
     reg = load_registry(Path(require_env("NANOSOC_RM_REGISTRY")))
     expected = sorted([as_doc(c)["id"] for c in reg.configurations()] + ["@registry"])
     canonical = {as_doc(c)["id"]: as_doc(c)["canonical"]["host"] for c in reg.components()}
-    # Question 2 (canonical host of the two diverged repos) decides two rc4 rows. Read the
-    # decision from the catalogue; never guess the component ids.
-    qspi, _ = reg.resolve_repo(Repo(host="gitlab", path="soclabs/ahb_qspi"))
-    flow, _ = reg.resolve_repo(Repo(host="github", path="SoC-Labs/ASIC-Flow"))
-    assert qspi and flow, "ahb_qspi or asic-flow is not catalogued"
-    expected_unreachable = set()
-    if canonical[qspi] == "github":
-        expected_unreachable.add("nanosoc-multicore-system/ahb_qspi")     # e908ac8 is GitLab-only
-    if canonical[flow] == "gitlab":
-        expected_unreachable.add("ASIC/asic-flows")                       # 3824aaa is GitHub-only
+    canonical_repo = {as_doc(c)["id"]: as_doc(c)["canonical"] for c in reg.components()}
+    # CR-2: which rc4 pins are unreachable on their canonical host is computed below from the catalogue and
+    # an anonymous fetch per pin (Then 4), never hard-coded: the 2026-10-01 keep tags and DEC6 moved it.
+    web = {h: v["web"].rstrip("/") for h, v in private_config()["hosts"].items()}
 
     # When: the night's runs are read
     by_cfg = nightly_runs()
@@ -915,8 +946,6 @@ def test_AT_D2(tmp_path):
     raw = lambda gid: g[gid].get("raw_verdict", g[gid]["verdict"])     # before waivers (README section 6)
     assert raw("t0.infra.probe") == "PASS"
     assert raw("t0.pins.fetchable") == "FAIL"
-    # FAIL while a pin is off its canonical host; else UNVERIFIED (asic-toolkit is private)
-    assert raw("t0.pins.reachable") == ("FAIL" if expected_unreachable else "UNVERIFIED")
     assert raw("t0.urls.no-ssh-public") == "FAIL"
     assert raw("t0.manifest.valid") == "NOT-RUN"
     assert raw("t0.clone.upgrade-path") == "NOT-RUN"      # eth-rc4 has no upgrade_from
@@ -948,6 +977,18 @@ def test_AT_D2(tmp_path):
 
     # Then 4: t0.pins.reachable on rc4
     reach = {i["tree_path"]: i for i in gate_items(nonce, "t0.pins.reachable")}
+    # CR-2: the independent oracle. A pin of a public canonical repo that an anonymous depth-1 fetch of its
+    # canonical https URL cannot get is unreachable there; the private toolkit is never judged (unverified).
+    expected_unreachable = set()
+    for tp, i in reach.items():
+        if tp == "ASIC/asic-toolkit" or i["component"] in RC4_EXTERNALS:
+            continue
+        repo = canonical_repo[i["component"]]
+        url = "%s/%s.git" % (web[repo["host"]], repo["path"])
+        if not anon_fetchable(tmp_path / ("reach-%d" % len(expected_unreachable)) / tp.replace("/", "_"), url, i["commit"]):
+            expected_unreachable.add(tp)
+    # FAIL while a pin is off its canonical host; else UNVERIFIED (asic-toolkit is private)
+    assert raw("t0.pins.reachable") == ("FAIL" if expected_unreachable else "UNVERIFIED")
     # All 44 pins are judged, including the 5 below tidelink: the gate walks by canonical https
     # URLs, not by the pinned ssh URL. PROPOSED (G15).
     assert len(reach) == RC4_PIN_COUNT
@@ -999,7 +1040,6 @@ def test_AT_D2(tmp_path):
 
 
 @pytest.mark.requirement("D2")
-@NOT_BUILT
 def test_AT_D2_negative_control(tmp_path, monkeypatch):
     """AT-D2 control: the CI API refuses eth-main's nightly trigger. eth-main must show a
     missed night, never last night's result and never PASS."""
@@ -1010,6 +1050,7 @@ def test_AT_D2_negative_control(tmp_path, monkeypatch):
     # Given: the example registry (eth-rc4, eth-main, multicore-master) and last night's green
     cfg_path = write_config(tmp_path, monkeypatch)
     example_registry(tmp_path / "registry")
+    prime_for_trigger(tmp_path)                      # CR-3: a git registry and primed mirrors
     last_night = {
         "schema": 1, "kind": "t0_result",
         "subject": "t0_result:eth-main:" + "a" * 32, "observed_at": "2026-09-30T02:06:00Z",
@@ -1141,7 +1182,6 @@ D5_TAMPERS = (
 
 
 @pytest.mark.requirement("D5")
-@NOT_BUILT
 def test_AT_D5(tmp_path, monkeypatch):
     """AT-D5: the genuine rc4 bundle is accepted; each single-field tamper is rejected by the
     check that owns the field; no route accepts a pushed result."""
@@ -1163,6 +1203,9 @@ def test_AT_D5(tmp_path, monkeypatch):
         assert v.reason, label
 
     # Then 3: no push path. The only non-GET routes are the two Run T0 routes (section 13).
+    # CR-3: the trigger gets a registry checkout, so it reaches the CI POST and fails there (no CI host).
+    example_registry(tmp_path / "registry")
+    prime_for_trigger(tmp_path)
     client = member_client(cfg_path)
     writes = {(m, r.path) for r in client.app.routes
               for m in getattr(r, "methods", ()) if m not in ("GET", "HEAD", "OPTIONS")}
@@ -1362,7 +1405,9 @@ def test_AT_D6_negative_control(tmp_path, monkeypatch):
     base = gates.rollup(golden, scope="configuration")
     new = copy.deepcopy(example_items())
     new["t0.pins.reachable"].append(dict(NEW_FAILURE))
-    w, _ = gates.apply_waivers(base, new, example_waivers())
+    # CR-2: today's reachable row is UNVERIFIED; a job that saw the new failure writes FAIL for the gate
+    failed = [dict(g, verdict="FAIL") if g["id"] == "t0.pins.reachable" else g for g in base]
+    w, _ = gates.apply_waivers(failed, new, example_waivers())
     reach = {i["id"]: i for i in w}["t0.pins.reachable"]
     assert reach["verdict"] == "FAIL" and "waived" not in reach
     assert gates.run_verdict(w)[0] == "FAIL"
@@ -1379,9 +1424,8 @@ def test_AT_D6_negative_control(tmp_path, monkeypatch):
     fetch = {i["id"]: i for i in w}["t0.pins.fetchable"]
     assert (fetch["verdict"], fetch["control"]) == ("FAIL", "not-fired") and "waived" not in fetch
 
-    pushed = copy.deepcopy(example_items())     # e908ac8 on GitHub (GATE2 Q2): its item passes
-    pushed["t0.pins.reachable"] = [i for i in pushed["t0.pins.reachable"] if i["tree_path"] != AHB_QSPI_TREE_PATH]
-    w, unused = gates.apply_waivers(base, pushed, example_waivers())
+    # CR-2: e908ac8 reached GitHub (GATE2 Q2), so today's items no longer hold it; the old waiver is unused
+    w, unused = gates.apply_waivers(base, example_items(), example_waivers() + [RETIRED_AHB_QSPI_WAIVER])
     assert {i["id"]: i for i in w}["t0.pins.reachable"]["verdict"] == "WAIVED"     # the toolkit is still private
     assert [(u["gate"], u["tree_path"]) for u in unused] == [("t0.pins.reachable", AHB_QSPI_TREE_PATH)]
 
@@ -1499,7 +1543,6 @@ def test_AT_D11(tmp_path, monkeypatch):
 
 
 @pytest.mark.requirement("D11")
-@NOT_BUILT
 def test_AT_D11_negative_control(tmp_path, monkeypatch):
     """AT-D11 control (the done-when): the same bundle with a planted Arm banner in its log is
     refused, never stored; an empty bundle is refused, not accepted."""
@@ -1548,7 +1591,7 @@ def test_AT_D11_negative_control(tmp_path, monkeypatch):
     scan = json.loads((job_side / "provenance.json").read_text())["scan"]
     assert scan["verdict"] == "finding"
     assert first_line not in json.dumps(scan)
-    assert "logs/t0.log:3" in json.dumps(scan)
+    assert {"rule": "arm.banner", "file": "logs/t0.log", "line": 3} in scan["findings"]   # CR-3: {rule, file, line}
 
 
 # ============================================================================================
@@ -1692,7 +1735,7 @@ def test_AT_F2():
 
     # Then 5: D1 (hsel_lint at nanosoc_gen adbb9ab) runs on rc4's archived generated RTL
     run = detect.run("SL-DEF-0001", "D1", Path(require_env("RM_RC4_BUILD_SOC_TAR")))
-    assert run.input_md5 == RC4_BUILD_SOC_MD5
+    assert run.input["md5"] == RC4_BUILD_SOC_MD5                  # CR-3: DetectorRun.input is a dict
     assert run.detector_source == {"component": "nanosoc_gen", "commit": FIX_FORM_B}
     assert run.result in ("fired", "clean"), run.result            # never an error
     if run.result == "fired":
@@ -1823,12 +1866,13 @@ def test_AT_F3_negative_control(tmp_path):
 
     # Case 2: a record citing an ahb_qspi commit that exists only on the NON-canonical host.
     # ahb_qspi is DIVERGED (GitHub +1, GitLab +5), so such a commit exists whichever host
-    # question 2 makes canonical: e908ac8 is GitLab-only, 71f8d1c is GitHub-only.
+    # question 2 makes canonical: 1e5117e is GitLab-only, 71f8d1c is GitHub-only (CR-2: e908ac8 is no longer
+    # GitLab-only since the 2026-10-01 keep tag on GitHub).
     from nanosoc_rm.registry import load_registry
     r2 = _registry_r0(tmp_path / "r2")
     canon = {as_doc(c)["id"]: as_doc(c)["canonical"]["host"]
              for c in load_registry(r2).components()}["ahb_qspi"]
-    copy_only = AHB_QSPI_GITLAB_ONLY if canon == "github" else AHB_QSPI_GITHUB_ONLY
+    copy_only = AHB_QSPI_GITLAB_ONLY_NOW if canon == "github" else AHB_QSPI_GITHUB_ONLY
     d2 = load_yaml(EX / "defect.SL-DEF-0001.example.yaml")
     d2.update(id="SL-DEF-0002", component="ahb_qspi", regression_test=None,
               origin=[{"component": "ahb_qspi", "commit": copy_only}])
@@ -2016,9 +2060,10 @@ def test_selfcheck_D2_expected_sets():
     silicon = [r["fact"] for r in rows if r["kind"] == "silicon_protection"]
     assert {r["tree_paths"][0] for r in silicon if r["pinned"]} == set(RC4_KEEP_TAG_PINS)
     catalogue = {c["id"]: c for c in load_yaml(EX / "component-catalogue.example.yaml")["components"]}
-    assert catalogue["ahb_qspi"]["canonical"]["host"] == "github"      # so e908ac8 (GitLab-only) fails
+    assert catalogue["ahb_qspi"]["canonical"]["host"] == "github"      # e908ac8 is judged on GitHub...
     golden = {r["gate"]: r for r in parse_rows(example_verdicts())}
-    assert golden["t0.pins.reachable"]["status"] == "FAIL" and "e908ac8" in golden["t0.pins.reachable"]["detail"]
+    # ...where it is tagged since 2026-10-01 (CR-2): only the private toolkit leaves the gate UNVERIFIED
+    assert golden["t0.pins.reachable"]["status"] == "UNVERIFIED" and "e908ac8" not in golden["t0.pins.reachable"]["detail"]
     for p in RC4_SSH_PINS:
         assert p in golden["t0.urls.no-ssh-public"]["detail"] and p in golden["t0.pins.fetchable"]["detail"]
 
@@ -2112,13 +2157,13 @@ def test_selfcheck_D6_rollup_oracle():
 
 
 def test_selfcheck_D6_waiver_oracle():
-    """GATE2 Q1: rc4's 8 waivers cover every non-pass item of its four non-pass gates, so the oracle
+    """GATE2 Q1: rc4's 7 waivers (8 until CR-2) cover every non-pass item of its four non-pass gates, so the oracle
     rolls rc4 up WAIVED; an uncovered failure, or a control that did not fire, stays red; a waiver whose
     cause has gone is unused. The stored example agrees, and the schema refuses a WAIVED run that still
     has a FAIL gate."""
     raw = reference_rollup(parse_rows(example_verdicts()), CONFIG_GATES)
     items, waivers = example_items(), example_waivers()
-    assert sorted(items) == sorted(RC4_WAIVED_GATES) and len(waivers) == 8
+    assert sorted(items) == sorted(RC4_WAIVED_GATES) and len(waivers) == 7
     waived, unused = reference_apply_waivers(raw, items, waivers)
     assert waived == EXPECTED_RC4_WAIVED_ROLLUP and unused == []
     assert reference_run_verdict(waived) == ("WAIVED", 2)
@@ -2137,7 +2182,8 @@ def test_selfcheck_D6_waiver_oracle():
     # A new failure stays red: one uncovered item keeps its gate FAIL, and the run FAIL
     new = copy.deepcopy(items)
     new["t0.pins.reachable"].append(dict(NEW_FAILURE))
-    w, _ = reference_apply_waivers(raw, new, waivers)
+    # CR-2: the job that saw it writes FAIL for the gate (today's raw row is UNVERIFIED: the toolkit)
+    w, _ = reference_apply_waivers(dict(raw, **{"t0.pins.reachable": ("FAIL", "fired")}), new, waivers)
     assert w["t0.pins.reachable"] == ("FAIL", "fired") and reference_run_verdict(w)[0] == "FAIL"
     # A gate whose control did not fire is never waived (D6)
     w, _ = reference_apply_waivers(dict(raw, **{"t0.pins.fetchable": ("FAIL", "not-fired")}), items, waivers)
@@ -2153,12 +2199,18 @@ def test_selfcheck_D6_waiver_oracle():
     orphan["t0.pins.fetchable"] = [i for i in orphan["t0.pins.fetchable"] if i["tree_path"] != "tidelink"]
     w, _ = reference_apply_waivers(raw, orphan, [x for x in waivers if x["tree_path"] != "tidelink"])
     assert w["t0.pins.fetchable"] == ("FAIL", "fired")
-    # A fixed cause retires its waiver: with e908ac8 on GitHub (GATE2 Q2) that item passes
-    pushed = copy.deepcopy(items)
-    pushed["t0.pins.reachable"] = [i for i in pushed["t0.pins.reachable"] if i["tree_path"] != AHB_QSPI_TREE_PATH]
-    w, unused = reference_apply_waivers(raw, pushed, waivers)
+    # A fixed cause retires its waiver: with e908ac8 on GitHub (GATE2 Q2) that item passes (CR-2: today's
+    # items), so the waiver it had is unused; before, the same waiver covered it and the gate was FAIL raw
+    w, unused = reference_apply_waivers(raw, items, waivers + [RETIRED_AHB_QSPI_WAIVER])
     assert w["t0.pins.reachable"] == ("WAIVED", "fired")
     assert [(u["gate"], u["tree_path"]) for u in unused] == [("t0.pins.reachable", AHB_QSPI_TREE_PATH)]
+    before = copy.deepcopy(items)
+    before["t0.pins.reachable"].append(dict(AHB_QSPI_UNREACHABLE_ITEM))
+    w, unused = reference_apply_waivers(dict(raw, **{"t0.pins.reachable": ("FAIL", "fired")}), before,
+                                        waivers + [RETIRED_AHB_QSPI_WAIVER])
+    assert w["t0.pins.reachable"] == ("WAIVED", "fired") and unused == []
+    w, _ = reference_apply_waivers(dict(raw, **{"t0.pins.reachable": ("FAIL", "fired")}), before, waivers)
+    assert w["t0.pins.reachable"] == ("FAIL", "fired")          # without it, that item is a failure
     # Waivers without items change nothing; PASS and NOT-RUN gates are never touched
     assert reference_apply_waivers(raw, {}, waivers)[0] == raw
     # The schema agrees: a WAIVED run with a FAIL gate is refused; so is a WAIVED gate without raw_verdict

@@ -1,0 +1,28 @@
+# expect-error: not at /fact/gates
+# CR-9: WARN is below WAIVED on the run ladder; a run with a WAIVED gate is WAIVED, never WARN.
+schema: 1
+kind: t0_result
+subject: "t0_result:eth-rc4:9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c"
+observed_at: "2026-10-01T02:07:41Z"
+sources: [{kind: ci_api, command: "GET projects/soclabs%2Fnanosoc-compat-ci/jobs/2000/artifacts"}]
+fact:
+  configuration: eth-rc4
+  commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"
+  run: {nonce: "9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c", trigger: schedule, triggered_by: schedule, triggered_at: "2026-10-01T02:03:10Z", pipeline_id: 1000, job_id: 2000}
+  acceptance: accepted
+  reason: null
+  verdict: WARN
+  gates:
+  - {id: t0.infra.probe, verdict: PASS, control: fired, detail: "anonymous ls-remote succeeded"}
+  - {id: t0.vendor.no-arm-ip, verdict: WARN, control: fired, detail: "1 with warn-covered findings only (vendor_allowlist): x"}
+  - id: t0.pins.fetchable
+    verdict: WAIVED
+    raw_verdict: FAIL
+    control: fired
+    detail: "ssh pins"
+    waived: [{tree_path: tidelink, result: fail, covered_by: tidelink, reason: "ssh URL", approved_by: member-a}]
+  bundle: {store: ci, path: jobs/2000/artifacts}
+  started_at: "2026-10-01T02:03:30Z"
+  finished_at: "2026-10-01T02:05:02Z"
+  over_budget: false
+  runner: {id: 9001, description: rm-hardened, tags: []}

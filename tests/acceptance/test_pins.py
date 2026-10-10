@@ -110,15 +110,24 @@ TIDELINK_GITLAB_MAIN_20260930 = "9092300b576d9b090e941ba73746c3518ed9e636"  # an
 RC4_GEN_PATH_A = "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen"                        # d04de2e
 RC4_GEN_PATH_B = "nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen"  # 1d7772d
 
-# B3: the second host of every rc4 pin whose component has a copy. tree path -> (host, state, min lag)
+# B3: the second host of every rc4 pin whose component has a copy in the example catalogue.
+# tree path -> (host, state, min lag). CR-2: arch_tech ecf76aa and ahb_qspi e908ac8 are PROTECTED_BY_TAG on
+# GitHub since the 2026-10-01 tags keep/eth-rc4/nanosoc_arch_tech and keep/eth-rc4/ahb_qspi (anonymous
+# ls-remote, 2026-10-10); they were BRANCH_ONLY and MISSING. The live registry (DEC6) gives more pins a
+# second host; the golden judges these 7.
 RC4_OTHER_HOST = {
     "tidelink": ("gitlab", "MISSING", None),
-    "nanosoc-multicore-system/nanosoc_arch_tech": ("github", "BRANCH_ONLY", None),
+    "nanosoc-multicore-system/nanosoc_arch_tech": ("github", "PROTECTED_BY_TAG", None),
     "nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech": ("github", "ON_DEFAULT", 73),
-    "nanosoc-multicore-system/ahb_qspi": ("github", "MISSING", None),
+    "nanosoc-multicore-system/ahb_qspi": ("github", "PROTECTED_BY_TAG", None),
     "ASIC/asic-flows": ("gitlab", "MISSING", None),
     "tidelink/deps/axi-chiplet-controller/asic_flow": ("github", "ON_DEFAULT", 5),
     "nanosoc-multicore-system/syn/asic/asic_flow": ("github", "ON_DEFAULT", 4),
+}
+# CR-2: the tags on those second hosts (what a correct walker reports for them).
+RC4_OTHER_HOST_TAGS = {
+    "nanosoc-multicore-system/nanosoc_arch_tech": ["keep/eth-rc4/nanosoc_arch_tech"],
+    "nanosoc-multicore-system/ahb_qspi": ["keep/eth-rc4/ahb_qspi"],
 }
 
 # B3: .gitmodules branch= exactly as written at rc4. Recorded, never used. Three of them
@@ -181,6 +190,7 @@ MULTICORE_OTHER_HOST = {
 
 # B3 done-when: "The states match a hand check on rc4 and multicore." A person re-runs the
 # golden's commands by hand, then fills these in. AT-B3 fails while either is empty.
+# CR-2 (2026-10-10): rc4's golden changed (two second-host rows), so rc4's hand check is due again (David).
 HAND_CHECK = {
     "eth-rc4": {"by": None, "on": None},
     "multicore-master-20260930": {"by": None, "on": None},
@@ -371,14 +381,47 @@ def multicore_state_golden():
     return golden
 
 
-def rc4_protection_golden():
-    """B5 golden (interfaces.md section 7): 11 rows on the pinned host, all covered (the done-when's
-    11 commits), and 2 rows on the canonical host where it differs, both uncovered (question 9)."""
+# CR-2: rc4 rows on GitHub for the three components DEC6 makes canonical there (the live registry; the
+# example catalogue still has them GitLab-only). Anonymous fetch and ls-remote, 2026-10-10: 44ff8b7 and 50359ee
+# are "not our ref" on GitHub; 51348de is the tip of branch wip/uncommitted-2026-08-18 only. These are decision
+# R1's rows: uncovered until they are pushed and keep-tagged.
+RC4_DEC6_ROWS = {
+    "ethernet-mac-ahb": {"repo": {"host": "github", "path": "SoC-Labs/Ethernet-MAC-AHB"},
+                         "commit": "44ff8b72654bc6953b97f86855fe50ad1a10e22c", "state": "MISSING", "branches": [],
+                         "tree_paths": ["nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb"]},
+    "hostio4": {"repo": {"host": "github", "path": "SoC-Labs/HostIO4"},
+                "commit": "51348dea936d086d1f2fb0a058c2985d0baa75f6", "state": "BRANCH_ONLY",
+                "branches": ["wip/uncommitted-2026-08-18"],
+                "tree_paths": ["nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4"]},
+    "socdebug_tech": {"repo": {"host": "github", "path": "SoC-Labs/SoCDebug-Tech"},
+                      "commit": "50359ee3db4e4f72dd3d738dcdfa99d8e0f646ce", "state": "MISSING", "branches": [],
+                      "tree_paths": ["nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech"]},
+}
+
+
+def rc4_protection_golden(catalogue=None):
+    """B5 golden (interfaces.md section 7). On the example catalogue: 11 rows on the pinned host, all covered
+    (the done-when's 11 commits), and 2 rows on the canonical host where it differs, both covered since the
+    2026-10-01 keep tags (CR-2). With `catalogue` (the live registry's), each component of RC4_DEC6_ROWS that
+    it makes canonical on GitHub adds its GitHub row and its pinned GitLab row is no longer canonical."""
     rows = [d["fact"] for d in example_observations("silicon_protection")]
     pinned = [r for r in rows if r["pinned"]]
     assert len(pinned) == 11 and all(r["covered"] for r in pinned), "the B5 golden must hold rc4's 11 covered commits"
     assert {(r["component"], r["repo"]["host"]) for r in rows if not r["pinned"]} == \
         {("nanosoc_arch_tech", "github"), ("ahb_qspi", "github")}
+    assert all(r["covered"] for r in rows), "CR-2: both canonical-host rows are covered by keep tags"
+    if catalogue is None:
+        return rows
+    rows = copy.deepcopy(rows)
+    canon = {c["id"]: c["canonical"] for c in catalogue["components"]}
+    for comp, row in RC4_DEC6_ROWS.items():
+        if canon.get(comp) != row["repo"]:
+            continue
+        for r in rows:
+            if r["component"] == comp and r["commit"] == row["commit"]:
+                r["canonical"] = False
+        rows.append(dict(row, configuration="eth-rc4", component=comp, pinned=False, canonical=True,
+                         default_branch="main", covering_tags=[], covered=False))
     return rows
 
 
@@ -1212,10 +1255,24 @@ def test_AT_B1_negative_control(tmp_path):
     }
     env = ToolEnv(tmp_path / "env", service_config(registry=cases["no class"], data_dir=tmp_path / "data"),
                   tmp_path / "data", cases["no class"])
+    # CR-4: each case must be refused by the LOADER, with the specific problem (not any RegistryError, and not
+    #   check_B1's own re-checks): a schema problem at tidechart's class for 1-3, rule 1 for 4, rule 2 for 5.
+    ti = next(i for i, c in enumerate(example_catalogue()["components"]) if c["id"] == "tidechart")
+    cls_at = {"/components/%d" % ti, "/components/%d/class" % ti}
+    want = {"no class": lambda p: p.rule == "schema" and p.file == "catalogue.yaml" and p.pointer in cls_at,
+            "two classes": lambda p: p.rule == "schema" and p.file == "catalogue.yaml" and p.pointer in cls_at,
+            "unknown class": lambda p: p.rule == "schema" and p.file == "catalogue.yaml" and p.pointer in cls_at,
+            "same id, two classes": lambda p: p.rule == "rule-1" and "tidechart" in p.message,
+            "legacy under test": lambda p: p.rule == "rule-2" and p.file == "eligibility.yaml"}
+    load_registry, registry_error = rm("registry.load_registry"), rm("registry.RegistryError")
     # When the B1 check runs on each / Then it fails on every one
     with env.active():
         for name, registry in cases.items():
             assert check_B1(registry), "check_B1 passed a registry with %s" % name
+            with pytest.raises(registry_error) as err:
+                load_registry(Path(registry))
+            got = [(p.file, p.pointer, p.rule, p.message) for p in err.value.problems]
+            assert any(want[name](p) for p in err.value.problems), "%s: the loader did not name it: %s" % (name, got)
 
 
 # ============================================================================================
@@ -1415,10 +1472,11 @@ def test_AT_B5(live):
         # When the silicon-protection list is built
         rows = protect("eth-rc4")
         branch_rows = protect("eth-main") + protect("multicore-master")
-    golden = rc4_protection_golden()
+    golden = rc4_protection_golden(load_yaml(live.registry / "catalogue.yaml"))
     # Then it is exactly the golden rows: the 11 commits on their pinned host, each covered by its keep
-    # tag (the done-when), plus the 2 canonical-host rows (arch_tech ecf76aa and ahb_qspi e908ac8 on
-    # GitHub), uncovered (interfaces.md section 7, question 9)
+    # tag (the done-when), plus the canonical-host rows (interfaces.md section 7, question 9): arch_tech
+    # ecf76aa and ahb_qspi e908ac8 on GitHub, covered since the 2026-10-01 keep tags, and (CR-2) the R1 rows
+    # the live catalogue's DEC6 adds, uncovered until pushed and tagged
     assert check_B5(rows, golden) == []
     pinned = [f for f in facts(rows, "silicon_protection") if f["pinned"]]
     assert Counter(f["repo"]["host"] for f in pinned) == Counter({"github": 3, "gitlab": 8})
@@ -1442,15 +1500,16 @@ def test_AT_B5(live):
 def test_AT_B5_negative_control(shadow):
     # Given rc4's real mirrors with keep/eth-rc4/tidechart deleted (shadow only)
     delete_refs(shadow.mirror("tidechart"), [ref_prefix("gitlab", "soclabs/tidechart") + "/tags/keep/eth-rc4/tidechart"])
+    golden = rc4_protection_golden(load_yaml(shadow.registry / "catalogue.yaml"))     # CR-2
     # When the list is built
     with shadow.active():
         rm("walker.walk")("eth-rc4")
         rows = rm("analysis.protect.silicon_protection")("eth-rc4")
     uncovered = shadow.cli("silicon-protection", "eth-rc4", "--uncovered", "--json")
     # Then the B5 check fails on tidechart, and the CLI adds exactly that row to the uncovered list
-    assert any(p.startswith("tidechart 4b4b898@gitlab") for p in check_B5(rows, rc4_protection_golden()))
+    assert any(p.startswith("tidechart 4b4b898@gitlab") for p in check_B5(rows, golden))
     assert uncovered.returncode == 1
-    baseline = {(g["component"], g["repo"]["host"]) for g in rc4_protection_golden() if not g["covered"]}
+    baseline = {(g["component"], g["repo"]["host"]) for g in golden if not g["covered"]}
     assert {(f["component"], f["repo"]["host"]) for f in facts(cli_docs(uncovered), "silicon_protection")} \
         == baseline | {("tidechart", "gitlab")}
 
@@ -1533,6 +1592,9 @@ def test_AT_B8(hermetic):
         # the dashboard banner's source. ASSUMED (G12): sync_component stores what it returns, and
         # pinned_lost is computed from the latest stored pin_state observations
         assert subject in [as_doc(o)["subject"] for o in latest("rewrite_alert")]
+        # CR-4: and the alerts table holds the banner row for it (interfaces.md section 8: "plus an alerts row")
+        banner = [as_doc(a) for a in rm("db.alerts")() if as_doc(a)["subject"] == "alert:rewrite:%s" % subject]
+        assert len(banner) == 1 and banner[0]["fact"]["alert_kind"] == "rewrite", rm("db.alerts")()
         # and a quiet re-sync neither raises a second alert nor clears the first
         assert check_B8(sync("rm-rewrite-fixture"), None) == []
         assert subject in [as_doc(o)["subject"] for o in latest("rewrite_alert")]
@@ -1624,7 +1686,8 @@ def synth_rc4_pin_docs():
             host, state, lag = RC4_OTHER_HOST[path]
             repo, role = repos[p["component"]][host]
             hosts[host] = host_state_doc(repo, role, False, state, lag=lag,
-                                         branches=["wip/uncommitted-2026-08-18"] if state == "BRANCH_ONLY" else ())
+                                         branches=["wip/uncommitted-2026-08-18"] if state == "BRANCH_ONLY" else (),
+                                         tags=RC4_OTHER_HOST_TAGS.get(path, ()))
         url = ("git@example.invalid:%s.git" if p["url_kind"] == "ssh" else "https://example.invalid/%s.git") % p["repo"]["path"]
         docs.append({
             "schema": 1, "kind": "pin_state", "subject": "pin_state:eth-rc4:%s" % path,
@@ -1739,12 +1802,22 @@ def test_selfcheck_B5_checker():
     # judged only on the pinned host: the canonical-host rows are missing (question 9 decides which is right)
     pinned_only = [r for r in rows if r["fact"]["pinned"]]
     assert sum(1 for p in check_B5(pinned_only, rc4_protection_golden()) if p.endswith("missing row")) == 2
-    # a canonical-host row that claims coverage it does not have
+    # a canonical-host row that lost its coverage (CR-2: both are covered by keep tags since 2026-10-01)
     lying = copy.deepcopy(rows)
     arch = next(r for r in lying if r["fact"]["component"] == "nanosoc_arch_tech" and not r["fact"]["pinned"])
-    arch["fact"].update(covered=True, covering_tags=["keep/eth-rc4/nanosoc_arch_tech"], state="PROTECTED_BY_TAG")
-    assert any(p.startswith("nanosoc_arch_tech ecf76aa@github: covered, golden uncovered") for p in
+    arch["fact"].update(covered=False, covering_tags=[], state="BRANCH_ONLY")
+    assert any(p.startswith("nanosoc_arch_tech ecf76aa@github: not covered by any tag") for p in
                check_B5(lying, rc4_protection_golden()))
+    # CR-2: on a DEC6 catalogue the golden adds the three R1 rows, uncovered, and un-canonicals their GitLab rows
+    dec6 = example_catalogue()
+    for c in dec6["components"]:
+        if c["id"] in RC4_DEC6_ROWS:
+            c["copies"] = [c["canonical"]]
+            c["canonical"] = RC4_DEC6_ROWS[c["id"]]["repo"]
+    live_golden = rc4_protection_golden(dec6)
+    assert len(live_golden) == 16 and sorted(g["component"] for g in live_golden if not g["covered"]) == \
+        ["ethernet-mac-ahb", "hostio4", "socdebug_tech"]
+    assert any(p.endswith("missing row") for p in check_B5(rows, live_golden))
 
 
 def test_selfcheck_B6_checker():

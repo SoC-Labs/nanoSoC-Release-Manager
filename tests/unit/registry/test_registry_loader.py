@@ -190,7 +190,7 @@ CASES = {
         (ERR, "/exposure/run/detector_source", "rule-12")),
     "rule 13: duplicate waiver": (
         "eligibility.yaml", lambda e: _cfg(e, "eth-rc4")["t0_waivers"].append(dict(_cfg(e, "eth-rc4")["t0_waivers"][0])),
-        ("eligibility.yaml", "/configurations/0/t0_waivers/8", "rule-13")),
+        ("eligibility.yaml", "/configurations/0/t0_waivers/7", "rule-13")),
     "rule 13: undeclared gate": (
         "eligibility.yaml", lambda e: _cfg(e, "eth-rc4")["t0_waivers"][0].update(gate="t0.pins.bogus"),
         ("eligibility.yaml", "/configurations/0/t0_waivers/0/gate", "rule-13")),

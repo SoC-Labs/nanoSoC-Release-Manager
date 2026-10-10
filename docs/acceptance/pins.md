@@ -39,7 +39,7 @@ Each AT has a negative control (PR6).
 | [AT-B2](#at-b2) | B2 nested tree | `walk eth-rc4` gives exactly rc4's 44 pin keys, with child commit, repo, component, tree path and depth; depths 5/9/17/12/1 | live / live | eth main's real tree (43 pins, 13 shared) is reported as not rc4's; a golden missing one pin is reported |
 | [AT-B3](#at-b3) | B3 pin states | rc4's 44 + 7 and multicore's 35 + 4 host states match the hand-checked goldens; `branch=` is recorded and ignored; the hermetic table yields all 11 states where placed | live + hermetic / shadow + hermetic | `keep/eth-rc4/nanosoc_gen` deleted: `d04de2e` turns BRANCH_ONLY; tag `v1.0.0` deleted: the TAGGED pin turns ON_DEFAULT |
 | [AT-B4](#at-b4) | B4 contains commit X | `036d381` resolves to its full SHA; per host, eth-rc4 answers `no` with both generator pins proven; the other configurations match a raw-git oracle; `yes`, `partial`, `unknown` and `absent` also occur on real data | live / shadow | `d04de2e` still an object but reachable from no ref: the answer must be `unknown`, never `no` |
-| [AT-B5](#at-b5) | B5 silicon protection | eth-rc4 lists exactly 13 rows: the 11 branch-only commits on their pinned host (3 GitHub, 8 GitLab), each covered by its keep tag, and 2 canonical-host rows (arch_tech `ecf76aa`, ahb_qspi `e908ac8` on GitHub), uncovered | live / shadow | `keep/eth-rc4/tidechart` deleted: tidechart `4b4b898` joins the uncovered list |
+| [AT-B5](#at-b5) | B5 silicon protection | eth-rc4 lists the 11 branch-only commits on their pinned host (3 GitHub, 8 GitLab), each covered by its keep tag, and the canonical-host rows: arch_tech `ecf76aa` and ahb_qspi `e908ac8` on GitHub, covered since 2026-10-01; on the live registry (DEC6) also the 3 R1 rows, uncovered (CR-2) | live / shadow | `keep/eth-rc4/tidechart` deleted: tidechart `4b4b898` joins the uncovered list |
 | [AT-B6](#at-b6) | B6 host drift | On the 2026-09-30 heads: TideLink AHEAD 298/0, AHB-QSPI DIVERGED 1/5, ASIC-Flow DIVERGED 4/1, counted by rev-list in one mirror; DIVERGED exits 1; today's answers equal raw git | live + shadow / shadow | AHB-QSPI's copy moved to GitHub's head reads SAME and fails; ASIC-Flow with its GitLab refs gone reads UNKNOWN |
 | [AT-B8](#at-b8) | B8 rewrite alert | A force-push on a test repo's default branch raises exactly one alert naming old and new head, 3 lost commits and the lost registered pin | hermetic / hermetic | a fast-forward and a force-push of a non-default branch: no alert, so the expected-alert check fails |
 
@@ -131,7 +131,7 @@ The schema alone rejects 1 to 3. Cases 4 and 5 are schema-valid, so only the loa
 **Cannot pass vacuously because**
 - The loaded count must equal the file's entry count, so an empty or partial load fails.
 - A registry with no legacy entry fails, so "legacy is listed" is always exercised.
-- Cases 4 and 5 can only be caught by the loader's own cross-file rules.
+- Each case must be refused by the loader itself (`RegistryError`) with the specific problem: a schema problem at tidechart's `class` for 1 to 3, a `rule-1` problem for 4, a `rule-2` problem for 5. `check_B1` also re-checks classes and legacy use itself, so its own failure alone does not prove the loader enforces anything (CR-4).
 
 **Open:** the real registry does not exist yet, so AT-B1 fails until it does. Classifying all ~158 repos is A1's done-when (AT-A1 in `scope_web.md`).
 
@@ -306,24 +306,24 @@ Self-check:
 2. `nanosoc-rm silicon-protection eth-rc4 [--uncovered] --json`.
 
 **Then** (interfaces.md section 7: each pin is judged on its pinned host and on its component's canonical host; question 9 in GATE2.md)
-1. Exactly 13 rows.
+1. Exactly the golden rows (CR-2: 13 on the example catalogue; 16 on the live registry, whose DEC6 catalogue makes ethernet-mac-ahb, hostio4 and socdebug_tech canonical on GitHub).
    - **11 on the pinned host** (the done-when's 11 commits): tidechart, axi-chiplet-controller, tidelink-gpio-phy (×2), ethernet-mac-ahb, ethernet-subsystem-ahb, hostio4 `51348de`, nanosoc_gen `d04de2e`, nanosoc_arch_tech `ecf76aa` (GitLab copy), nanosoc-multicore-system `f60449b`, asic-toolkit. 3 are on GitHub and 8 on GitLab. Each is `covered: true`, by at least its golden keep tag.
-   - **2 on the canonical host, where it differs:** nanosoc_arch_tech `ecf76aa` on GitHub is BRANCH_ONLY with no tag, and ahb_qspi `e908ac8` on GitHub is MISSING. Both are `covered: false`.
+   - **On the canonical host, where it differs:** nanosoc_arch_tech `ecf76aa` and ahb_qspi `e908ac8` on GitHub, PROTECTED_BY_TAG by `keep/eth-rc4/nanosoc_arch_tech` and `keep/eth-rc4/ahb_qspi` (David's 2026-10-01 tags), both `covered: true`. On the live registry also ethernet-mac-ahb `44ff8b7` (MISSING), hostio4 `51348de` (BRANCH_ONLY) and socdebug_tech `50359ee` (MISSING) on GitHub, `covered: false` until decision R1 is carried out; the GitLab rows of the first two are then `pinned` only.
    - None is on its default branch, and each has the golden tree paths and host roles.
 2. The pinned-host rows are exactly the pins whose pinned host's default branch cannot reach them, which cross-checks the B3 states.
 3. eth-main and multicore-master are neither frozen nor silicon, so they give no rows.
-4. `--uncovered` prints exactly the 2 canonical-host rows and exits 1. The full list passes the same check.
+4. `--uncovered` prints exactly the uncovered golden rows and exits 1 while there is one (the 3 R1 rows on the live registry), else 0. The full list passes the same check.
 
-**Fixture:** REAL: all 13 rows from `observation.example.jsonl`. Each keep tag was confirmed with `git ls-remote` on 2026-09-30; the two canonical-host facts come from the GitHub API (`compare`, `matching-refs/tags/keep`, and 422 for `e908ac8`). They depend on the catalogue's canonical host for ahb_qspi (question 2).
+**Fixture:** REAL: all 13 rows from `observation.example.jsonl`. Each keep tag was confirmed with `git ls-remote` on 2026-09-30; the two canonical-host rows were re-derived on 2026-10-10 (CR-2) from `git ls-remote` of the GitHub keep tags. The 3 R1 rows (`RC4_DEC6_ROWS` in the test file) come from anonymous fetches ("not our ref") and `ls-remote` on 2026-10-10, and are added only when the live catalogue makes those components canonical on GitHub. They depend on the catalogue's canonical host for ahb_qspi (question 2).
 
 **Exercises:** interfaces §7; the observation `silicon_protection` fact (`covered` ⇔ `covering_tags` non-empty); eligibility `frozen` and `silicon`.
 
 **Negative control**
 - **Shadow:** `keep/eth-rc4/tidechart` is deleted.
   - `check_B5` fails on tidechart `4b4b898@gitlab`.
-  - `--uncovered` exits 1 and prints the 2 baseline rows plus exactly one more, tidechart on GitLab.
+  - `--uncovered` exits 1 and prints the baseline uncovered rows (the R1 rows on the live registry) plus exactly one more, tidechart on GitLab.
 
-Self-check: the 13 real rows pass. Each of these fails: tidechart uncovered; a row missing; a row on its default branch; the list judged on the pinned host only (2 rows missing); a canonical-host row claiming coverage it lacks.
+Self-check: the 13 real rows pass. Each of these fails: tidechart uncovered; a row missing; a row on its default branch; the list judged on the pinned host only (2 rows missing); a canonical-host row that lost its tag; the 13 rows against the DEC6 golden (3 rows missing).
 
 **Cannot pass vacuously because**
 - The row set must match both ways, so an empty list fails.

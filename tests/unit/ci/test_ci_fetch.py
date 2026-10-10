@@ -78,6 +78,15 @@ def example_item_files(ce, drop_tree_path=None):
     return out
 
 
+def files_with_one_unused_waiver(ce):
+    """rc4's items with the toolkit's vendor item gone, so exactly one waiver covers nothing (CR-2: the
+    ahb_qspi reachable waiver that used to play this part is retired)."""
+    files = example_item_files(ce)
+    gate = "items/t0.vendor.no-arm-ip.jsonl"
+    files[gate] = "".join(line + "\n" for line in files[gate].splitlines() if '"ASIC/asic-toolkit"' not in line)
+    return files
+
+
 def setup_run(ce, root, case=None, files=None, **fake_kw):
     case = case or ce.genuine_case()
     bundle = ce.write_bundle(root, case.prov, case.verdicts, files)
@@ -115,14 +124,15 @@ def test_accepted_bundle_rolls_up_with_the_waivers_and_is_kept(ce, ci_config, tm
 
 
 def test_a_waiver_that_covered_nothing_raises_one_alert_naming_it(ce, ci_config, tmp_path, scanner_clean, t0):
-    """GATE2 Q2: once e908ac8 is on GitHub its item passes, and the reachable waiver is unused."""
-    case, fake = setup_run(ce, tmp_path / "b", files=example_item_files(ce, ce.AHB_QSPI_TREE_PATH))
+    """A waiver whose item is gone raises one waiver_unused alert naming it. (CR-2: the GATE2 Q2 case, e908ac8
+    on GitHub, already happened and its waiver was retired; here the toolkit's vendor item is the one gone.)"""
+    case, fake = setup_run(ce, tmp_path / "b", files=files_with_one_unused_waiver(ce))
     (doc,) = fetch_pending(client=fake, now=NOW)
     assert doc["fact"]["verdict"] == "WAIVED"
     (alert,) = db.alerts()
     a = alert["fact"]
     assert a["alert_kind"] == "waiver_unused" and a["about"] == doc["subject"]
-    assert "t0.pins.reachable" in a["message"] and ce.AHB_QSPI_TREE_PATH in a["message"]
+    assert "t0.vendor.no-arm-ip" in a["message"] and "ASIC/asic-toolkit" in a["message"]
 
 
 def test_without_items_nothing_is_waived(ce, ci_config, tmp_path, scanner_clean, t0):
@@ -328,13 +338,13 @@ def _bad_month(case, bundle_root):
 
 
 def _bad_started_at(case, bundle_root):
-    case.prov["started_at"] = "2026-10-32T02:03:30Z"
+    case.prov["started_at"] = "2026-02-30T02:03:30Z"     # K4: the schema pattern passes it; only parsing can refuse it
 
 
 @pytest.mark.parametrize("label, change, check, words", [
     ("verdicts.tsv is not UTF-8", _bad_utf8, 6, "not UTF-8"),
     ("a row stamped in month 13", _bad_month, 6, "not a real time"),
-    ("provenance started on October 32", _bad_started_at, 3, "not a real time"),
+    ("provenance started on February 30", _bad_started_at, 3, "not a real time"),
 ])
 def test_a_malformed_bundle_is_rejected_at_once(ce, ci_config, tmp_path, scanner_clean, t0, label, change, check,
                                                 words):
@@ -407,7 +417,7 @@ def test_the_backstop_never_overwrites_a_run_that_became_final(ce, ci_config, tm
     def alert_fails(*a, **k):
         raise RuntimeError("the alert could not be stored")
     monkeypatch.setattr(fetch, "_waiver_alert", alert_fails)
-    case, fake = setup_run(ce, tmp_path / "b", files=example_item_files(ce, ce.AHB_QSPI_TREE_PATH))
+    case, fake = setup_run(ce, tmp_path / "b", files=files_with_one_unused_waiver(ce))
     with pytest.raises(FetchErrors):
         fetch_pending(client=fake, now=LATE)
     assert db.get_run(case.run["nonce"])["state"] == "accepted"

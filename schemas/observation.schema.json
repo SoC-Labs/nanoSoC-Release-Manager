@@ -1269,7 +1269,7 @@
       }
     },
     "t0_result": {
-      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle, or no bundle at all. A2: every run records who or what started it. The run verdict follows README section 6: FAIL if any gate FAILs; else UNVERIFIED if any gate is UNVERIFIED or no gate PASSed (nothing was checked); else INFRA if any gate is INFRA; else WAIVED if any gate is WAIVED (a frozen configuration's known failures, GATE2 Q1); else PASS.",
+      "description": "One T0 run as the service sees it: from trigger (pending) to an accepted, rejected (D5) or refused (D11) bundle, or no bundle at all. A2: every run records who or what started it. The run verdict follows README section 6: FAIL if any gate FAILs; else UNVERIFIED if any gate is UNVERIFIED or no gate PASSed (nothing was checked); else INFRA if any gate is INFRA; else WAIVED if any gate is WAIVED (a frozen configuration's known failures, GATE2 Q1); else WARN if any gate is WARN (CR-9: passed with listed warnings, amber); else PASS. A WARN gate counts as checked.",
       "type": "object",
       "required": [
         "configuration",
@@ -1363,13 +1363,14 @@
           ]
         },
         "verdict": {
-          "description": "README section 6: FAIL > UNVERIFIED > INFRA > WAIVED > PASS, and PASS or WAIVED needs at least one PASS gate (all gates NOT-RUN or WAIVED is UNVERIFIED). WAIVED: no gate FAIL, UNVERIFIED or INFRA, at least one gate WAIVED by the configuration's t0_waivers. NOT-RUN gates are counted and shown beside the verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
+          "description": "README section 6: FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS (CR-9), and PASS, WARN or WAIVED needs at least one PASS or WARN gate (all gates NOT-RUN or WAIVED is UNVERIFIED). WARN: no gate FAIL, UNVERIFIED, INFRA or WAIVED, at least one gate WARN. WAIVED: no gate FAIL, UNVERIFIED or INFRA, at least one gate WAIVED by the configuration's t0_waivers. NOT-RUN gates are counted and shown beside the verdict. null while pending. A rejected or refused bundle gives UNVERIFIED.",
           "enum": [
             "PASS",
             "FAIL",
             "UNVERIFIED",
             "INFRA",
             "WAIVED",
+            "WARN",
             null
           ]
         },
@@ -1457,7 +1458,10 @@
                 "if": {
                   "properties": {
                     "verdict": {
-                      "const": "PASS"
+                      "enum": [
+                        "PASS",
+                        "WARN"
+                      ]
                     }
                   }
                 },
@@ -1700,7 +1704,8 @@
                   "FAIL",
                   "UNVERIFIED",
                   "INFRA",
-                  "WAIVED"
+                  "WAIVED",
+                  "WARN"
                 ]
               },
               "bundle": {
@@ -1841,7 +1846,10 @@
                       "contains": {
                         "properties": {
                           "verdict": {
-                            "const": "PASS"
+                            "enum": [
+                              "PASS",
+                              "WARN"
+                            ]
                           }
                         },
                         "required": [
@@ -1950,7 +1958,10 @@
                     "contains": {
                       "properties": {
                         "verdict": {
-                          "const": "PASS"
+                          "enum": [
+                            "PASS",
+                            "WARN"
+                          ]
                         }
                       },
                       "required": [
@@ -1990,6 +2001,94 @@
                         "properties": {
                           "verdict": {
                             "const": "INFRA"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "acceptance": {
+                "const": "accepted"
+              },
+              "verdict": {
+                "const": "WARN"
+              }
+            },
+            "required": [
+              "acceptance",
+              "verdict"
+            ]
+          },
+          "then": {
+            "properties": {
+              "gates": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "verdict": {
+                          "const": "WARN"
+                        }
+                      },
+                      "required": [
+                        "verdict"
+                      ]
+                    }
+                  }
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "FAIL"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "UNVERIFIED"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "INFRA"
+                          }
+                        },
+                        "required": [
+                          "verdict"
+                        ]
+                      }
+                    },
+                    {
+                      "contains": {
+                        "properties": {
+                          "verdict": {
+                            "const": "WAIVED"
                           }
                         },
                         "required": [

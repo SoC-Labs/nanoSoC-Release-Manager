@@ -74,7 +74,7 @@ Observed 2026-09-30 with read-only calls, and re-checked the same evening. Contr
   - 44 pins, 5 levels deep ([`release-lock.eth-rc4.example.yaml`](../../schemas/examples/release-lock.eth-rc4.example.yaml)).
   - On its pinned host, every pin is TAGGED (1), ON_DEFAULT (32) or PROTECTED_BY_TAG (11), so rc4 has **0 red pins** today.
   - 2 pins use ssh URLs: `tidelink` and `ASIC/asic-toolkit`.
-- **Keep tags:** 11 silicon-protection rows on the pinned host, all covered by `keep/eth-rc4/*`, all observed at 17:31:59Z; plus 2 canonical-host rows (arch_tech `ecf76aa` and ahb_qspi `e908ac8` on GitHub), uncovered, observed at 18:05 ([`observation.example.jsonl`](../../schemas/examples/observation.example.jsonl)).
+- **Keep tags:** 11 silicon-protection rows on the pinned host, all covered by `keep/eth-rc4/*`, all observed at 17:31:59Z; plus 2 canonical-host rows (arch_tech `ecf76aa` and ahb_qspi `e908ac8` on GitHub), covered by the 2026-10-01 keep tags, observed 2026-10-02 (CR-2) ([`observation.example.jsonl`](../../schemas/examples/observation.example.jsonl)).
 - **Host drift in rc4's tree:** tidelink's GitHub copy is 298 commits ahead of GitLab. ahb_qspi and asic-flow are DIVERGED.
 - **Containment:** `036d381` (SL-DEF-0001 form A fix) gives `no` for eth-rc4 on gitlab.
 - **Registry records:** SL-DEF-0001, ETH-R0P0-ERR-001 (`status: permanent`, exposure `probably-exposed` by ancestry), and the import ledger ([`schemas/examples/`](../../schemas/examples/)).
@@ -249,7 +249,7 @@ Observed 2026-09-30 with read-only calls, and re-checked the same evening. Contr
 - *Checker:* a page built from the 11 real silicon-protection observations passes. Then each of these is caught:
   - one source link removed;
   - the data-age element removed;
-  - the age measured from the newest fact instead of the oldest (one row re-stamped 18:05:01Z);
+  - the age measured from the newest fact instead of the oldest (one row re-stamped 2026-10-03T00:00:01Z, after every row; CR-2);
   - a stored fact with no sources;
   - an empty page.
 - *System, offline:* a row with `sources: []` is inserted into `observations` directly, bypassing `put`. `/silicon-protection` still shows the 11 real rows, and either omits the bad row or `check_a3_page` reports it. Separately, `db.put` refuses the invalid example.

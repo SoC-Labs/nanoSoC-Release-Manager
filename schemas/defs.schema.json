@@ -67,9 +67,9 @@
       }
     },
     "utc": {
-      "description": "UTC timestamp, RFC 3339, with a Z suffix. A3.",
+      "description": "UTC timestamp, RFC 3339, with a Z suffix. A3. K4 (option a, 2026-10-10): month 01-12, day 01-31, hour 00-23, minute 00-59, second 00-60 (leap second). The pattern cannot know month lengths, so a reader still parses the value (2026-02-30 matches).",
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]+)?Z$"
     },
     "date": {
       "type": "string",

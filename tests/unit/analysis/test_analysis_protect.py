@@ -44,13 +44,15 @@ def cfg(tmp_path, monkeypatch):
 
 
 def test_rc4_golden_13_rows(cfg):
-    """The AT-B5 golden (11 pinned-host rows covered, 2 canonical-host rows uncovered), from the rc4 tree."""
+    """The AT-B5 golden (11 pinned-host rows covered, 2 canonical-host rows covered by the 2026-10-01 keep tags,
+    CR-2), from the rc4 tree."""
     store_tree("eth-rc4", rc4_tree())
     rows = silicon_protection("eth-rc4")
     assert PINS.check_B5(rows, PINS.rc4_protection_golden()) == []          # the AT's own checker
     pinned = [r["fact"] for r in rows if r["fact"]["pinned"]]
     assert len(rows) == 13 and len(pinned) == 11 and all(f["covered"] for f in pinned)
-    assert sorted((r["fact"]["component"], r["fact"]["repo"]["host"]) for r in rows if not r["fact"]["covered"]) == \
+    assert [r for r in rows if not r["fact"]["covered"]] == []
+    assert sorted((r["fact"]["component"], r["fact"]["repo"]["host"]) for r in rows if not r["fact"]["pinned"]) == \
         [("ahb_qspi", "github"), ("nanosoc_arch_tech", "github")]
     for r in rows:
         assert contracts.validate_observation(r) == [] and db.check_observation(r) == []
@@ -70,8 +72,7 @@ def test_negative_control_lost_keep_tag_uncovers_exactly_that_row(cfg):
     assert any(p.startswith("tidechart 4b4b898@gitlab") for p in PINS.check_B5(rows, PINS.rc4_protection_golden()))
     rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
     assert rc == 1, r.output
-    assert {(d["fact"]["component"], d["fact"]["repo"]["host"]) for d in docs} == \
-        {("ahb_qspi", "github"), ("nanosoc_arch_tech", "github"), ("tidechart", "gitlab")}
+    assert {(d["fact"]["component"], d["fact"]["repo"]["host"]) for d in docs} == {("tidechart", "gitlab")}   # CR-2
 
 
 def test_coverage_by_containment_not_name_and_rows_merge(cfg):
@@ -120,17 +121,17 @@ def test_all_configurations_and_exit_codes(cfg):
     rows = silicon_protection()                                              # every registered configuration
     assert {r["fact"]["configuration"] for r in rows} == {"eth-rc4"} and len(rows) == 13
     rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--json")
-    assert rc == 1 and len(docs) == 13                                       # 2 uncovered today
-    # cover the two canonical-host rows (David's GATE2 Q2 / Q9 writes): exit 0
-    for d in tree:
-        for st in d["fact"]["hosts"].values():
-            if st["role"] == "canonical" and st["state"] in ("BRANCH_ONLY", "MISSING") and not st["pinned"]:
-                st.update(state="PROTECTED_BY_TAG", tags=["keep/eth-rc4/%s" % d["fact"]["child"]["component"]])
-    store_tree("eth-rc4", tree, snap_id="pin_state:eth-rc4@later")
-    rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
-    assert rc == 0 and docs == [], r.output
+    assert rc == 0 and len(docs) == 13                                       # CR-2: all covered since 2026-10-01
     rc, _docs, r = cli_run("silicon-protection", "eth-rc4")
     assert rc == 0 and "COVERED" in r.stdout
+    # the two canonical-host rows as they were before the 2026-10-01 keep tags: exit 1, exactly those two listed
+    for d in tree:
+        for st in d["fact"]["hosts"].values():
+            if st["role"] == "canonical" and st["state"] == "PROTECTED_BY_TAG" and not st["pinned"]:
+                st.update(state="BRANCH_ONLY", tags=[], branches=["wip/uncommitted-2026-08-18"])
+    store_tree("eth-rc4", tree, snap_id="pin_state:eth-rc4@later")
+    rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
+    assert rc == 1 and len(docs) == 2, r.output
 
 
 def test_a_pin_that_cannot_be_judged_is_never_a_clean_answer(cfg):
@@ -149,11 +150,14 @@ def test_a_pin_that_cannot_be_judged_is_never_a_clean_answer(cfg):
     assert "local/tidechart" in rows.unanswered[0] and "LOCAL_URL" in rows.unanswered[0]
     rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
     assert rc == 2 and docs == [] and "local/tidechart" in r.stderr, r.output
-    store_tree("eth-rc4", rc4_tree() + [tc], snap_id="pin_state:eth-rc4@later")
+    tree = rc4_tree()                                    # CR-2: one uncovered row (tidechart lost its keep tag)
+    next(d for d in tree if d["fact"]["tree_paths"] == ["tidechart"])["fact"]["hosts"]["gitlab"].update(
+        state="BRANCH_ONLY", tags=[])
+    store_tree("eth-rc4", tree + [tc], snap_id="pin_state:eth-rc4@later")
     rows = silicon_protection("eth-rc4")
     assert len(rows) == 13 and len(rows.unanswered) == 1
     rc, docs, r = cli_run("silicon-protection", "eth-rc4", "--uncovered", "--json")
-    assert rc == 1 and len(docs) == 2 and "local/tidechart" in r.stderr, r.output
+    assert rc == 1 and len(docs) == 1 and "local/tidechart" in r.stderr, r.output
 
 
 def test_every_configuration_answers_the_walked_ones(cfg, tmp_path):
@@ -169,7 +173,7 @@ def test_every_configuration_answers_the_walked_ones(cfg, tmp_path):
     rows = silicon_protection()
     assert len(rows) == 13 and len(rows.unanswered) == 1 and "eth-rc3 has no stored tree" in rows.unanswered[0]
     rc, docs, r = cli_run("silicon-protection", "--json")
-    assert rc == 1 and len(docs) == 13 and "walk eth-rc3" in r.stderr, r.output
+    assert rc == 2 and len(docs) == 13 and "walk eth-rc3" in r.stderr, r.output   # CR-2: no finding, a gap
 
 
 def test_an_empty_answer_asked_twice_in_one_second(cfg):

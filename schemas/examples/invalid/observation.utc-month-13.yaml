@@ -1,0 +1,9 @@
+# expect-error: pattern at /observed_at
+# K4 (option a, 2026-10-10): the utc type refuses an impossible month; before K4 the pattern accepted month 13.
+schema: 1
+kind: mirror_status
+subject: "mirror_status:gitlab:soclabs/ahb_qspi"
+observed_at: "2026-13-01T17:34:48Z"
+sources: [{kind: git, command: "git -C mirrors/ahb_qspi.git fetch --no-tags --prune --filter=blob:none https://<gitlab-host>/soclabs/ahb_qspi.git"}]
+snapshot: {id: "mirror_status:ahb_qspi@2026-09-30T17:34:48Z", scope: "mirror_status:ahb_qspi"}
+fact: {repo: {host: gitlab, path: soclabs/ahb_qspi}, component: ahb_qspi, ok: true, last_success_at: "2026-09-30T17:34:48Z", error: null}

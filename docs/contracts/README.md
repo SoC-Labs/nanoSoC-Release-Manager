@@ -182,7 +182,8 @@ Exactly one state per pin per host. First match wins:
 - **Relative URLs** (`../x.git`) are `url_kind: relative`, resolved against the parent's pinned repo URL as git
   does. None occurs in the rc4 or compute trees today.
 - The `.gitmodules` `branch=` value is recorded in `branch_field` (null when absent) and never used.
-- **Unknown URL (B9)** is `child.catalogued_as: unknown`, and raises an `unknown_url` alert.
+- **Unknown URL (B9)** is `child.catalogued_as: unknown`, and raises an `unknown_url` alert. A URL naming an `ignored`
+  repo is unknown too when a registered tree pins it (K1 option a, 2026-10-10).
 - **UNREADABLE** means the host answered 401, 403 or 404 for the repo itself with the poller's token, or the
   repo's latest `mirror_status` is not ok and the mirror holds no refs for it.
 
@@ -199,7 +200,9 @@ MISSING). PR/MR refs are never mirrored.
 | PASS, and row `<gate>.negctl` is PASS (the control fired) | PASS |
 | PASS, and the `.negctl` row is FAIL or missing | UNVERIFIED (D6) |
 | FAIL | FAIL |
-| UNVERIFIED, or WARN on a declared gate | UNVERIFIED |
+| UNVERIFIED | UNVERIFIED |
+| WARN, and the `.negctl` row is PASS (CR-9) | WARN (amber: checked, with listed warnings) |
+| WARN, and the `.negctl` row is FAIL or missing | UNVERIFIED (D6) |
 | INFRA | INFRA (never FAIL, D7) |
 | SKIP on a gate that may skip | NOT-RUN; the detail must say why; control `not-applicable` |
 | SKIP on a gate that may never skip | UNVERIFIED |
@@ -234,10 +237,17 @@ too. Frozen trees make that rare, and the item's own `why` is still shown.
 **Run verdict**, first match wins:
 
 1. any gate FAIL → **FAIL**;
-2. any gate UNVERIFIED, or **no gate PASS** (nothing was checked) → **UNVERIFIED**;
+2. any gate UNVERIFIED, or **no gate PASS or WARN** (nothing was checked) → **UNVERIFIED**;
 3. any gate INFRA → **INFRA**;
 4. any gate WAIVED → **WAIVED** (amber: only a frozen configuration's known failures);
-5. otherwise → **PASS**.
+5. any gate WARN → **WARN** (amber; CR-9: checked, passed, with warnings a catalogue entry lists, such as the
+   CR-6a `warn` vendor trees);
+6. otherwise → **PASS**.
+
+**WARN below WAIVED (CR-9).** Both are amber. A WAIVED gate hides a real failure (its raw verdict is FAIL or
+UNVERIFIED) that a person accepted for a frozen tree; a WARN gate passed and lists what it warns about. When a run
+has both, it shows the more serious one, WAIVED, and the WARN gate is still shown beside it. A WARN gate is never
+waived (waivers apply only to FAIL and UNVERIFIED), and it needs a fired control like PASS (D6).
 
 So a run where every gate skipped, or a run with no gates, can never be PASS (contracts review B1; the toolkit's
 own doctrine that an unread report is never a pass). NOT-RUN gates are counted and shown beside the verdict.
@@ -248,24 +258,25 @@ The observation schema enforces the same rule on every stored `t0_result`.
   (HTTP error) is also recorded, as `no-bundle` with the HTTP status in the reason, so a missed night is visible.
 - **Over budget (D1):** a T0 run whose `finished_at - started_at` exceeds 120 s gets `over_budget: true`, shown
   as a warning beside the verdict. It never changes the verdict. The job's 15-minute timeout is the kill limit.
-- **"T0 fails" (D2, F3)** means the run verdict is not PASS. A FAIL gate proves the problem; an UNVERIFIED gate
+- **"T0 fails" (D2, F3)** means the run verdict is not PASS or WARN. A FAIL gate proves the problem; an UNVERIFIED gate
   (for example a citation into a private canonical repo that an anonymous job cannot read) also stops the run
   from passing and says why. The service does not prove private citations from its own authenticated mirrors
   (GATE2 Q3, decided 2026-10-01): they stay UNVERIFIED. WAIVED is not PASS either: a waived run has failures,
-  all of them known.
+  all of them known. WARN (CR-9) does not fail T0: the run was checked and passed, and the warnings are shown
+  amber, not blocking (David's U1 decision, 2026-10-10).
 
 ## 7. Examples and what is real
 
 | Example | Real (observed 2026-09-30, read-only) | Illustrative |
 |---|---|---|
 | `component-catalogue.example.yaml` | all repo paths, copies, the slcorem0p_tech alias, externals, the legacy repo, the three `ignored` repos | every `class`; canonical host of ahb_qspi and asic-flow; the choice of repos to ignore |
-| `eligibility.example.yaml` | eth-rc4 commit and tags; the 8 failing items its `t0_waivers` name | the choice of configurations; eth-main's upgrade_from; `errata_prefix`; the waivers' approver and wording |
+| `eligibility.example.yaml` | eth-rc4 commit and tags; the 7 failing items its `t0_waivers` name (the eighth, ahb_qspi, retired by CR-2) | the choice of configurations; eth-main's upgrade_from; `errata_prefix`; the waivers' approver and wording |
 | `result-bundle.items.<gate>.example.jsonl` (4) | rc4's tree paths, commits, ssh URLs and the ahb_qspi gap | EXCERPTS: only the non-pass items of rc4's four non-pass gates; no T0 job has run yet |
 | `observation.t0-result-waived.example.jsonl` | the gates and items above | the run (ids, times, runner); the roll-up rc4 gets once its waivers are registered |
 | `defect.SL-DEF-0001.example.yaml` | every commit (full ids resolved), fix order on nanosoc_gen main, hsel_lint usage | effect-to-port mapping and netlist pattern (from the proposal, not re-checked) |
 | `erratum.ETH-R0P0-ERR-001.example.yaml` | ancestry evidence (merge_base), the 7 cited commits, 57d2c76 in rc4 (ancestor of f60449b) | doc_revision; category left null |
 | `pin-state.example.jsonl` | 3 rc4 pins, each host's state, with the commands that produced them | the snapshot id |
-| `observation.example.jsonl` | 3 host compares (counts from rev-list in one object store), 1 containment, 13 silicon-protection rows (11 on the pinned host, all covered; 2 on the canonical host, uncovered), mirror status, inventory | the rewrite alert (synthetic fixture repo), the rejected T0 run, the runner settings, the credential status, the registry record and the alert (none of those systems exists yet); snapshot ids; the time of day of the ahb_qspi canonical-host row |
+| `observation.example.jsonl` | 3 host compares (counts from rev-list in one object store), 1 containment, 13 silicon-protection rows (11 on the pinned host, all covered; 2 on the canonical host, covered by the 2026-10-01 keep tags, re-derived 2026-10-10 by CR-2), mirror status, inventory | the rewrite alert (synthetic fixture repo), the rejected T0 run, the runner settings, the credential status, the registry record and the alert (none of those systems exists yet); snapshot ids; the time of day of the ahb_qspi canonical-host row |
 | `release-lock.eth-rc4.example.yaml` | all 44 pins with state, lag and tags; P1 archive md5; GDS and netlist md5 and size | errata, gate_ledger, generated_by.version; store paths and output file names are placeholders |
 | `result-bundle.provenance.example.json` + `.verdicts.example.tsv` + `.rm-request.example.json` | commits, the ssh URLs, and the ahb_qspi reachability gap they report | run ids, times, harness SHA, the t0.runner.hardened rows; no T0 job has run yet; `captured.pins` lists 8 of the 44 |
 | `component-manifest.example.yaml` | canonical URL | everything else; no repo has a manifest yet |
