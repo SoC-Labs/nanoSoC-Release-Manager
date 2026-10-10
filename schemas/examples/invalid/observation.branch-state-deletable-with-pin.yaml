@@ -1,0 +1,25 @@
+# expect-error: const at /fact/deletable
+# CR8: a branch a registered pin reaches into is never deletable, whatever the verdict says.
+schema: 1
+kind: branch_state
+subject: "branch_state:gitlab:soclabs/tidechart:feat/pinned"
+observed_at: "2026-10-10T12:00:00Z"
+sources: [{kind: git, command: "git -C /srv/nanosoc-rm/mirrors/tidechart.git for-each-ref refs/r/gitlab/soclabs%2Ftidechart/heads"}]
+snapshot: {id: "branch_state:gitlab:soclabs/tidechart@2026-10-10T12:00:00Z", scope: "branch_state:gitlab:soclabs/tidechart"}
+fact:
+  component: tidechart
+  repo: {host: gitlab, path: soclabs/tidechart}
+  branch: feat/pinned
+  tip: "1111111111111111111111111111111111111111"
+  default_branch: main
+  ahead: 1
+  behind: 0
+  merged: false
+  last_commit_at: "2025-01-01T00:00:00Z"
+  tags: []
+  keep_tags: []
+  pins: [{configuration: eth-rc4, tree_path: "nanosoc-multicore-system/tidechart", commit: "1111111111111111111111111111111111111111"}]
+  cited: []
+  stale_days: 90
+  verdict: STALE
+  deletable: true

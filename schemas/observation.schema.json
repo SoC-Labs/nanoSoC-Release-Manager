@@ -30,7 +30,8 @@
         "runner_settings",
         "credential_status",
         "registry_record",
-        "alert"
+        "alert",
+        "branch_state"
       ]
     },
     "subject": {
@@ -375,9 +376,76 @@
           }
         }
       }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "branch_state" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/branch_state" },
+          "subject": { "pattern": "^branch_state:" },
+          "snapshot": { "properties": { "scope": { "pattern": "^branch_state:" } } }
+        },
+        "required": ["snapshot"]
+      }
     }
   ],
   "$defs": {
+    "branch_state": {
+      "description": "CR8 (MVP S1, `nanosoc-rm branches`): one branch of one repo, judged from the local mirror only. Set kind: one snapshot per repo (`branch_state:<host>:<path>`), so a deleted branch disappears from the current view. `ahead`/`behind` are rev-list counts against the repo's default branch; `merged` = the tip is an ancestor of the default branch; `tags` are the tags whose tip IS this tip (`keep_tags` the keep/* subset); `pins` are registered pins (any pin of any stored walk, section 4) whose commit the tip reaches and the default branch does not; `cited` the registry's structured citations (defect benches, fixes) likewise reached. Verdict, first match: MERGED, PROTECTED (a tag on the tip), PINNED (a pin or citation reaches into it), STALE (last commit older than `stale_days`), ACTIVE. `deletable` = MERGED or STALE with no pin, no citation and no tag; the tool prints the command for a person and never runs it. Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": ["component", "repo", "branch", "tip", "default_branch", "ahead", "behind", "merged", "last_commit_at",
+                   "tags", "keep_tags", "pins", "cited", "stale_days", "verdict", "deletable"],
+      "additionalProperties": false,
+      "properties": {
+        "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+        "branch": { "type": "string", "minLength": 1 },
+        "tip": { "$ref": "defs.schema.json#/$defs/sha" },
+        "default_branch": { "type": "string", "minLength": 1 },
+        "ahead": { "type": "integer", "minimum": 0, "description": "Commits on the branch that the default branch lacks." },
+        "behind": { "type": "integer", "minimum": 0, "description": "Commits on the default branch that the branch lacks." },
+        "merged": { "type": "boolean" },
+        "last_commit_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "keep_tags": { "type": "array", "items": { "type": "string", "pattern": "^keep/" } },
+        "pins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["configuration", "tree_path", "commit"],
+            "additionalProperties": false,
+            "properties": {
+              "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+              "tree_path": { "type": "string", "minLength": 1 },
+              "commit": { "$ref": "defs.schema.json#/$defs/sha" }
+            }
+          }
+        },
+        "cited": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "pointer", "commit"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string", "minLength": 1 },
+              "pointer": { "type": "string" },
+              "commit": { "$ref": "defs.schema.json#/$defs/sha" }
+            }
+          }
+        },
+        "stale_days": { "type": "integer", "minimum": 0 },
+        "verdict": { "enum": ["MERGED", "PROTECTED", "PINNED", "STALE", "ACTIVE"] },
+        "deletable": { "type": "boolean" }
+      },
+      "allOf": [
+        { "if": { "properties": { "merged": { "const": true } } }, "then": { "properties": { "verdict": { "const": "MERGED" } } } },
+        { "if": { "properties": { "pins": { "minItems": 1 } } }, "then": { "properties": { "deletable": { "const": false } } } },
+        { "if": { "properties": { "cited": { "minItems": 1 } } }, "then": { "properties": { "deletable": { "const": false } } } },
+        { "if": { "properties": { "tags": { "minItems": 1 } } }, "then": { "properties": { "deletable": { "const": false } } } },
+        { "if": { "properties": { "verdict": { "enum": ["PROTECTED", "PINNED", "ACTIVE"] } } }, "then": { "properties": { "deletable": { "const": false } } } }
+      ]
+    },
     "branch_head": {
       "type": "object",
       "required": [

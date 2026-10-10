@@ -36,7 +36,7 @@ Dev dependencies are pinned in [`requirements-dev.txt`](../../requirements-dev.t
 | [erratum](../../schemas/erratum.schema.json) | registry `errata/<configuration>/ERR-NNN.yaml` | Effect on one configuration: forms, exposure and how it was proven (with the structured detector run), category, workaround, status, doc revision, cited commits | registry | F1, F2, F3, F4 | v1 |
 | [import-ledger](../../schemas/import-ledger.schema.json) | registry `imports.yaml` | Every issue in the existing registers, the rule that finds them (census), and what became of each: record, dismissed (with reason) or pending | registry | F3, F5 | v1 |
 | [pin-state](../../schemas/pin-state.schema.json) | walker output (JSONL), DB | One pin of a configuration's tree with its state on each host | walker | A3, B2, B3, B7, B9 | v1 |
-| [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
+| [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert, branch state (CR8) | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
 | [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv`; pipeline variable `RM_REQUEST` | What a CI job was asked, ran and found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci trigger/fetch/verify | A4, D2, D4, D5, D6, D7, D10, D11, PR9 | v1 (host, ip_hash, cpu_seconds: 2) |
 | [component-manifest](../../schemas/component-manifest.schema.json) | `nanosoc-component.yaml` in each repo | ID, class, version, canonical URL, provides, requires, re-exports, variants, tests with controls | registry (reads), T0 (validates) | C1, C6, C7, C11, D1, D6, E1, E3, I2 | 3 (validated by T0 from v1) |
 | [release-lock](../../schemas/release-lock.schema.json) | release artefact `release.lock.yaml` | Every nested pin with host and state; generated-RTL archive; GDS and netlist hashes; errata and ledger refs | lock writer | A3, B7, C10, G2, G3, G7 | 5 |
@@ -133,6 +133,7 @@ Keys:
 | runner_settings | `runner_settings:<runner id>` | set | `runner_settings:<runner id>` |
 | credential_status | `credential_status:<name>` | set | `credential_status:all` (one check) |
 | registry_record | `registry_record:<file>#<pointer>` | set | `registry_record:<file>` (one registry read) |
+| branch_state | `branch_state:<host>:<path>:<branch>` | set | `branch_state:<host>:<path>` (one inventory of one repo; CR8) |
 | rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | alert | `alert:<alert kind>:<about>` | event | none |

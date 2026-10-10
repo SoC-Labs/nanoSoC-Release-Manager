@@ -46,7 +46,7 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
            "clear_alert"]
 
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
-             "runner_settings", "credential_status", "registry_record")
+             "runner_settings", "credential_status", "registry_record", "branch_state")
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert")
 ACTIONS = ("run_t0", "clear_alert")                   # interfaces.md section 14 Logging: the v1 write actions
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
@@ -110,6 +110,7 @@ _SUBJECT = {
     "rewrite_alert": lambda f: "%s:%s:%s" % (_repo_key(f["repo"]), f["branch"], f["old_head"]),
     "t0_result": lambda f: "%s:%s" % (f["configuration"], f["run"]["nonce"]),
     "alert": lambda f: "%s:%s" % (f["alert_kind"], f["about"]),
+    "branch_state": lambda f: "%s:%s" % (_repo_key(f["repo"]), f["branch"]),
 }
 
 
