@@ -306,7 +306,8 @@ def test_recheck_that_github_cannot_answer_keeps_the_session(service):
 
 
 def test_a_failed_recheck_is_not_retried_on_every_request(service, monkeypatch):
-    """Review W4: during a GitHub outage the re-check is still at most hourly, not one call per request."""
+    """Review W4 and K3 (option a, David 2026-10-10): during a GitHub outage a failed re-check is retried
+    10 minutes later, never on every request."""
     gh = service["github"]
     c = TestClient(create_app(service["cfg"]))
     sign_in(c, "alice")
@@ -317,8 +318,10 @@ def test_a_failed_recheck_is_not_retried_on_every_request(service, monkeypatch):
     _age_session(c, service["cfg"], 2)
     n = checks()
     assert [c.get("/", follow_redirects=False).status_code for _ in range(5)] == [200] * 5
-    assert checks() == n + 1, "one attempt, then none until an hour has passed"
-    _shift(monkeypatch, 3600 + 5)
+    assert checks() == n + 1, "one attempt, then none until 10 minutes have passed"
+    _shift(monkeypatch, 540)
+    assert c.get("/", follow_redirects=False).status_code == 200 and checks() == n + 1   # 9 minutes: not yet
+    _shift(monkeypatch, 600 + 5)
     gh.member_check_status = None
     gh.states["alice"] = None                                          # GitHub answers again: she was removed
     assert c.get("/", follow_redirects=False).status_code == 403

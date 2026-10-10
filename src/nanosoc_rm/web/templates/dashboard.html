@@ -10,7 +10,7 @@
 {% for r in d.rows %}
   {% set last = r.last %}
   {% set rv = (last.fact.verdict or '') if last else '' %}
-  <tr data-configuration="{{ r.id }}" data-verdict="{{ rv }}" class="{{ VERDICT_CLASS.get(rv, '') if rv == 'WAIVED' else '' }}">
+  <tr data-configuration="{{ r.id }}" data-verdict="{{ rv }}" class="{{ VERDICT_CLASS.get(rv, '') if rv in ('WAIVED', 'WARN') else '' }}">
     <td><a href="/configurations/{{ r.id }}">{{ r.id }}</a> {{ fact(r.record, 'registry') }}{% if r.frozen %} <span class="badge">frozen</span>{% endif %}</td>
     <td data-item="t0-result">
       {% if last %}

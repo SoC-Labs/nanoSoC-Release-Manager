@@ -5,17 +5,21 @@ Mutation: with the matcher disabled (VendorAllow.covers always False) the allow 
 each test here is red against a gate that ignores the allowlist."""
 from __future__ import annotations
 
+import json
 import subprocess
+from pathlib import Path
 
 import pytest
 import yaml
 
+from nanosoc_rm import contracts
 from nanosoc_rm.scan import ScanResult, apply_allowlist
 from nanosoc_rm.scan.allowlist import VendorAllow, vendor_allowlist
 from nanosoc_rm.scan.rules import specimen
 from nanosoc_rm.t0 import gates
 
 WEB = "https://github.com/SoC-Labs/%s.git"
+EXAMPLES = Path(__file__).resolve().parents[3] / "schemas" / "examples"
 BANNER = specimen("arm.banner") + "\nmodule vendored; endmodule\n"
 
 
@@ -85,9 +89,15 @@ def test_warn_entry_makes_the_row_warn_and_lists_the_item(arm_tree, tmp_path):
     assert items["arm"]["result"] == "pass" and items["arm"]["why"].startswith("WARN:")
     assert "rtl/vendored/pl.v" in items["arm"]["why"]
     assert "1 with warn-covered findings only (vendor_allowlist): arm" in row["detail"]
-    # README section 6 today: a WARN row rolls up UNVERIFIED (amber), never PASS and never FAIL.
+    # README section 6 (CR-9): a WARN row with its control fired rolls up WARN (amber), never PASS and never FAIL.
     (gate,) = [g for g in gates.rollup([row, ctl], "configuration") if g["id"] == "t0.vendor.no-arm-ip"]
-    assert gate["verdict"] == "UNVERIFIED" and gate["detail"].startswith("WARN:") and gate["control"] == "fired"
+    assert gate["verdict"] == "WARN" and gate["control"] == "fired" and gate["detail"] == row["detail"]
+    # and a run whose only non-pass gate is that WARN is a valid WARN t0_result (observation schema, CR-9)
+    t0 = json.loads((EXAMPLES / "observation.t0-result-waived.example.jsonl").read_text())
+    t0["fact"]["gates"] = [{k: v for k, v in g.items() if k not in ("raw_verdict", "waived")}
+                            for g in t0["fact"]["gates"] if g["verdict"] in ("PASS", "NOT-RUN")] + [gate]
+    t0["fact"]["verdict"] = gates.run_verdict(t0["fact"]["gates"])[0]
+    assert t0["fact"]["verdict"] == "WARN" and contracts.validate_observation(t0) == []
 
 
 def test_entry_for_another_component_or_path_does_not_cover(arm_tree, tmp_path):

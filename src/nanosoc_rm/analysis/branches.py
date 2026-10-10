@@ -16,7 +16,15 @@ Per branch (every head of the repo's namespace except the default branch itself)
 - `pins`: registered pins (every pin of every stored walk, section 4 "Storage": never re-walked) of this
   component whose commit the tip reaches and the default branch does not: deleting the branch would orphan them;
 - `cited`: the registry's structured citations of this component (defect benches, fixes, detector sources;
-  gates.registry_citations) reached the same way, so a cited bench branch reads PINNED-by-registry;
+  gates.registry_citations) that THIS branch holds (CR-10, David 2026-10-10: "citations hold a branch only on
+  branch-unique commits"). A citation c the default branch does not reach is held by at most one branch:
+    1. none, when a tag of the repo reaches c (the delete list never touches a tag, so c stays reachable);
+    2. else, when exactly one branch reaches c (c is unique to it), that branch;
+    3. else, one of the branches that reach c: one already kept by a tag on its tip or a pin if there is one,
+       otherwise the one whose tip is fewest commits past c (`rev-list --count c..tip`), ties by branch name.
+  Every other branch that also reaches c is not held by it. So deleting every deletable branch never loses a cited
+  commit, and a cited commit shared by many branches no longer pins all of them. Pins are unchanged: a pin holds
+  every branch that reaches it;
 - `verdict`, first match: MERGED, PROTECTED (a tag on the tip), PINNED (a pin or citation), STALE (unmerged,
   nothing holds it, last commit older than `stale_days`), ACTIVE;
 - `deletable`: MERGED or STALE with no pin, no citation and no tag. `delete_list` prints the git command for a
@@ -133,6 +141,37 @@ def _reaching(mirror: Path, anchors: list[dict], default_ref: str, tip: str, hel
     return out
 
 
+def _tag_reaches(mirror: Path, prefix: str, sha: str, sources: list[dict]) -> bool:
+    r = inp.git(mirror, "for-each-ref", "--count=1", "--contains", sha, "--format=%(refname)", "%s/tags" % prefix)
+    sources.append(r.source())
+    r.check()
+    return bool(r.stdout.strip())
+
+
+def _distance(mirror: Path, sha: str, tip: str) -> int:
+    r = inp.git(mirror, "rev-list", "--count", "%s..%s" % (sha, tip))
+    r.check()
+    return int(r.stdout.strip() or 0)
+
+
+def _cite_holders(mirror: Path, prefix: str, cites: list[dict], reach: dict[str, list[dict]],
+                  kept: set[str], tips: dict[str, str], sources: list[dict]) -> dict[str, list[dict]]:
+    """CR-10: branch -> the citations it holds. `reach` = branch -> the citations its tip reaches that the default
+    branch does not; `kept` = branches already kept by a tag on the tip or a pin (module docstring, rules 1-3)."""
+    out: dict[str, list[dict]] = {b: [] for b in reach}
+    for c in cites:
+        cand = sorted(b for b, cs in reach.items() if c in cs)
+        if not cand or _tag_reaches(mirror, prefix, c["commit"], sources):
+            continue
+        if len(cand) == 1:
+            holder = cand[0]
+        else:
+            pool = [b for b in cand if b in kept] or cand
+            holder = min(pool, key=lambda b: (_distance(mirror, c["commit"], tips[b]), b))
+        out[holder].append(dict(c))
+    return out
+
+
 def _verdict(merged: bool, tags: list[str], pins: list[dict], cited: list[dict], last: str, stale_days: int,
              now: dt.datetime) -> str:
     if merged:
@@ -184,7 +223,7 @@ def _repo_rows(cfg: Config, reg: inp.Registry, comp: inp.Component, repo: dict, 
     held: dict[str, bool] = {}
     scope = "branch_state:%s:%s" % (repo["host"], repo["path"])
     snap = inp.new_snapshot(scope)
-    docs = []
+    rows = []
     for name, tip, date in sorted(heads):
         if name == default:
             continue
@@ -194,6 +233,19 @@ def _repo_rows(cfg: Config, reg: inp.Registry, comp: inp.Component, repo: dict, 
         tags = sorted(tags_at.get(tip, []))
         reach_p = _reaching(mirror, pins, default_ref, tip, held) if not merged else []
         reach_c = _reaching(mirror, cites, default_ref, tip, held) if not merged else []
+        rows.append((name, tip, date, sources, ahead, behind, merged, tags, reach_p, reach_c))
+    cite_sources: list[dict] = []
+    holders = _cite_holders(mirror, prefix, cites, {r[0]: r[9] for r in rows},
+                            {r[0] for r in rows if r[7] or r[8]}, {r[0]: r[1] for r in rows}, cite_sources)
+    if cites:
+        base_sources.append({"kind": "derived", "command": "CR-10: each registry citation off the default branch holds at "
+                             "most one branch (none when a tag reaches it; else the one branch reaching it, or the nearest "
+                             "branch already kept, or the nearest by rev-list --count)"})
+    docs = []
+    for name, tip, date, sources, ahead, behind, merged, tags, reach_p, _all_c in rows:
+        reach_c = holders.get(name, [])
+        if reach_c:
+            sources = sources + cite_sources + base_sources[-1:]
         last = _utc(date)
         verdict = _verdict(merged, tags, reach_p, reach_c, last, stale_days, now)
         fact = {"component": comp.id, "repo": dict(repo), "branch": name, "tip": tip, "default_branch": default,

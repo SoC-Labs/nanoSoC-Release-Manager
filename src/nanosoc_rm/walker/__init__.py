@@ -10,7 +10,8 @@
    NO_GITLINK and is kept. `branch=` is recorded in `branch_field` and never used.
 3. URLs are normalised against the config's host table (relative URLs against the parent's pinned URL; aliases to
    their component's repo). A local path is pin-level state LOCAL_URL. A URL naming no catalogue entry is
-   `catalogued_as: unknown` and raises an `unknown_url` alert. The walker recurses into each (child repo, child
+   `catalogued_as: unknown` and raises an `unknown_url` alert. So does a URL naming an `ignored` repo (K1 option a,
+   David 2026-10-10): a repo a registered tree pins is a dependency, so it is flagged to be classified, not hidden. The walker recurses into each (child repo, child
    commit) once, at depth <= 10, and records every tree path at which a pin occurs.
 4. Every host holding a copy of the child gets a state (walker.states), judged only on that host's namespace.
 5. `split` = the child component is pinned at more than one commit in the tree (B7); `effective` stays unknown.

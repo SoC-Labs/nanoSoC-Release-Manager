@@ -97,6 +97,29 @@ def test_nested_walk(at_pins, hermetic):
     assert sorted(json.loads(x)["subject"] for x in proc.stdout.splitlines()) == sorted(d["subject"] for d in docs)
 
 
+def test_an_ignored_repo_pinned_in_a_registered_tree_is_unknown_and_alerts(at_pins, hermetic):
+    """K1 (option a, David 2026-10-10): `ignored` hides a repo from the inventory, not from a registered tree."""
+    gh = "github"
+    other = hermetic.commit(gh, "SoC-Labs/other-family", files={"README": "another SoC family\n"})
+    hermetic.push(gh, "SoC-Labs/other-family", other, "main")
+    top = hermetic.commit(gh, "SoC-Labs/k1-top", gitlinks={"i": other},
+                          gitmodules=[{"path": "i", "url": hermetic.url(gh, "SoC-Labs/other-family")}])
+    hermetic.push(gh, "SoC-Labs/k1-top", top, "main")
+    catalogue = {"schema": 1, "components": [{"id": "k1-top", "class": "soc_ref", "canonical": {"host": gh, "path": "SoC-Labs/k1-top"}}],
+                 "ignored": [{"repo": {"host": gh, "path": "SoC-Labs/other-family"}, "reason": "another SoC family"}]}
+    eligibility = {"schema": 1, "configurations": [
+        {"id": "k1", "component": "k1-top", "ref": {"branch": "main"}, "commit": top, "frozen": True}]}
+    registry = at_pins.write_registry(hermetic.root / "registry-k1", catalogue, eligibility, examples=False)
+    env = hermetic.tool_env(registry, "k1")
+    with env.active():
+        at_pins.rm("mirror.sync_component")("k1-top")
+        (doc,) = at_pins.rm("walker.walk")("k1")
+        alerts = {a["subject"] for a in db.alerts()}
+    assert doc["fact"]["child"]["catalogued_as"] == "unknown" and doc["fact"]["hosts"] == {}
+    assert doc["fact"]["child"]["repo"] == {"host": gh, "path": "SoC-Labs/other-family"}
+    assert "alert:unknown_url:pin_state:k1:i" in alerts
+
+
 def test_frozen_tag_moved_and_branch_configuration(at_pins, hermetic):
     fx = build_nested(at_pins, hermetic)
     env = _synced(at_pins, hermetic, fx, "moved")

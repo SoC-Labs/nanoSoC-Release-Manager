@@ -164,3 +164,62 @@ def test_all_repos_adds_the_copies(tmp_path, monkeypatch):
     docs = branches("tidelink", all_repos=True)
     assert sorted((d["fact"]["repo"]["host"], d["fact"]["branch"]) for d in docs) == [("github", "gh-only"), ("gitlab", "gl-only")]
     assert len(delete_commands(docs)) == 4                   # two headers, two commands
+
+
+# ----- CR-10: a registry citation holds at most one branch ---------------------------------------------------------
+@pytest.fixture
+def shared(tmp_path, monkeypatch):
+    """main c1-c2-c3; the defect cites b1 (off main); bench/near = b1-n1 and bench/far = b1-f1-f2 both reach it.
+    Both are old and unmerged, so with nothing holding them both would be STALE and deletable.
+
+    Mutation (scratch copy, not committed): make `_cite_holders` give every reaching branch the citation (the
+    pre-CR-10 rule) and test_a_shared_citation_holds_only_the_nearest_branch goes red (bench/far PINNED); make it
+    give a shared citation to no branch and test_deleting_every_deletable_branch_never_loses_a_cited_commit goes
+    red (both benches deletable, b1 lost)."""
+    _, data, registry = write_config(tmp_path, monkeypatch)
+    m = Mirror(data, COMP)
+    c1, c2 = m.chain(2)
+    c3 = dated(m, c2, NEW, "c3")
+    b1 = dated(m, c3, OLD, "b1")
+    n1 = dated(m, b1, OLD, "n1")
+    f2 = dated(m, dated(m, b1, OLD, "f1"), OLD, "f2")
+    for name, sha in {"main": c3, "bench/near": n1, "bench/far": f2}.items():
+        m.set(REPO["host"], REPO["path"], "heads", name, sha)
+    m.head(REPO["host"], REPO["path"], "main")
+    d = registry / "defects" / "SL-DEF-0001.yaml"
+    d.write_text(d.read_text().replace(BENCH_SHA, b1))
+    return {"mirror": m, "b1": b1, "n1": n1, "f2": f2}
+
+
+def _cite(sha):
+    return [{"file": "defects/SL-DEF-0001.yaml", "pointer": "/regression_test/commit", "commit": sha}]
+
+
+def test_a_shared_citation_holds_only_the_nearest_branch(shared):
+    f = by_branch(branches(COMP))
+    assert (f["bench/near"]["verdict"], f["bench/near"]["cited"]) == ("PINNED", _cite(shared["b1"]))
+    assert (f["bench/far"]["verdict"], f["bench/far"]["cited"], f["bench/far"]["deletable"]) == ("STALE", [], True)
+
+
+def test_a_branch_already_kept_takes_the_citation(shared):
+    store_tree("eth-main", [pin_doc("eth-main", "chiplet", COMP, shared["f2"],
+                                    {"github": host_state(REPO, "canonical", True, "BRANCH_ONLY", branches=["bench/far"])})])
+    f = by_branch(branches(COMP))
+    assert f["bench/far"]["verdict"] == "PINNED" and f["bench/far"]["cited"] == _cite(shared["b1"])
+    assert (f["bench/near"]["verdict"], f["bench/near"]["cited"], f["bench/near"]["deletable"]) == ("STALE", [], True)
+
+
+def test_a_tag_reaching_the_cited_commit_holds_no_branch(shared):
+    shared["mirror"].set(REPO["host"], REPO["path"], "tags", "keep/bench", shared["b1"])
+    f = by_branch(branches(COMP))
+    assert all(f[b]["cited"] == [] and f[b]["verdict"] == "STALE" for b in ("bench/near", "bench/far"))
+
+
+def test_deleting_every_deletable_branch_never_loses_a_cited_commit(shared):
+    import subprocess
+    docs = branches(COMP)
+    gone = {d["fact"]["branch"] for d in delete_list(docs)}
+    left = [d["fact"]["tip"] for d in docs if d["fact"]["branch"] not in gone]
+    assert left, "every branch reaching b1 was deletable"
+    assert any(subprocess.run(["git", "--git-dir", str(shared["mirror"].path), "merge-base", "--is-ancestor",
+                               shared["b1"], t]).returncode == 0 for t in left)

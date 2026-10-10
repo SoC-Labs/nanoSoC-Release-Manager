@@ -26,7 +26,8 @@ def one(rs, gid="t0.infra.probe", scope="configuration"):
     ("PASS", None, "UNVERIFIED", "missing"),
     ("FAIL", "PASS", "FAIL", "fired"),
     ("UNVERIFIED", "PASS", "UNVERIFIED", "fired"),
-    ("WARN", "PASS", "UNVERIFIED", "fired"),
+    ("WARN", "PASS", "WARN", "fired"),                # CR-9: WARN is its own amber verdict
+    ("WARN", "FAIL", "UNVERIFIED", "not-fired"),      # ...and, like PASS, needs a fired control
     ("INFRA", None, "INFRA", "missing"),
     ("SKIP", "PASS", "UNVERIFIED", "fired"),          # t0.infra.probe may never skip
 ])
@@ -78,6 +79,13 @@ def test_run_verdict_ladder():
     assert gates.run_verdict(g("PASS", "NOT-RUN")) == ("PASS", 1)
     assert gates.run_verdict(g("NOT-RUN", "NOT-RUN")) == ("UNVERIFIED", 2)    # nothing checked
     assert gates.run_verdict(g("WAIVED")) == ("UNVERIFIED", 0)
+    # CR-9: WARN is checked (a WARN-only run is WARN), sits below WAIVED and above PASS
+    assert gates.run_verdict(g("PASS", "WARN")) == ("WARN", 0)
+    assert gates.run_verdict(g("WARN")) == ("WARN", 0)
+    assert gates.run_verdict(g("PASS", "WARN", "WAIVED")) == ("WAIVED", 0)
+    assert gates.run_verdict(g("PASS", "WARN", "INFRA")) == ("INFRA", 0)
+    assert gates.run_verdict(g("WARN", "UNVERIFIED")) == ("UNVERIFIED", 0)
+    assert gates.run_verdict(g("WARN", "NOT-RUN")) == ("WARN", 1)
     assert gates.run_verdict([]) == ("UNVERIFIED", 0)
 
 
@@ -103,7 +111,9 @@ def test_waivers_never_hide_something_new(at):
     W = at.example_waivers()
     new = copy.deepcopy(at.example_items())
     new["t0.pins.reachable"].append(dict(at.NEW_FAILURE))
-    out = {g["id"]: g for g in gates.apply_waivers(base, new, W)[0]}
+    # CR-2: today's reachable row is UNVERIFIED (the private toolkit); the job that saw the new failure writes FAIL
+    failed = [dict(g, verdict="FAIL") if g["id"] == "t0.pins.reachable" else g for g in base]
+    out = {g["id"]: g for g in gates.apply_waivers(failed, new, W)[0]}
     assert out["t0.pins.reachable"]["verdict"] == "FAIL" and "waived" not in out["t0.pins.reachable"]
     orphan = copy.deepcopy(at.example_items())               # a not-reached item with nothing waived above it
     orphan["t0.pins.fetchable"].append({"tree_path": "tidechart/deps/x", "result": "not-reached", "why": "w"})

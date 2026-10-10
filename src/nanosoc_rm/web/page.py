@@ -9,7 +9,9 @@ shows can never be younger than its oldest fact.
 from __future__ import annotations
 
 import datetime as dt
+import copy
 import html
+import shlex
 import json
 import urllib.parse
 from pathlib import Path
@@ -30,7 +32,8 @@ STATE_CLASS = {"TAGGED": "state-green", "ON_DEFAULT": "state-green", "PROTECTED_
                "BRANCH_ONLY": "state-amber"}
 EXPOSURE_CLASS = {"exposed": "state-red", "affected": "state-red", "probably-exposed": "state-amber",
                   "probably-not-affected": "state-amber", "not-affected": "state-green"}
-VERDICT_CLASS = {"PASS": "state-green", "WAIVED": "state-amber", "FAIL": "state-red", "UNVERIFIED": "state-red",
+VERDICT_CLASS = {"PASS": "state-green", "WAIVED": "state-amber", "WARN": "state-amber", "FAIL": "state-red",
+                 "UNVERIFIED": "state-red",
                  "INFRA": "state-amber", "NOT-RUN": "state-grey"}
 
 
@@ -89,6 +92,40 @@ def verbatim(s: Any) -> Markup:
     return Markup(html.escape(str(s), quote=False))
 
 
+REGISTRY_PLACEHOLDER = "<registry>"
+
+
+def _page_command(src: dict) -> str:
+    cmd = str(src.get("command", ""))
+    if src.get("kind") == "registry":
+        try:
+            argv = shlex.split(cmd)
+        except ValueError:
+            argv = []
+        if len(argv) > 3 and argv[:2] == ["git", "-C"]:
+            cmd = " ".join(["git", "-C", REGISTRY_PLACEHOLDER] + [shlex.quote(a) for a in argv[3:]])
+    return cmd
+
+
+def page_doc(obs: Any) -> Any:
+    """A copy of an observation as a page prints it: registry source commands as `shown_command` shows them."""
+    if not isinstance(obs, dict):
+        return obs
+    doc = copy.deepcopy(obs)
+    for src in doc.get("sources") or []:
+        if isinstance(src, dict) and "command" in src:
+            src["command"] = _page_command(src)
+    return doc
+
+
+def shown_command(source: Any) -> Markup:
+    """A source's command as a page shows it (K2 option a, David 2026-10-10): a registry read's
+    `git -C <checkout path> show ...` shows the literal `<registry>` in place of the service's checkout path, so no
+    page carries the VM's filesystem layout. The stored fact keeps the real path (`/facts` JSON, the CLI, the DB).
+    Every other command is shown exactly as stored (A3)."""
+    return verbatim(_page_command(source if isinstance(source, dict) else {}))
+
+
 def _json(obj: Any) -> str:
     return json.dumps(obj, indent=1, sort_keys=True)
 
@@ -97,6 +134,7 @@ env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_aut
                   trim_blocks=True, lstrip_blocks=True)
 env.globals.update(short=short, fact_href=fact_href, human_age=human_age, STATE_CLASS=STATE_CLASS,
                    EXPOSURE_CLASS=EXPOSURE_CLASS, VERDICT_CLASS=VERDICT_CLASS, to_json=_json, verbatim=verbatim,
+                   shown_command=shown_command, page_doc=page_doc,
                    quote=lambda s: urllib.parse.quote(s, safe=""))
 
 

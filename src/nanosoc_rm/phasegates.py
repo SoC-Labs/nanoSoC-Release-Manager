@@ -10,6 +10,11 @@ the tool repo against that rule:
    phases are gate-2 work and do not count (interfaces.md section 15);
 4. no later-phase route or CLI command exists before its gate is met (docs/acceptance/scope_web.md AT-A7).
 
+Exemptions (CR-5): the register's `exemptions` list names commits that named a later-phase id only because the
+contract text told them to, before a CR corrected it. An entry `{commit, ids, cr}` takes exactly its `ids` out of
+that one commit, and only while docs/CHANGES.md has a row for `cr` that names the commit (its first 7 characters).
+History is never rewritten to hide such a commit; the exception stays visible in two places.
+
 `check(...)` is pure; `gather(repo)` reads the register, the requirement-to-phase map and the git log, and
 `check_repo(repo)` does both. The CLI front end is `nanosoc-rm phase-gates` (nanosoc_rm.trace).
 """
@@ -24,7 +29,7 @@ from nanosoc_rm import clock, contracts
 from nanosoc_rm.gitrun import run_git
 
 __all__ = ["LATER_PHASES", "LATER_SURFACES", "IMPLEMENTATION_PREFIXES", "REGISTER", "REQUIREMENTS",
-           "requirement_phases", "requirement_index", "git_commits", "check", "gather", "check_repo",
+           "requirement_phases", "requirement_index", "git_commits", "check", "exemptions", "gather", "check_repo",
            "app_routes", "cli_commands", "find_repo"]
 
 LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
@@ -38,6 +43,7 @@ LATER_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
 IMPLEMENTATION_PREFIXES = ("src/",)
 REGISTER = Path("docs") / "phase-gates.yaml"
 REQUIREMENTS = Path("docs") / "REQUIREMENTS.md"
+CHANGES = Path("docs") / "CHANGES.md"
 MET = ("gate-met", "started")
 _HEADING = re.compile(r"^###\s+([A-Z]+\d+)\s+·\s+(Must|Should)\s+·\s+([^*\n]+?)\s*(?:\*.*)?$", re.M)
 
@@ -68,10 +74,28 @@ def _parse_time(s: str) -> dt.datetime:
     return clock.parse(s)
 
 
+def exemptions(register: dict | None, changes: str | None) -> dict[str, set[str]]:
+    """Full commit sha -> the requirement ids its CR-recorded exemption removes (CR-5). An entry counts only when
+    `changes` (docs/CHANGES.md) holds a table row that starts with its `cr` and names the commit's short sha."""
+    out: dict[str, set[str]] = {}
+    rows = [line for line in (changes or "").splitlines() if line.startswith("|")]
+    for e in (register or {}).get("exemptions") or []:
+        if not isinstance(e, dict):
+            continue
+        sha, cr, ids = str(e.get("commit") or ""), str(e.get("cr") or ""), e.get("ids") or []
+        if len(sha) != 40 or not cr or not ids:
+            continue
+        if any(r.split("|")[1].strip() == cr and sha[:7] in r for r in rows if r.count("|") > 2):
+            out.setdefault(sha, set()).update(map(str, ids))
+    return out
+
+
 def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dict], routes: Sequence[str],
-          commands: Sequence[str]) -> list[dict]:
-    """One result per later phase: {phase, status, met, checked_at, problems}. [] problems everywhere = A7 holds."""
+          commands: Sequence[str], changes: str | None = None) -> list[dict]:
+    """One result per later phase: {phase, status, met, checked_at, problems}. [] problems everywhere = A7 holds.
+    `changes` is docs/CHANGES.md: without it no exemption counts."""
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
+    exempt = exemptions(register, changes)
     phases = {g.get("phase"): g for g in (register or {}).get("phases", []) if isinstance(g, dict)}
     ids = sorted(phase_of, key=len, reverse=True)
     # A requirement id stands alone: `E1`, `(E1)`, `E1,`. A review label such as `CI-E1` or `MW-R1` contains an id
@@ -98,7 +122,8 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
                 problems.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
         ph_ids = {i for i, p in phase_of.items() if p == ph}
         if ids_rx is not None and ph_ids:
-            naming = [c for c in commits if set(ids_rx.findall(c["message"])) & ph_ids]
+            named = lambda c: set(ids_rx.findall(c["message"])) - exempt.get(c["sha"], set())
+            naming = [c for c in commits if named(c) & ph_ids]
             if naming:
                 first = min(naming, key=lambda c: _parse_time(c["at"]))
                 try:
@@ -108,7 +133,7 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
                 if early:
                     problems.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
                                     % (ph, first["sha"][:7], first["at"],
-                                       sorted(set(ids_rx.findall(first["message"])) & ph_ids)))
+                                       sorted(named(first) & ph_ids)))
         if not met:
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
@@ -147,10 +172,11 @@ def gather(repo: Path) -> dict[str, Any]:
     reg = repo / REGISTER
     register = contracts.load_yaml(reg.read_text()) if reg.is_file() else None
     phase_of = requirement_phases((repo / REQUIREMENTS).read_text())
-    return {"register": register, "phase_of": phase_of, "commits": git_commits(repo)}
+    changes = (repo / CHANGES).read_text() if (repo / CHANGES).is_file() else None
+    return {"register": register, "phase_of": phase_of, "commits": git_commits(repo), "changes": changes}
 
 
 def check_repo(repo: Path, routes: Sequence[str] | None = None, commands: Sequence[str] | None = None) -> list[dict]:
     g = gather(repo)
     return check(g["register"], g["phase_of"], g["commits"], app_routes() if routes is None else routes,
-                 cli_commands() if commands is None else commands)
+                 cli_commands() if commands is None else commands, changes=g["changes"])

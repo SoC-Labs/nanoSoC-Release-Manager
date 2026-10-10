@@ -72,6 +72,27 @@ def test_a_review_label_is_not_a_requirement_id():
     assert any("['E1']" in p for p in res["Phase 4"])
 
 
+def test_a_cr_recorded_exemption_takes_only_its_ids_out_of_only_its_commit():
+    """CR-5: a commit that named D7 because the contract told it to is accepted only while CHANGES.md records it."""
+    sha = "b" * 40
+    commits = [{"sha": sha, "at": "2026-10-02T10:00:00Z", "files": ["src/ci.py"],
+                "message": "ci: x\n\nRequirements: A2, D7, D10\n"}]
+    reg = dict(gates(), exemptions=[{"commit": sha, "ids": ["D7"], "cr": "CR-5", "reason": "contract text"}])
+    row = "| CR-5 | 2026-10-10 | D7 | commit %s names D7 | ... | David |\n" % sha[:7]
+    p2 = lambda r: {x["phase"]: x["problems"] for x in r}["Phase 2"]
+    assert p2(phasegates.check(reg, PHASE_OF, commits, ["/"], ["walk"], changes=row)) == []
+    # no CHANGES.md row, a row for another CR, or a row naming another commit: the exemption does not count
+    for changes in (None, "", row.replace("CR-5", "CR-4"), row.replace(sha[:7], "c" * 7)):
+        assert any("['D7']" in p for p in p2(phasegates.check(reg, PHASE_OF, commits, ["/"], ["walk"], changes=changes)))
+    # it takes out only its ids: the same commit naming D3 too is still caught, for D3 alone
+    d3 = [dict(commits[0], message="ci: x\n\nRequirements: D3, D7\n")]
+    assert any("['D3']" in p for p in p2(phasegates.check(reg, PHASE_OF, d3, ["/"], ["walk"], changes=row)))
+    # and only its commit
+    other = [dict(commits[0], sha="d" * 40)]
+    assert p2(phasegates.check(reg, PHASE_OF, other, ["/"], ["walk"], changes=row))
+    assert phasegates.exemptions(reg, row) == {sha: {"D7"}}
+
+
 def test_surfaces_and_register_shape_are_checked():
     res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x"],
                                                                 ["walk", "lock", "matrix"])}

@@ -17,7 +17,7 @@ the service config. Everything else is refused.
   sign-in time (`iat`) is in the signed payload and is never moved: re-signing the cookie after a re-check
   does not extend the session. Membership is re-checked at most hourly with the service's read token,
   `is_member(config, login)`. When GitHub cannot answer, the session is kept and the failed attempt is
-  recorded (`attempt_at`), so GitHub is asked again an hour later, not on every request.
+  recorded (`attempt_at`), so GitHub is asked again 10 minutes later (K3 option a), not on every request.
 - **CSRF:** every form carries `csrf_token`, an HMAC of the session id and login. It is checked on every POST
   authenticated by the session cookie (the only ambient credential a browser sends cross-site).
 - **Test seam:** `create_app(config_path, auth=FakeMembership(login=...))` signs every request in as that
@@ -52,6 +52,7 @@ STATE_COOKIE = "rm_oauth_state"
 SESSION_MAX_AGE_S = 8 * 3600            # section 14: valid 8 h
 STATE_MAX_AGE_S = 600                   # an authorize round trip
 RECHECK_S = 3600                        # section 14: membership re-checked at most hourly
+RETRY_S = 600                           # section 14 (K3 a): a re-check GitHub could not answer is retried in 10 min
 MEMBER_ROLE = "member"                  # v1's one role: view + Run T0
 AUTH_PREFIX = "/auth"
 LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH = AUTH_PREFIX + "/login", AUTH_PREFIX + "/callback", AUTH_PREFIX + "/logout"
@@ -287,14 +288,15 @@ class GitHubAuth:
         if ident.status != "member":
             return ident
         checked, attempted = _age_s(ident.checked_at), _age_s(ident.attempt_at)
-        due = (checked is None or checked > RECHECK_S) and (attempted is None or attempted > RECHECK_S)
+        due = (checked is None or checked > RECHECK_S) and (attempted is None or attempted > RETRY_S)
         if due:
             try:
                 still = self._check_member(config, ident.login)
             except (AuthError, ConfigError):
                 # GitHub could not be asked. The session ends 8 h after sign-in, so a member keeps access through
                 # an outage and a removed member keeps it at most until then. The attempt is written back, so the
-                # next one is an hour away: an outage does not put a GitHub call in front of every request.
+                # next one is 10 minutes away (K3 a): an outage does not put a GitHub call in front of every request,
+                # and a revoked member is caught soon after GitHub is back.
                 ident.attempt_at = clock.iso()
                 ident.refreshed = ident.session()
                 return ident

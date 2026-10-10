@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nanosoc_rm import auth, clock, contracts, db
-from nanosoc_rm.web import create_app, views
+from nanosoc_rm.web import create_app, page, views
 from nanosoc_rm.config import load_config
 from webfix import EXAMPLES, Hooks, git, make_registry, write_config
 
@@ -85,7 +85,8 @@ def test_every_page_shows_one_age_from_its_oldest_fact_and_links_every_fact(site
             assert links.get(subject) == "/facts/" + urllib.parse.quote(subject, safe=""), (url, subject)
             body = c.get(links[subject]).text
             for s in obs["sources"]:
-                assert html.escape(s["command"], quote=False) in body, (url, subject, s["command"])
+                shown = str(page.shown_command(s))          # K2: a registry read shows <registry>, escaped
+                assert shown in body, (url, subject, s["command"])
         checked += 1
     assert checked >= 10
 
@@ -103,8 +104,13 @@ def test_registry_facts_link_to_their_git_show_command(site):
     c.get("/")
     head = __import__("webfix").git("rev-parse", "HEAD", cwd=site["registry"])
     body = c.get("/facts/" + urllib.parse.quote("registry_record:eligibility.yaml#/configurations/1", safe="")).text
-    # registry.store_records (the one producer) cites the checkout's own path (interfaces.md section 2).
-    assert "git -C %s show %s:eligibility.yaml" % (site["registry"].resolve(), head) in body
+    # registry.store_records (the one producer) cites the checkout's own path in the STORED fact (interfaces.md
+    # section 2); the page shows the placeholder <registry> instead (K2 option a, David 2026-10-10).
+    real = str(site["registry"].resolve())
+    stored_cmd = stored(site["cfg"], "registry_record:eligibility.yaml#/configurations/1")["sources"][0]["command"]
+    assert stored_cmd == "git -C %s show %s:eligibility.yaml" % (real, head)
+    assert "git -C &lt;registry&gt; show %s:eligibility.yaml" % head in body
+    assert real not in body, "the page must not show the service's checkout path"
 
 
 def test_unknown_fact_is_404_and_old_fact_says_not_current(site):

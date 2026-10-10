@@ -792,8 +792,8 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
     and only when, every finding in the run is warn-covered and every tree was scanned. An uncovered finding is
     FAIL as before; a tree that was not fetched is UNVERIFIED as before (FAIL > UNVERIFIED > WARN > PASS).
 
-    Roll-up note: README section 6 maps a WARN row to gate verdict UNVERIFIED (shown amber, detail prefixed
-    "WARN:"), so a warn-only run rolls up UNVERIFIED-amber, not PASS and not FAIL, until a CR changes that table.
+    Roll-up note (CR-9): README section 6 maps a WARN row with a fired control to gate verdict WARN (amber), so a
+    run whose only non-pass gate is this warn-only row rolls up WARN: not PASS and not FAIL.
     The allowlist is read from the registry checkout the runner fetched (`ctx.registry_dir`); without one, no
     entry applies. The negative control plants its banner in a scratch superproject served at a reserved URL
     that names no catalogue component, so a `component` entry never covers it; a path-only entry wide enough to
@@ -1159,10 +1159,14 @@ def rollup(rows: list[dict], scope: str) -> list[dict]:
                     detail = "PASS without a fired control (%s): %s" % (control, detail)
             elif st == "FAIL":
                 verdict = "FAIL"
-            elif st in ("UNVERIFIED", "WARN"):
+            elif st == "WARN":
+                # CR-9 (David 2026-10-10): WARN is its own amber gate verdict. Like PASS it needs a fired control:
+                # a warning from a gate that cannot be shown to fail proves nothing.
+                verdict = "WARN" if control == "fired" else "UNVERIFIED"
+                if verdict != "WARN":
+                    detail = "WARN without a fired control (%s): %s" % (control, detail)
+            elif st == "UNVERIFIED":
                 verdict = "UNVERIFIED"
-                if st == "WARN":
-                    detail = "WARN: %s" % detail
             elif st == "INFRA":
                 verdict = "INFRA"
             elif st == "SKIP" and gate.may_skip and detail.strip():
@@ -1225,16 +1229,23 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
     return out, [copy.deepcopy(w) for n, w in enumerate(waivers) if n not in used]
 
 
+CHECKED = ("PASS", "WARN")            # gate verdicts that show something was checked (README section 6, CR-9)
+
+
 def run_verdict(items: list[dict]) -> tuple[str, int]:
-    """(run verdict, NOT-RUN count): FAIL > UNVERIFIED (also when no gate PASSed) > INFRA > WAIVED > PASS."""
+    """(run verdict, NOT-RUN count): FAIL > UNVERIFIED (also when no gate PASSed or WARNed) > INFRA > WAIVED >
+    WARN > PASS (README section 6; CR-9 puts WAIVED above WARN: a waived gate hides a real failure, a WARN gate
+    passed with listed warnings)."""
     verdicts = [g.get("verdict") for g in items]
     not_run = verdicts.count("NOT-RUN")
     if "FAIL" in verdicts:
         return "FAIL", not_run
-    if "UNVERIFIED" in verdicts or "PASS" not in verdicts:
+    if "UNVERIFIED" in verdicts or not any(v in CHECKED for v in verdicts):
         return "UNVERIFIED", not_run
     if "INFRA" in verdicts:
         return "INFRA", not_run
     if "WAIVED" in verdicts:
         return "WAIVED", not_run
+    if "WARN" in verdicts:
+        return "WARN", not_run
     return "PASS", not_run

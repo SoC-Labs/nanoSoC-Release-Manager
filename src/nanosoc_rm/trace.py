@@ -87,8 +87,13 @@ def trace(repo: Path, only: str | None = None) -> tuple[list[dict], list[str]]:
             problems.append("%s (Must, %s) has no acceptance test" % (rid, meta["phase"]))
     if only is not None:
         return rows, problems                    # the other findings concern other IDs
+    # A change request recorded in docs/CHANGES.md (`CR8` or `CR-8`) is a known id in a trailer too.
+    changes = repo / phasegates.CHANGES
+    crs = {line.split("|")[1].strip().replace("-", "").upper() for line in
+           (changes.read_text().splitlines() if changes.is_file() else [])
+           if line.startswith("| CR") and line.count("|") > 2}
     for t in trailers:
-        unknown = [i for i in t["ids"] if i not in index]
+        unknown = [i for i in t["ids"] if i not in index and i.replace("-", "").upper() not in crs]
         if unknown:
             problems.append("commit %s names unknown requirement %s" % (t["sha"][:7], ", ".join(unknown)))
     for rid in sorted(set(markers) - set(index)):
