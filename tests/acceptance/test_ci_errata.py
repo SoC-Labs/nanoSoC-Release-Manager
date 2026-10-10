@@ -1848,7 +1848,6 @@ def test_AT_F3(tmp_path):
 
 @pytest.mark.requirement("F3")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_F3_negative_control(tmp_path):
     """AT-F3 control (the done-when, real data): the real SL-DEF-0001, whose bench 6aafc94 is
     unpushed, fails T0; so do a copy-host-only commit and a local-only commit."""

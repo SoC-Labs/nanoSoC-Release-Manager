@@ -1463,7 +1463,6 @@ def test_AT_B4_negative_control(shadow):
 # ============================================================================================
 @pytest.mark.requirement("B5")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B5(live):
     # Given eth-rc4 (frozen, silicon eth-chiplet r0p0) and the 11 keep/eth-rc4/* tags on the hosts
     with live.active():
@@ -1496,7 +1495,6 @@ def test_AT_B5(live):
 
 @pytest.mark.requirement("B5")
 @pytest.mark.live
-@NOT_BUILT
 def test_AT_B5_negative_control(shadow):
     # Given rc4's real mirrors with keep/eth-rc4/tidechart deleted (shadow only)
     delete_refs(shadow.mirror("tidechart"), [ref_prefix("gitlab", "soclabs/tidechart") + "/tags/keep/eth-rc4/tidechart"])
