@@ -10,7 +10,7 @@ who agreed it and when. A CR that changes a schema also states whether the `sche
 
 | CR | Raised | Affects | Change | Why | Agreed |
 |---|---|---|---|---|---|
-| none yet | | | | | |
+| CR-6a | 2026-10-10 | D2, D11, interfaces §9 §11, catalogue schema | Catalogue `vendor_allowlist` entries with `severity: allow\|warn`; the no-arm-ip gate reports a `warn` item as WARN (amber), never FAIL; `allow` items are clean. First entries: DMA-230/PL230 files = allow; the other Arm-banner trees found 2026-10-02 = warn. | David's U1 decision: DMA-230 is cleared; the rest must be visible but not blocking. | David, 2026-10-10 (in chat) |
 
 ## Candidates raised at gate 2 (not CRs until David agrees one)
 

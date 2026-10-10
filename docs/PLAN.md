@@ -44,7 +44,7 @@ commands and one runner mode, and spends nothing on web pages, CI, tokens or the
 
 | Day | Slice | Gate (must hold before the next slice) | Unit tests |
 |---|---|---|---|
-| Mon | **S0 unblock.** Apply agreed CRs 2–5 (stale goldens, broken frozen tests, D7 trailer). Fix the 7 failures. Tag `v0.1.0-mvp0` locally. | `pytest -m "not live"`: 0 failures. Anonymous live: B1 B2 B4 B6 F3 pass. | existing 740 |
+| Mon | **S0 unblock.** Apply agreed CRs 2–5 (stale goldens, broken frozen tests, D7 trailer). Fix the 7 failures. **CR6a (David, 10 Oct): a catalogue `vendor_allowlist` with `severity: allow` (DMA-230/PL230 files, reason recorded) or `severity: warn` (every other Arm-banner tree); a `warn` item makes its gate WARN (amber, never FAIL, never hidden), an `allow` item is clean.** Tag `v0.1.0-mvp0` locally. | `pytest -m "not live"`: 0 failures. Anonymous live: B1 B2 B4 B6 F3 pass. | existing 740 |
 | Tue | **S1 branch inventory** (`nanosoc-rm branches REPO [--all]`, CR8). Per branch: tip, ahead/behind default, merged?, last commit date, keep tags on tip, registered pins reaching into it (via stored walks), verdict `MERGED / PROTECTED / PINNED / STALE / ACTIVE`. `--delete-list` prints only `MERGED` and `STALE` with no pin and no tag. Reads mirrors only. | On a hermetic 5-branch fixture every verdict occurs; the delete-list never names a pinned or tagged branch (mutation: drop the pin check → test red). On eth repo: lists `test/cpu-ss-hsel-regression` as PINNED-by-registry once the bench is cited. | ~25 |
 | Wed | **S2 compatibility check** (`nanosoc-rm compat CONFIG [--pin PATH=SHA]...`, CR9). Walk with overrides, then the T0 gates locally (reuse `t0.gates` with `Context.for_tests` → a `local` mode that is allowed off CI and marks `runner.hardened` NOT-RUN). One verdict per pin plus the run roll-up. | Hermetic: an override to a nonexistent SHA → FAIL at reachable; a duplicate component → B7 flag. Live: `compat eth-rc4` reproduces the demo's raw roll-up; `compat eth-main --pin nanosoc_gen=036d381` resolves. | ~20 |
 | Thu | **S3 local T1/T2** (`compat --tier t1|t2`). A per-SoC `tiers.yaml` in the registry names the commands (D1 already has the table); the tool runs them in a sandbox checkout of the resolved tree with the overrides applied, 1 VCS seat, budget enforced, verdicts.tsv out. No regeneration without `NANOSOC_GEN_OK=1` (set_env.sh is never sourced). | Hermetic: a fake tier command that exits 1 → FAIL; over budget → `over_budget`. Live, one run: eth-main T1 (lint) on the login server. | ~15 |
@@ -67,5 +67,4 @@ fixes tests.
 
 1. CR2–CR5 (test and golden fixes): yes/no. Without them S0 cannot reach 0 failures.
 2. CR8 branches, CR9 compat: agree the two new commands as v1 additions.
-3. U1 is independent of the MVP but the MVP's branch inventory will list the affected repos; decide before the
-   tool repo goes public (N3).
+3. U1 decided 2026-10-10: DMA-230 OK; other Arm-banner trees WARN (CR6a above). The repos stay public.
