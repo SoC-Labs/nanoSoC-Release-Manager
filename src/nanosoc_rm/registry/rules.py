@@ -48,6 +48,7 @@ class Docs:
     catalogue: tuple[str, Any] | None = None
     eligibility: tuple[str, Any] | None = None
     imports: tuple[str, Any] | None = None
+    tiers: tuple[str, Any] | None = None                              # CR-12: tiers.yaml (optional)
     defects: list[tuple[str, Any]] = field(default_factory=list)
     errata: list[tuple[str, Any]] = field(default_factory=list)       # file = errata/<dir>/<name>
 
@@ -429,6 +430,17 @@ def _rule13(docs: Docs) -> Iterator[Problem]:
                        "gate %s is not a waivable configuration gate (%s)" % (gate, ", ".join(WAIVABLE_GATES)))
 
 
+def _rule14(docs: Docs) -> Iterator[Problem]:
+    """CR-12: tiers.yaml names only configurations registered in eligibility.yaml."""
+    if not docs.tiers or not docs.eligibility:
+        return
+    known = {_str(c.get("id")) for _i, c in _items(_dict(docs.eligibility[1]).get("configurations"))}
+    for cid in _dict(_dict(docs.tiers[1]).get("configurations")):
+        if cid not in known:
+            yield (docs.tiers[0], ptr("configurations", cid), "rule-14",
+                   "tiers for configuration %s, which eligibility.yaml does not register" % cid)
+
+
 def _unique_errata(docs: Docs) -> Iterator[Problem]:
     seen: dict[str, str] = {}
     for file, doc in docs.errata:
@@ -441,12 +453,12 @@ def _unique_errata(docs: Docs) -> Iterator[Problem]:
 
 
 def check_all(docs: Docs) -> list[Problem]:
-    """Every cross-file problem (README section 3 rules 1 to 7 and 9 to 13; rule 8 is the YAML reader's and the
+    """Every cross-file problem (README section 3 rules 1 to 7 and 9 to 14; rule 8 is the YAML reader's and the
     schema enforces the first half of rule 12)."""
     ix = _index(docs)
     out: list[Problem] = []
     for gen in (_rule1(docs), _rule2(docs, ix), _rule3(docs, ix), _rule4_6_10_11_12(docs, ix),
                 _rule11_prefix(docs, ix), _rule5(docs), _rule7(docs), _rule9(docs), _rule13(docs),
-                _unique_errata(docs)):
+                _rule14(docs), _unique_errata(docs)):
         out.extend(gen)
     return out

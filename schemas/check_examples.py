@@ -133,6 +133,8 @@ def check_tsv(path, row_validator, nonce, t_start, t_end):
 DEF_EXAMPLES = {
     "result-bundle.rm-request.example.json": ("result-bundle", "/$defs/rm_request"),
 }
+# Valid and invalid examples of one $defs entry, by file-name prefix (CR-12: registry tiers.yaml).
+DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file")}
 # rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
 # of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
 ITEMS_PREFIX = "result-bundle.items."
@@ -141,6 +143,9 @@ ITEMS_PREFIX = "result-bundle.items."
 def def_example(base):
     if base.startswith(ITEMS_PREFIX):
         return ("result-bundle", "/$defs/gate_item")
+    for prefix, target in DEF_PREFIXES.items():
+        if base.startswith(prefix):
+            return target
     return DEF_EXAMPLES.get(base)
 
 EXPECT_RX = re.compile(r"^#\s*expect-error:\s*(\S+)\s+at\s+(\S+)(?:\s+~\s+(.+?))?\s*$")
@@ -223,7 +228,7 @@ def main():
             report(False, base, "first line must be '# expect-error: <keyword> at <pointer> [~ <text>]'")
             continue
         keyword, where, text = m.group(1), m.group(2), m.group(3)
-        v = validator_for(schemas, registry, name)
+        v = validator_for(schemas, registry, *(def_example(base) or (name, None)))
         for label, doc in docs_in(path):
             errs = all_errors(v, doc)
             hits = [e for e in errs if e.validator == keyword and pointer_of(e) == where

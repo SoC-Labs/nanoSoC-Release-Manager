@@ -15,6 +15,8 @@ DEF_EXAMPLES = {"result-bundle.rm-request.example.json": ("result-bundle", "/$de
 def _target(name):
     if name.startswith("result-bundle.items."):
         return "result-bundle", "/$defs/gate_item"
+    if name.startswith("eligibility.tiers"):                     # CR-12: registry tiers.yaml
+        return "eligibility", "/$defs/tiers_file"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
@@ -37,7 +39,8 @@ def test_valid_examples_validate(path):
 def test_invalid_examples_fail(path):
     # The schemas' own negative control (PR6), through the package's loader.
     for label, doc in contracts.docs_in(path):
-        assert contracts.validate(path.name.split(".", 1)[0], doc), "%s validated: the schema cannot fail" % label
+        schema, pointer = _target(path.name)
+        assert contracts.validate(schema, doc, pointer), "%s validated: the schema cannot fail" % label
 
 
 def test_typed_validators():

@@ -1,0 +1,9 @@
+# expect-error: not at /configurations/eth-main/t1/command
+# CR-12: a tier command never sources a set_env.sh; it declares its environment in `env`.
+schema: 1
+configurations:
+  eth-main:
+    t1:
+      command: source set_env.sh && make lint
+      cwd: .
+      budget_s: 600

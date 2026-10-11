@@ -1,0 +1,32 @@
+# CR-12: registry tiers.yaml (eligibility#/$defs/tiers_file). Illustrative paths: a real file names its own
+# tool installs and licence servers, and lives only in the private registry.
+schema: 1
+configurations:
+  eth-main:
+    t1:
+      description: verilator lint of the chiplet RTL (make lint -> verif/lint/run.sh)
+      command: make lint
+      cwd: .
+      env:
+        PATH: /opt/tools/verilator/bin:${PATH}
+        VERILATOR: /opt/tools/verilator/bin/verilator
+      budget_s: 600
+      pins: [tidechart, tidelink]
+    t2:
+      description: VCS smoke of the D2D decode (two self-checking benches)
+      command: [make, -C, verif/chiplet_d2d_decode, all]
+      cwd: .
+      env:
+        VCS_HOME: /opt/tools/vcs
+        PATH: ${VCS_HOME}/bin:${PATH}
+        SNPSLMD_LICENSE_FILE: 27000@licence-server.example
+      budget_s: 900
+      needs: [vcs-seat, network]
+      pins: []
+  quickstart-main:
+    t1:
+      command: ./ci/lint.sh
+      cwd: .
+      budget_s: 300
+      verdicts: build/ci/verdicts.tsv
+      regenerates: true

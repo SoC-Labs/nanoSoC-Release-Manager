@@ -18,7 +18,7 @@ from pathlib import Path
 from nanosoc_rm.config import Config, load_config
 from nanosoc_rm.registry import RegistryError, load_registry
 
-__all__ = ["REGISTRY_JOB", "RegistryUnreadable", "UnknownConfiguration", "configurations", "configuration",
+__all__ = ["REGISTRY_JOB", "RegistryUnreadable", "UnknownConfiguration", "configurations", "configuration", "tiers",
            "canonical_repo", "waivers", "registry_repo"]
 
 REGISTRY_JOB = "@registry"
@@ -74,6 +74,12 @@ def waivers(cfg_id: str, config: Config | None = None) -> list[dict]:
         return []
     c = configuration(cfg_id, config)
     return list(c.get("t0_waivers") or []) if c.get("frozen") else []
+
+
+def tiers(cfg_id: str, config: Config | None = None) -> dict:
+    """CR-12: {tier: command spec} from the registry's tiers.yaml for a registered configuration ({} if none)."""
+    configuration(cfg_id, config)                       # UnknownConfiguration for an unregistered id
+    return _registry(_cfg(config)).tiers(cfg_id)
 
 
 def registry_repo(config: Config | None = None) -> dict:

@@ -52,6 +52,7 @@ eligibility.yaml
 defects/SL-DEF-NNNN.yaml              file name = id
 errata/<configuration>/ERR-NNN.yaml   directory = configuration id; the record's id is <errata_prefix>-ERR-NNN
 imports.yaml                          F5 import ledger
+tiers.yaml                            optional; CR-12 local T1/T2 commands (eligibility#/$defs/tiers_file)
 ```
 
 ## 2. Versioning rule
@@ -111,7 +112,10 @@ JSON Schema checks one document. The registry loader (interfaces.md section 2) a
     or a `.negctl` row. Whether a waiver's `tree_path` exists is not a loader rule: it needs the walk, so the
     service reports a waiver that matched nothing as a `waiver_unused` alert (section 6). (D2, D6)
 
-Rules 1 to 13 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
+14. **Tiers** (CR-12). A `tiers.yaml` naming a configuration that eligibility.yaml does not register. The schema
+    already refuses a tier command that sources a set_env.sh. (D1)
+
+Rules 1 to 14 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
 
 Not enforced by any rule in v1, stated so nobody assumes otherwise: a registry change that deletes a silicon
 configuration from `eligibility.yaml` would silently drop its silicon-protection rows. Registry `main` is
@@ -252,7 +256,9 @@ waived (waivers apply only to FAIL and UNVERIFIED), and it needs a fired control
 
 **Local runs (CR-11, `nanosoc-rm compat`, interfaces.md section 9a).** The same table, with one difference: in run
 mode `local`, `t0.runner.hardened` is never run; its one SKIP row `local run` rolls up NOT-RUN, and any other row for
-it is UNVERIFIED. The run rules below are unchanged, so a local run still needs a PASS (or WARN) gate.
+it is UNVERIFIED. The run rules below are unchanged, so a local run still needs a PASS (or WARN) gate. With
+`--tier` (CR-12) the run verdict (`run_verdict`) is the ladder FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS over
+the T0 verdict and the tier's own verdict (interfaces.md section 9a "Tiers").
 
 So a run where every gate skipped, or a run with no gates, can never be PASS (contracts review B1; the toolkit's
 own doctrine that an unread report is never a pass). NOT-RUN gates are counted and shown beside the verdict.

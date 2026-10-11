@@ -25,6 +25,53 @@
     }
   },
   "$defs": {
+    "tiers_file": {
+      "description": "CR-12: registry `tiers.yaml` (optional), the local T1/T2 commands of each configuration (`nanosoc-rm compat CONFIG --tier t1|t2`, interfaces.md section 9a 'Tiers'). A configuration it names must be registered in eligibility.yaml (README section 3 rule 14). Additive optional file: no schema bump.",
+      "type": "object",
+      "required": ["schema", "configurations"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "const": 1 },
+        "configurations": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": { "t1": { "$ref": "#/$defs/tier_command" }, "t2": { "$ref": "#/$defs/tier_command" } }
+          }
+        }
+      }
+    },
+    "tier_command": {
+      "description": "One tier's command. It runs in a sandbox checkout of the configuration's resolved tree with a clean environment: PATH=/usr/bin:/bin, HOME and TMPDIR inside the sandbox, TREE = the checkout's root, NANOSOC_RM_TIER, NANOSOC_RM_VERDICTS (when `verdicts` is declared), then `env` in file order (`${NAME}` expands an earlier name; an unknown name is refused). Nothing else is inherited: no set_env.sh is ever sourced, and ARM_IP_LIBRARY_PATH is absent unless `env` names it.",
+      "type": "object",
+      "required": ["command", "cwd", "budget_s"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "command": {
+          "description": "An argv list (run as is), or a shell string (run with `bash --noprofile --norc -c`). Never sources a set_env.sh.",
+          "oneOf": [
+            { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } },
+            { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } } }
+          ]
+        },
+        "cwd": { "type": "string", "pattern": "^(\\.|(?!/)(?!.*(^|/)\\.\\.(/|$)).+)$", "description": "Tree-relative; `.` is the tree root. No absolute path, no `..`." },
+        "env": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "not": { "enum": ["TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_VERDICTS", "NANOSOC_GEN_OK"] } },
+          "additionalProperties": { "type": "string" }
+        },
+        "pins": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$" }, "description": "The tree paths of the pins the command needs, each with its whole subtree (and the pins above it). Only these are laid out in the sandbox; absent = every pin of the tree." },
+        "budget_s": { "type": "integer", "minimum": 1, "description": "D1 budget for this command; over it = over_budget (a warning); killed at 1.5 x." },
+        "needs": { "type": "array", "uniqueItems": true, "items": { "enum": ["vcs-seat", "network"] }, "description": "vcs-seat: one local tier run at a time holds the host's seat lock (busy = INFRA). network: the command reaches a network (recorded, not enforced)." },
+        "verdicts": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$", "description": "Tree-relative path of the toolkit-format verdicts.tsv the command writes (removed before the run)." },
+        "regenerates": { "type": "boolean", "description": "The command regenerates build_soc: refused unless the caller sets NANOSOC_GEN_OK=1, which is then passed on." }
+      }
+    },
     "configuration": {
       "type": "object",
       "required": ["id", "component", "ref"],

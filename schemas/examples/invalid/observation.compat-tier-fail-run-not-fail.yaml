@@ -1,0 +1,241 @@
+# expect-error: const at /fact/run_verdict
+# CR-12: a FAIL tier can never leave the run verdict anything but FAIL.
+schema: 1
+kind: compat_result
+subject: compat_result:eth-rc4:d77e589b5b42f552349faa3637a3e4d7
+observed_at: '2026-10-02T17:23:55Z'
+sources:
+- kind: derived
+  command: nanosoc-rm compat eth-rc4 --pin nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=036d3811e630c89b2344b56aa617b40a99cd652b
+    --tier t1
+- kind: registry
+  command: eligibility.yaml configurations[id=eth-rc4].commit
+fact:
+  configuration: eth-rc4
+  commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  mode: local
+  nonce: d77e589b5b42f552349faa3637a3e4d7
+  overrides:
+  - tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    commit: 036d3811e630c89b2344b56aa617b40a99cd652b
+    replaces: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+  pins:
+  - tree_path: ASIC/asic-toolkit
+    tree_paths:
+    - ASIC/asic-toolkit
+    component: asic-toolkit
+    commit: 4de7860af95cbb003265f94e6c2b7b4a1618877f
+    overridden: false
+    replaces: null
+    url_kind: ssh
+    state: UNREADABLE
+    split: false
+    items:
+      fetchable: fail
+      reachable: unverified
+      no_ssh: fail
+      vendor: not-reached
+  - tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    tree_paths:
+    - nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    component: ethernet-mac-ahb
+    commit: 44ff8b72654bc6953b97f86855fe50ad1a10e22c
+    overridden: false
+    replaces: null
+    url_kind: https
+    state: PROTECTED_BY_TAG
+    split: false
+    items:
+      fetchable: pass
+      reachable: fail
+      no_ssh: pass
+      vendor: pass
+  - tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    tree_paths:
+    - nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    component: nanosoc_gen
+    commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+    overridden: false
+    replaces: null
+    url_kind: https
+    state: ON_DEFAULT
+    split: true
+    items:
+      fetchable: pass
+      reachable: pass
+      no_ssh: pass
+      vendor: fail
+  - tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    tree_paths:
+    - nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    component: nanosoc_gen
+    commit: 036d3811e630c89b2344b56aa617b40a99cd652b
+    overridden: true
+    replaces: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+    url_kind: https
+    state: ON_DEFAULT
+    split: true
+    items:
+      fetchable: pass
+      reachable: pass
+      no_ssh: pass
+      vendor: fail
+  - tree_path: tidelink
+    tree_paths:
+    - tidelink
+    component: tidelink
+    commit: 5e8bdb5a2141ff5a82103813a326a2c9df2b43ed
+    overridden: false
+    replaces: null
+    url_kind: ssh
+    state: TAGGED
+    split: false
+    items:
+      fetchable: fail
+      reachable: pass
+      no_ssh: fail
+      vendor: not-reached
+  splits:
+  - component: nanosoc_gen
+    pins:
+    - tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+      commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+    - tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+      commit: 036d3811e630c89b2344b56aa617b40a99cd652b
+  gates:
+  - id: t0.infra.probe
+    verdict: PASS
+    control: fired
+    detail: anonymous ls-remote of 1 known public repo(s) succeeded (github)
+  - id: t0.runner.hardened
+    verdict: NOT-RUN
+    control: not-applicable
+    detail: local run
+  - id: t0.pins.fetchable
+    verdict: WAIVED
+    control: fired
+    detail: '37 of 44 pins fetched anonymously; not fetched: tidelink, ASIC/asic-toolkit;
+      not reached: 5 below them'
+    raw_verdict: FAIL
+    waived:
+    - tree_path: tidelink
+      result: fail
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: tidelink/deps/axi-chiplet-controller
+      result: not-reached
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow
+      result: not-reached
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: tidelink/deps/axi-chiplet-controller/asic_flow
+      result: not-reached
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: tidelink/deps/tidelink-gpio-phy
+      result: not-reached
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: tidelink/deps/tidelink-phy
+      result: not-reached
+      covered_by: tidelink
+      reason: frozen tree pins TideLink by ssh URL; never fetchable anonymously. Covers
+        the 5 pins below it (not-reached).
+      approved_by: dam1n19
+    - tree_path: ASIC/asic-toolkit
+      result: fail
+      covered_by: ASIC/asic-toolkit
+      reason: frozen tree pins the private ASIC toolkit by ssh URL; never fetchable
+        anonymously
+      approved_by: dam1n19
+  - id: t0.pins.reachable
+    verdict: FAIL
+    control: fired
+    detail: '41 of 44 pins reachable from a branch or tag of their canonical repo;
+      unreachable: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+      44ff8b7, nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech 50359ee;
+      unverified: A ...'
+  - id: t0.urls.no-ssh-public
+    verdict: WAIVED
+    control: fired
+    detail: 'public parent NanoSoC-Ethernet-Chiplet@ab73e40 pins by ssh URL: tidelink,
+      ASIC/asic-toolkit'
+    raw_verdict: FAIL
+    waived:
+    - tree_path: tidelink
+      result: fail
+      covered_by: tidelink
+      reason: frozen tree's .gitmodules uses an ssh URL for TideLink; cannot change
+        without a new commit
+      approved_by: dam1n19
+    - tree_path: ASIC/asic-toolkit
+      result: fail
+      covered_by: ASIC/asic-toolkit
+      reason: frozen tree's .gitmodules uses an ssh URL for the ASIC toolkit; cannot
+        change without a new commit
+      approved_by: dam1n19
+  - id: t0.manifest.valid
+    verdict: NOT-RUN
+    control: not-applicable
+    detail: no nanosoc-component.yaml at any pinned commit (7 trees not fetched)
+  - id: t0.clone.upgrade-path
+    verdict: NOT-RUN
+    control: not-applicable
+    detail: configuration eth-rc4 declares no upgrade_from
+  - id: t0.vendor.no-arm-ip
+    verdict: FAIL
+    control: fired
+    detail: '38 of 45 trees scanned, 15 with findings: nanosoc-multicore-system, nanosoc-multicore-system/ethernet-subsystem-ahb,
+      nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech, nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_
+      ...'
+  verdict: FAIL
+  reason: null
+  not_run: 3
+  unjudged_overrides: []
+  unused_waivers: 0
+  started_at: '2026-10-11T11:58:45Z'
+  finished_at: '2026-10-11T12:00:03Z'
+  over_budget: false
+  work_dir: null
+  tier:
+    tier: t1
+    verdict: FAIL
+    reason: '--force-tier: a person ran the tier past a T0 FAIL; this result is UNVERIFIED
+      for release whatever the tier says; tier.t1: exit 1 in 41.2 s'
+    forced: true
+    command: make lint
+    cwd: .
+    env_keys:
+    - VERILATOR
+    needs: []
+    regenerates: false
+    budget_s: 600
+    timeout_s: 900.0
+    seconds: 41.2
+    over_budget: false
+    killed: false
+    exit_code: 1
+    verdicts_file: null
+    rows:
+    - utc: '2026-10-11T12:00:03Z'
+      status: FAIL
+      gate: tier.t1
+      detail: exit 1 in 41.2 s
+      nonce: d77e589b5b42f552349faa3637a3e4d7
+    missing_paths: []
+    not_laid_out: 0
+    log_tail:
+    - LINT OK
+  run_verdict: PASS

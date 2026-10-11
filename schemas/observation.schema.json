@@ -507,9 +507,27 @@
         "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
         "finished_at": { "$ref": "defs.schema.json#/$defs/utc" },
         "over_budget": { "type": "boolean", "description": "D1: longer than the T0 budget (120 s). A warning; never changes the verdict." },
-        "work_dir": { "type": ["string", "null"], "description": "The kept work directory (--keep-work), else null." }
+        "work_dir": { "type": ["string", "null"], "description": "The kept work directory (--keep-work), else null." },
+        "tier": { "$ref": "#/$defs/compat_tier" },
+        "run_verdict": {
+          "description": "CR-12: present exactly when `tier` is. The run verdict ladder (README section 6: FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS) over the T0 roll-up `verdict` and the tier's verdict; a tier skipped because T0 is FAIL (NOT-RUN) leaves FAIL. The exit code follows it. `verdict` stays the T0 roll-up alone.",
+          "enum": ["PASS", "FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN"]
+        }
       },
+      "dependentRequired": { "tier": ["run_verdict"], "run_verdict": ["tier"] },
       "allOf": [
+        {
+          "if": { "properties": { "tier": { "properties": { "verdict": { "const": "FAIL" } }, "required": ["verdict"] } }, "required": ["tier"] },
+          "then": { "properties": { "run_verdict": { "const": "FAIL" } } }
+        },
+        {
+          "if": { "properties": { "run_verdict": { "const": "PASS" } }, "required": ["run_verdict"] },
+          "then": { "properties": { "verdict": { "const": "PASS" }, "tier": { "properties": { "verdict": { "const": "PASS" } } } } }
+        },
+        {
+          "if": { "properties": { "tier": { "properties": { "verdict": { "const": "NOT-RUN" } }, "required": ["verdict"] } }, "required": ["tier"] },
+          "then": { "properties": { "verdict": { "const": "FAIL" }, "run_verdict": { "const": "FAIL" } } }
+        },
         {
           "if": { "properties": { "verdict": { "const": "PASS" } }, "required": ["verdict"] },
           "then": {
@@ -541,6 +559,41 @@
       ]
     },
     "compat_item": { "enum": ["pass", "fail", "unverified", "not-reached"] },
+    "compat_tier": {
+      "description": "CR-12 (MVP S3, `nanosoc-rm compat --tier t1|t2`, interfaces.md section 9a 'Tiers'): one local T1 or T2 run of the registry's tiers.yaml command for the configuration, in a sandbox checkout of the resolved (overridden) tree. `rows` are verdicts.tsv rows (result-bundle verdict_row, this run's nonce): always `tier.<tier>` from the exit code (FAIL on a nonzero exit or a kill), plus `tier.<tier>.<gate>` for each row of the declared verdicts file. A run killed at 1.5 x budget is FAIL. Over budget is a warning (`over_budget`). NOT-RUN only when T0 is FAIL and nobody forced the tier. `forced`: a person ran the tier past a T0 FAIL with --force-tier; the result is UNVERIFIED for release whatever the tier says. Additive optional $defs: no schema bump.",
+      "type": "object",
+      "required": ["tier", "verdict", "reason", "forced", "command", "cwd", "env_keys", "needs", "regenerates", "budget_s",
+                   "timeout_s", "seconds", "over_budget", "killed", "exit_code", "verdicts_file", "rows", "missing_paths", "not_laid_out", "log_tail"],
+      "additionalProperties": false,
+      "properties": {
+        "tier": { "enum": ["t1", "t2"] },
+        "verdict": { "enum": ["PASS", "FAIL", "UNVERIFIED", "INFRA", "WARN", "NOT-RUN"] },
+        "reason": { "type": ["string", "null"], "description": "Why the tier is not PASS (or why it did not run); on a PASS, null unless forced (then the --force-tier note)." },
+        "forced": { "type": "boolean" },
+        "command": { "type": "string", "minLength": 1, "description": "The command as declared (an argv list joined shell-quoted)." },
+        "cwd": { "type": "string", "description": "Tree-relative working directory." },
+        "env_keys": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }, "description": "The names of the explicit env entries (values are not recorded: they may name licence servers)." },
+        "needs": { "type": "array", "items": { "type": "string" } },
+        "regenerates": { "type": "boolean" },
+        "budget_s": { "type": "integer", "minimum": 1 },
+        "timeout_s": { "type": "number", "exclusiveMinimum": 0, "description": "The hard kill limit: budget_s x 1.5." },
+        "seconds": { "type": ["number", "null"], "minimum": 0, "description": "Wall time of the command; null when it never started." },
+        "over_budget": { "type": "boolean" },
+        "killed": { "type": "boolean" },
+        "exit_code": { "type": ["integer", "null"] },
+        "verdicts_file": { "type": ["string", "null"] },
+        "rows": { "type": "array", "items": { "$ref": "result-bundle.schema.json#/$defs/verdict_row" } },
+        "missing_paths": { "type": "array", "items": { "type": "string" }, "description": "Tree paths of needed pins the sandbox checkout could not lay out (no anonymous fetch reached the commit); any makes the tier UNVERIFIED without running." },
+        "not_laid_out": { "type": "integer", "minimum": 0, "description": "Pins of the tree left out of the sandbox because the tiers.yaml `pins` list does not need them." },
+        "log_tail": { "type": "array", "items": { "type": "string" }, "description": "The last lines of the command's combined output." }
+      },
+      "allOf": [
+        { "if": { "properties": { "killed": { "const": true } } }, "then": { "properties": { "verdict": { "const": "FAIL" } } } },
+        { "if": { "properties": { "verdict": { "const": "PASS" } } }, "then": { "properties": { "exit_code": { "const": 0 }, "killed": { "const": false }, "missing_paths": { "maxItems": 0 } } } },
+        { "if": { "properties": { "verdict": { "const": "NOT-RUN" } } }, "then": { "properties": { "forced": { "const": false }, "seconds": { "type": "null" }, "rows": { "maxItems": 0 } } } },
+        { "if": { "properties": { "forced": { "const": true } } }, "then": { "properties": { "reason": { "type": "string", "pattern": "^--force-tier" } } } }
+      ]
+    },
     "branch_state": {
       "description": "CR8 (MVP S1, `nanosoc-rm branches`): one branch of one repo, judged from the local mirror only. Set kind: one snapshot per repo (`branch_state:<host>:<path>`), so a deleted branch disappears from the current view. `ahead`/`behind` are rev-list counts against the repo's default branch; `merged` = the tip is an ancestor of the default branch; `tags` are the tags whose tip IS this tip (`keep_tags` the keep/* subset); `pins` are registered pins (any pin of any stored walk, section 4) whose commit the tip reaches and the default branch does not; `cited` the registry's structured citations (defect benches, fixes) likewise reached. Verdict, first match: MERGED, PROTECTED (a tag on the tip), PINNED (a pin or citation reaches into it), STALE (last commit older than `stale_days`), ACTIVE. `deletable` = MERGED or STALE with no pin, no citation and no tag; the tool prints the command for a person and never runs it. Additive optional $defs (README section 2 rule 4): no schema bump.",
       "type": "object",

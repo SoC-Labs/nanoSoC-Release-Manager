@@ -220,4 +220,11 @@ WRITE_CALLS: list[dict[str, str]] = [
      "guard": "check_argv() refuses push, send-pack, receive-pack and every subcommand or form not on its "
               "read/local allowlist, before git is started",
      "reason": "the one git runner: every git call of the package goes through nanosoc_rm.gitrun.run_git"},
+    {"file": "nanosoc_rm/analysis/tierrun.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local",
+     "guard": "only `nanosoc-rm compat --tier` on a person's own machine runs it (the service and the CI runner never "
+              "import tierrun); the command is the registry tiers.yaml entry (protected main), run in a sandbox "
+              "checkout with a clean environment that carries no token, HOME or ssh agent of the caller",
+     "reason": "CR-12: run a configuration's local T1/T2 command (lint, smoke sim); it writes only inside the "
+               "sandbox work directory"},
 ]

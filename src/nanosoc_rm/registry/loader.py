@@ -9,6 +9,7 @@ The registry is a directory (a checkout of the registry repo's main) laid out as
     defects/SL-DEF-NNNN.yaml               optional   defect
     errata/<configuration>/ERR-NNN.yaml    optional   erratum
     imports.yaml                           optional   import-ledger (F5)
+    tiers.yaml                             optional   eligibility#/$defs/tiers_file (CR-12: local T1/T2 commands)
 
 Every file is read with the strict YAML reader (timestamps stay strings, a duplicate key is refused: rule 8),
 must carry a `schema` version this reader knows (README section 2 rule 2), and is validated against its
@@ -46,7 +47,8 @@ Role = Literal["canonical", "copy", "alias", "external", "ignored", "unknown"]
 
 KNOWN_SCHEMA_VERSION = 1
 SCHEMA_OF = {"catalogue.yaml": "component-catalogue", "eligibility.yaml": "eligibility",
-             "imports.yaml": "import-ledger", "defects": "defect", "errata": "erratum"}
+             "imports.yaml": "import-ledger", "defects": "defect", "errata": "erratum", "tiers.yaml": "eligibility"}
+POINTER_OF = {"tiers.yaml": "/$defs/tiers_file"}         # a file validated against one $defs entry
 _YAML_SUFFIXES = (".yaml", ".yml")
 
 
@@ -83,7 +85,7 @@ def _pointer(path: Iterable[Any]) -> str:
     return "".join("/" + rules.escape(t) for t in path)
 
 
-def _read(root: Path, rel: str, schema: str, problems: list[Problem]) -> Any:
+def _read(root: Path, rel: str, schema: str, problems: list[Problem], pointer: str | None = None) -> Any:
     """The document in `rel`, or None (with its problems recorded) when it cannot be used at all."""
     try:
         text = (root / rel).read_text(encoding="utf-8")
@@ -105,7 +107,7 @@ def _read(root: Path, rel: str, schema: str, problems: list[Problem]) -> Any:
                                 "schema version %r is not one this reader knows (%d); it is refused, never guessed at "
                                 "(README section 2)" % (doc.get("schema"), KNOWN_SCHEMA_VERSION)))
         return None
-    for e in sorted(contracts.validator(schema).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path))):
+    for e in sorted(contracts.validator(schema, pointer).iter_errors(doc), key=lambda e: list(map(str, e.absolute_path))):
         problems.append(Problem(rel, _pointer(e.absolute_path), "schema", e.message))
     return doc
 
@@ -234,6 +236,11 @@ class Registry:
         doc = self._files.get("imports.yaml")
         return copy.deepcopy(doc) if doc is not None else None
 
+    def tiers(self, configuration_id: str) -> dict:
+        """CR-12: {tier: command spec} from tiers.yaml for one configuration ({} when none is declared)."""
+        doc = self._files.get("tiers.yaml") or {}
+        return copy.deepcopy((doc.get("configurations") or {}).get(configuration_id) or {})
+
     def files(self) -> dict[str, dict]:
         """{registry-relative file: document} for every file read."""
         return copy.deepcopy(self._files)
@@ -287,12 +294,12 @@ def load_registry(path: str | Path) -> Registry:
         raise RegistryError([Problem("", "", "layout", "%s is not a directory" % root)])
     docs = rules.Docs()
     files: dict[str, dict] = {}
-    for rel in ("catalogue.yaml", "eligibility.yaml", "imports.yaml"):
+    for rel in ("catalogue.yaml", "eligibility.yaml", "imports.yaml", "tiers.yaml"):
         if not (root / rel).is_file():
-            if rel != "imports.yaml":
+            if rel not in ("imports.yaml", "tiers.yaml"):
                 problems.append(Problem(rel, "", "layout", "missing: a registry holds %s (README section 1)" % rel))
             continue
-        doc = _read(root, rel, SCHEMA_OF[rel], problems)
+        doc = _read(root, rel, SCHEMA_OF[rel], problems, POINTER_OF.get(rel))
         if doc is not None:
             files[rel] = doc
             setattr(docs, rel.split(".")[0], (rel, doc))

@@ -348,8 +348,8 @@ def check_budget(tier: str, started_at: str, finished_at: str) -> Budget
 | Tier | Budget | Command in v1 |
 |---|---|---|
 | t0 | 120 s ("under 2 min"). Over budget = `over_budget: true`, a warning; the job's `timeout: 15m` is the kill limit | `nanosoc-rm t0 trigger <config>` → compat-ci job `t0` → `nanosoc-rm t0 run --out rm-bundle` |
-| t1 | 600 s | none before Phase 2 |
-| t2 | 900 s per SoC | none before Phase 2 |
+| t1 | 600 s | none in CI before Phase 2; locally `nanosoc-rm compat <config> --tier t1` runs the registry's tiers.yaml command (CR-12, section 9a) |
+| t2 | 900 s per SoC | as t1, `--tier t2` (1 VCS seat: `needs: [vcs-seat]`) |
 | t3 | 10800 s | none before Phase 2 |
 | t4 | null; reason: D1 gives none, set in Phase 6 | none |
 | t5 | null; manual; reason: D1 gives none | none |
@@ -511,6 +511,70 @@ def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict
   bump; README section 4 row). The schema refuses a `t0.runner.hardened` gate other than NOT-RUN `local run`.
   Example `observation.compat-result.example.jsonl`; invalid `observation.compat-hardened-pass.yaml`.
 - **Work directory:** a temporary directory, deleted afterwards; `--keep-work DIR` (new or empty) keeps it.
+
+### Tiers: local T1/T2 runs (CR-12, MVP S3)
+
+Requirements: D1, CR-12 (`docs/CHANGES.md`).
+
+```python
+# nanosoc_rm.analysis.compat
+def compat(..., tier: str | None = None, force_tier=False, environ=None, lock_dir=None) -> dict
+def ladder(*verdicts) -> str                  # FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS; NOT-RUN ignored
+# nanosoc_rm.analysis.tierrun
+RUNNABLE = ("t1", "t2"); KILL_FACTOR = 1.5
+class TierUsage(ValueError)                   # exit 3
+def check_spec(spec, tier, configuration, environ=None) -> dict
+def materialise(git, root: Pin, dest, pins=None) -> Layout          # Layout(laid_out, missing, not_laid_out)
+def run_tier(spec, tier, tree, work, nonce, *, layout=None, lock_dir=None) -> dict   # one compat_tier
+def parse_verdicts(path, tier, nonce) -> list[dict]                 # verdict_row dicts
+# nanosoc_rm.registry.loader.Registry / nanosoc_rm.ci.configs
+Registry.tiers(configuration) -> dict; configs.tiers(configuration, config=None) -> dict
+```
+
+1. **Registry file.** `tiers.yaml` at the registry root, optional (`eligibility.schema.json#/$defs/tiers_file`):
+   `configurations: {<configuration>: {t1: <tier_command>, t2: <tier_command>}}`. A tier_command has `command`
+   (argv list, run as is, or shell string, run with `bash --noprofile --norc -c`), `cwd` (tree-relative), `env`
+   (explicit key/values), `budget_s`, optional `needs` (`vcs-seat`, `network`), `verdicts` (tree-relative path of
+   a toolkit-format verdicts.tsv the command writes), `pins` (tree paths of the pins it needs, each with its
+   subtree; absent = all) and `regenerates`. The loader refuses a tiers.yaml naming a configuration that
+   eligibility.yaml does not register (README section 3 rule 14) and, through the schema, a command that sources
+   a set_env.sh. The file is private (it names tool installs and licence servers): it lives only in the registry.
+2. **Refusals (exit 3, before any work).** No command for that tier; a command that sources a set_env.sh (also
+   checked in code); `env` setting `TREE`, `NANOSOC_RM_TIER`, `NANOSOC_RM_VERDICTS` or `NANOSOC_GEN_OK`;
+   `regenerates: true` while the caller's environment lacks `NANOSOC_GEN_OK=1`; `--force-tier` without `--tier`.
+3. **Order.** The local T0 runs first (steps 1 to 4 above). T0 FAIL skips the tier: `tier.verdict` NOT-RUN with the
+   reason. WAIVED, WARN, UNVERIFIED and INFRA do not skip it. `--force-tier` runs it past a T0 FAIL; the tier then
+   carries `forced: true` and a reason starting `--force-tier:` (a person's override; the result is UNVERIFIED
+   for release, and `run_verdict` stays FAIL).
+4. **Sandbox checkout.** Under the work directory, `tree/` is the configuration's resolved tree from the T0 gates'
+   own walk, overrides applied: the root and each needed pin are a fresh git repo at the pin's tree path, checked
+   out detached at its commit. Objects are borrowed (alternates) from the T0 run's anonymous `fetch --depth=1`;
+   a pin whose pinned URL no anonymous fetch can use (ssh) is fetched once, anonymously, from its canonical https
+   URL. A duplicate pin (same repo and commit) gets its first occurrence's subtree. A needed pin that cannot be laid
+   out is listed in `missing_paths` and the tier is UNVERIFIED without running.
+5. **Run.** Environment: `PATH=/usr/bin:/bin`, `HOME` and `TMPDIR` in the work directory, `LANG=LC_ALL=C.UTF-8`,
+   `USER`/`LOGNAME`, `GIT_TERMINAL_PROMPT=0`, `GIT_CONFIG_NOSYSTEM=1`, a `GIT_SSH_COMMAND` with no agent and no key
+   (so git in the command is anonymous), `TREE` (the checkout root), `NANOSOC_RM_TIER`, `NANOSOC_RM_VERDICTS` (absolute, when declared),
+   then `env` in file order, where `${NAME}` expands a name already set (an unknown name is exit 3), then
+   `NANOSOC_GEN_OK=1` only for `regenerates: true`. Nothing else is inherited: `ARM_IP_LIBRARY_PATH` is absent unless
+   `env` names it. The declared verdicts file is deleted before the run. `needs: [vcs-seat]` takes a host-local
+   lock (`$TMPDIR/nanosoc-rm-vcs-seat.lock`) for the run; held elsewhere = INFRA, not run. The command runs in its
+   own process group with stdin closed and output to `tier-<tier>.log`; at `budget_s x 1.5` the group gets SIGTERM
+   (SIGKILL 10 s later) and the tier is FAIL (`killed`). After it exits, the group is killed so nothing outlives it.
+   Longer than `budget_s` is `over_budget: true`, a warning.
+6. **Rows and verdict.** Rows are verdict_row dicts with this run's nonce: always `tier.<tier>` (PASS on exit 0;
+   FAIL on a nonzero exit or a kill), plus one `tier.<tier>.<gate>` per verdicts-file row (status kept; the gate
+   lower-cased with other characters as `-`); a declared file that is missing, empty or has a malformed line adds a
+   `tier.<tier>.verdicts` UNVERIFIED row. Tier verdict: FAIL > UNVERIFIED > INFRA > WARN > PASS over the rows.
+7. **Result.** `compat_result.fact.tier` (observation `$defs/compat_tier`) and `fact.run_verdict` =
+   `ladder(T0 verdict, tier verdict)`; `fact.verdict` stays the T0 roll-up. The schema requires `run_verdict` FAIL
+   for a FAIL tier and refuses NOT-RUN with a T0 verdict other than FAIL. Env values and licence servers are not
+   recorded (`env_keys` only); `log_tail` keeps the last 20 lines.
+- **WRITE_CALLS (section 17.5):** the tier command's `subprocess.Popen` in `analysis/tierrun.py` is allowlisted as
+  `exec ? unresolved argv`, effect `local`: only `compat --tier` on a person's machine runs it, never the service.
+- **CLI:** `nanosoc-rm compat CONFIG [--pin ...] --tier t1|t2 [--force-tier] [--keep-work DIR]`. Text adds the tier
+  line (verdict, seconds of budget, OVER BUDGET, KILLED, command, cwd), its rows, the reason, the log tail when not
+  PASS, and `run verdict (T0 + <tier>)`. Exit follows `run_verdict` (0/1/2), 3 for the refusals above.
 
 ## 10. CI trigger, fetch and verify
 
@@ -818,6 +882,7 @@ contract examples do.
 | `compare_hosts` / `contains` / `silicon_protection` / `run`, `DetectorRun` | `nanosoc_rm.analysis.hosts` / `.contains` / `.protect` / `.detect` |
 | `Gate`, `GATES`, `Context`, `run_with_control`, `rollup`, `apply_waivers`, `run_verdict` | `nanosoc_rm.t0.gates` |
 | `run_local` (CR-11, section 9a) / `compat` | `nanosoc_rm.t0.local` / `nanosoc_rm.analysis.compat` |
+| `check_spec`, `materialise`, `run_tier`, `parse_verdicts`, `TierUsage` (CR-12, section 9a) | `nanosoc_rm.analysis.tierrun` |
 | `TIERS`, `Tier`, `validate_tiers`, `tier_commands`, `check_budget` | `nanosoc_rm.t0.tiers` |
 | `finalise_bundle` (and the runner's `main`) | `nanosoc_rm.t0.runner` (imported only in CI; the service never imports it) |
 | `CIClient`, `FakeCI` / `trigger` / `fetch_pending`, `coverage` / `verify`, `RunRecord`, `Verdict` | `nanosoc_rm.ci.client` / `.trigger` / `.fetch` / `.verify` |

@@ -7,7 +7,8 @@
     nanosoc-rm detect DEFECT DETECTOR --input PATH [--json]        0 clean; 1 fired; 2 could not run
     nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]   (CR8)
                                                                    0 no deletable branch; 1 some; 2 no mirror
-    nanosoc-rm compat CONFIG [--pin TREE_PATH=SHA]... [--keep-work DIR] [--store] [--json]   (CR-11)
+    nanosoc-rm compat CONFIG [--pin TREE_PATH=SHA]... [--tier t1|t2 [--force-tier]] [--keep-work DIR] [--store] [--json]
+                                                                                  (CR-11; --tier: CR-12)
                                                                    0 PASS/WAIVED/WARN; 1 FAIL; 2 UNVERIFIED/INFRA
 
 Every command: 3 for a usage problem (unknown component, configuration, defect or detector), 2 when the data
@@ -196,22 +197,33 @@ def register(main: click.Group) -> None:
                   help="Keep the local run's work directory (anonymous fetches, empty HOME/TMPDIR) here; it must "
                        "be new or empty. Default: a temporary directory, deleted afterwards.")
     @click.option("--store", is_flag=True, help="Store the walk and the compat_result (real runs only: not with --pin).")
+    @click.option("--tier", type=click.Choice(["t1", "t2"]), default=None,
+                  help="CR-12: after T0, run the registry tiers.yaml command of this tier in a sandbox checkout of "
+                       "the resolved tree (budget enforced, killed at 1.5 x). Skipped when T0 is FAIL.")
+    @click.option("--force-tier", is_flag=True,
+                  help="Run --tier even when T0 is FAIL: a person's override, recorded; the result is UNVERIFIED "
+                       "for release.")
     @json_option
     def compat_cmd(configuration: str, pins: tuple[str, ...], keep_work: Path | None, store: bool,
-                   as_json: bool) -> int:
+                   tier: str | None, force_tier: bool, as_json: bool) -> int:
         """CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the
         configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened NOT-RUN) and
-        roll up with the configuration's T0 waivers. One line per pin and the run verdict. Exit 0 PASS, WAIVED or
-        WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad --pin, no pin at a tree path)."""
+        roll up with the configuration's T0 waivers. One line per pin and the run verdict. With --tier (CR-12) the
+        tier command then runs in a sandbox checkout and joins the run verdict. Exit 0 PASS, WAIVED or WARN; 1 FAIL;
+        2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad --pin, no pin at a tree path, no tier command,
+        a tier that regenerates without NANOSOC_GEN_OK=1)."""
         from nanosoc_rm.analysis.compat import CompatUsage, compat, exit_for, parse_pins
+        from nanosoc_rm.analysis.tierrun import TierUsage
         from nanosoc_rm.ci.configs import RegistryUnreadable
         from nanosoc_rm.ci.configs import UnknownConfiguration as UnknownCfg
         from nanosoc_rm.ci.trigger import TriggerError
         from nanosoc_rm.walker import OverrideError, UnknownConfiguration, WalkError
-        argv = " ".join(["nanosoc-rm compat", configuration] + ["--pin %s" % p for p in pins])
+        argv = " ".join(["nanosoc-rm compat", configuration] + ["--pin %s" % p for p in pins]
+                        + (["--tier", tier] if tier else []) + (["--force-tier"] if force_tier else []))
         try:
-            doc = compat(configuration, parse_pins(pins), store=store, keep_work=keep_work, argv=argv)
-        except (CompatUsage, OverrideError, UnknownConfiguration, UnknownCfg) as e:
+            doc = compat(configuration, parse_pins(pins), store=store, keep_work=keep_work, argv=argv, tier=tier,
+                         force_tier=force_tier)
+        except (CompatUsage, TierUsage, OverrideError, UnknownConfiguration, UnknownCfg) as e:
             click.echo("nanosoc-rm: %s" % (e.args[0] if e.args else e), err=True)
             return EXIT_USAGE
         except (WalkError, TriggerError, RegistryUnreadable) as e:
@@ -221,7 +233,8 @@ def register(main: click.Group) -> None:
             emit([doc], True)
         else:
             _print_compat(doc)
-        return exit_for(doc["fact"]["verdict"])
+        f = doc["fact"]
+        return exit_for(f.get("run_verdict") or f["verdict"])
 
 
 def _print_compat(doc: dict) -> None:
@@ -249,9 +262,22 @@ def _print_compat(doc: dict) -> None:
                        "control": g["control"], "detail": g["detail"][:110]} for g in f["gates"]],
                      ("gate", "verdict", "control", "detail")))
     secs = int((clock_parse(f["finished_at"]) - clock_parse(f["started_at"])).total_seconds())
-    click.echo("run verdict: %s  (%d NOT-RUN, %d unused waiver(s), %d s%s)%s" % (
-        f["verdict"], f["not_run"], f["unused_waivers"], secs, ", over the T0 budget" if f["over_budget"] else "",
+    click.echo("%s: %s  (%d NOT-RUN, %d unused waiver(s), %d s%s)%s" % (
+        "T0 verdict" if f.get("tier") else "run verdict", f["verdict"], f["not_run"], f["unused_waivers"], secs, ", over the T0 budget" if f["over_budget"] else "",
         ("  -- " + f["reason"]) if f.get("reason") else ""))
+    t = f.get("tier")
+    if t:
+        click.echo("tier %s: %s  (%s s of %d s budget%s%s)  command: %s  [cwd %s]" % (
+            t["tier"], t["verdict"], "-" if t["seconds"] is None else "%.1f" % t["seconds"], t["budget_s"],
+            ", OVER BUDGET" if t["over_budget"] else "", ", KILLED" if t["killed"] else "", t["command"], t["cwd"]))
+        if t["rows"]:
+            click.echo(table([{"gate": r["gate"], "status": r["status"], "detail": r["detail"][:110]} for r in t["rows"]],
+                             ("gate", "status", "detail")))
+        if t["reason"]:
+            click.echo("tier reason: %s" % t["reason"])
+        if t["verdict"] not in ("PASS", "NOT-RUN") and t["log_tail"]:
+            click.echo("log tail:\n  " + "\n  ".join(t["log_tail"][-8:]))
+        click.echo("run verdict (T0 + %s): %s" % (t["tier"], f["run_verdict"]))
     if f.get("work_dir"):
         click.echo("work dir kept: %s" % f["work_dir"])
 

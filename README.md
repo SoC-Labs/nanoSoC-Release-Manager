@@ -18,11 +18,18 @@ nanosoc-rm compat eth-rc4                     # one line per pin, the gates, the
 # What if one pin moved? Override the gitlink at a tree path (full 40-hex sha; repeatable; never stored)
 nanosoc-rm compat eth-rc4 --pin nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=<sha>
 nanosoc-rm compat eth-main --json             # one compat_result document
+# Then run the SoC's T1 (lint) or T2 (smoke sim) command from the registry's tiers.yaml in a sandbox checkout of
+# the same tree (CR-12): budget enforced, killed at 1.5 x, rows tier.t1[.<gate>]; skipped when T0 is FAIL
+nanosoc-rm compat eth-main --tier t1
+nanosoc-rm compat eth-main --tier t1 --force-tier   # a person's override past a T0 FAIL: UNVERIFIED for release
 ```
 
 Exit 0 PASS, WAIVED or WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad `--pin`, no pin
 at that tree path). `t0.runner.hardened` is always NOT-RUN in a local run: a laptop is not the hardened runner.
-`--keep-work DIR` keeps the work directory; `--store` records a run without overrides.
+`--keep-work DIR` keeps the work directory; `--store` records a run without overrides. With `--tier`, the exit code
+follows `run_verdict` (the ladder over T0 and the tier); a tier that regenerates `build_soc` (`regenerates: true`)
+is refused with exit 3 unless `NANOSOC_GEN_OK=1` is set. No set_env.sh is ever sourced: a tier command gets a clean
+environment plus the `env` its tiers.yaml entry declares.
 
 ## Development
 
