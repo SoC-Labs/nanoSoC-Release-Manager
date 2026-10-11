@@ -197,6 +197,7 @@ class Pin:
     gm_via: str | None = None    # pinned | canonical
     children: list["Pin"] = field(default_factory=list)
     gitlink_read_from_pinned: bool = False   # the parent's gitlink was read in a pinned-URL fetch
+    override_of: str | None = None   # local mode (CR-11): the gitlink this pin's commit replaced (`pin_overrides`)
 
     def ancestors(self):
         p = self.parent
@@ -346,9 +347,15 @@ class GitWork:
             return None
         return to_https(resolved)
 
-    def walk(self, root_url: str, commit: str, canonical_urls: Mapping[str, str]) -> Pin:
+    def walk(self, root_url: str, commit: str, canonical_urls: Mapping[str, str],
+             overrides: Mapping[str, str] | None = None) -> Pin:
         """The pinned tree below `commit` of `root_url`: every .gitmodules entry with a gitlink, recursed once
-        per (repo, commit), depth <= 10. .gitmodules is read from the pinned fetch, else the canonical clone."""
+        per (repo, commit), depth <= 10. .gitmodules is read from the pinned fetch, else the canonical clone.
+
+        `overrides` ({tree path: sha}; the local-mode request's `pin_overrides`, CR-11) replaces the gitlink read
+        at that tree path: the pin is judged at the override's commit and the tree below it is walked from that
+        commit's own .gitmodules. The replaced gitlink is kept in `Pin.override_of`."""
+        overrides = dict(overrides or {})
         root = Pin("", root_url, commit, resolved=root_url, kind=url_kind(root_url))
         root.canonical = self.canonical_for(root_url, root_url, canonical_urls)
         root.host = self.host_of(root.canonical)
@@ -357,8 +364,9 @@ class GitWork:
         while stack:
             pin, depth = stack.pop(0)
             key = (repo_key(pin.resolved or pin.url), pin.commit)
-            if key in seen:
-                pin.duplicate = True
+            below = pin.tree_path + "/" if pin.tree_path else ""
+            if key in seen and not any(t.startswith(below) for t in overrides):
+                pin.duplicate = True              # (an override below it: walked again, so the override applies)
                 continue
             seen.add(key)
             if depth >= MAX_DEPTH or pin.commit is None:
@@ -373,9 +381,13 @@ class GitWork:
                 kind = url_kind(e["url"])
                 resolved = (resolve_relative(e["url"], pin.resolved or pin.url) if kind == "relative"
                             else e["url"])
-                child = Pin("/".join(x for x in (pin.tree_path, e["path"]) if x), e["url"], sha, parent=pin,
+                tree_path = "/".join(x for x in (pin.tree_path, e["path"]) if x)
+                override_of = None
+                if tree_path in overrides:
+                    override_of, sha = sha, overrides[tree_path]
+                child = Pin(tree_path, e["url"], sha, parent=pin,
                             resolved=resolved, kind=kind if kind != "relative" else url_kind(resolved),
-                            gitlink_read_from_pinned=(pin.gm_via == "pinned"))
+                            gitlink_read_from_pinned=(pin.gm_via == "pinned"), override_of=override_of)
                 child.canonical = self.canonical_for(e["url"], resolved, canonical_urls)
                 child.host = self.host_of(child.canonical)
                 pin.children.append(child)

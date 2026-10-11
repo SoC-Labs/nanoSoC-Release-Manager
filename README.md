@@ -7,6 +7,23 @@ Monitors the nanoSoC repos, tests SoC references against submodule versions, and
 - Check the contracts: `python3 schemas/check_examples.py`. Run the tests: `python3 -m pytest tests/acceptance`
   (dependencies in `requirements-dev.txt`; off the service VM add `-m "not live"`).
 
+## MVP usage (command line, no service VM)
+
+`NANOSOC_RM_CONFIG` names an anonymous config (no tokens): `[service] data_dir`, `[registry] path` (a checkout of
+the registry) and `[hosts.*]` (interfaces.md section 17.1). The mirrors come from `nanosoc-rm mirror sync`.
+
+```
+# Is this SoC's tree compatible? Walk it, then run the T0 gates locally (anonymous; CR-11, interfaces 9a)
+nanosoc-rm compat eth-rc4                     # one line per pin, the gates, the run verdict
+# What if one pin moved? Override the gitlink at a tree path (full 40-hex sha; repeatable; never stored)
+nanosoc-rm compat eth-rc4 --pin nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=<sha>
+nanosoc-rm compat eth-main --json             # one compat_result document
+```
+
+Exit 0 PASS, WAIVED or WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad `--pin`, no pin
+at that tree path). `t0.runner.hardened` is always NOT-RUN in a local run: a laptop is not the hardened runner.
+`--keep-work DIR` keeps the work directory; `--store` records a run without overrides.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

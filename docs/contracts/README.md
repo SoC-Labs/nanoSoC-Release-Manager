@@ -136,6 +136,7 @@ Keys:
 | branch_state | `branch_state:<host>:<path>:<branch>` | set | `branch_state:<host>:<path>` (one inventory of one repo; CR8) |
 | rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
+| compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
 
 **Current value (A3).**
@@ -248,6 +249,10 @@ too. Frozen trees make that rare, and the item's own `why` is still shown.
 UNVERIFIED) that a person accepted for a frozen tree; a WARN gate passed and lists what it warns about. When a run
 has both, it shows the more serious one, WAIVED, and the WARN gate is still shown beside it. A WARN gate is never
 waived (waivers apply only to FAIL and UNVERIFIED), and it needs a fired control like PASS (D6).
+
+**Local runs (CR-11, `nanosoc-rm compat`, interfaces.md section 9a).** The same table, with one difference: in run
+mode `local`, `t0.runner.hardened` is never run; its one SKIP row `local run` rolls up NOT-RUN, and any other row for
+it is UNVERIFIED. The run rules below are unchanged, so a local run still needs a PASS (or WARN) gate.
 
 So a run where every gate skipped, or a run with no gates, can never be PASS (contracts review B1; the toolkit's
 own doctrine that an unread report is never a pass). NOT-RUN gates are counted and shown beside the verdict.

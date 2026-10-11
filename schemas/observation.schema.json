@@ -31,7 +31,8 @@
         "credential_status",
         "registry_record",
         "alert",
-        "branch_state"
+        "branch_state",
+        "compat_result"
       ]
     },
     "subject": {
@@ -387,9 +388,159 @@
         },
         "required": ["snapshot"]
       }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "compat_result" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/compat_result" },
+          "subject": { "pattern": "^compat_result:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
     }
   ],
   "$defs": {
+    "compat_result": {
+      "description": "CR-11 (MVP S2, `nanosoc-rm compat`, interfaces.md section 9a): one LOCAL compatibility check of a configuration's tree, optionally with pin overrides (`--pin TREE_PATH=SHA`). The tree is resolved by the pin walker with each override replacing the gitlink at its tree path; the configuration T0 gates then run locally (run mode `local`: anonymous, outside CI) with their negative controls, and roll up by README section 6 with the configuration's t0_waivers. `t0.runner.hardened` is always NOT-RUN with detail `local run` in this mode: never PASS, never FAIL. With overrides, `t0.clone.upgrade-path` may also be NOT-RUN (it clones the registered commit). `unjudged_overrides`: overrides the gates' anonymous walk did not reach; any makes the verdict UNVERIFIED. Event kind (`compat_result:<configuration>:<nonce>`), stored only on request and only for a run without overrides (a what-if is not a fact). Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": ["configuration", "commit", "mode", "nonce", "overrides", "pins", "splits", "gates", "verdict", "reason",
+                   "not_run", "unjudged_overrides", "unused_waivers", "started_at", "finished_at", "over_budget", "work_dir"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha", "description": "The configuration's root commit the tree was resolved from." },
+        "mode": { "const": "local" },
+        "nonce": { "$ref": "result-bundle.schema.json#/$defs/nonce" },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tree_path", "commit", "replaces"],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": { "type": "string", "minLength": 1 },
+              "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+              "replaces": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] }
+            }
+          }
+        },
+        "pins": {
+          "description": "One per pin of the (overridden) tree, as the walker lists them: first tree path, every tree path, the walker's facts, and each configuration gate's item result at the pin's tree path (absent when the gate judged no item there).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tree_path", "tree_paths", "component", "commit", "overridden", "replaces", "url_kind", "state", "split", "items"],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": { "type": "string", "minLength": 1 },
+              "tree_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+              "component": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/component_id" }, { "type": "null" }] },
+              "commit": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] },
+              "overridden": { "type": "boolean" },
+              "replaces": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] },
+              "url_kind": { "$ref": "defs.schema.json#/$defs/url_kind" },
+              "state": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/pin_state" }, { "type": "null" }],
+                         "description": "B3 state on the pinned host (or the pin-level LOCAL_URL / NO_GITLINK); null when unjudged (an unknown URL)." },
+              "split": { "type": "boolean", "description": "B7: the pin's component is pinned at more than one commit in this tree." },
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "fetchable": { "$ref": "#/$defs/compat_item" },
+                  "reachable": { "$ref": "#/$defs/compat_item" },
+                  "no_ssh": { "$ref": "#/$defs/compat_item" },
+                  "manifest": { "$ref": "#/$defs/compat_item" },
+                  "vendor": { "$ref": "#/$defs/compat_item" }
+                }
+              }
+            },
+            "if": { "properties": { "overridden": { "const": false } } },
+            "then": { "properties": { "replaces": { "type": "null" } } }
+          }
+        },
+        "splits": {
+          "description": "B7: each component pinned at more than one commit in this tree, with its pins.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["component", "pins"],
+            "additionalProperties": false,
+            "properties": {
+              "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+              "pins": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["tree_path", "commit"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "tree_path": { "type": "string", "minLength": 1 },
+                    "commit": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "gates": {
+          "$ref": "#/$defs/t0_result/properties/gates",
+          "minItems": 1,
+          "contains": {
+            "properties": { "id": { "const": "t0.runner.hardened" }, "verdict": { "const": "NOT-RUN" },
+                            "detail": { "const": "local run" } },
+            "required": ["id", "verdict", "detail"]
+          },
+          "not": {
+            "contains": {
+              "properties": { "id": { "const": "t0.runner.hardened" }, "verdict": { "not": { "const": "NOT-RUN" } } },
+              "required": ["id", "verdict"]
+            }
+          }
+        },
+        "verdict": { "enum": ["PASS", "FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN"] },
+        "reason": { "type": ["string", "null"], "description": "Why the verdict is UNVERIFIED beyond the gates (an override the gates did not reach)." },
+        "not_run": { "type": "integer", "minimum": 0 },
+        "unjudged_overrides": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "unused_waivers": { "type": "integer", "minimum": 0 },
+        "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "finished_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "over_budget": { "type": "boolean", "description": "D1: longer than the T0 budget (120 s). A warning; never changes the verdict." },
+        "work_dir": { "type": ["string", "null"], "description": "The kept work directory (--keep-work), else null." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "verdict": { "const": "PASS" } }, "required": ["verdict"] },
+          "then": {
+            "properties": {
+              "gates": {
+                "contains": { "properties": { "verdict": { "const": "PASS" } }, "required": ["verdict"] },
+                "items": { "properties": { "verdict": { "enum": ["PASS", "NOT-RUN"] } } }
+              },
+              "unjudged_overrides": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "verdict": { "const": "FAIL" } }, "required": ["verdict"] },
+          "then": { "properties": { "gates": { "contains": { "properties": { "verdict": { "const": "FAIL" } }, "required": ["verdict"] } } } }
+        },
+        {
+          "if": { "properties": { "verdict": { "enum": ["WAIVED", "WARN"] } }, "required": ["verdict"] },
+          "then": {
+            "properties": {
+              "gates": {
+                "contains": { "properties": { "verdict": { "enum": ["PASS", "WARN"] } }, "required": ["verdict"] },
+                "not": { "contains": { "properties": { "verdict": { "enum": ["FAIL", "UNVERIFIED", "INFRA"] } }, "required": ["verdict"] } }
+              },
+              "unjudged_overrides": { "maxItems": 0 }
+            }
+          }
+        }
+      ]
+    },
+    "compat_item": { "enum": ["pass", "fail", "unverified", "not-reached"] },
     "branch_state": {
       "description": "CR8 (MVP S1, `nanosoc-rm branches`): one branch of one repo, judged from the local mirror only. Set kind: one snapshot per repo (`branch_state:<host>:<path>`), so a deleted branch disappears from the current view. `ahead`/`behind` are rev-list counts against the repo's default branch; `merged` = the tip is an ancestor of the default branch; `tags` are the tags whose tip IS this tip (`keep_tags` the keep/* subset); `pins` are registered pins (any pin of any stored walk, section 4) whose commit the tip reaches and the default branch does not; `cited` the registry's structured citations (defect benches, fixes) likewise reached. Verdict, first match: MERGED, PROTECTED (a tag on the tip), PINNED (a pin or citation reaches into it), STALE (last commit older than `stale_days`), ACTIVE. `deletable` = MERGED or STALE with no pin, no citation and no tag; the tool prints the command for a person and never runs it. Additive optional $defs (README section 2 rule 4): no schema bump.",
       "type": "object",

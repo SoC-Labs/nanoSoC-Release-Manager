@@ -37,10 +37,16 @@ from nanosoc_rm.t0.gitwork import (GitWork, Pin, classify_failure, iter_pins, pa
                                    url_path)
 
 __all__ = ["Gate", "GATES", "Context", "STATUSES", "MAY_SKIP", "HOST_DEPENDENT", "run_with_control", "rollup",
-           "apply_waivers", "run_verdict", "gates_for", "clean_detail", "credential_vars", "synthetic_commit"]
+           "apply_waivers", "run_verdict", "gates_for", "clean_detail", "credential_vars", "synthetic_commit",
+           "MODES", "LOCAL_NOT_RUN"]
 
 STATUSES = ("PASS", "FAIL", "UNVERIFIED", "WARN", "SKIP", "INFRA")      # verdict_row status
 SCOPES = ("configuration", "registry")
+# Run modes (CR-11). `ci`: the compat-ci job, the only mode whose bundle the service accepts (section 9). `local`:
+# `nanosoc-rm compat` on a developer's machine, allowed off CI; the gates below are never run there and roll up
+# NOT-RUN with this reason, never PASS and never FAIL (a laptop is not the hardened runner, D10).
+MODES = ("ci", "local")
+LOCAL_NOT_RUN = {"t0.runner.hardened": "local run"}
 # Gates that need a host to answer: when t0.infra.probe cannot reach one, the runner records them INFRA.
 HOST_DEPENDENT = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public", "t0.manifest.valid",
                   "t0.clone.upgrade-path", "t0.vendor.no-arm-ip")
@@ -103,7 +109,10 @@ class Context:
                  service_account: str | None = None, registry_dir: str | os.PathLike | None = None,
                  url_map: Mapping[str, str] | None = None, host_bases: Mapping[str, str] | None = None,
                  probe_urls: list[str] | None = None, start_listing: Mapping[str, list[str]] | None = None,
-                 git_env: Mapping[str, str] | None = None):
+                 git_env: Mapping[str, str] | None = None, mode: str = "ci"):
+        if mode not in MODES:
+            raise ValueError("unknown run mode %r (one of %s)" % (mode, ", ".join(MODES)))
+        self.mode = mode
         self.nonce = nonce
         self.workdir = Path(workdir).absolute()            # see GitWork: git resolves paths after `-C`
         self.workdir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +142,24 @@ class Context:
         return cls(nonce=nonce, workdir=workdir, request=request, parents=parents, env=env,
                    service_account=service_account, registry_dir=registry_dir, url_map=url_map,
                    host_bases=host_bases, probe_urls=probe_urls)
+
+    @classmethod
+    def for_local(cls, *, nonce, workdir, request, registry_dir=None, host_bases=None, url_map=None) -> "Context":
+        """The `local` run mode (CR-11, `nanosoc-rm compat`): allowed off CI. Every git call is anonymous and
+        isolated from the user: HOME, XDG_CONFIG_HOME and TMPDIR point at empty directories inside `workdir`
+        (so ~/.netrc, ~/.git-credentials and the user's git config are never read), global and system git config
+        are ignored, no ssh agent, no prompt. `request` is an rm_request minus schema and nonce, plus the
+        local-only `pin_overrides` ({tree path: sha}). `url_map` is the same test-only seam as `for_tests`."""
+        if url_map and os.environ.get("CI_JOB_ID"):
+            raise PermissionError("url_map is a test-only seam; it is refused in a CI job (CI_JOB_ID is set)")
+        work = Path(workdir).absolute()
+        home, tmp = work / "home", work / "tmp"
+        for d in (home, tmp):
+            d.mkdir(parents=True, exist_ok=True)
+        git_env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "TMPDIR": str(tmp),
+                   "SSH_AUTH_SOCK": "", "GIT_CONFIG_NOSYSTEM": "1"}
+        return cls(nonce=nonce, workdir=work, request=request, env={}, registry_dir=registry_dir, url_map=url_map,
+                   host_bases=host_bases, git_env=git_env, mode="local")
 
     # -- derived contexts (the broken inputs of controls) ------------------------------------------------
     def derive(self, *, url_map: Mapping[str, str] | None = None, git_env: Mapping[str, str] | None = None,
@@ -183,7 +210,9 @@ class Context:
         """The pinned tree of the request (gitwork.GitWork.walk), computed once per request."""
         if "walk" not in self._shared:
             url, commit = self.repo_url, (self.request or {}).get("commit")
-            self._shared["walk"] = self.git.walk(url, commit, self.canonical_urls()) if url and commit else None
+            overrides = (self.request or {}).get("pin_overrides") or {}
+            self._shared["walk"] = (self.git.walk(url, commit, self.canonical_urls(), overrides)
+                                    if url and commit else None)
         return self._shared["walk"]
 
     def root_fetch(self):
@@ -458,6 +487,7 @@ def _scratch_superproject(ctx: Context, what: str, files: Mapping[str, str] | No
     base = ctx.request or {"configuration": "negctl", "repo": {"host": "github", "path": "SoC-Labs/nanosoc-rm-negctl"},
                            "canonical_urls": {}}
     req = dict(base, commit=sha, upgrade_from=None)
+    req.pop("pin_overrides", None)                 # the overrides name the real tree's paths, not this one's
     return ctx.derive(url_map=dict(ctx.url_map, **{url: str(d)}, **dict(routes or {})), request=req, _repo_url=url,
                       parents=None, new_request=True)
 
@@ -1139,14 +1169,30 @@ def run_with_control(gate_id: str, ctx: Context) -> tuple[dict, dict]:
 # ---------------------------------------------------------------------------------------------------------
 # Roll-up (README section 6)
 # ---------------------------------------------------------------------------------------------------------
-def rollup(rows: list[dict], scope: str) -> list[dict]:
+def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
     """One t0_result gate item {id, verdict, control, detail} per declared gate of `scope`, in table order.
-    Rows of undeclared gates are ignored. Pure."""
+    Rows of undeclared gates are ignored. Pure.
+
+    mode="local" (CR-11): a gate in LOCAL_NOT_RUN must have exactly one SKIP row whose detail is its reason and
+    no control row; it then rolls up NOT-RUN (control not-applicable). Any other row for it (a PASS above all) is
+    UNVERIFIED: a local run can never vouch for the hardened runner."""
+    if mode not in MODES:
+        raise ValueError("unknown run mode %r (one of %s)" % (mode, ", ".join(MODES)))
     out = []
     for gid in gates_for(scope):
         gate = GATES[gid]
         main = [r for r in rows if r.get("gate") == gid]
         ctl = [r for r in rows if r.get("gate") == gid + ".negctl"]
+        if mode == "local" and gid in LOCAL_NOT_RUN:
+            reason = LOCAL_NOT_RUN[gid]
+            if (len(main) == 1 and not ctl and main[0].get("status") == "SKIP"
+                    and str(main[0].get("detail") or "") == reason):
+                out.append({"id": gid, "verdict": "NOT-RUN", "control": "not-applicable", "detail": reason})
+            else:
+                out.append({"id": gid, "verdict": "UNVERIFIED", "control": "missing" if not ctl else "not-fired",
+                            "detail": "local mode: %s must be recorded NOT-RUN (%s), got %s" % (
+                                gid, reason, ", ".join(str(r.get("status")) for r in main) or "no row")})
+            continue
         control = "missing" if not ctl else "fired" if len(ctl) == 1 and ctl[0].get("status") == "PASS" else "not-fired"
         if len(main) != 1:
             verdict = "UNVERIFIED"

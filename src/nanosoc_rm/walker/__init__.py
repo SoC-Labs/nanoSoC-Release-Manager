@@ -22,7 +22,7 @@ read APIs for commits that no head or tag reaches (GET only).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from nanosoc_rm import clock, db
 from nanosoc_rm.config import Config, load_config
@@ -32,14 +32,18 @@ from nanosoc_rm.gitmodules import parse_gitmodules
 from nanosoc_rm.walker.states import GREEN_STATES, RED_STATES, HostJudge, WalkError
 from nanosoc_rm.walker.urls import classify, repo_url
 
-__all__ = ["walk", "stored_pins", "pin_verdict", "UnknownConfiguration", "WalkError", "MAX_DEPTH", "RED_STATES",
-           "GREEN_STATES"]
+__all__ = ["walk", "stored_pins", "pin_verdict", "UnknownConfiguration", "WalkError", "OverrideError", "MAX_DEPTH",
+           "RED_STATES", "GREEN_STATES"]
 
 MAX_DEPTH = 10
 
 
 class UnknownConfiguration(KeyError):
     """No registered configuration has this id. CLI exit 3."""
+
+
+class OverrideError(ValueError):
+    """A pin override (CR-11, `compat --pin`) names a tree path at which the tree holds no gitlink pin. CLI exit 3."""
 
 
 @dataclass
@@ -55,6 +59,7 @@ class _Edge:
     repo: dict | None
     resolved_url: str
     sources: list = field(default_factory=list)
+    override_of: str | None = None              # CR-11: the gitlink a pin override replaced at this tree path
 
     @property
     def child_key(self):
@@ -117,7 +122,7 @@ def _read_node(config: Config, node: _Node, catalogue: Catalogue) -> None:
                                 repo if kind != "local" else None, resolved, [blob.source(), tree.source()]))
 
 
-def _resolve_commit(config: Config, catalogue: Catalogue, cfg: dict) -> tuple[str, list[dict]]:
+def _resolve_commit(config: Config, catalogue: Catalogue, cfg: dict, alerts: bool = True) -> tuple[str, list[dict]]:
     """(commit, sources) of a configuration (step 1)."""
     entry = catalogue.entry(cfg["component"])
     canon = entry.canonical
@@ -133,7 +138,7 @@ def _resolve_commit(config: Config, catalogue: Catalogue, cfg: dict) -> tuple[st
             if refs.ok and refs.stdout.strip():
                 peeled = run_in(mirror, "rev-parse", "--verify", "--quiet", target + "^{commit}")
                 now = peeled.stdout.strip() if peeled.ok else None
-                if now != cfg["commit"]:
+                if now != cfg["commit"] and alerts:
                     alert_once("tag_moved", "pin_state:%s" % cfg["id"],
                                "configuration %s: tag %s on %s:%s %s, not the frozen commit %s"
                                % (cfg["id"], ref["tag"], canon["host"], canon["path"],
@@ -149,9 +154,22 @@ def _resolve_commit(config: Config, catalogue: Catalogue, cfg: dict) -> tuple[st
     return r.stdout.strip(), [r.source()]
 
 
-def walk(configuration_id: str, *, config: Config | None = None, store: bool = True) -> list[dict]:
+def walk(configuration_id: str, *, config: Config | None = None, store: bool = True,
+         overrides: dict[str, str] | None = None, alerts: bool = True,
+         replaced: dict | None = None) -> list[dict]:
     """Walk one registered configuration's whole tree. Returns (and stores, as one snapshot) its pin_state
-    observations, ordered by tree path. UnknownConfiguration (exit 3); WalkError when it cannot answer (exit 2)."""
+    observations, ordered by tree path. UnknownConfiguration (exit 3); WalkError when it cannot answer (exit 2).
+
+    `overrides` ({tree path: sha}; CR-11, `compat --pin`): the gitlink at that tree path is replaced by the sha,
+    and the tree below it is walked from that commit's own .gitmodules. A what-if is never stored and raises no
+    alert (`store` must be False). A tree path that holds no gitlink pin in the (overridden) tree is OverrideError.
+    `alerts=False` raises no alert (tag_moved, unknown_url): a read that must leave the store untouched.
+    `replaced`, when given, is filled with {tree path: the gitlink each override replaced}."""
+    overrides = dict(overrides or {})
+    if overrides and store:
+        raise ValueError("a walk with pin overrides is a what-if: it is never stored")
+    if overrides:
+        alerts = False
     config = config if config is not None else load_config()
     catalogue = load_catalogue(config)
     try:
@@ -163,7 +181,7 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
                         % (configuration_id, cfg["component"]))
     started = clock.iso()
     root_entry = catalogue.entry(cfg["component"])
-    root_commit, root_sources = _resolve_commit(config, catalogue, cfg)
+    root_commit, root_sources = _resolve_commit(config, catalogue, cfg, alerts)
     canon = root_entry.canonical
     # The root commit must be in the mirror: otherwise its .gitmodules cannot be read, and an empty walk would be
     # stored and read as "no pins" (README section 4: a producer that cannot finish writes no snapshot).
@@ -181,27 +199,47 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
 
     # Phase 1: the graph of (repo, commit) nodes, each read once (breadth first, depth <= MAX_DEPTH).
     nodes: dict = {(root.component, canon["host"], canon["path"], root_commit): root}
-    queue, depth_of = [root], {id(root): 0}
-    while queue:
-        node = queue.pop(0)
-        _read_node(config, node, catalogue)
-        for e in node.edges:
-            key = e.child_key
-            if (e.entry_type != "commit" or e.url_kind == "local" or e.component is None or key is None
-                    or depth_of[id(node)] + 1 >= MAX_DEPTH or key in nodes):
-                continue
-            child = _Node(e.component, e.repo, e.commit, e.resolved_url)
-            nodes[key] = child
-            depth_of[id(child)] = depth_of[id(node)] + 1
-            queue.append(child)
+    depth_of = {id(root): 0}
+
+    def grow(queue: list) -> None:
+        while queue:
+            node = queue.pop(0)
+            _read_node(config, node, catalogue)
+            for e in node.edges:
+                key = e.child_key
+                if (e.entry_type != "commit" or e.url_kind == "local" or e.component is None or key is None
+                        or depth_of[id(node)] + 1 >= MAX_DEPTH or key in nodes):
+                    continue
+                child = _Node(e.component, e.repo, e.commit, e.resolved_url)
+                nodes[key] = child
+                depth_of[id(child)] = depth_of[id(node)] + 1
+                queue.append(child)
+
+    grow([root])
 
     # Phase 2: every tree path at which each pin occurs, and its smallest depth.
     pins: dict = {}
+    applied: set = set()
 
     def visit(node: _Node, prefix: str, depth: int) -> None:
         for e in node.edges:
             tree_path = "%s/%s" % (prefix, e.path) if prefix else e.path
-            k = (node.repo["host"], node.repo["path"], node.commit, e.path)
+            if tree_path in overrides:
+                if e.entry_type != "commit" or e.url_kind == "local":
+                    raise OverrideError("--pin %s: the tree holds no gitlink pin there (%s)"
+                                        % (tree_path, "local URL" if e.url_kind == "local" else e.entry_type))
+                applied.add(tree_path)
+                if replaced is not None:
+                    replaced[tree_path] = e.commit
+                e = replace(e, commit=overrides[tree_path], override_of=e.commit)
+                key = e.child_key
+                if key is not None and e.component is not None and key not in nodes and depth < MAX_DEPTH:
+                    child = _Node(e.component, e.repo, e.commit, e.resolved_url)
+                    nodes[key] = child
+                    depth_of[id(child)] = depth
+                    grow([child])
+            # the child commit is part of the key: an override makes the same (parent, path) a different pin
+            k = (node.repo["host"], node.repo["path"], node.commit, e.path, e.commit)
             rec = pins.setdefault(k, {"node": node, "edge": e, "tree_paths": [], "depth": depth})
             if tree_path not in rec["tree_paths"]:
                 rec["tree_paths"].append(tree_path)
@@ -211,6 +249,10 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
                 visit(child, tree_path, depth + 1)
 
     visit(root, "", 1)
+    missing = sorted(set(overrides) - applied)
+    if missing:
+        raise OverrideError("--pin %s: no pin at that tree path in %s's tree%s" % (
+            ", ".join(missing), configuration_id, " (with the other overrides applied)" if len(overrides) > 1 else ""))
 
     # Phase 3: per-host states, split, documents.
     commits_of: dict[str, set] = {}
@@ -228,7 +270,7 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
                                  root_sources if rec["depth"] == 1 else []))
     finally:
         judge.close()
-    for d in docs:
+    for d in docs if alerts else []:
         f = d["fact"]
         if f["child"]["catalogued_as"] == "unknown" and f["url_kind"] != "local":
             alert_once("unknown_url", d["subject"], "%s pins %s, which names no catalogue component or external"

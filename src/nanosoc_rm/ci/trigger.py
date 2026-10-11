@@ -37,7 +37,7 @@ from nanosoc_rm.config import Config, ConfigError, load_config
 from nanosoc_rm.gitrun import run_git
 from nanosoc_rm.mirror import layout
 
-__all__ = ["trigger", "build_request", "request_bytes", "RunPending", "TriggerError", "pending_runs"]
+__all__ = ["trigger", "build_request", "canonical_urls_from", "request_bytes", "RunPending", "TriggerError", "pending_runs"]
 
 
 class RunPending(RuntimeError):
@@ -67,8 +67,14 @@ def _canonical_urls(config: Config, configuration: str) -> dict[str, str]:
     """RM_REQUEST canonical_urls (result-bundle schema): pinned URL -> the canonical repo's anonymous https URL,
     for each pin of the latest stored walk whose canonical repo is not the one its URL names. Empty when the
     configuration has not been walked yet."""
+    return canonical_urls_from(config, db.latest("pin_state", "pin_state:%s:" % configuration, config=config))
+
+
+def canonical_urls_from(config: Config, pin_docs) -> dict[str, str]:
+    """canonical_urls from the given pin_state observations (the same rule as a stored walk's; CR-11 `compat`
+    passes its own, possibly overridden, walk)."""
     out: dict[str, str] = {}
-    for obs in db.latest("pin_state", "pin_state:%s:" % configuration, config=config):
+    for obs in pin_docs:
         f = obs["fact"]
         for host, h in sorted((f.get("hosts") or {}).items()):
             if h.get("role") != "canonical" or h.get("pinned"):

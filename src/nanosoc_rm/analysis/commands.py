@@ -7,6 +7,8 @@
     nanosoc-rm detect DEFECT DETECTOR --input PATH [--json]        0 clean; 1 fired; 2 could not run
     nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]   (CR8)
                                                                    0 no deletable branch; 1 some; 2 no mirror
+    nanosoc-rm compat CONFIG [--pin TREE_PATH=SHA]... [--keep-work DIR] [--store] [--json]   (CR-11)
+                                                                   0 PASS/WAIVED/WARN; 1 FAIL; 2 UNVERIFIED/INFRA
 
 Every command: 3 for a usage problem (unknown component, configuration, defect or detector), 2 when the data
 to answer is missing (no stored walk, no mirror, an invalid registry, a detector that could not run). When only
@@ -18,7 +20,7 @@ from pathlib import Path
 
 import click
 
-from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, emit, exit_code, json_option
+from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, EXIT_USAGE, emit, exit_code, json_option
 
 
 def _fail(e: Exception) -> int:
@@ -184,3 +186,76 @@ def register(main: click.Group) -> None:
                                  "deletable"), _branch_row)
         gaps = _unanswered(docs)
         return exit_code(findings=bool(dele), unverified=gaps)
+
+    @main.command("compat")
+    @click.argument("configuration")
+    @click.option("--pin", "pins", multiple=True, metavar="TREE_PATH=SHA",
+                  help="Replace the gitlink at TREE_PATH with SHA (full 40 hex); the tree below it is walked from "
+                       "SHA's own .gitmodules. Repeatable. A what-if: never stored.")
+    @click.option("--keep-work", type=click.Path(path_type=Path), default=None,
+                  help="Keep the local run's work directory (anonymous fetches, empty HOME/TMPDIR) here; it must "
+                       "be new or empty. Default: a temporary directory, deleted afterwards.")
+    @click.option("--store", is_flag=True, help="Store the walk and the compat_result (real runs only: not with --pin).")
+    @json_option
+    def compat_cmd(configuration: str, pins: tuple[str, ...], keep_work: Path | None, store: bool,
+                   as_json: bool) -> int:
+        """CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the
+        configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened NOT-RUN) and
+        roll up with the configuration's T0 waivers. One line per pin and the run verdict. Exit 0 PASS, WAIVED or
+        WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad --pin, no pin at a tree path)."""
+        from nanosoc_rm.analysis.compat import CompatUsage, compat, exit_for, parse_pins
+        from nanosoc_rm.ci.configs import RegistryUnreadable
+        from nanosoc_rm.ci.configs import UnknownConfiguration as UnknownCfg
+        from nanosoc_rm.ci.trigger import TriggerError
+        from nanosoc_rm.walker import OverrideError, UnknownConfiguration, WalkError
+        argv = " ".join(["nanosoc-rm compat", configuration] + ["--pin %s" % p for p in pins])
+        try:
+            doc = compat(configuration, parse_pins(pins), store=store, keep_work=keep_work, argv=argv)
+        except (CompatUsage, OverrideError, UnknownConfiguration, UnknownCfg) as e:
+            click.echo("nanosoc-rm: %s" % (e.args[0] if e.args else e), err=True)
+            return EXIT_USAGE
+        except (WalkError, TriggerError, RegistryUnreadable) as e:
+            click.echo("nanosoc-rm: could not answer: %s" % e, err=True)
+            return EXIT_UNVERIFIED
+        if as_json:
+            emit([doc], True)
+        else:
+            _print_compat(doc)
+        return exit_for(doc["fact"]["verdict"])
+
+
+def _print_compat(doc: dict) -> None:
+    from nanosoc_rm.analysis.compat import GATE_COLUMNS
+    from nanosoc_rm.cliutil import table
+    f = doc["fact"]
+    click.echo("compat %s @ %s  (local run, nonce %s)" % (f["configuration"], f["commit"][:12], f["nonce"][:8]))
+    for o in f["overrides"]:
+        click.echo("override %s: %s -> %s" % (o["tree_path"], (o["replaces"] or "?")[:12], o["commit"][:12]))
+    cols = ("tree_path", "component", "commit", "override", "url", "state", "B7") + tuple(GATE_COLUMNS.values())
+    rows = []
+    for p in f["pins"]:
+        r = {"tree_path": p["tree_path"] + ("" if len(p["tree_paths"]) == 1 else " (+%d)" % (len(p["tree_paths"]) - 1)),
+             "component": p["component"] or "?", "commit": (p["commit"] or "-")[:12],
+             "override": ("yes (was %s)" % (p["replaces"] or "?")[:7]) if p["overridden"] else "",
+             "url": p["url_kind"], "state": p["state"] or "unjudged", "B7": "split" if p["split"] else ""}
+        r.update({c: p["items"].get(c, "-") for c in GATE_COLUMNS.values()})
+        rows.append(r)
+    click.echo(table(rows, cols))
+    for s in f["splits"]:
+        click.echo("B7 split: %s pinned at %d commits: %s" % (s["component"], len({p["commit"] for p in s["pins"]}),
+                                                              ", ".join("%s@%s" % (p["tree_path"], (p["commit"] or "-")[:7])
+                                                                        for p in s["pins"])))
+    click.echo(table([{"gate": g["id"], "verdict": g["verdict"] + (" (raw %s)" % g["raw_verdict"] if g.get("raw_verdict") else ""),
+                       "control": g["control"], "detail": g["detail"][:110]} for g in f["gates"]],
+                     ("gate", "verdict", "control", "detail")))
+    secs = int((clock_parse(f["finished_at"]) - clock_parse(f["started_at"])).total_seconds())
+    click.echo("run verdict: %s  (%d NOT-RUN, %d unused waiver(s), %d s%s)%s" % (
+        f["verdict"], f["not_run"], f["unused_waivers"], secs, ", over the T0 budget" if f["over_budget"] else "",
+        ("  -- " + f["reason"]) if f.get("reason") else ""))
+    if f.get("work_dir"):
+        click.echo("work dir kept: %s" % f["work_dir"])
+
+
+def clock_parse(t: str):
+    from nanosoc_rm import clock
+    return clock.parse(t)

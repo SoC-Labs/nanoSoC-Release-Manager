@@ -327,7 +327,9 @@ def clear_alert(subject: str, by: str) -> None          # logged in `actions` as
 
 Requirements: D1, D2, D6, D10, D11, C11, F3. (The `t0.infra.probe` gate serves D7, a Phase 2 requirement; CR-5 took D7 off this line so v1 commits do not name it.)
 
-T0 runs **only** in the GitLab CI job `t0` of the compat-ci project (A4). The service never runs it.
+T0 runs **only** in the GitLab CI job `t0` of the compat-ci project (A4). The service never runs it. A developer
+may run the same gates on their own machine with `nanosoc-rm compat` (section 9a, CR-11, run mode `local`); a local
+run never produces a bundle and the service never accepts one.
 compat-ci is a **private** project: bundles can carry registry content and pinned-tree paths.
 
 ### Tiers and budget (D1)
@@ -454,6 +456,61 @@ The registry is private, so this job needs read access to it from compat-ci (que
 - The registry job is FAIL on `t0.registry.refs-resolve`: bench `6aafc94` is not pushed.
 
 `result-bundle.verdicts.example.tsv` shows the rc4 rows.
+
+## 9a. Compatibility check and the local run mode (CR-11, MVP S2)
+
+Requirements: D1, D2, B2, B7, CR-11 (`docs/CHANGES.md`). Reuses sections 4 and 9 unchanged; adds a run mode.
+
+```python
+def compat(configuration, overrides: dict[str, str] | None = None, *, config=None, store=False, keep_work=None,
+           url_map=None) -> dict                                     # one compat_result observation
+# nanosoc_rm.t0.gates
+MODES = ("ci", "local"); LOCAL_NOT_RUN = {"t0.runner.hardened": "local run"}
+Context.for_local(*, nonce, workdir, request, registry_dir=None, host_bases=None, url_map=None) -> Context
+def rollup(rows, scope, mode="ci") -> list[dict]                    # mode="local": see below
+# nanosoc_rm.t0.local
+def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict], dict[str, list[dict]]]
+```
+
+1. **Tree.** `walker.walk(configuration, overrides=..., store=False)`: each override (`--pin TREE_PATH=SHA`, the full
+   40-hex sha) replaces the gitlink at that tree path; the tree below it is walked from the overriding commit's own
+   `.gitmodules`, so an override can add, drop or move pins (B2), and `split` (B7) is computed on the resulting tree.
+   A tree path with no gitlink pin (also one that only an earlier override removed) is `OverrideError`, exit 3.
+   Every override is shown (`overrides: [{tree_path, commit, replaces}]`). A walk with overrides is never stored and
+   raises no alert.
+2. **Request.** Exactly what the trigger builds (`ci.trigger.build_request`, section 10), canonical_urls from this
+   walk, minus `schema` and `nonce`, plus the local-only `pin_overrides` ({tree path: sha}). RM_REQUEST and its
+   schema are unchanged; `gitwork.GitWork.walk` applies `pin_overrides` the same way as the walker, so every gate
+   that walks the tree (fetchable, reachable, no-ssh, manifest, vendor) judges the overridden pins. The controls'
+   scratch superprojects drop `pin_overrides`. An override the gates' anonymous walk does not reach (below a tree
+   no anonymous fetch can read) is listed in `unjudged_overrides` and makes the run UNVERIFIED.
+3. **Local run mode.** `Context.for_local`: allowed off CI (no `CI_JOB_ID` needed); every git call isolated and
+   anonymous: HOME, XDG_CONFIG_HOME and TMPDIR are empty directories inside the work directory (so `~/.netrc`,
+   `~/.git-credentials` and the user's git config are never read; unit-tested against an http host that asks for
+   a password), `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no ssh agent, no prompt. `url_map` is the
+   same test-only seam as `for_tests`, refused under `CI_JOB_ID`. `run_local` runs every configuration gate with
+   its control (`run_with_control`), except:
+   - `t0.runner.hardened`: one SKIP row with detail `local run`, no control row. `rollup(mode="local")` rolls it up
+     NOT-RUN (control `not-applicable`); any other row for it in local mode is UNVERIFIED. Never PASS, never FAIL.
+   - with overrides and an `upgrade_from`: `t0.clone.upgrade-path` is SKIP with its reason (it clones the registered
+     commit, not the what-if tree), so NOT-RUN.
+   - when `t0.infra.probe` is INFRA, the host-dependent gates are INFRA without running, as in the job.
+4. **Roll-up.** `rollup(rows, "configuration", mode="local")`, then `apply_waivers` with the configuration's
+   `t0_waivers` (`ci.configs.waivers`), then `run_verdict` (README section 6 unchanged: NOT-RUN gates are counted,
+   never block PASS, and a run still needs a PASS or WARN gate).
+- **CLI:** `nanosoc-rm compat CONFIG [--pin TREE_PATH=SHA]... [--json] [--keep-work DIR] [--store]`. Text: one line
+  per pin (tree path, component, commit, overridden and what it replaced, URL kind, state on its pinned host, B7
+  split, each gate's item result at that tree path), one line per B7 split, the gate table, the run verdict with
+  NOT-RUN count, unused waivers and seconds (over the 120 s T0 budget is a warning). `--json`: one `compat_result`
+  observation. Exit 0 PASS/WAIVED/WARN, 1 FAIL, 2 UNVERIFIED/INFRA (and a walk or registry that cannot answer),
+  3 usage (unknown configuration, malformed `--pin`, no pin at a tree path, `--store` with `--pin`, a non-empty
+  `--keep-work`).
+- **Storage:** none by default: a what-if is not a fact. `--store` (no overrides only) stores the walk (as `walk`
+  does) and the compat_result as an event observation (`compat_result:<configuration>:<nonce>`).
+- **Observation:** `compat_result` (observation.schema.json `$defs/compat_result`, an optional kind without a schema
+  bump; README section 4 row). The schema refuses a `t0.runner.hardened` gate other than NOT-RUN `local run`.
+  Example `observation.compat-result.example.jsonl`; invalid `observation.compat-hardened-pass.yaml`.
+- **Work directory:** a temporary directory, deleted afterwards; `--keep-work DIR` (new or empty) keeps it.
 
 ## 10. CI trigger, fetch and verify
 
@@ -760,6 +817,7 @@ contract examples do.
 | `walk` | `nanosoc_rm.walker` |
 | `compare_hosts` / `contains` / `silicon_protection` / `run`, `DetectorRun` | `nanosoc_rm.analysis.hosts` / `.contains` / `.protect` / `.detect` |
 | `Gate`, `GATES`, `Context`, `run_with_control`, `rollup`, `apply_waivers`, `run_verdict` | `nanosoc_rm.t0.gates` |
+| `run_local` (CR-11, section 9a) / `compat` | `nanosoc_rm.t0.local` / `nanosoc_rm.analysis.compat` |
 | `TIERS`, `Tier`, `validate_tiers`, `tier_commands`, `check_budget` | `nanosoc_rm.t0.tiers` |
 | `finalise_bundle` (and the runner's `main`) | `nanosoc_rm.t0.runner` (imported only in CI; the service never imports it) |
 | `CIClient`, `FakeCI` / `trigger` / `fetch_pending`, `coverage` / `verify`, `RunRecord`, `Verdict` | `nanosoc_rm.ci.client` / `.trigger` / `.fetch` / `.verify` |

@@ -20,7 +20,7 @@ set-kind document adds it to the snapshot it names and marks that snapshot compl
 are complete on their own (fixtures, a one-row scope such as `runner_settings:<id>`). Producers of
 multi-row scopes use put_snapshot.
 
-Event kinds (rewrite_alert, t0_result, alert): the latest observation per subject (newest observed_at; on a
+Event kinds (rewrite_alert, t0_result, alert, compat_result): the latest observation per subject (newest observed_at; on a
 tie, the one stored last).
 
 Alerts: putting a kind-`alert` observation also raises its row in `alerts`; `clear_alert` clears it there and
@@ -47,7 +47,7 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
 
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
              "runner_settings", "credential_status", "registry_record", "branch_state")
-EVENT_KINDS = ("rewrite_alert", "t0_result", "alert")
+EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result")
 ACTIONS = ("run_t0", "clear_alert")                   # interfaces.md section 14 Logging: the v1 write actions
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
@@ -111,6 +111,7 @@ _SUBJECT = {
     "t0_result": lambda f: "%s:%s" % (f["configuration"], f["run"]["nonce"]),
     "alert": lambda f: "%s:%s" % (f["alert_kind"], f["about"]),
     "branch_state": lambda f: "%s:%s" % (_repo_key(f["repo"]), f["branch"]),
+    "compat_result": lambda f: "%s:%s" % (f["configuration"], f["nonce"]),
 }
 
 
