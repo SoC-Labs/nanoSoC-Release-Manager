@@ -165,6 +165,120 @@
         },
         "approved_on": { "$ref": "defs.schema.json#/$defs/date" }
       }
+    },
+    "quality_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "max_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "min_lines": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "quality_file": {
+      "description": "CR-14 (Q1, Q2): registry `quality.yaml` (optional), the comment-density thresholds per language (comment ratio max_ratio, applied to files with at least min_lines non-blank lines), paths to exclude (fnmatch globs), the largest file read, and the age in days at which a TODO is stale. `components.<id>` overrides any of these for one component. Defaults apply where the file is silent (nanosoc_rm.quality.languages.DEFAULTS). Additive optional file: no schema bump.",
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "defaults": {
+          "$ref": "#/$defs/quality_thresholds"
+        },
+        "languages": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "python",
+              "verilog",
+              "c",
+              "tcl",
+              "shell",
+              "make",
+              "yaml",
+              "toml"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/quality_thresholds"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stale_todo_days": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "components": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "defs.schema.json#/$defs/component_id"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "defaults": {
+                "$ref": "#/$defs/quality_thresholds"
+              },
+              "languages": {
+                "type": "object",
+                "propertyNames": {
+                  "enum": [
+                    "python",
+                    "verilog",
+                    "c",
+                    "tcl",
+                    "shell",
+                    "make",
+                    "yaml",
+                    "toml"
+                  ]
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/quality_thresholds"
+                }
+              },
+              "exclude": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "max_file_bytes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "stale_todo_days": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

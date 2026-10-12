@@ -1,0 +1,19 @@
+<style>
+  .qnav { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0 0 1rem; }
+  .qnav a.on { font-weight: 600; text-decoration: none; color: var(--fg, inherit); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin: 0 0 1rem; }
+  .tile { border: 1px solid var(--line, #ddd); background: var(--panel, #fff); padding: .6rem .75rem; border-radius: 4px; }
+  .tile .num { font-size: 1.5rem; font-weight: 600; }
+  .tile .lbl { color: var(--muted, #666); font-size: .85rem; }
+  .spark { vertical-align: middle; color: var(--link, #1f4fa3); }
+  table.sortable th { cursor: pointer; user-select: none; }
+  table.sortable th[aria-sort="ascending"]::after { content: " \25B2"; }
+  table.sortable th[aria-sort="descending"]::after { content: " \25BC"; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; max-width: 100%; }
+  pre.edit { margin: .25rem 0 0; font-size: 12px; }
+  .del { color: var(--red, #b3261e); }
+  .add { color: var(--green, #1e6b34); }
+  .kindchips a { margin-right: .5rem; }
+  @media (max-width: 640px) { .tiles { grid-template-columns: 1fr 1fr; } }
+</style>

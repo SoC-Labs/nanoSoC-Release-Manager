@@ -1,0 +1,30 @@
+{% include "_qstyle.html" %}
+<p>Comment density, comment problems, README accuracy and doc conciseness per repository (Q1-Q6). The tools only read: every fix is a patch you review and apply with <code>git apply</code>. The same rows come from <code>nanosoc-rm quality density|comments|readme|docs TARGET</code>.</p>
+<div class="scroll">
+<table class="sortable" data-quality="overview">
+  <thead><tr><th>Target</th><th>Source</th><th class="num">Comment ratio</th><th>Ratio trend</th><th class="num">Outlier files</th><th class="num">Comment findings</th><th class="num">README mismatches</th><th class="num">Doc score</th><th>Doc trend</th><th>Analysed</th></tr></thead>
+  <tbody>
+{% for r in rows %}
+  {% set d, c, m, s = r.density, r.comments, r.readme, r.docs %}
+  <tr data-target="{{ r.target }}">
+    <td><a href="{{ qurl(r.target) }}">{{ r.target }}</a></td>
+    <td class="note">{{ r.origin }}{% if r.mirrored is defined and not r.mirrored %} (no mirror){% endif %}</td>
+    {% if d %}
+    <td class="num" data-v="{{ d.fact.totals.ratio }}">{{ fact(d, pct(d.fact.totals.ratio)) }}</td>
+    <td>{{ sparkline(r.density_trend) }}</td>
+    <td class="num"><a href="{{ qurl(r.target, 'density') }}">{{ d.fact.outliers|length }}</a></td>
+    {% else %}<td class="num" data-v="-1">-</td><td></td><td class="num">-</td>{% endif %}
+    <td class="num">{% if c %}<a href="{{ qurl(r.target, 'comments') }}">{{ c.fact.total }}</a>{% else %}-{% endif %}</td>
+    <td class="num {{ 'state-amber' if m and m.fact.mismatch_count }}">{% if m %}<a href="{{ qurl(r.target, 'readme') }}">{{ m.fact.mismatch_count }}</a>{% else %}-{% endif %}</td>
+    <td class="num">{% if s %}<a href="{{ qurl(r.target, 'docs') }}">{{ '%.1f'|format(s.fact.score) }}</a>{% else %}-{% endif %}</td>
+    <td>{% if s %}{{ sparkline(r.docs_trend) }}{% endif %}</td>
+    <td>{% if d %}<span class="note">{{ d.observed_at }}</span>{% else %}<a href="{{ qurl(r.target) }}">analyse now</a>{% endif %}</td>
+  </tr>
+{% else %}
+  <tr><td colspan="10">No targets yet. Add local checkouts under <code>[quality] paths</code> in the service config, sync a component mirror, or run <code>nanosoc-rm quality all --path DIR --store</code>.</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="note">Analysing a large repository takes 10 to 60 seconds; the result is stored per commit, so the next view is instant and the trend gains a point.</p>
+{% include "_qsort.html" %}

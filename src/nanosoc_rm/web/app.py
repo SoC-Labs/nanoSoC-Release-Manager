@@ -449,4 +449,6 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         app.add_api_route(path, fn, methods=get, include_in_schema=False)
     app.add_api_route("/configurations/{id}/runs", post_run, methods=["POST"], include_in_schema=False)
     app.add_api_route("/api/v1/configurations/{id}/runs", post_run_api, methods=["POST"], include_in_schema=False)
+    from nanosoc_rm.quality.web import router as quality_router       # CR-14 (Q6): GET-only pages under /quality
+    app.include_router(quality_router())
     return app

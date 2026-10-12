@@ -198,7 +198,7 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 # relative to the directory holding the package), kind and method. AT-A2 and AT-A6 hold the package to it.
 #
 #   write       exactly one: POST projects/:id/trigger/pipeline, guarded to the configured CI project
-#   read-post   only the OAuth code exchange login/oauth/access_token
+#   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (CR-14, Q4 rewrite)
 #   local       a call the census mistakes for HTTP, only in a file that imports no HTTP library (none yet)
 #   git-runner  at most one: nanosoc_rm.gitrun, which refuses push, send-pack and receive-pack at run time
 #
@@ -215,6 +215,12 @@ WRITE_CALLS: list[dict[str, str]] = [
     {"file": "nanosoc_rm/auth.py", "kind": "http", "method": "POST", "target": "login/oauth/access_token",
      "effect": "read-post",
      "reason": "GitHub OAuth code exchange: a POST that writes nothing (H2; interfaces.md section 14)"},
+    {"file": "nanosoc_rm/quality/rewrite.py", "kind": "http", "method": "POST", "target": "v1/messages",
+     "effect": "read-post",
+     "guard": "made only when an Anthropic API key is configured ($ANTHROPIC_API_KEY or [quality] api_key_file) and "
+              "a person runs `nanosoc-rm quality docs --rewrite`; the client is built after the key check, so without "
+              "a key no connection is opened; the reply becomes a patch a person applies, never an edit",
+     "reason": "CR-14 (Q4): the Messages API call that proposes a shorter rewrite of a doc section; it writes nothing"},
     {"file": "nanosoc_rm/gitrun.py", "kind": "exec", "method": "?", "target": "git with unresolved subcommand",
      "effect": "git-runner",
      "guard": "check_argv() refuses push, send-pack, receive-pack and every subcommand or form not on its "

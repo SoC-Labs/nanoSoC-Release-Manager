@@ -1,0 +1,14 @@
+<nav class="qnav">
+  <a href="/quality/">All targets</a>
+  <a href="{{ qurl(target, ref=ref) }}" class="{{ 'on' if here == 'summary' }}">Summary</a>
+  <a href="{{ qurl(target, 'density', ref=ref) }}" class="{{ 'on' if here == 'density' }}">Density</a>
+  <a href="{{ qurl(target, 'comments', ref=ref) }}" class="{{ 'on' if here == 'comments' }}">Comment findings</a>
+  <a href="{{ qurl(target, 'readme', ref=ref) }}" class="{{ 'on' if here == 'readme' }}">README check</a>
+  <a href="{{ qurl(target, 'docs', ref=ref) }}" class="{{ 'on' if here == 'docs' }}">Docs</a>
+  <a href="{{ qurl(target, 'trend') }}" class="{{ 'on' if here == 'trend' }}">Trend</a>
+</nav>
+{% if f is defined and f %}
+<p class="note">{{ f.target }} at <code>{{ short(f.commit) if f.commit else 'no commit' }}</code>{% if f.worktree %} + work tree{% endif %}{% if f.ref %} (ref <code>{{ f.ref }}</code>){% endif %} ·
+  {{ fact(obs, 'analysed ' ~ obs.observed_at) }} ·
+  <a href="{{ qurl(target, here if here != 'summary' else '', ref=ref, analyse=1) }}">analyse again</a></p>
+{% endif %}
