@@ -1920,7 +1920,7 @@ def test_AT_F5(tmp_path):
     # Then 1: exactly the four sources F5 names
     assert sorted((s["doc"]["component"], s["doc"]["path"]) for s in ledger["sources"]) == sorted([
         (eth, "docs/tapeout/11-known-issues.md"), (eth, "docs/tapeout/16-open-defects.md"),
-        (eth, "docs/tapeout/67-rc4-issue-register.md"), (qs, "docs/DEFECT-cpu-ss-hsel.md")])
+        (eth, "docs/tapeout/67-rc4-issue-register.md"), (eth, "docs/TAPEOUT_LIMITATION_CPU_SS_HSEL.md")])  # CR-13
 
     # When: the census runs. PROPOSED (G12): `nanosoc-rm registry imports`.
     cp = rm("registry", "imports", path, "--json")
