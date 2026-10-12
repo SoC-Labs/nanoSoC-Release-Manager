@@ -48,7 +48,7 @@ TRICKY = {
           'int x; /* trailing */\n',
           [C, C, C, M, M, M, C]),
     "shell": ('#!/bin/bash\n'
-              'echo "# not" \'# not\' ${#arr[@]} a#b\n'
+              'echo "a # not" \'b # not\' ${#arr[@]} a#b\n'
               '# a comment\n'
               'cat <<END\n'
               '# inside a here-document\n'
@@ -89,6 +89,17 @@ TRICKY = {
 def test_lexer_ignores_comment_markers_in_strings(language):
     text, kinds = TRICKY[language]
     assert lex(language, text).kinds == kinds
+
+
+COMMENT_LINES = {"python": [2, 7], "verilog": [1, 2, 3, 5], "c": [2, 4, 7], "shell": [3, 7], "make": [1, 2],
+                 "tcl": [1, 2, 5], "yaml": [1, 6], "toml": [1, 6]}
+
+
+@pytest.mark.parametrize("language", sorted(TRICKY))
+def test_markers_in_strings_never_start_a_comment(language):
+    """Kinds alone can hide a false trailing comment on a code line; the comment list cannot."""
+    assert sorted({c.line for c in lex(language, TRICKY[language][0]).comments if c.style != "doc"}) == \
+        COMMENT_LINES[language]
 
 
 def test_inline_comments_are_counted_but_the_line_is_code():
