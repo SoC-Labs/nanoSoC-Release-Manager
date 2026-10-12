@@ -1,6 +1,6 @@
 # nanoSoC Release Manager: Requirements
 
-**Version 1.0** · frozen 2026-09-30 · approved by David Mapstone in two sign-off rounds.
+**Version 1.1** · frozen 2026-09-30, amended by CR-1 to CR-17 · approved by David Mapstone in two sign-off rounds.
 
 - Source proposal: `proposal-rev2.md` (the § numbers below point there).
 - Sign-off record: `signoff-answers/` (round 1: 89 items; round 2: 8 items).
@@ -653,3 +653,41 @@ Each example project declares a fork contract (its upstream and the paths users 
 - **Why:** Makes upgrading a fork routine.
 - **Done when:** accelerator-project carries a fork contract and the upgrade steps.
 - **Source:** §2.6
+
+## Q · Code and documentation quality *(added 2026-10-12 by CR-14)*
+
+### Q1 · Must · v1.1
+
+Measure comment density for any catalogued repo at any ref, or a local checkout: code, comment, docstring and blank lines per file, directory, language and repository, and the comment ratio. Flag outliers against per-language thresholds set in the registry.
+
+- **Done when:** a report on eth main lists every language with its ratio and the top outlier files, and `--json` gives one row per file.
+
+### Q2 · Must · v1.1
+
+Find comment problems with evidence: commented-out code, comments that restate the next line, banner and boilerplate blocks, stale TODO/FIXME (dated by blame), and comments naming identifiers that no longer exist. Each finding has file, line and a suggested edit.
+
+- **Done when:** each finding kind fires on a planted fixture and stays quiet on its clean twin.
+
+### Q3 · Must · v1.1
+
+Check each README against its repository at that ref: every path, file, script, make target, command and submodule it names exists; the layout it describes matches the tree; the flows it describes (make target to script) resolve. Report mismatches and generate a suggested "Repository layout" section from the actual tree.
+
+- **Done when:** on a fixture README with one stale path, one missing make target and one missing submodule, exactly those three are reported, and the generated layout section matches the tree.
+
+### Q4 · Should · v1.1
+
+Score the conciseness of Markdown docs (sentence length, filler words, repetition, paragraphs duplicated across files). When an Anthropic API key is configured, propose a shorter rewrite per section for a person to accept.
+
+- **Done when:** the score ranks a padded fixture below its concise twin; without a key, no network call is made.
+
+### Q5 · Must · v1.1
+
+The quality tools never write to a repository: they produce reports and unified-diff patches that a person applies. Results are stored per commit so a reduction shows as a trend.
+
+- **Done when:** a census finds no write path; the trend page shows two commits of one repo.
+
+### Q6 · Must · v1.1
+
+Every quality capability has a CLI command and a GUI page.
+
+- **Done when:** each Q command has a page that shows the same rows.
