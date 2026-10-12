@@ -108,3 +108,34 @@ def test_cli_all_stores_every_kind(site):
     assert [ln.split()[0] for ln in res.output.splitlines()] == ["density", "comments", "readme", "docs"]
     for kind in quality.KINDS.values():
         assert len(db.latest(kind, "%s:demo:" % kind, config=site["cfg"])) == 1
+
+
+def test_worktree_pages_follow_the_disk(site):
+    """Review Q-5: a stored work-tree result is reused only while the disk is unchanged."""
+    c, repo = site["client"], site["repo"]
+    assert "src/b.py" not in _rows(c.get("/quality/demo/density").text, "data-path")
+    (repo / "src" / "b.py").write_text("".join("# note %d about the helper\n" % i for i in range(50)) + "X = 1\n")
+    git("add", "src/b.py", cwd=repo)
+    assert "src/b.py" in _rows(c.get("/quality/demo/density").text, "data-path"), "a new tracked file shows"
+    before = c.get("/quality/demo/comments.diff?kind=banner").text
+    assert c.get("/quality/demo/comments.diff?kind=banner").text == before, "an unchanged disk serves the same patch"
+    stored = [d for d in quality.stored("quality_density", "demo", config=site["cfg"])]
+    assert stored and all(d["fact"].get("worktree_state") for d in stored)
+
+
+def test_nothing_to_patch_is_a_message_not_an_empty_file(tmp_path, monkeypatch):
+    """Review Q-6: no edits -> 404 with a reason, and no download link on the page."""
+    repo = make_repo(tmp_path / "clean", {"a.py": "# Callers rely on identity.\nX = 1\n"})
+    cfg = tmp_path / "rm.toml"
+    cfg.write_text('[service]\ndata_dir = "%s"\n[roles]\ndefault = ["member"]\n[quality]\npaths = { clean = "%s" }\n'
+                   % (tmp_path / "data", repo))
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    c = TestClient(create_app(cfg, auth=auth.FakeMembership(login="alice")))
+    for url in ("/quality/clean/comments.diff", "/quality/clean/readme.diff"):
+        r = c.get(url)
+        assert r.status_code == 404 and r.text.startswith("Nothing to patch"), (url, r.status_code, r.text)
+    page = c.get("/quality/clean/comments").text
+    assert "data-patch" not in page and "no patch" in page
+    out = tmp_path / "x.diff"
+    res = CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--patch", str(out)])
+    assert not out.exists() and "nothing to patch" in res.output

@@ -71,8 +71,66 @@ def test_kind_fires_on_planted_and_is_quiet_on_clean_twin(kind, tmp_path):
 def test_unknown_identifier_suggests_the_close_match(tmp_path):
     p = make_repo(tmp_path / "p", CASES["unknown_identifier"][0])
     fired = {x["identifier"]: x for x in quality.comments(None, path=p)["fact"]["findings"]}
-    assert fired["compute_totl"]["did_you_mean"] == "compute_total" and fired["compute_totl"]["edit"]
+    assert fired["compute_totl"]["did_you_mean"] == "compute_total"
+    assert fired["compute_totl"]["edit"] is None, "a close match is reported, never patched"
     assert "old_helper" in fired and fired["old_helper"]["edit"] is None
+
+
+def test_unknown_identifier_close_match_is_never_an_edit(tmp_path):
+    """Review Q-2: `tech_set` -> `tech_unset` inverted a comment. The guess goes in did_you_mean only."""
+    files = {"t.tcl": "proc tech_unset {name} {\n    return $name\n}\n"
+                      "# Call tech_set icg_dont_use before the library loads\ntech_unset foo\n"}
+    repo = make_repo(tmp_path / "r", files)
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "unknown_identifier"]
+    assert [(x["identifier"], x["did_you_mean"], x["edit"]) for x in f] == [("tech_set", "tech_unset", None)]
+    out = tmp_path / "fix.diff"
+    CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--patch", str(out)])
+    assert "tech_unset icg_dont_use" not in (out.read_text() if out.exists() else "")
+
+
+# Code-looking lines inside a comment paragraph (review Q-1, taken from real files): no edit may cut them out.
+PARAGRAPHS = {
+    "top.sv": "module top;\n// The decode sends the peer window to the bridge (see the\n"
+              "// deployed memory map). Every non-d2d port maps straight to this boundary;\n"
+              "// the d2d port goes through the AHB bridge first.\nendmodule\n",
+    "pad.tcl": "set x 1\n# These are the pins that\n# route_special draws for -connect {pad_pin pad_ring}, so their presence or\n"
+               "# absence tells which command ran.\nputs $x\n",
+    "run.sh": "#!/bin/sh\n# Options:\n#   QUIET=1                    do not print the log afterwards\n"
+              "#   OOCD_TIMEOUT=90  wall-clock cap for the whole run\n#\necho hi\n",
+    "ex.sh": "#!/bin/sh\n# To rebuild by hand, the flow used to run:\n# export BUILD_DIR=/tmp/out\n"
+             "# rm -rf \"$BUILD_DIR\"\necho hi\n",
+    "wait.c": "int f(void) {\n    /* Bounded wait for ALARM_HIT to assert. The match is true on the first cycle\n"
+              "     * the comparator sees (ns>=target within secNow), so a short bound suffices;\n"
+              "     * we never spin unbounded. */\n    int hit = 0;\n    return hit;\n}\n",
+    "fwd.c": "/* Forward decl: the shared core (defined below servo_on_sync;\n"
+             " * apply_servo calls it only in the gated path). */\nstatic void servo(int a);\n",
+    "verdict.c": "int g(int bad_mask) {\n    /* Verdict: PASS iff EVERY care=1 hole faulted on BOTH read and write\n"
+                 "     * (clean default-slave ERROR everywhere). detail = bad_mask: 0 on PASS;\n"
+                 "     * on FAIL each set bit names the hole + direction that completed silently. */\n"
+                 "    return bad_mask;\n}\n",
+    "ir.sv": "module ir;\n// The wrapper must fold the TAP's tlr output into this module's\n// reset\n//\n"
+             "//     assign ir_trst_n = trst_n & ~tlr;\n//\n// so a TMS reset clears the register too.\nendmodule\n",
+}
+
+
+def test_commented_out_code_never_cuts_a_comment_paragraph(tmp_path):
+    repo = make_repo(tmp_path / "r", PARAGRAPHS)
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
+    assert f == [], "a line inside a sentence, an option's help or an introduced example is not dead code: %s" % f
+
+
+def test_commented_out_code_next_to_prose_is_reported_without_an_edit(tmp_path):
+    repo = make_repo(tmp_path / "r", {"run.sh": "#!/bin/sh\n# Disabled until the PHY lands\n"
+                                                "# export BUILD_DIR=/tmp/out\n# rm -rf \"$BUILD_DIR\"\necho hi\n"})
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
+    assert [(x["line"], x["end_line"], x["edit"]) for x in f] == [(3, 4, None)]
+
+
+def test_no_edit_for_a_comment_that_shares_a_line_with_code(tmp_path):
+    """Review Q-4: the whole-line guard is what keeps an edit off `*/ return a;`."""
+    repo = make_repo(tmp_path / "r", {"blk.c": "int f(int a) {\n/*\n  int b = a * 2;\n  return b; */ return a;\n}\n"})
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
+    assert len(f) == 1 and f[0]["edit"] is None, f
 
 
 def test_stale_todo_is_dated_by_blame(tmp_path):
@@ -124,3 +182,10 @@ def test_cli_json_one_finding_per_line(tmp_path):
     res = CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--json", "--kind", "banner"])
     rows = [json.loads(x) for x in res.output.splitlines()]
     assert {r["kind"] for r in rows} == {"banner"} and len(rows) == 2
+
+
+def test_a_single_code_looking_line_is_reported_without_an_edit(tmp_path):
+    """`# slot0 = 0x1` above the write it labels: a person decides, the patch does not."""
+    repo = make_repo(tmp_path / "r", {"t.py": "def f(m):\n    # slot0 = 0x1\n    m.write(8, 1)\n"})
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
+    assert [(x["line"], x["edit"]) for x in f] == [(2, None)]

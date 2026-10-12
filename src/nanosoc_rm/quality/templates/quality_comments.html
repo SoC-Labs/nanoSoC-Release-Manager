@@ -3,7 +3,7 @@
 {% include "_qnav.html" %}
 {% set shown = f.findings|selectattr('kind', 'equalto', sel)|list if sel else (f.findings|rejectattr('kind', 'equalto', 'banner')|list) + (f.findings|selectattr('kind', 'equalto', 'banner')|list) %}
 <p class="kindchips"><a href="{{ qurl(target, 'comments', ref=ref) }}">all: {{ f.total }}</a>{% for k, n in f.counts.items() %}<a href="{{ qurl(target, 'comments', ref=ref, kind=k) }}">{{ k }}: {{ n }}</a>{% endfor %}</p>
-<p><a class="download" data-patch href="{{ qurl(target, 'comments.diff', ref=ref, kind=sel) }}">Download patch</a> of the {{ shown|selectattr('edit')|list|length }} mechanical edit(s){% if sel %} of kind {{ sel }}{% endif %}. Review it, then <code>git apply</code> it in a clean checkout. The tool never edits files. Same rows: <code>nanosoc-rm quality comments {{ target }} --json</code>.</p>
+<p>{% set n_edits = shown|selectattr('edit')|list|length %}{% if n_edits %}<a class="download" data-patch href="{{ qurl(target, 'comments.diff', ref=ref, kind=sel) }}">Download patch</a> of the {{ n_edits }} mechanical edit(s){% if sel %} of kind {{ sel }}{% endif %}.{% else %}No mechanical edits{% if sel %} of kind {{ sel }}{% endif %}, so no patch: fix these by hand.{% endif %} Review it, then <code>git apply</code> it in a clean checkout. The tool never edits files. Same rows: <code>nanosoc-rm quality comments {{ target }} --json</code>.</p>
 {% if not sel %}<p class="note">Banners are listed last; pick a kind above to see one kind only.</p>{% endif %}
 <div class="scroll"><table class="sortable" data-quality="findings">
   <thead><tr><th>Where</th><th>Kind</th><th>Evidence</th><th>Suggested edit</th></tr></thead>

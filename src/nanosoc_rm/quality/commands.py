@@ -58,6 +58,9 @@ def _write_patch(out: str, text: str) -> None:
     p = Path(out)
     if p.exists():
         raise click.UsageError("%s exists: give a new file for the patch" % out)
+    if not text.strip():
+        click.echo("patch: nothing to patch (no mechanical edits); %s not written" % out, err=True)
+        return
     p.write_text(text)
     n = sum(1 for ln in text.splitlines() if ln.startswith("diff --git "))
     click.echo("patch: %s (%d file%s); review it, then `git apply %s`" % (out, n, "" if n == 1 else "s", out),

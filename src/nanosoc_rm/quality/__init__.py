@@ -130,6 +130,8 @@ def observe(kind: str, source: Source, fact: dict, command: str) -> dict:
     """The observation envelope of one result (A3): sources are the git reads and the command that ran."""
     full = {"target": source.label, "commit": source.commit, "ref": source.ref, "worktree": source.worktree,
             **fact}
+    if source.worktree and source.state:
+        full["worktree_state"] = source.state
     seen, srcs = set(), []
     for s in [{"kind": "derived", "command": command}] + source.sources:
         k = (s["kind"], s["command"])

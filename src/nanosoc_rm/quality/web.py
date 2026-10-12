@@ -133,7 +133,8 @@ def _result(config, kind: str, target: str, ref: str | None, analyse: bool) -> t
     with _lock(subject):
         if not analyse:
             hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
-            if hit:
+            # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
+            if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
                 return hit[-1], source
         fn = {"density": q.density, "comments": q.comments, "readme": q.readme, "docs": q.docs}[kind]
         obs = fn(target, ref=ref, config=config, store=True,
@@ -214,13 +215,14 @@ def router() -> APIRouter:
         ref = request.query_params.get("ref") or None
         sel = request.query_params.get("kind") or ""
         try:
-            obs, source = _result(config, "comments", target, ref, False)
-            if source.worktree:                               # the disk may have moved on: patch from a fresh read
-                obs, source = q.comments(target, ref=ref, config=config, with_source=True)
+            obs, source = _result(config, "comments", target, ref, False)   # re-analysed if the disk moved on
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
         findings = [x for x in obs["fact"]["findings"] if not sel or x["kind"] == sel]
         text, _ = q.comment_patch(source, {"fact": {"findings": findings}})
+        if not text.strip():
+            return PlainTextResponse("Nothing to patch: no finding%s of %s has a mechanical edit.\n"
+                                     % ((" of kind %s" % sel) if sel else "", target), 404)
         return _diff_response(text, "%s-comments%s.diff" % (target, ("-" + sel) if sel else ""))
 
     def readme_diff(request: Request, target: str) -> Response:
@@ -231,7 +233,12 @@ def router() -> APIRouter:
             source = q.open_source(target, ref=ref, config=config)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
-        return _diff_response(layout_patch(source), "%s-readme-layout.diff" % target)
+        text = layout_patch(source)
+        if not text.strip():
+            why = "has no README.md" if source.text("README.md") is None else \
+                "README.md already has this Repository layout"
+            return PlainTextResponse("Nothing to patch: %s %s.\n" % (target, why), 404)
+        return _diff_response(text, "%s-readme-layout.diff" % target)
 
     def trend_page(request: Request, target: str) -> HTMLResponse:
         config = _config(request)

@@ -5,6 +5,9 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
 - `commented_out_code`: a run of comment lines that parse as code. Python: `ast.parse` of the uncommented text,
   ignoring bare names, constants and annotations (`Note: x` parses but is prose). HDL, C, shell, Tcl, make,
   YAML, TOML: per-language patterns (statement endings, keywords, assignments), requiring a strong line.
+  A run inside a comment paragraph (prose on both sides), or an example the prose introduces (a colon, or a
+  deeper indent than the prose around it, across blank comment lines), is documentation and not reported. A run
+  with prose on one side is reported without an edit: deleting it could leave the prose pointing at nothing.
 - `restates_code`: a one-line comment whose words are all in the next code line (identifiers split on case and
   `_`, with a few verb synonyms such as increment for `+=`), and that gives no reason (no "because", "so", ...).
 - `banner`: decoration-only comment lines (`#####`, `// ------`) and titles boxed in decoration.
@@ -13,7 +16,8 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
 - `stale_todo`: TODO / FIXME / XXX / HACK whose line `git blame` dates older than `stale_todo_days`.
 - `unknown_identifier`: a comment naming an identifier (`snake_case`, `camelCase`, `name()`, or a backticked
   name) that no code line, text file, or file or directory name of the repository contains. Reported when this
-  file has a close match (a likely rename; the edit substitutes it), or for `name()` / a backticked name in a
+  file has a close match (a likely rename, given as `did_you_mean`; never an edit, since a close name can mean the
+  opposite), or for `name()` / a backticked name in a
   repository without submodules (whose code is not read).
 
 `edit` is a mechanical change (delete or replace whole lines) when one is safe; the patch applies only those.
@@ -22,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import math
 import re
 import textwrap
 import time
@@ -47,13 +52,13 @@ class _Block:
 
 def _blocks(doc: Doc) -> list[_Block]:
     out: list[_Block] = []
-    kinds = doc.lexed.kinds
     for c in doc.lexed.comments:
         if c.inline:
             continue
         if c.style in ("block", "doc"):
-            if all(kinds[n - 1] != CODE for n in range(c.line, c.end + 1)):
-                out.append(_Block(c.line, c.end, c.text.split("\n"), [c], c.style))
+            # kept even when it shares a line with code (`*/ return a;`): findings still report it, and
+            # _whole_lines withholds the edit
+            out.append(_Block(c.line, c.end, c.text.split("\n"), [c], c.style))
             continue
         if out and out[-1].style == "line" and out[-1].end == c.line - 1:
             b = out[-1]
@@ -125,6 +130,26 @@ def _prose(t: str) -> bool:
     return len(words) >= 4 and t.rstrip().endswith((".", "?", "!")) and not _CODE_CHARS.search(t)
 
 
+_C_WORDS = set("auto break case char const continue default do double else enum extern float for goto if inline int "
+               "long register return short signed sizeof static struct switch typedef union unsigned void volatile "
+               "while bool wire reg logic input output inout assign always begin end module endmodule parameter "
+               "localparam integer genvar generate function task initial posedge negedge or and not".split())
+
+
+def _c_prose(t: str) -> bool:
+    """A C/HDL comment line that is a sentence even though it ends in `;` or holds `=`: three plain words in a
+    row (`so a short bound suffices;`) that are not a declaration (`unsigned long long`), a dash, or a
+    `Label: text` lead."""
+    if re.search(r"[–—]|\s--\s", t) or re.match(r"^\s*[A-Z][a-z]+(\s[a-z]+)*:\s+[a-z]", t):
+        return True
+    words = t.split()
+    for k in range(len(words) - 2):
+        w = words[k:k + 3]
+        if all(re.fullmatch(r"[a-z]+", x) for x in w) and sum(x in _C_WORDS for x in w) <= 1:
+            return True
+    return False
+
+
 def is_code_line(language: str, text: str) -> tuple[bool, bool]:
     """(looks like code, strongly) for one comment line's text in `language`."""
     t = text.rstrip()
@@ -144,6 +169,8 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
             value = t.split("=", 1)[1].strip()
             if len(value.split()) > 3 and not re.search(r"[$/\\\"'(){}\[\]]", value):
                 return False, False                       # "ROM_RUN_DIR= still wins over both"
+    if language in ("verilog", "c") and _c_prose(t):
+        return False, False
     if language in ("verilog", "c"):
         strong = bool(_ASSIGN_STMT.match(t) or _CALL_STMT.match(t) or
                       (t.rstrip().endswith(";") and re.search(r"[=()\[\]]", t) and len(t.split()) <= 12))
@@ -152,6 +179,8 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
             kw = False                                    # "output of the block is ..." prose
         return strong or kw, strong
     if language in ("shell", "make"):
+        if re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s{2,}[A-Za-z(]\S*\s+\S", t):
+            return False, False                           # `QUIET=1    do not print...`: an option's help line
         if language == "make" and (_MAKE_RULE.match(t) and "$" in t or re.match(r"^\s*[A-Z_][A-Z0-9_]*\s*[:?+]?=", t)):
             return True, True
         assign = bool(_SH_ASSIGN.match(t))
@@ -171,6 +200,31 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
     return False, False
 
 
+def _prose_line(text: str, flag: tuple[bool, bool]) -> bool:
+    """A non-empty comment line that does not read as code: deleting a code-looking line next to one would cut
+    a sentence or an example out of the documentation."""
+    return bool(text.strip()) and not flag[0] and not _decor(text)
+
+
+def _example(doc: Doc, b: _Block, flags: list[tuple[bool, bool]], i: int, j: int) -> bool:
+    """Lines i..j are an example inside documentation: the nearest prose line before them (across blank comment
+    lines) introduces them with a colon, or they sit indented deeper than the prose on either side."""
+    def _indent(k: int) -> int:                           # spaces after the comment marker
+        body = re.sub(r"^\s*(//+|#+|--|;+|\*+)", "", doc.lines[b.start + k - 1])
+        return len(body) - len(body.lstrip())
+    depth = min(_indent(k) for k in range(i, j + 1) if b.texts[k].strip())
+    k = i - 1
+    while k >= 0 and not b.texts[k].strip():
+        k -= 1
+    if k >= 0 and _prose_line(b.texts[k], flags[k]):
+        if b.texts[k].rstrip().endswith(":") or depth >= _indent(k) + 2:
+            return True
+    k = j + 1
+    while k < len(flags) and not b.texts[k].strip():
+        k += 1
+    return k < len(flags) and _prose_line(b.texts[k], flags[k]) and depth >= _indent(k) + 2
+
+
 def _commented_out(doc: Doc, b: _Block) -> list[dict]:
     if b.style == "doc":
         return []
@@ -184,7 +238,7 @@ def _commented_out(doc: Doc, b: _Block) -> list[dict]:
     if b.style == "block":
         code = [f for f in flags if f[0]]
         nonempty = [t for t in b.texts if t.strip()]
-        if nonempty and len(code) >= max(1, int(0.6 * len(nonempty))) and any(s for _, s in code):
+        if nonempty and len(code) >= max(1, math.ceil(0.6 * len(nonempty))) and any(s for _, s in code):
             out.append(_finding(doc, b.start, b.end, "commented_out_code", nonempty[0].strip(),
                                 "Delete the commented-out block: %d of %d lines read as %s code; git history keeps "
                                 "it." % (len(code), len(nonempty), doc.language),
@@ -202,11 +256,26 @@ def _commented_out(doc: Doc, b: _Block) -> list[dict]:
         run = flags[i:j + 1]
         if (j > i and any(s for _, s in run)) or (j == i and run[0][1]):
             start, end = b.start + i, b.start + j
-            out.append(_finding(doc, start, end, "commented_out_code",
-                                b.texts[i].strip(),
-                                "Delete the commented-out code (%d line%s); git history keeps it."
-                                % (end - start + 1, "" if end == start else "s"),
-                                _delete(doc, start, end)))
+            before = i > 0 and _prose_line(b.texts[i - 1], flags[i - 1])
+            after = j + 1 < len(flags) and _prose_line(b.texts[j + 1], flags[j + 1])
+            if before and (after or b.texts[i - 1].rstrip().endswith(":")) or _example(doc, b, flags, i, j):
+                i = j + 1
+                continue                                  # mid-paragraph, or an example the prose introduces
+            n = end - start + 1
+            if n == 1:
+                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                                    "One line that reads as %s code: delete it by hand if it is dead (no patch "
+                                    "edit: a single line is as often a label, `# slot0 = 0x1`, as dead code)."
+                                    % doc.language, None))
+            elif before or after:
+                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                                    "Reads as %s code (%d line%s) next to prose in the same comment: delete it "
+                                    "by hand if it is dead code (no patch edit: the prose may refer to it)."
+                                    % (doc.language, n, "" if n == 1 else "s"), None))
+            else:
+                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                                    "Delete the commented-out code (%d line%s); git history keeps it."
+                                    % (n, "" if n == 1 else "s"), _delete(doc, start, end)))
         i = j + 1
     return out
 
@@ -441,8 +510,8 @@ def _file_identifiers(doc: Doc) -> list[str]:
 
 def _unknown_identifiers(doc: Doc, b: _Block, index: set[str], file_ids: list[str],
                          has_submodules: bool = False) -> list[dict]:
-    """A name the repository does not contain. Reported when a close match exists in this file (likely a rename:
-    the edit replaces it) or when the comment marks it as code (`name` or name()) and the repository has no
+    """A name the repository does not contain. Reported when a close match exists in this file (likely a rename,
+    reported as did_you_mean, never edited) or when the comment marks it as code (`name` or name()) and the repository has no
     submodules (whose code is not read, so a name there would look absent); a bare word with neither is too
     often prose or an external library's name to report."""
     out = []
@@ -459,18 +528,16 @@ def _unknown_identifiers(doc: Doc, b: _Block, index: set[str], file_ids: list[st
             seen.add(tok)
             line = b.start + k if b.style == "line" else b.start
             close = difflib.get_close_matches(tok, file_ids, n=1, cutoff=0.85)
-            edit = None
             if close:
-                raw = doc.lines[line - 1]
-                if b.style == "line" and raw.count(tok) == 1 and doc.lexed.kinds[line - 1] != CODE:
-                    edit = {"start": line, "end": line, "replacement": [raw.replace(tok, close[0])]}
                 why = "`%s` is not in this repository; `%s` in this file is the likely current name." % (tok, close[0])
             elif (bt or call) and not has_submodules:
                 why = "`%s` is not in any code line or file name of this repository: update the comment to the " \
                       "current name, or delete it." % tok
             else:
                 continue
-            f = _finding(doc, line, line, "unknown_identifier", text.strip()[:160], why, edit)
+            # Never an edit: a close match is a guess (`tech_set` -> `tech_unset`, a deliberate typo in an example),
+            # so it is reported as did_you_mean for a person to judge.
+            f = _finding(doc, line, line, "unknown_identifier", text.strip()[:160], why, None)
             f["identifier"] = tok
             if close:
                 f["did_you_mean"] = close[0]

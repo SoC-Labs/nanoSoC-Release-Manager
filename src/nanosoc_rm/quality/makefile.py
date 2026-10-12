@@ -27,6 +27,7 @@ class Makefile:
     variables: dict[str, str] = field(default_factory=dict)
     files: list[str] = field(default_factory=list)                    # every makefile read (path, includes)
     unresolved: list[str] = field(default_factory=list)               # includes or rules it could not resolve
+    oneshell: bool = False                                            # `.ONESHELL:`: one shell per recipe
 
     def has(self, target: str) -> bool:
         if target in self.targets:
@@ -129,6 +130,8 @@ def read_makefile(source, path: str, mk: Makefile | None = None, depth: int = 0)
                     for p in expand(r.group(3), mk.variables).split():
                         mk.targets.setdefault(p, [])
                     continue
+                if n == ".ONESHELL":
+                    mk.oneshell = True
                 if n.startswith(".") and n.isupper():
                     continue
                 if "%" in n:

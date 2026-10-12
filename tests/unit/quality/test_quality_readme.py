@@ -114,3 +114,32 @@ def test_makefile_reader_handles_patterns_inline_recipes_and_variables(tmp_path)
     mk = read_makefile(WorktreeSource(repo), "Makefile")
     assert mk.has("publish-x") and mk.has("demo-sim") and mk.has("clean") and not mk.has("nosuch")
     assert mk.targets["demo-sim"] == ["$(TOOLS)/sim.sh"] and mk.unresolved == []
+
+
+# Review Q-3: recipe and prose shapes from a real README that gave false mismatches.
+FLOW_FILES = {
+    "README.md": "# Flows\n\nRun `make help`, `make bscan-sim`, `make tx-gate` and `make broken`.\n\n"
+                 "`ASIC/legacy/` is the old flow (driven by the `tidelink` submodule).\n\n"
+                 "`0/0 pads survived` is a vacuous pass.\n",
+    "Makefile": ".ONESHELL:\nTOP := $(abspath .)\n\nhelp:\n\t@echo usage\n\tawk '\n"
+                "\t  /^##@[0-9]/ { n = substr($$0, 4) + 0; t = substr($$0, 4);\n"
+                "\t                sub(/^[0-9]+[ \\t]*/, \"\", t); title[n] = t; cur = n; next }\n"
+                "\t' Makefile\n\n"
+                "bscan-sim:\n\tcd \"$(TOP)/verif/bscan\" && ./run.sh\n\n"
+                "tx-gate:\n\tvcs -sverilog tb.sv -o simv_tx_gate\n\t./simv_tx_gate\n\n"
+                "broken:\n\t./scripts/gone.sh\n",
+    "verif/bscan/run.sh": "#!/bin/sh\necho sim\n",
+    "ASIC/legacy/flow.tcl": "puts legacy\n",
+    ".gitmodules": '[submodule "tidelink"]\n\tpath = tidelink\n\turl = https://example.invalid/tidelink.git\n',
+}
+
+
+def test_flow_and_script_checks_follow_cd_built_files_and_skip_prose(tmp_path):
+    repo = make_repo(tmp_path / "flows", FLOW_FILES, executable=("verif/bscan/run.sh",),
+                     gitlinks={"tidelink": SUB_SHA})
+    f = quality.readme(None, path=repo)["fact"]
+    got = sorted((m["kind"], m["token"], m["detail"]) for m in f["mismatches"])
+    assert got == [("flow", "make broken", "its recipe in Makefile runs ./scripts/gone.sh, which is not in the tree")], \
+        got
+    ok = {(c["kind"], c["token"], c["detail"]) for c in f["checks"] if c["status"] == "ok"}
+    assert ("flow", "make bscan-sim", "Makefile -> verif/bscan/run.sh") in ok, "the recipe's cd is followed"

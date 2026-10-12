@@ -2731,6 +2731,10 @@
           "type": "boolean",
           "description": "true: read from a local directory as it is on disk (may differ from commit)."
         },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
         "totals": {
           "type": "object",
           "required": [
@@ -3038,6 +3042,10 @@
           "type": "boolean",
           "description": "true: read from a local directory as it is on disk (may differ from commit)."
         },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
         "counts": {
           "type": "object",
           "propertyNames": {
@@ -3210,6 +3218,10 @@
           "type": "boolean",
           "description": "true: read from a local directory as it is on disk (may differ from commit)."
         },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
         "readmes": {
           "type": "array",
           "items": {
@@ -3317,6 +3329,10 @@
         "worktree": {
           "type": "boolean",
           "description": "true: read from a local directory as it is on disk (may differ from commit)."
+        },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
         },
         "score": {
           "type": "number",

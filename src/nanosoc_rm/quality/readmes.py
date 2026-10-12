@@ -261,7 +261,7 @@ def _check_command(ctx: _Ctx, readme: str, base: str, n: int, cmd: str, rows: li
         if prog == "git" and argv[1:3] == ["submodule", "update"]:
             for a in argv[3:]:
                 if not a.startswith("-") and not _PLACEHOLDER.search(a):
-                    _check_submodule(ctx, readme, n, a, rows)
+                    _check_submodule(ctx, readme, n, a, rows, claimed=True)
             continue
         if prog in _INTERP:
             script = next((a for a in argv[1:] if not a.startswith("-")), None)
@@ -278,6 +278,8 @@ def _check_command(ctx: _Ctx, readme: str, base: str, n: int, cmd: str, rows: li
 
 def _looks_like_script(prog: str) -> bool:
     name = prog.rsplit("/", 1)[-1]
+    if not _plausible_prog(prog):
+        return False                                     # `0/0 pads survived`: prose in a code span
     return prog.startswith("./") or bool(re.search(r"\.(sh|bash|py|tcl|pl)$", prog)) or \
         ("/" in prog and "." not in name and bool(name))
 
@@ -294,6 +296,21 @@ def _check_script(ctx: _Ctx, readme: str, base: str, n: int, script: str, rows: 
         if any(norm.startswith(g + "/") for g in ctx.gitlinks):
             rows.append(_row(readme, n, "script", script, "ignored", "inside a submodule (not read)"))
             return
+        stem = posixpath.basename(_dotslash(script))
+        src = next((c for c in ctx.basenames.get(stem + ".c", []) + ctx.basenames.get(stem + ".cpp", [])
+                    if posixpath.dirname(c) == posixpath.dirname(norm)), None)
+        if src:
+            rows.append(_row(readme, n, "script", script, "unverified",
+                             "not in the tree, but %s is: a program the reader builds first" % src))
+            return
+        d = base
+        while d:
+            d = posixpath.dirname(d)
+            hit = ctx.resolve(script, d) if d else None
+            if hit is not None:
+                rows.append(_row(readme, n, "script", script, "unverified",
+                                 "found as %s, relative to %s/: say where to run it" % (hit, d)))
+                return
         rows.append(_row(readme, n, "script", script, "missing", "script not in the tree at this commit"))
         return
     e = ctx.source.entry(hit)
@@ -374,31 +391,82 @@ def _check_make(ctx: _Ctx, readme: str, cwd: str, n: int, argv: list[str], rows:
                 rows.append(_row(readme, n, "make_target", t, "missing", "no rule for %r in %s" % (t, path)))
 
 
-def _check_submodule(ctx: _Ctx, readme: str, n: int, tok: str, rows: list[dict]) -> None:
+def _check_submodule(ctx: _Ctx, readme: str, n: int, tok: str, rows: list[dict], claimed: bool = False) -> None:
+    """`claimed`: the README says it is a submodule (`git submodule update --init PATH`), not just mentions it
+    on a line about submodules."""
     t = _dotslash(tok.strip("/"))
     if t in ctx.subs or t in ctx.subs.values() or t in ctx.gitlinks or \
             any(p.rsplit("/", 1)[-1] == t for p in list(ctx.subs.values()) + list(ctx.gitlinks)):
         rows.append(_row(readme, n, "submodule", tok, "ok", "in .gitmodules"))
-    elif ctx.source.is_dir(t):
+    elif ctx.source.is_dir(t) and claimed:
         rows.append(_row(readme, n, "submodule", tok, "missing", "%s is a plain directory, not a submodule" % t))
+    elif ctx.source.is_dir(t):
+        # A directory named on a line that mentions submodules ("`a/` is driven by the `b` submodule") is not
+        # a claim that it is one: check it as a path.
+        rows.append(_row(readme, n, "path", tok, "ok", t))
+    elif any(t.startswith(g + "/") for g in ctx.gitlinks):
+        rows.append(_row(readme, n, "submodule", tok, "ignored", "inside a submodule (not read)"))
     else:
         rows.append(_row(readme, n, "submodule", tok, "missing", "not in .gitmodules"))
 
 
+_PROG = re.compile(r"^[\w.~+-]*[A-Za-z][\w.~+-]*(/[\w.+-]+)*/?$|^(\.{1,2}/)+[\w.+-]+(/[\w.+-]+)*$")
+
+
+def _plausible_prog(a: str) -> bool:
+    """A word that can name a program file: no awk/sed text (`sub(/^[0-9]+[`), no prose (`0/0`)."""
+    return bool(_PROG.match(a)) and any(ch.isalpha() for ch in a.rsplit("/", 1)[-1])
+
+
+def _cd_target(ctx: _Ctx, arg: str, cwd: str | None) -> str | None:
+    """The directory a recipe's `cd ARG` enters, or None when it cannot be told (an unexpanded variable that
+    is not a prefix of an in-tree path)."""
+    if cwd is None:
+        return None
+    if "$" in arg:
+        rest = re.sub(r"^(\$\([^)]*\)|\$\{[^}]*\})+/?", "", arg)      # $(CHIPLET_HOME)/verif/bscan
+        if not rest or "$" in rest:
+            return None
+        for cand in (posixpath.normpath(posixpath.join(cwd, rest)) if cwd else None, posixpath.normpath(rest)):
+            if cand and ctx.source.is_dir(cand):
+                return cand
+        return None
+    d = ctx.resolve(arg, cwd)
+    return d if d is not None and ctx.source.is_dir(d) else None
+
+
+def _built_by(mk: Makefile, recipes: list[str]) -> set[str]:
+    """Files the makefile makes: every rule target, and `-o NAME` outputs of the recipe lines."""
+    out = set(mk.targets)
+    for r in recipes:
+        out.update(re.findall(r"(?:^|\s)-o\s*([^\s;&|]+)", r))
+    return {posixpath.basename(_dotslash(x)) for x in out} | out
+
+
 def _check_flows(ctx: _Ctx, readme: str, n_of: dict, named: list[tuple[str, str, Makefile]],
                  rows: list[dict]) -> None:
+    """For each make target the README names, every program its recipe runs must be in the tree. A recipe's
+    `cd DIR` moves the base (for the rest of the line, or the recipe with .ONESHELL); files the makefile builds
+    (rule targets, `-o NAME`) and .gitignore'd outputs are not checked."""
     seen = set()
     for target, mpath, mk in named:
         if (target, mpath) in seen:
             continue
         seen.add((target, mpath))
-        base = posixpath.dirname(mpath)
-        for recipe in mk.targets.get(target, []):
-            line = expand(recipe, mk.variables).lstrip("@-+ ")
-            for argv in _split_commands(line):
+        top = posixpath.dirname(mpath)
+        recipes = [expand(r, mk.variables) for r in mk.targets.get(target, [])]
+        built = _built_by(mk, recipes)
+        cwd: str | None = top
+        for line in recipes:
+            if not mk.oneshell:
+                cwd = top
+            for argv in _split_commands(line.lstrip("@-+ ")):
                 while argv and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", argv[0]):
                     argv = argv[1:]
                 if not argv:
+                    continue
+                if argv[0] == "cd":
+                    cwd = _cd_target(ctx, argv[1], cwd) if len(argv) > 1 else top
                     continue
                 if argv[0] in _INTERP:
                     a = next((x for x in argv[1:] if not x.startswith("-")), None)
@@ -406,14 +474,21 @@ def _check_flows(ctx: _Ctx, readme: str, n_of: dict, named: list[tuple[str, str,
                     a = argv[0]
                 if a is None or "$" in a or _PLACEHOLDER.search(a) or a.startswith(("/", "~")):
                     continue
-                if not ("/" in a or re.search(r"\.(sh|py|tcl|pl)$", a)):
+                if not ("/" in a or re.search(r"\.(sh|py|tcl|pl)$", a)) or not _plausible_prog(a):
                     continue
-                hit = ctx.resolve(a, base)
-                if hit is None and not any(posixpath.normpath(posixpath.join(base, a)).startswith(g + "/")
-                                           for g in ctx.gitlinks):
+                if cwd is None:
+                    continue                                  # after an unresolvable `cd`: cannot tell
+                if a in built or posixpath.basename(_dotslash(a)) in built:
+                    continue                                  # the makefile builds it
+                hit = ctx.resolve(a, cwd)
+                norm = posixpath.normpath(posixpath.join(cwd, _dotslash(a)))
+                if hit is None and (_ignored(norm, ctx.ignore) or
+                                    any(norm.startswith(g + "/") for g in ctx.gitlinks)):
+                    continue                                  # a generated output, or inside a submodule
+                if hit is None:
                     rows.append(_row(readme, n_of.get(target, 0), "flow", "make %s" % target, "missing",
                                      "its recipe in %s runs %s, which is not in the tree" % (mpath, a)))
-                elif hit is not None:
+                else:
                     rows.append(_row(readme, n_of.get(target, 0), "flow", "make %s" % target, "ok",
                                      "%s -> %s" % (mpath, hit)))
 

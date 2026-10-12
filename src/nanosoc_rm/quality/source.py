@@ -10,6 +10,7 @@ Every git call goes through `nanosoc_rm.gitrun.run_git` and is recorded in `sour
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import os
 import re
 import stat
@@ -123,6 +124,12 @@ class Source:
     def blame_times(self, path: str, lines: list[int]) -> dict[int, int]:
         """{line: author time (epoch seconds)} for the given 1-based lines; {} when blame cannot answer."""
         return {}
+
+    @property
+    def state(self) -> str | None:
+        """For a work-tree read: a digest of every listed file's path, mode, size and mtime, so a stored result
+        can be told stale when the disk moved on under the same HEAD. None for a commit read."""
+        return None
 
     def describe(self) -> str:
         where = self.commit[:12] if self.commit else "?"
@@ -256,6 +263,7 @@ class WorktreeSource(Source):
         if not root.is_dir():
             raise SourceError("%s is not a directory" % root)
         self.root = root
+        self._mtimes: dict[str, int] = {}
         super().__init__(label=label or root.name, commit=None, ref=None, worktree=True)
         top = _git(root, "rev-parse", "--show-toplevel", sources=self.sources)
         self.is_git = top.ok and Path(top.stdout.strip()).resolve() == root
@@ -296,6 +304,17 @@ class WorktreeSource(Source):
         else:
             mode = "100755" if st.st_mode & 0o111 else "100644"
         self._files[path] = FileEntry(path, mode, st.st_size)
+        self._mtimes[path] = st.st_mtime_ns
+
+    @property
+    def state(self) -> str | None:
+        h = hashlib.sha1()
+        for p in sorted(self._files):
+            e = self._files[p]
+            h.update(("%s\0%s\0%d\0%d\n" % (p, e.mode, e.size, self._mtimes.get(p, 0))).encode())
+        for g in sorted(self._gitlinks):
+            h.update(("%s\0gitlink\n" % g).encode())
+        return h.hexdigest()[:16]
 
     def _read_many(self, paths: list[str]) -> dict[str, bytes | None]:
         out: dict[str, bytes | None] = {}
