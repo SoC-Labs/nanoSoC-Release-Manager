@@ -1,0 +1,108 @@
+<p class="note">Resolve a configuration's submodule tree, optionally with pins moved, then run the T0 gates locally (and the SoC's T1 lint or T2 smoke if chosen). Same as <code>nanosoc-rm compat</code>; one job runs at a time on this host.</p>
+
+<form class="panel" method="get" action="/compat">
+  <div class="row">
+    <label>Configuration
+      <select name="configuration" onchange="this.form.submit()">
+        <option value="">choose...</option>
+        {% for c in configs %}<option value="{{ c.fact.id }}"{% if c.fact.id == cid %} selected{% endif %}>{{ c.fact.id }}{% if c.fact.record.frozen %} (frozen){% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    <noscript><button type="submit">Choose</button></noscript>
+    {% for c in configs if c.fact.id == cid %}<span class="note">{{ fact(c, 'registry record') }}</span>{% endfor %}
+  </div>
+</form>
+
+{% if cid and not actions %}
+<p class="empty">This service triggers CI and has no local job worker: run <code>nanosoc-rm compat {{ cid }}</code> (with <code>--pin TREE_PATH=SHA</code>, <code>--tier t1|t2</code>) on a login server.</p>
+{% elif cid %}
+<form class="panel" method="post" action="/compat/jobs">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="configuration" value="{{ cid }}">
+  <h2>Run compat on {{ cid }}</h2>
+  {% if pins %}
+  <p class="note">Move a pin: pick a tag or branch of that component from its mirror. Leave "registered" to keep the walked commit. Refs come from <a href="/mirrors">the mirrors</a>; sync a component there to see new ones.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Tree path</th><th>Component</th><th>Registered commit</th><th>Override</th></tr></thead>
+    <tbody>
+    {% for p in pins %}
+      {% set f = p.fact %}
+      {% set comp = f.child.component %}
+      <tr>
+        <td>{{ fact(p, f.tree_paths[0]) }}{% if f.split %} <span class="badge">split</span>{% endif %}</td>
+        <td>{{ comp or f.child.catalogued_as or '' }}</td>
+        <td><code>{{ short(f.child.commit) }}</code></td>
+        <td>{% set rs = refs.get(comp) or [] %}
+          {% if rs %}
+          <select class="pin" name="pin" aria-label="override for {{ f.tree_paths[0] }}">
+            <option value="">registered ({{ short(f.child.commit) }})</option>
+            <optgroup label="tags">{% for r in rs if r.kind == 'tag' %}<option value="{{ f.tree_paths[0] }}={{ r.sha }}">{{ r.name }} ({{ r.host }}, {{ short(r.sha) }}, {{ r.date[:10] }})</option>{% endfor %}</optgroup>
+            <optgroup label="branches">{% for r in rs if r.kind == 'branch' %}<option value="{{ f.tree_paths[0] }}={{ r.sha }}">{{ r.name }} ({{ r.host }}, {{ short(r.sha) }}, {{ r.date[:10] }})</option>{% endfor %}</optgroup>
+          </select>
+          {% else %}<span class="note">no mirror{% if comp %}: sync {{ comp }} on <a href="/mirrors">Mirrors</a>{% endif %}</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="empty">No walk of {{ cid }} is stored, so its pins cannot be listed. Press Run once (or <code>nanosoc-rm walk {{ cid }}</code>); you can still give overrides as text below.</p>
+  {% endif %}
+  <div class="row">
+    <label>More overrides, one <code>TREE_PATH=SHA</code> per line (full 40-hex sha)
+      <textarea name="pins_extra" rows="2" cols="70" placeholder="nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=0123..."></textarea></label>
+  </div>
+  <div class="row">
+    <label>Tier
+      <select name="tier">
+        <option value="">T0 only</option>
+        {% for t in ('t1', 't2') %}{% if tiers.get(t) %}<option value="{{ t }}">{{ t|upper }}: {{ (tiers[t].command if tiers[t].command is string else tiers[t].command|join(' '))|truncate(70) }} (budget {{ tiers[t].budget_s }} s)</option>{% endif %}{% endfor %}
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if T0 fails (UNVERIFIED for release)</label>
+    <button type="submit" class="primary">Run</button>
+  </div>
+  {% if not tiers %}<p class="note">No T1/T2 command for {{ cid }} in the registry's tiers.yaml.</p>{% endif %}
+</form>
+{% else %}
+<div class="scroll"><table>
+  <thead><tr><th>Configuration</th><th>Frozen</th><th>Last stored result</th></tr></thead>
+  <tbody>
+  {% for c in configs %}{% set last = (results|selectattr('fact.configuration', 'equalto', c.fact.id)|first) %}
+    <tr><td><a href="/compat?configuration={{ c.fact.id }}">{{ c.fact.id }}</a> {{ fact(c, 'registry') }}</td><td>{{ 'yes' if c.fact.record.frozen else '' }}</td>
+      <td>{% if last %}{% set v = last.fact.run_verdict or last.fact.verdict %}<span class="pill {{ VERDICT_CLASS.get(v, '') }}">{{ v }}</span> <span class="note">{{ age_text(last.fact.finished_at) }} ago</span>{% else %}<span class="note">none</span>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="3">No configuration registered (set <code>[registry] path</code>).</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+
+{% if job_html %}<h2 id="job">Job {{ job.id }}</h2>{{ job_html|safe }}{% endif %}
+
+<h2>Recent jobs</h2>
+{% if recent %}
+<div class="scroll"><table>
+  <thead><tr><th>Job</th><th>State</th><th>Verdict</th><th>Command</th><th>By</th><th>Queued</th></tr></thead>
+  <tbody>
+  {% for j in recent %}
+    <tr><td><a href="/compat?job={{ j.id }}">{{ j.id }}</a></td><td><span class="pill {{ JOB_CLASS.get(j.state, '') }}">{{ j.state }}</span></td>
+      <td>{% if j.verdict %}<span class="pill {{ VERDICT_CLASS.get(j.verdict, '') }}">{{ j.verdict }}</span>{% endif %}</td>
+      <td><code>{{ j.command }}</code></td><td>{{ j.by }}</td><td>{{ age_text(j.created_at) }} ago</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No compat job has run on this host yet. Choose a configuration above and press Run.</p>{% endif %}
+
+<h2>Stored results{% if cid %} of {{ cid }}{% endif %}</h2>
+{% if results %}
+<div class="scroll"><table>
+  <thead><tr><th>Result</th><th>Verdict</th><th>Configuration</th><th>Tier</th><th>Finished</th></tr></thead>
+  <tbody>
+  {% for d in results %}{% set f = d.fact %}
+    <tr data-verdict="{{ f.run_verdict or f.verdict }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td>
+      <td><span class="pill {{ VERDICT_CLASS.get(f.run_verdict or f.verdict, '') }}">{{ f.run_verdict or f.verdict }}</span>{% if f.not_run %} <span class="note">NOT-RUN {{ f.not_run }}</span>{% endif %}</td>
+      <td>{{ f.configuration }}</td><td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'T0 only' }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No stored compat result. A Run without overrides stores one (<code>nanosoc-rm compat CONFIG --store</code>).</p>{% endif %}

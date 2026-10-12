@@ -1,0 +1,35 @@
+<p class="note">Local mirrors of every catalogued repo: heads and tags only, fetched anonymously (<code>nanosoc-rm mirror sync</code>). Every other page reads them.</p>
+{% if actions %}<form class="panel" method="post" action="/mirrors/sync">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row">
+    <label>Component <input name="component" placeholder="every component"></label>
+    <button type="submit" class="primary">Sync</button>
+    <span class="note">Every component takes several minutes; one component, seconds.</span>
+  </div>
+</form>{% endif %}
+{% if job_html %}{{ job_html|safe }}{% endif %}
+{% if recent %}
+<details{% if not job_html %} open{% endif %}><summary>Recent syncs ({{ recent|length }})</summary>
+<table>
+  <thead><tr><th>Job</th><th>State</th><th>Result</th><th>Command</th><th>By</th><th>Queued</th></tr></thead>
+  <tbody>{% for j in recent %}<tr><td><a href="/mirrors?job={{ j.id }}">{{ j.id }}</a></td><td><span class="pill {{ JOB_CLASS.get(j.state, '') }}">{{ j.state }}</span></td><td>{{ j.verdict or '' }}</td><td><code>{{ j.command }}</code></td><td>{{ j.by }}</td><td>{{ age_text(j.created_at) }} ago</td></tr>{% endfor %}</tbody>
+</table>
+</details>
+{% endif %}
+{% if rows %}
+<div class="scroll"><table>
+  <thead><tr><th>Component</th><th>Repo</th><th>Status</th><th>Last success</th><th></th></tr></thead>
+  <tbody>
+  {% for m in rows %}{% set f = m.fact %}
+    <tr>
+      <td>{% if f.component %}<a href="/components/{{ f.component }}">{{ f.component }}</a>{% endif %}</td>
+      <td>{{ fact(m, f.repo.host ~ ':' ~ f.repo.path) }}</td>
+      <td><span class="pill {{ 'state-green' if f.ok else 'state-red' }}">{{ 'ok' if f.ok else 'FAILED' }}</span>{% if f.error %} <span class="note">{{ f.error }}</span>{% endif %}</td>
+      <td>{% if f.last_success_at %}{{ age_text(f.last_success_at) }} ago{% else %}never{% endif %}</td>
+      
+      <td>{% if f.component and actions %}<form method="post" action="/mirrors/sync"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ f.component }}"><button type="submit">Sync</button></form>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No mirror status stored. Press Sync (or run <code>nanosoc-rm mirror sync</code>).</p>{% endif %}

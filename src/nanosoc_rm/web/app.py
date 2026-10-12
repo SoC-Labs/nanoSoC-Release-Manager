@@ -9,8 +9,15 @@ and a websocket without a member is closed with 1008. Only the ASGI lifespan sco
 `/auth/login`, `/api` and non-GET requests get 401. A refused session (not an active member, or no role)
 gets 403 everywhere. Refusals carry no data and never echo the path.
 
-Routes. The two Run T0 POSTs are the app's only non-GET routes; neither accepts a result (D5). FastAPI's own
-docs and OpenAPI routes are switched off, so every route is one of the contract's.
+CSRF. Every request other than GET and HEAD outside `/auth/*` must carry the session's CSRF token (form field
+`csrf_token` or header `X-CSRF-Token`; htmx sends the header from the page's `hx-headers`). The guard checks it
+before routing, so a POST route added by a plug-in is covered too.
+
+Routes. Section 13's pages and JSON API; the Run T0 POSTs, which accept no result (D5). The local GUI (CR-16,
+CR-17; interfaces.md section 13a) adds the pages Compat, Branches, Hosts, Mirrors, Alerts, Components and Errata,
+and POSTs that queue local jobs (compat, mirror sync, walk), cancel one, or clear an alert; none of them accepts
+a result either. With no `[ci] project` configured, Run T0 queues a local compat job instead of triggering CI.
+FastAPI's own docs and OpenAPI routes are switched off. Plug-ins (web/plugins.py) mount extra routers.
 """
 from __future__ import annotations
 
@@ -30,10 +37,10 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketClose
 
 from nanosoc_rm import auth as authmod
-from nanosoc_rm import clock, db
+from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.config import Config, ConfigError, load_config
-from nanosoc_rm.web import registry_facts, views
-from nanosoc_rm.web.page import env, render
+from nanosoc_rm.web import plugins, registry_facts, views
+from nanosoc_rm.web.page import NAV, Page, env, render
 
 __all__ = ["create_app", "STATIC_DIR", "STATIC_PREFIX", "NDJSON"]
 
@@ -41,6 +48,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_PREFIX = "/static"
 NDJSON = "application/x-ndjson"
 _OPEN_PREFIXES = (authmod.AUTH_PREFIX, STATIC_PREFIX)
+_SAFE_METHODS = ("GET", "HEAD")
+_MAX_FORM_BYTES = 1024 * 1024
 
 
 def _is_under(path: str, prefix: str) -> bool:
@@ -61,8 +70,12 @@ def _cookie_secure(request: Request) -> bool:
 class _State:
     def __init__(self, config_path: str | None, auth: Any):
         self.config_path = config_path
-        self.auth = auth if auth is not None else authmod.GitHubAuth()
+        self.auth = auth if auth is not None else authmod.ConfiguredAuth()
         self.ephemeral_secret = secrets.token_hex(32)     # CSRF key when no session secret is configured
+        self.nav: tuple = NAV
+        self.page: Callable[..., HTMLResponse] | None = None
+        self.throttle = authmod.Throttle()
+        self.local_routes = False                         # CR-16/CR-17 POST routes registered (create_app)
 
     def config(self) -> Config:
         return load_config(self.config_path)
@@ -107,12 +120,13 @@ class Guard:
             return
         ident = await run_in_threadpool(self.state.auth.identify, request.cookies, config, self.state.sessions(config))
         if ident is None:
+            who = "sign in" if config.auth_mode == "local" else "sign in with GitHub as a SoC-Labs member"
             if _is_under(path, "/api"):
-                resp: Response = JSONResponse({"error": "sign in with GitHub as a SoC-Labs member"}, 401)
-            elif scope.get("method") in ("GET", "HEAD"):
+                resp: Response = JSONResponse({"error": who}, 401)
+            elif scope.get("method") in _SAFE_METHODS:
                 resp = RedirectResponse(authmod.LOGIN_PATH + "?" + urllib.parse.urlencode({"next": path}), 303)
             else:
-                resp = PlainTextResponse("401 Unauthorized: sign in with GitHub as a SoC-Labs member", 401)
+                resp = PlainTextResponse("401 Unauthorized: %s" % who, 401)
             await resp(scope, receive, send)
             return
         if ident.status != "member" or authmod.MEMBER_ROLE not in authmod.roles_for(config, ident.login):
@@ -125,6 +139,18 @@ class Guard:
         scope.setdefault("state", {})
         scope["state"]["identity"] = ident
         scope["state"]["config"] = config
+        if scope.get("method") not in _SAFE_METHODS and getattr(self.state.auth, "requires_csrf", True):
+            body = await _read_body(receive)
+            if body is None:
+                await PlainTextResponse("413 Payload Too Large", 413)(scope, receive, send)
+                return
+            token = await _csrf_token(scope, body)
+            want = self.state.csrf_for(ident, config)
+            if not token or not hmac.compare_digest(token, want):
+                await PlainTextResponse("403 Forbidden: the form's CSRF token is missing or wrong; reload the page "
+                                        "and try again", 403)(scope, receive, send)
+                return
+            receive = _replay(body, receive)
         if ident.refreshed:
             sessions = self.state.sessions(config)
             cookie = _session_header(sessions, ident.refreshed, secure=request.url.scheme == "https")
@@ -157,7 +183,54 @@ class Guard:
         await self.app(scope, receive, send)
 
 
-def _set_session(resp: Response, sessions: authmod.Sessions | None, d: dict, *, secure: bool) -> None:
+async def _read_body(receive: Callable) -> bytes | None:
+    """The whole request body (None when it is larger than _MAX_FORM_BYTES)."""
+    chunks, size = [], 0
+    while True:
+        message = await receive()
+        if message["type"] != "http.request":
+            break
+        chunk = message.get("body", b"")
+        size += len(chunk)
+        if size > _MAX_FORM_BYTES:
+            return None
+        chunks.append(chunk)
+        if not message.get("more_body"):
+            break
+    return b"".join(chunks)
+
+
+def _replay(body: bytes, receive: Callable) -> Callable:
+    """A receive() that hands the app the body the guard already read, then the client's own messages."""
+    pending = [{"type": "http.request", "body": body, "more_body": False}]
+
+    async def replay() -> dict:
+        return pending.pop(0) if pending else await receive()
+    return replay
+
+
+async def _csrf_token(scope: dict, body: bytes) -> str:
+    """X-CSRF-Token, else the form field `csrf_token` (urlencoded or multipart)."""
+    req = Request(scope, receive=_replay(body, _no_more))      # starlette's Request; no outbound call
+    token = req.headers.get("x-csrf-token", "")
+    if token:
+        return token
+    ctype = req.headers.get("content-type", "")
+    if "form" not in ctype:
+        return ""
+    try:
+        form = await req.form()
+    except Exception:                                # noqa: BLE001 - a malformed form has no token
+        return ""
+    return str(form.get(authmod.CSRF_FIELD) or "")
+
+
+async def _no_more() -> dict:
+    return {"type": "http.disconnect"}
+
+
+def _set_session(resp: Response, sessions: authmod.Sessions | None, d: dict, *, secure: bool,
+                 same_site: str = "lax") -> None:
     """Write session `d`. Its `iat` (sign-in time) is kept, so the cookie lives only as long as the session
     has left: re-signing after a re-check never extends it (section 14: valid 8 h)."""
     if sessions is None:
@@ -166,7 +239,7 @@ def _set_session(resp: Response, sessions: authmod.Sessions | None, d: dict, *, 
     left = authmod.session_seconds_left({"iat": iat})
     resp.set_cookie(authmod.SESSION_COOKIE, sessions.dump_session(d["login"], d["status"], d.get("sid"),
                                                                   d.get("checked_at"), iat, d.get("attempt_at")),
-                    max_age=max(1, left if left is not None else 0), httponly=True, samesite="lax", secure=secure,
+                    max_age=max(1, left if left is not None else 0), httponly=True, samesite=same_site, secure=secure,
                     path="/")
 
 
@@ -192,6 +265,14 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
     """The web app (interfaces.md sections 13, 14). `config_path` None means `$NANOSOC_RM_CONFIG`, read per
     request. `auth`: the authenticator; None is GitHub sign-in, `FakeMembership(login=)` the test seam."""
     state = _State(None if config_path is None else os.fspath(config_path), auth)
+    # CR-16/CR-17 POST routes exist only in a deployment that needs them (local sign-in, or no CI project), so a
+    # GitHub + CI deployment keeps section 13's two Run routes as its only writes (D5). Decided when the app is
+    # built: changing [auth] mode or [ci] project needs a restart.
+    try:
+        _built = state.config()
+        state.local_routes = _built.auth_mode == "local" or jobs.is_local_ci(_built)
+    except ConfigError:
+        state.local_routes = False
     app = FastAPI(title="nanoSoC Release Manager", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.rm = state
     app.add_middleware(Guard, state=state)
@@ -201,8 +282,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
              **ctx: Any) -> HTMLResponse:
         config, ident = _ctx(request)
         html = render(template, title=title, identity=ident, problems=problems, csrf=state.csrf_for(ident, config),
-                      **ctx)
+                      nav=state.nav, path=request.url.path, auth_mode=config.auth_mode,
+                      local_ci=jobs.is_local_ci(config), actions=state.local_routes, **ctx)
         return HTMLResponse(html, status_code=status)
+    state.page = page
 
     def not_found(request: Request, what: str) -> HTMLResponse:
         return page(request, "message.html", "Not found", status=404, message="No %s is known here." % what)
@@ -222,7 +305,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         c = views.configuration_page(config, id) if views.is_valid_id(id) else None
         if c is None:
             return not_found(request, "configuration")
-        return page(request, "configuration.html", "Configuration %s" % id, problems=problems, c=c)
+        q = request.query_params
+        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        return page(request, "configuration.html", "Configuration %s" % id, problems=problems, c=c,
+                    job_html=job_fragment(request, job).body.decode() if job else "")
 
     def component(request: Request, id: str) -> HTMLResponse:
         config, _ = _ctx(request)
@@ -302,6 +388,8 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                 return PlainTextResponse("403 Forbidden: the form's CSRF token is missing or wrong", 403)
         if not views.is_valid_id(cid):
             return PlainTextResponse("400 Bad Request: not a configuration id", 400)
+        if jobs.is_local_ci(config):                 # CR-17: no CI project here, so Run runs compat locally
+            return await _queue(request, "compat", {"configuration": cid}, api=api, active_for=cid)
         status = 202
         try:
             run = await run_in_threadpool(views.run_t0, config, cid, ident.login)
@@ -322,6 +410,196 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
             p = Page()
             return HTMLResponse(frag.render(run=run, fact=p.fact, page=p, status=status), status_code=status)
         return page(request, "run_started.html", "Run T0", status=status, run=run, pending_status=status)
+
+    # ----- local GUI (CR-16, CR-17; interfaces.md section 13a) -------------------------------------------
+    def job_fragment(request: Request, job: dict, status: int = 200) -> HTMLResponse:
+        """One job's status, log tail and (when done) result: the htmx polling target."""
+        config, ident = _ctx(request)
+        p = Page()
+        html = env.get_template("_job.html").render(
+            job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]),
+            csrf=state.csrf_for(ident, config), fact=p.fact, page=p, stored=_stored_result(config, job))
+        return HTMLResponse(html, status_code=status)
+
+    def _stored_result(config: Config, job: dict) -> dict | None:
+        """The stored compat_result of a finished compat job (None for a what-if: never stored)."""
+        doc = job.get("result") if job["kind"] == "compat" else None
+        if not doc or job["params"].get("pins"):
+            return None
+        hist = db.history(doc["subject"], config=config)
+        return hist[-1] if hist else None
+
+    def _duplicate(config: Config, kind: str, params: dict, run_button: bool) -> dict | None:
+        """A queued or running job that already does what this request asks (Run, Walk now, Sync)."""
+        for j in views.safe_jobs(config, states=("queued", "running"), kind=kind):
+            jp = j["params"]
+            if kind == "compat" and run_button and jp.get("configuration") == params["configuration"] \
+                    and not jp.get("pins") and not jp.get("tier"):
+                return j
+            if kind == "mirror-sync" and jp.get("component") == params.get("component"):
+                return j
+            if kind == "walk" and jp.get("configuration") == params.get("configuration"):
+                return j
+        return None
+
+    async def _queue(request: Request, kind: str, params: dict, *, api: bool = False,
+                     active_for: str | None = None) -> Response:
+        config, ident = _ctx(request)
+        status = 202
+        try:
+            job = _duplicate(config, kind, params, run_button=active_for is not None)
+            if job is not None:
+                status = 409                          # the same job is already queued or running
+            else:
+                job = await run_in_threadpool(jobs.submit, config, kind, params, ident.login)
+        except jobs.JobUsage as e:
+            return PlainTextResponse("400 Bad Request: %s" % e, 400)
+        if api:
+            return JSONResponse({"job": {k: job[k] for k in ("id", "kind", "params", "state", "by", "created_at",
+                                                             "command")}}, status)
+        if request.headers.get("hx-request"):
+            return job_fragment(request, job, status)
+        target = {"compat": "/compat?job=%d", "mirror-sync": "/mirrors?job=%d"}.get(kind, "/compat?job=%d")
+        if kind == "walk":
+            target = "/configurations/%s?job=%%d" % urllib.parse.quote(params["configuration"], safe="")
+        return RedirectResponse(target % job["id"], 303)
+
+    def compat_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        problems = registry_problems(config)
+        q = request.query_params
+        job = None
+        if (q.get("job") or "").isdigit():
+            job = jobs.get(config, int(q["job"]))
+            if job is None:
+                return not_found(request, "job")
+        cid = q.get("configuration") or (job["params"].get("configuration") if job else None)
+        configs = views.configurations(config)
+        if cid and not views.is_valid_id(cid):
+            cid = None
+        pins = views.pins(config, cid) if cid else []
+        refs: dict[str, list[dict]] = {}
+        for p in pins:
+            comp = (p["fact"].get("child") or {}).get("component")
+            if comp and comp not in refs:
+                refs[comp] = views.component_refs(config, comp)
+        tiers = {}
+        if cid:
+            try:
+                from nanosoc_rm.ci import configs as cimod
+                tiers = cimod.tiers(cid, config)
+            except Exception as e:                   # noqa: BLE001 - the form still works without tiers
+                problems = problems + ["tiers.yaml could not be read for %s: %s" % (cid, str(e)[:200])]
+        return page(request, "compat.html", "Compatibility check", problems=problems, configs=configs, cid=cid,
+                    pins=pins, refs=refs, tiers=tiers, job=job,
+                    job_html=job_fragment(request, job).body.decode() if job else "",
+                    recent=views.safe_jobs(config, limit=25, kind="compat"),
+                    results=views.compat_results(config, cid)[:10] if cid else views.compat_results(config))
+
+    async def post_compat(request: Request) -> Response:
+        form = await request.form()
+        pins = [str(v) for v in form.getlist("pin") if str(v).strip()]
+        pins += [ln.strip() for ln in str(form.get("pins_extra") or "").splitlines() if ln.strip()]
+        params = {"configuration": str(form.get("configuration") or ""), "pins": pins,
+                  "tier": str(form.get("tier") or "") or None, "force_tier": bool(form.get("force_tier"))}
+        return await _queue(request, "compat", params)
+
+    def job_fragment_route(request: Request, id: str) -> Response:
+        config, _ = _ctx(request)
+        job = jobs.get(config, int(id)) if id.isdigit() else None
+        if job is None:
+            return PlainTextResponse("404 Not Found: no such job", 404)
+        return job_fragment(request, job)
+
+    def job_log(request: Request, id: str) -> Response:
+        config, _ = _ctx(request)
+        job = jobs.get(config, int(id)) if id.isdigit() else None
+        if job is None:
+            return PlainTextResponse("404 Not Found: no such job", 404)
+        return PlainTextResponse(jobs.log_text(config, job["id"]) or "(no output yet)")
+
+    async def post_cancel(request: Request, id: str) -> Response:
+        config, ident = _ctx(request)
+        job = jobs.get(config, int(id)) if id.isdigit() else None
+        if job is None:
+            return PlainTextResponse("404 Not Found: no such job", 404)
+        job = await run_in_threadpool(jobs.cancel, config, job["id"], ident.login)
+        if request.headers.get("hx-request"):
+            return job_fragment(request, job)
+        return RedirectResponse(("/mirrors?job=%d" if job["kind"] == "mirror-sync" else "/compat?job=%d") % job["id"], 303)
+
+    async def post_walk(request: Request, id: str) -> Response:
+        return await _queue(request, "walk", {"configuration": id})
+
+    async def post_mirror_sync(request: Request) -> Response:
+        form = await request.form()
+        return await _queue(request, "mirror-sync", {"component": str(form.get("component") or "") or None})
+
+    def branches_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        problems = registry_problems(config)
+        q = request.query_params
+        comp = q.get("component") or ""
+        all_repos = q.get("all") in ("1", "on", "true")
+        rows, more, computed = (views.branch_rows(config, comp, all_repos=all_repos, refresh=q.get("refresh") == "1")
+                                if comp else ([], [], False))
+        counts: dict[str, int] = {}
+        for d in rows:
+            counts[d["fact"]["verdict"]] = counts.get(d["fact"]["verdict"], 0) + 1
+        verdict = q.get("verdict") or ""
+        shown = [d for d in rows if not verdict or d["fact"]["verdict"] == verdict
+                 or (verdict == "deletable" and d["fact"]["deletable"])]
+        mirrored = {d["fact"].get("component") for d in views.mirrors(config)}
+        comps = [c for c in views.components(config) if c["fact"]["id"] in mirrored] if not comp else []
+        return page(request, "branches.html", "Branches", problems=problems + more, component=comp,
+                    all_repos=all_repos, rows=shown, total=len(rows), counts=counts, verdict=verdict,
+                    computed=computed, delete_text=views.delete_text(rows) if rows else "", comps=comps,
+                    choices=sorted(mirrored - {None}))
+
+    def hosts_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        problems = registry_problems(config)
+        comp = request.query_params.get("component") or None
+        if comp and not views.is_valid_id(comp):
+            comp = None
+        if request.query_params.get("refresh") == "1":
+            problems = problems + views.compare_now(config, comp)
+        rows = views.host_compares(config, comp)
+        return page(request, "hosts.html", "Host copies", problems=problems, rows=rows, component=comp)
+
+    def mirrors_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        q = request.query_params
+        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        return page(request, "mirrors.html", "Mirrors", rows=views.mirrors(config),
+                    job=job, job_html=job_fragment(request, job).body.decode() if job else "",
+                    recent=views.safe_jobs(config, limit=10, kind="mirror-sync"))
+
+    def alerts_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        open_, cleared = views.all_alerts(config)
+        return page(request, "alerts.html", "Alerts", open_alerts=open_, cleared=cleared[:50])
+
+    async def post_clear_alert(request: Request) -> Response:
+        config, ident = _ctx(request)
+        subject = str((await request.form()).get("subject") or "")
+        try:
+            await run_in_threadpool(db.clear_alert, subject, ident.login, config=config)
+        except KeyError:
+            return PlainTextResponse("404 Not Found: no such alert", 404)
+        return RedirectResponse("/alerts", 303)
+
+    def components_page(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        problems = registry_problems(config)
+        mirrored = {d["fact"].get("component") for d in views.mirrors(config)}
+        return page(request, "components.html", "Components", problems=problems,
+                    components=views.components(config), mirrored=mirrored)
+
+    def errata_index(request: Request) -> HTMLResponse:
+        config, _ = _ctx(request)
+        problems = registry_problems(config)
+        return page(request, "errata_all.html", "Errata", problems=problems, errata=views.errata(config))
 
     # ----- JSON API (section 13): every line is an observation -----------------------------------------
     def api_configurations(request: Request) -> Response:
@@ -378,6 +656,8 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
     def login(request: Request) -> Response:
         try:
             config = state.config()
+            if config.auth_mode == "local":
+                return _login_form(request)
             sessions = state.sessions(config)
             if sessions is None:
                 return PlainTextResponse("503 Service Unavailable: sign-in is not configured "
@@ -392,9 +672,52 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                         secure=_cookie_secure(request), path=authmod.AUTH_PREFIX)
         return resp
 
+    def _login_form(request: Request, message: str = "", status: int = 200, login: str = "") -> Response:
+        """CR-16: the local sign-in form, with a double-submit token (cookie + hidden field)."""
+        token = request.cookies.get(authmod.LOGIN_CSRF_COOKIE) or secrets.token_urlsafe(24)
+        if request.query_params.get("signed_out"):
+            message = message or "Signed out."
+        html = env.get_template("login.html").render(
+            token=token, next=_safe_next(request.query_params.get("next")), message=message, login=login)
+        resp = HTMLResponse(html, status_code=status)
+        resp.set_cookie(authmod.LOGIN_CSRF_COOKIE, token, max_age=3600, httponly=True, samesite="strict",
+                        secure=_cookie_secure(request), path=authmod.AUTH_PREFIX)
+        return resp
+
+    async def login_post(request: Request) -> Response:
+        """CR-16: check the local user's password; on success the signed session cookie (SameSite=Strict)."""
+        try:
+            config = state.config()
+        except ConfigError:
+            return PlainTextResponse("503 Service Unavailable: the service config cannot be read", 503)
+        if config.auth_mode != "local":
+            return PlainTextResponse("405 Method Not Allowed: sign in with GitHub at %s" % authmod.LOGIN_PATH, 405)
+        form = await request.form()
+        login, password = str(form.get("login") or "").strip(), str(form.get("password") or "")
+        cookie = request.cookies.get(authmod.LOGIN_CSRF_COOKIE, "")
+        given = str(form.get(authmod.CSRF_FIELD) or "")
+        if not cookie or not given or not hmac.compare_digest(cookie, given):
+            return _login_form(request, "The form expired. Sign in again.", 403, login)
+        if state.throttle.blocked(login):
+            return _login_form(request, "Too many failed sign-ins for this login: wait 5 minutes.", 429, login)
+        ok = await run_in_threadpool(authmod.check_local_password, config, login, password)
+        if not ok:
+            state.throttle.fail(login)
+            return _login_form(request, "Wrong login or password.", 401, login)
+        state.throttle.clear(login)
+        sessions = state.sessions(config)
+        resp = RedirectResponse(_safe_next(str(form.get("next") or "")), 303)
+        _set_session(resp, sessions, {"login": login, "status": "member", "checked_at": clock.iso()},
+                     secure=_cookie_secure(request), same_site="strict")
+        resp.delete_cookie(authmod.LOGIN_CSRF_COOKIE, path=authmod.AUTH_PREFIX)
+        return resp
+
     def callback(request: Request) -> Response:
         try:
             config = state.config()
+            if config.auth_mode == "local":
+                return PlainTextResponse("404 Not Found: this service signs in locally at %s" % authmod.LOGIN_PATH,
+                                         404)
             sessions = state.sessions(config)
         except ConfigError:
             sessions = None
@@ -429,7 +752,12 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         return resp
 
     def logout(request: Request) -> Response:
-        resp = PlainTextResponse("Signed out.", 200)
+        try:
+            local = state.config().auth_mode == "local"
+        except ConfigError:
+            local = False
+        resp: Response = RedirectResponse(authmod.LOGIN_PATH + "?signed_out=1", 303) if local \
+            else PlainTextResponse("Signed out.", 200)
         resp.delete_cookie(authmod.SESSION_COOKIE, path="/")
         return resp
 
@@ -439,6 +767,9 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                      ("/contains", contains_page), ("/silicon-protection", silicon), ("/defects", defects_page),
                      ("/defects/{id}", defect_page), ("/errata/{configuration}", errata_page),
                      ("/runs/{nonce}", run_page), ("/facts/{subject:path}", facts_page),
+                     ("/compat", compat_page), ("/branches", branches_page), ("/hosts", hosts_page),
+                     ("/mirrors", mirrors_page), ("/alerts", alerts_page), ("/components", components_page),
+                     ("/errata", errata_index), ("/jobs/{id}/fragment", job_fragment_route), ("/jobs/{id}/log", job_log),
                      ("/api/v1/configurations", api_configurations), ("/api/v1/configurations/{id}/pins", api_pins),
                      ("/api/v1/components/{id}/hosts", api_hosts), ("/api/v1/contains/{sha}", api_contains),
                      ("/api/v1/silicon-protection", api_silicon), ("/api/v1/runs", api_runs),
@@ -449,4 +780,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         app.add_api_route(path, fn, methods=get, include_in_schema=False)
     app.add_api_route("/configurations/{id}/runs", post_run, methods=["POST"], include_in_schema=False)
     app.add_api_route("/api/v1/configurations/{id}/runs", post_run_api, methods=["POST"], include_in_schema=False)
+    local_posts = (("/compat/jobs", post_compat), ("/jobs/{id}/cancel", post_cancel),
+                   ("/configurations/{id}/walk", post_walk), ("/mirrors/sync", post_mirror_sync),
+                   ("/alerts/clear", post_clear_alert), (authmod.LOGIN_PATH, login_post), (authmod.LOGOUT_PATH, logout))
+    for path, fn in local_posts if state.local_routes else ():
+        app.add_api_route(path, fn, methods=["POST"], include_in_schema=False)
+    state.nav = NAV + tuple(plugins.load(app))
     return app

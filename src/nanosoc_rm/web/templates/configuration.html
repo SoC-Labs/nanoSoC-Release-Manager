@@ -1,33 +1,87 @@
 {% set rec = c.record %}
-{% if rec %}<p>{{ fact(rec, 'registry record') }}: component {{ rec.fact.record.component }},
-  ref {{ rec.fact.record.ref }}{% if rec.fact.record.commit %}, commit {{ short(rec.fact.record.commit, 12) }}{% endif %}
-  {% if c.frozen %}<span class="badge">frozen</span>{% endif %}
+{% if rec %}<p>{{ fact(rec, 'registry record') }}: component <a href="/components/{{ rec.fact.record.component }}">{{ rec.fact.record.component }}</a>,
+  ref {{ rec.fact.record.ref }}{% if rec.fact.record.commit %}, commit <code>{{ short(rec.fact.record.commit, 12) }}</code>{% endif %}
+  {% if c.frozen %}<span class="badge">frozen</span>{% endif %}{% if rec.fact.record.silicon %} <span class="badge">silicon {{ rec.fact.record.silicon.chip }} {{ rec.fact.record.silicon.revision }}</span>{% endif %}
   · <a href="/errata/{{ c.id }}">errata ({{ c.errata|length }})</a></p>{% endif %}
-{% with cid = c.id, pending = c.pending %}{% include "_run_form.html" %}{% endwith %}
+<div class="row">
+  {% with cid = c.id, pending = c.pending or (c.jobs|selectattr('state', 'in', ['queued', 'running'])|list) %}{% include "_run_form.html" %}{% endwith %}
+  <a href="/compat?configuration={{ c.id }}">Move pins or run T1/T2...</a>
+  {% if actions %}
+  <form method="post" action="/configurations/{{ c.id }}/walk"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" title="nanosoc-rm walk {{ c.id }}">Walk now</button></form>
+  {% endif %}
+</div>
+{% if job_html %}<h2>Job</h2>{{ job_html|safe }}{% endif %}
+
+<h2>Compat results (local)</h2>
+{% if c.compat %}
+<div class="scroll"><table>
+  <thead><tr><th>Result</th><th>Verdict</th><th>Tier</th><th>Not run</th><th>Finished</th></tr></thead>
+  <tbody>
+{% for d in c.compat %}{% set f = d.fact %}{% set v = f.run_verdict or f.verdict %}
+  <tr data-verdict="{{ v }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td><span class="pill {{ VERDICT_CLASS.get(v, '') }}">{{ v }}</span>{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</td>
+    <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'T0 only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No stored compat result. Press {{ 'Run' if local_ci else 'Run T0' }} above, or <code>nanosoc-rm compat {{ c.id }} --store</code>.</p>{% endif %}
+{% if c.jobs %}
+<details><summary>Local jobs ({{ c.jobs|length }})</summary>
+<table><thead><tr><th>Job</th><th>State</th><th>Verdict</th><th>Command</th><th>By</th></tr></thead><tbody>
+{% for j in c.jobs %}<tr><td><a href="/compat?job={{ j.id }}">{{ j.id }}</a></td><td><span class="pill {{ JOB_CLASS.get(j.state, '') }}">{{ j.state }}</span></td><td>{{ j.verdict or '' }}</td><td><code>{{ j.command }}</code></td><td>{{ j.by }}</td></tr>{% endfor %}
+</tbody></table></details>
+{% endif %}
 
 <h2>Pins ({{ c.pins|length }}, {{ c.red|length }} red on their pinned host)</h2>
-<table>
+{% if c.pins %}
+<div class="scroll"><table>
   <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>State per host</th><th>Lag</th><th>Tags</th><th>Split</th></tr></thead>
   <tbody>
 {% for p in c.pins %}
   {% set f = p.fact %}
   <tr class="{{ 'state-red' if p in c.red else '' }}">
-    <td>{{ fact(p, f.tree_paths|join(', ')) }}</td>
+    <td>{{ fact(p, f.tree_paths|join(', ')) }}{% if p in c.red %} <strong>red</strong>{% endif %}</td>
     <td>{% if f.child.component %}<a href="/components/{{ f.child.component }}">{{ f.child.component }}</a>{% else %}{{ f.child.catalogued_as }}{% endif %}</td>
     <td><code>{{ short(f.child.commit) }}</code>{% if f.url_kind == 'ssh' %} <span class="badge">ssh</span>{% endif %}</td>
-    <td>{% if f.state %}<span class="state-red">{{ f.state }}</span>{% endif %}
-      {% for host, h in f.hosts|dictsort %}<span class="{{ STATE_CLASS.get(h.state, 'state-red') }}">{{ host }}{% if h.pinned %}*{% endif %}: {{ h.state }}</span> {% endfor %}</td>
+    <td>{% if f.state %}<span class="pill state-red">{{ f.state }}</span>{% endif %}
+      {% for host, h in f.hosts|dictsort %}<span class="pill {{ STATE_CLASS.get(h.state, 'state-red') }}">{{ host }}{% if h.pinned %}*{% endif %}: {{ h.state }}</span> {% endfor %}</td>
     <td>{% for host, h in f.hosts|dictsort %}{% if h.lag is not none %}{{ host }} {{ h.lag }} {% endif %}{% endfor %}</td>
     <td>{% for host, h in f.hosts|dictsort %}{% for t in h.tags %}<code>{{ t }}</code> {% endfor %}{% endfor %}</td>
-    <td>{{ 'split' if f.split else '' }}</td>
+    <td>{% if f.split %}<span class="pill state-amber">split</span>{% endif %}</td>
   </tr>
 {% endfor %}
   </tbody>
-</table>
-<p class="note">* the host the pinned URL names.</p>
+</table></div>
+<p class="note">* the host the pinned URL names. Green: tagged or on the default branch. Amber: only on a branch. Red: see README section 5.</p>
+{% else %}<p class="empty">No walk of {{ c.id }} is stored. {% if local_ci %}Press Walk now, or run{% else %}Run{% endif %} <code>nanosoc-rm walk {{ c.id }}</code>.</p>{% endif %}
 
-<h2>T0 history</h2>
-<table>
+<h2>B7 splits</h2>
+{% if c.splits %}
+<ul>{% for sp in c.splits %}<li><strong>{{ sp.component }}</strong> pinned at {{ sp.pins|map(attribute='fact.child.commit')|unique|list|length }} commits: {% for p in sp.pins %}{{ fact(p, p.fact.tree_paths[0]) }} @ <code>{{ short(p.fact.child.commit) }}</code>{{ '; ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
+{% else %}<p class="note">No component is pinned at two commits in this tree{{ '' if c.pins else ' (no walk stored)' }}.</p>{% endif %}
+
+<h2>Silicon protection</h2>
+{% if c.silicon %}
+<div class="scroll"><table>
+  <thead><tr><th>Host</th><th>Component</th><th>Commit</th><th>State</th><th>Covered by</th></tr></thead>
+  <tbody>
+{% for r in c.silicon %}{% set f = r.fact %}
+  <tr class="{{ 'state-green' if f.covered else 'state-red' }}"><td>{{ f.repo.host }}</td><td>{{ fact(r, f.component) }}</td><td><code>{{ short(f.commit) }}</code></td><td>{{ f.state }}</td>
+    <td>{% for t in f.covering_tags %}<code>{{ t }}</code> {% else %}<strong>uncovered</strong>{% endfor %}</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="note">{{ 'No silicon-protection rows stored (nanosoc-rm silicon-protection ' ~ c.id ~ ').' if c.frozen else 'Not frozen or silicon: no protection list.' }}</p>{% endif %}
+
+<h2>T0 waivers</h2>
+{% if c.waivers %}
+<div class="scroll"><table>
+  <thead><tr><th>Gate</th><th>Tree path</th><th>Result</th><th>Approved</th><th>Reason</th></tr></thead>
+  <tbody>{% for w in c.waivers %}<tr><td><code>{{ w.gate }}</code></td><td><code>{{ w.tree_path }}</code></td><td>{{ w.result }}</td><td>{{ w.approved_by }}, {{ w.approved_on }}</td><td>{{ w.reason }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="note">No waivers (only a frozen configuration may carry them).</p>{% endif %}
+
+<h2>T0 history (CI)</h2>
+<div class="scroll"><table>
   <thead><tr><th>Run</th><th>Verdict</th><th>Acceptance</th><th>Triggered</th><th>By</th></tr></thead>
   <tbody>
 {% for r in c.runs %}
@@ -36,7 +90,7 @@
     <td>{{ fact(r, r.fact.verdict or 'pending') }}</td><td>{{ r.fact.acceptance }}</td>
     <td>{{ r.fact.run.triggered_at }}</td><td>{{ r.fact.run.triggered_by }}</td>
   </tr>
-{% else %}<tr><td colspan="5">no run yet</td></tr>
+{% else %}<tr><td colspan="5">no CI run yet</td></tr>
 {% endfor %}
   </tbody>
-</table>
+</table></div>

@@ -1,0 +1,69 @@
+# The web GUI on one host (local mode)
+
+The same pages as the service VM will serve, run from a login server with no GitHub OAuth app and no CI
+project: local sign-in (CR-16) and a local job worker (CR-17). Contracts: `docs/contracts/interfaces.md`
+sections 13, 13a and 14.
+
+## Set up (about 10 minutes)
+
+1. Install: `scripts/dev-env.sh`, then `export PATH=$PWD/.venv/bin:$PATH`.
+2. Make a user (prints a config stanza; writes nothing):
+   ```
+   nanosoc-rm user add <login> --generate        # or without --generate to type a password
+   ```
+3. Write the private config (outside this repo), named by `NANOSOC_RM_CONFIG`:
+   ```toml
+   [service]
+   data_dir = "/path/to/rm-data"          # mirrors, rm.sqlite, jobs.sqlite, job logs, session.secret
+   [registry]
+   path = "/path/to/nanosoc-registry"     # a registry checkout
+   [hosts.github]
+   web = "https://github.com"
+   api = "https://api.github.com"
+   ssh = "git@github.com:"
+   org = "SoC-Labs"
+   [hosts.gitlab]
+   web = "https://<gitlab-host>"
+   api = "https://<gitlab-host>/api/v4"
+   ssh = "git@<gitlab-host>:"
+   group = "soclabs"
+   [auth]
+   mode = "local"
+   [[auth.users]]                         # the stanza from step 2
+   login = "<login>"
+   hash = "scrypt$..."
+   ```
+   No `[ci]` section: Run then checks on this host. No `[roles]` needed: a local user is a `member`.
+4. Serve on loopback (it refuses any other address in local mode):
+   ```
+   nanosoc-rm serve --host 127.0.0.1 --port 8000
+   ```
+   Add `--no-schedule` to skip the 15-minute poll (it syncs every mirror and walks every configuration).
+5. From your laptop: `ssh -N -L 8000:127.0.0.1:8000 <host>`, then open http://127.0.0.1:8000/ and sign in.
+
+## Pages
+
+| Page | What it is for |
+|---|---|
+| Dashboard | per configuration: last local compat verdict and age, CI T0 (if any), red pins, errata, host drift; **Run** |
+| Configuration | pins with states per host, B7 splits, silicon protection, T0 waivers, compat and CI history; **Walk now** |
+| Compat | move pins to any tag or branch in the mirror, choose T1/T2, run; live log; per-gate and per-pin table |
+| Branches | branch verdicts with filters; the delete list to copy (the tool never deletes) |
+| Hosts | canonical vs copy relation; **Compare now** |
+| Contains, Silicon | containment of a commit; silicon-protection rows |
+| Registry | components, defects, errata |
+| Mirrors | fetch status and age; **Sync** one component or all |
+| Alerts | open and cleared alerts; **Clear** (logged with your login) |
+| Quality | appears when the quality module is installed |
+
+Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
+
+## Jobs
+
+Run, Sync and Walk queue a job; one runs at a time. A job is the CLI command shown on its card, run as a child
+process: cancel stops it and everything it started. A run without pin overrides is stored (the dashboard shows
+it); a what-if with overrides is shown but never stored. If the service stops while a job runs, the job becomes
+INFRA with the reason when the service starts again.
+
+Times on the eth configurations: walk about 15 s; compat (T0) about 3 minutes; mirror sync of every component
+several minutes.

@@ -14,6 +14,9 @@ wall clock. Jobs, in the order they run within one tick:
     credentials  once per UTC day, at or after schedule.nightly_utc: `credentials check` (H3 expiry warning)
     runner       every schedule.poll_minutes: `runner` (D10; the dashboard's runner status)
 
+With no `[ci] project` configured (a local deployment, CR-17), the CI jobs (nightly_t0, fetch, runner) are left
+out: there is nothing to trigger or fetch, and Run executes locally instead (nanosoc_rm.jobs).
+
 When a job last ran is kept in `<data_dir>/schedule.json` (written atomically), so a restart neither repeats a
 night nor forgets one. A job that raises is still marked as run (it is retried at its next due time, never in a
 tight loop) and its error goes to stderr; the other jobs still run. A night missed while the service was down is
@@ -37,7 +40,7 @@ from typing import Callable
 from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
-__all__ = ["tick", "JOBS", "Job", "due", "state_path", "load_state"]
+__all__ = ["tick", "JOBS", "CI_JOBS", "Job", "due", "state_path", "load_state"]
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,7 @@ JOBS: tuple[Job, ...] = (
     Job("credentials", "nightly", _credentials),
     Job("runner", "poll", _runner),
 )
+CI_JOBS = ("nightly_t0", "fetch", "runner")          # need a CI project; skipped without one (CR-17)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -177,7 +181,9 @@ def tick(now: dt.datetime, *, config: Config | None = None, jobs: tuple[Job, ...
     now = (now if now.tzinfo else now.replace(tzinfo=dt.timezone.utc)).astimezone(dt.timezone.utc)
     state = load_state(config)
     ran = []
-    for job in jobs if jobs is not None else JOBS:
+    if jobs is None:
+        jobs = JOBS if (config.get("ci") or {}).get("project") else tuple(j for j in JOBS if j.name not in CI_JOBS)
+    for job in jobs:
         if not due(job, now, state.get(job.name), config):
             continue
         try:

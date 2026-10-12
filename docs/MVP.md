@@ -115,7 +115,8 @@ keeps the sandbox for inspection.
 
 ## Limits of this MVP
 
-- No web pages, nightly runs or CI: those are the gate-3 live service (`docs/PLAN.md`).
+- Nightly runs and CI are the gate-3 live service (`docs/PLAN.md`). The web pages run on one host now, with local
+  sign-in and a local job worker: `docs/GUI.md`.
 - Local T0 on eth takes about 3 minutes against a 120 s budget.
 - The VCS seat lock only covers other `nanosoc-rm` runs on the same host.
 - Contracts, requirements and change requests: `docs/REQUIREMENTS.md`, `docs/contracts/`, `docs/CHANGES.md`.

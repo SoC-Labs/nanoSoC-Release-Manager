@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Sign in · nanoSoC Release Manager</title>
+<link rel="stylesheet" href="/static/rm.css">
+</head>
+<body>
+<main>
+  <form class="panel login" method="post" action="/auth/login">
+    <h1>nanoSoC Release Manager</h1>
+    <p class="note">Sign in with the login and password from this service's config (<code>nanosoc-rm user add</code>).</p>
+    {% if message %}<p class="banner {{ 'info' if message == 'Signed out.' else 'problem' }}" role="status">{{ message }}</p>{% endif %}
+    <input type="hidden" name="csrf_token" value="{{ token }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Login <input name="login" value="{{ login }}" autocomplete="username" required autofocus></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+</main>
+</body>
+</html>

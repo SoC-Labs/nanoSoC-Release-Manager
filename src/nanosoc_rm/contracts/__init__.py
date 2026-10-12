@@ -227,4 +227,11 @@ WRITE_CALLS: list[dict[str, str]] = [
               "checkout with a clean environment that carries no token, HOME or ssh agent of the caller",
      "reason": "CR-12: run a configuration's local T1/T2 command (lint, smoke sim); it writes only inside the "
                "sandbox work directory"},
+    {"file": "nanosoc_rm/jobs.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local",
+     "guard": "the argv is always this Python running nanosoc_rm.cli with a `compat`, `mirror sync` or `walk` command "
+              "built by jobs.cli_args from checked parameters (jobs._params); the child is the same read-only CLI a "
+              "person runs, under the same git runner and WRITE_CALLS",
+     "reason": "CR-17: the service's local job worker runs `nanosoc-rm compat`, `mirror sync` and `walk` as a child "
+               "process, so a cancel can stop the whole process tree and the service never imports the tier runner"},
 ]

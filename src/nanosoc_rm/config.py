@@ -9,6 +9,9 @@ that needs a key asks for it with `Config.require(...)`, which raises ConfigErro
 file, a TOML syntax error, a wrong type or an unknown section is a ConfigError, and the CLI turns every
 ConfigError into exit 3 (interfaces.md section 0.2).
 
+`[auth]` (CR-16) selects the sign-in: `mode = "github"` (default) or `"local"` with `[[auth.users]]` (login,
+scrypt `hash`, optional `roles`).
+
 Defaults filled in (section 1): `hosts.<key>.git` = `hosts.<key>.web`; `paths.quarantine` =
 `<data_dir>/quarantine`; `schedule` = 15 / "02:00" / 2; `roles` = {} (an empty table refuses everyone).
 Relative paths are resolved against the config file's directory.
@@ -46,7 +49,11 @@ _SECTIONS: dict[str, dict[str, str]] = {
 _HOST = {"web": _STR, "api": _STR, "ssh": _STR, "git": _STR, "org": _STR, "group": _STR}
 _CREDENTIAL = {"token_file": _STR, "scope": _STRS, "expires": _STR, "project": _STR, "client_id": _STR}
 _STORES = {"disk": {"path": _STR}, "artifactory": {"url": _STR, "repo": _STR}}
-_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles"}
+_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth"}
+AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
+_AUTH = {"mode": _STR, "users": "list[table]"}
+_AUTH_USER = {"login": _STR, "hash": _STR, "roles": _STRS}
+_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 # Keys holding a filesystem path, resolved against the config file's directory.
 _PATH_KEYS = (("service", "data_dir"), ("registry", "path"), ("session", "secret_file"), ("paths", "quarantine"))
 
@@ -128,6 +135,7 @@ def validate(doc: dict) -> list[str]:
                 problems.append("[stores.%s] unknown store; known: %s" % (name, ", ".join(_STORES)))
             else:
                 _check_table("stores.%s" % name, table, _STORES[name], problems)
+    _check_auth(doc.get("auth"), problems)
     roles = doc.get("roles", {})
     if not isinstance(roles, dict):
         problems.append("[roles] must be a table")
@@ -136,6 +144,41 @@ def validate(doc: dict) -> list[str]:
             if not _type_ok(value, _STRS):
                 problems.append("[roles] %s must be a list of role names" % login)
     return problems
+
+
+def _check_auth(auth: Any, problems: list[str]) -> None:
+    """CR-16: `[auth] mode = "local"` with `[[auth.users]]` login, scrypt hash (`nanosoc-rm user add`), optional
+    roles. Only the shape is checked here; a hash that does not parse refuses that user's sign-in."""
+    if auth is None:
+        return
+    if not isinstance(auth, dict):
+        problems.append("[auth] must be a table")
+        return
+    for k in auth:
+        if k not in _AUTH:
+            problems.append("[auth] unknown key %r" % k)
+    mode = auth.get("mode", "github")
+    if mode not in AUTH_MODES:
+        problems.append("[auth] mode must be one of %s" % ", ".join(AUTH_MODES))
+    users = auth.get("users", [])
+    if not isinstance(users, list) or not all(isinstance(u, dict) for u in users):
+        problems.append("[[auth.users]] must be an array of tables")
+        return
+    seen = set()
+    for i, u in enumerate(users):
+        where = "auth.users[%d]" % i
+        _check_table(where, u, _AUTH_USER, problems)
+        login = u.get("login")
+        if not isinstance(login, str) or not _LOGIN.match(login):
+            problems.append("[%s] login is required (letters, digits, _ . -)" % where)
+        elif login in seen:
+            problems.append("[%s] login %s is given twice" % (where, login))
+        else:
+            seen.add(login)
+        if not isinstance(u.get("hash"), str) or not u.get("hash", "").startswith("scrypt$"):
+            problems.append("[%s] hash is required: the scrypt$... line `nanosoc-rm user add` prints" % where)
+    if mode == "local" and not users:
+        problems.append("[auth] mode = \"local\" needs at least one [[auth.users]] entry (`nanosoc-rm user add`)")
 
 
 class Config(dict):
@@ -159,6 +202,11 @@ class Config(dict):
     @property
     def mirrors_dir(self) -> Path:
         return self.data_dir / "mirrors"
+
+    @property
+    def auth_mode(self) -> str:
+        """CR-16: "github" (sign-in with GitHub, the default) or "local" (named users in [[auth.users]])."""
+        return (self.get("auth") or {}).get("mode", "github")
 
     @property
     def quarantine(self) -> Path:

@@ -778,6 +778,63 @@ Every route is behind auth (section 14). Every page prints its data age and link
 `POST /api/v1/configurations/{id}/runs` is the same action as the button. These two POST routes are the app's
 only non-GET routes; neither accepts a result, so nothing can push a verdict to the service (D5).
 
+## 13a. The local GUI: local sign-in and local jobs (CR-16, CR-17)
+
+Requirements: H1, H2, A3, A4, A5, PR4, Q6 (page shell); CR-16 and CR-17 (`docs/CHANGES.md`). Section 13 stays as
+it is; this section adds what a single-host deployment (no GitHub OAuth app, no CI project) needs.
+
+**Routes added** (all behind the section 14 guard, which also checks the CSRF token on every non-GET request):
+
+| Route | Shows or does | Function |
+|---|---|---|
+| `GET /compat?configuration=&job=` | pick a configuration; move pins from the component's mirror tags and branches; choose a tier; queue; the job's live log and result table (per gate and per pin, README section 6 colours with text) | `analysis.compat` via `jobs` |
+| `GET /branches?component=&all=1&verdict=&refresh=1` | the branch inventory with verdict filters and the delete list as copyable text | `analysis.branches.branches` |
+| `GET /hosts?component=&refresh=1` | host comparisons (`refresh` compares now from the mirrors) | `analysis.hosts.compare_hosts` |
+| `GET /mirrors?job=` | mirror_status rows; Sync | `mirror.sync_component` via `jobs` |
+| `GET /alerts` | open and cleared alerts; Clear (logged `clear_alert`) | `db.alerts`, `db.clear_alert` |
+| `GET /components`, `GET /errata` | the catalogue; every erratum | registry records |
+| `GET /jobs/{id}/fragment`, `GET /jobs/{id}/log` | one job as an HTML fragment (htmx polls it every 2 s while it runs) / its log as text | `jobs.get`, `jobs.log_text` |
+| `POST /compat/jobs` | queue `compat CONFIG [--pin ...] [--tier t1|t2 [--force-tier]]` | `jobs.submit` |
+| `POST /configurations/{id}/walk`, `POST /mirrors/sync` | queue `walk CONFIG` / `mirror sync [--component C]` | `jobs.submit` |
+| `POST /jobs/{id}/cancel` | cancel a queued job, stop a running one (its whole process tree) | `jobs.cancel` |
+| `POST /alerts/clear` | clear one alert (field `subject`) | `db.clear_alert` |
+| `POST /auth/login`, `POST /auth/logout` | local sign-in form and sign-out (local mode only for login) | section 14 |
+
+The POST routes above are registered only when the app is built for a local deployment (`[auth] mode = "local"`
+or no `[ci] project`); a GitHub + CI deployment keeps section 13's two Run routes as its only writes, and its pages
+show the CLI command instead of the local action buttons. None of these accepts a result (D5): a job's result is
+what the child process printed. Every page keeps the
+section 13 hooks and its one data-age element.
+
+**Run without CI (CR-17).** When the config has no `[ci] project`, `POST /configurations/{id}/runs` queues a local
+compat job (`nanosoc-rm compat ID --store`) instead of calling `trigger`; the API form returns `{"job": {...}}`
+(202, or 409 with the job already queued or running). With `[ci] project` set, Run triggers CI as before.
+
+```python
+# nanosoc_rm.jobs
+KINDS = ("compat", "mirror-sync", "walk"); STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
+def submit(config, kind, params, by) -> dict          # JobUsage when the CLI would exit 3; compat logs run_t0
+def cancel(config, job_id, by) -> dict;  def get(config, job_id) -> dict | None;  def jobs(config, ...) -> list[dict]
+def log_text(config, job_id) -> str;  def recover(config) -> list[int]
+class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), stop(), step(); argv_prefix: test seam
+```
+
+- **Worker.** One per data directory (`<data_dir>/jobs.lock`), one job at a time, oldest first, started by
+  `serve` (not with `--no-worker`). A job is a child process of the package's own CLI, in its own session, with
+  `NANOSOC_RM_JOB=<id>` in its environment; the service never imports the gates or the tier runner. Budgets are the
+  CLI's; the worker adds a ceiling (30 min, plus 1.5 x the tier budget) past which the job is INFRA.
+- **Results.** A job without `--pin` runs with `--store`, so its compat_result (mode `local`) and its walk are
+  stored as the CLI stores them; the dashboard's `compat-result` cell and the configuration page read them. A
+  what-if (with `--pin`) is never stored (section 9a); its compat_result stays in the job record.
+- **Records** in `<data_dir>/jobs.sqlite` (not rebuildable, not facts); logs in `<data_dir>/jobs/<id>/`. A tier
+  job's work directory exists only while it runs (the page tails the tier log from it); the tier log is kept.
+- **States.** done (the command answered; `verdict` is its run verdict, or PASS/FAIL/UNVERIFIED from exit 0/1/2 for
+  sync and walk), failed (exit 3), cancelled, infra (no answer: a crash, the ceiling, or the service stopped or
+  restarted while it ran; `recover()` at start marks such jobs INFRA with the reason and stops their process).
+- **Plug-ins** (`nanosoc_rm.web.plugins`): a module in `PLUGINS` with a FastAPI `router` is mounted with a
+  navigation entry (`Quality` for `nanosoc_rm.quality.web`) and renders through `render_page(request, template,
+  title, environment=...)`. Its routes sit behind the same guard and CSRF check.
+
 ## 14. Auth and roles
 
 Requirements: A5, H2.
@@ -791,6 +848,15 @@ Requirements: A5, H2.
 - **CSRF:** every form carries `csrf_token`, bound to the session.
 - **Logging:** every write action (in v1, Run T0 and clearing an alert) is logged in `actions` with the login (A2, H2): `action` is `run_t0` or `clear_alert`, `target` the configuration id or the alert subject.
 - **Test seam:** `create_app(config_path, auth=None)`; `auth=FakeMembership(login=...)` signs every request in as that login (still subject to roles).
+- **Local mode (CR-16):** `[auth] mode = "local"` with `[[auth.users]]` (`login`, `hash`, optional `roles`, default
+  `["member"]`). `hash` is `scrypt$<n>$<r>$<p>$<salt>$<key>` (base64; `hashlib.scrypt`, n = 2^14, r = 8, p = 1), printed by
+  `nanosoc-rm user add LOGIN [--generate] [--role R]...`, which writes no file. `/auth/login` is a form (POST with a
+  double-submit token in cookie `rm_login_csrf`); five failed sign-ins of one login in 5 minutes refuse it for the
+  rest of the window (429). The session cookie is the same signed cookie, `HttpOnly`, `SameSite=Strict`, 8 h; a login
+  removed from the config is signed out on its next request. Without `[session] secret_file` the secret is created
+  once in `<data_dir>/session.secret` (0600). `/auth/logout` also takes a POST; `/auth/callback` is 404.
+  `serve` refuses a non-loopback `--host` in local mode (exit 3) unless `--i-know-this-is-exposed`: the service is
+  reached through an SSH tunnel. GitHub mode (`mode = "github"`, the default) is unchanged.
 
 ## 15. Formats fixed now for later phases
 
@@ -865,6 +931,7 @@ builder who wants a different name changes it here, through a CR after gate 2, a
 [paths]        quarantine = "..."    # optional; default <data_dir>/quarantine
 [roles]        default = ["member"]  # plus "<login>" = [...]
 [schedule]     poll_minutes = 15  nightly_utc = "02:00"  fetch_minutes = 2
+[auth]         mode = "github"       # CR-16: or "local", with [[auth.users]] login = "..."  hash = "scrypt$..."  roles = [...]
 ```
 
 GitLab projects are addressed in API paths by their URL-encoded path (`projects/soclabs%2Fnanosoc_gen`), as the
@@ -890,6 +957,9 @@ contract examples do.
 | `check`, `CredentialStatus` | `nanosoc_rm.credentials` |
 | `put`, `put_snapshot`, `latest`, `data_age`, `put_run`, `alerts`, `clear_alert` | `nanosoc_rm.db` |
 | `tick` | `nanosoc_rm.schedule` |
+| `submit`, `cancel`, `get`, `jobs`, `log_text`, `recover`, `Worker`, `JobUsage` (CR-17, section 13a) | `nanosoc_rm.jobs` |
+| `hash_password`, `verify_password`, `LocalAuth`, `ConfiguredAuth` (CR-16) | `nanosoc_rm.auth` |
+| `PLUGINS`, `load`, `render_page` (section 13a) | `nanosoc_rm.web.plugins` |
 | `create_app(config_path, auth=None)` | `nanosoc_rm.web` |
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
@@ -908,6 +978,9 @@ credential may exist before the Phase 4 entry gate is met.
 
 `nanosoc-rm runner [--json]` (D10): the `runner_settings` observation from `GET runners/:id`; exit 1 on drift, 2
 when unreadable. Drift raises a `runner_drift` alert.
+
+`nanosoc-rm user add LOGIN [--generate] [--role R]...` (CR-16): prints an `[[auth.users]]` stanza; exit 3 for a bad
+login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-know-this-is-exposed]` (section 13a).
 
 `nanosoc-rm trace [--json]` (PR7): requirement → tests → commits, from the `requirement` markers and the
 `Requirements:` commit trailers.
