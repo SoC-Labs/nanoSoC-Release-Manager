@@ -44,7 +44,7 @@ phases:
 # told v1 modules to (its sections 9 and 10 listed D7 until CR-5). History is not rewritten: each entry takes
 # exactly `ids` out of that one commit, and counts only while docs/CHANGES.md has a row for `cr` naming it.
 exemptions:
-  - commit: a8736cb0a48b4470e159b50695d64a17562dc3d4
+  - commit: 69460768d87807f462417f67d0727477d80af8a4
     ids: [D7]
     cr: CR-5
     reason: build/ci's trailer copied the section 9/10 "Requirements:" lines, which named D7 (Phase 2) before CR-5.

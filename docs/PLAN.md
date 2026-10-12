@@ -9,7 +9,7 @@ phase gates it refers to are unchanged.
 |---|---|
 | Requirements v1.0 frozen; gate 2 approved | `docs/REQUIREMENTS.md`, `docs/GATE2.md` |
 | Phase 0: rc4's tree tag-protected on both hosts | `silicon-protection eth-rc4`: 12 of 16 rows covered |
-| Phase 1 code built, reviewed, merged on local `master` (`3973114`) | 740 tests pass, 7 fail (all frozen-test defects: CR3, CR5) |
+| Phase 1 code built, reviewed, merged on local `master` (`0817e3d`) | 740 tests pass, 7 fail (all frozen-test defects: CR3, CR5) |
 | Real-data demo, read-only | `~/SoCLabs/wt/rm-private/phase1-demo/` |
 
 Blocked on David since 2026-10-02: the CR batch (17 items), U1 (Arm-marked source in public repos), N1 (GitLab

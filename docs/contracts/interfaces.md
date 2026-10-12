@@ -942,7 +942,7 @@ Contracts, schemas, docs and tests for later phases are gate-2 work and do not c
 **Exemptions (CR-5):** an optional top-level `exemptions: [{commit, ids, cr, reason}]` names a commit that named a
 later-phase id before a CR corrected the text that told it to. It takes exactly `ids` out of that one commit (full
 sha), and counts only while `docs/CHANGES.md` has a row whose CR column is `cr` and which names the commit's first 7
-characters. The one entry today is build/ci `a8736cb` (D7, CR-5). History is not rewritten.
+characters. The one entry today is build/ci `6946076` (D7, CR-5). History is not rewritten.
 
 ### 17.7 Gap index
 

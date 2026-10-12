@@ -340,7 +340,7 @@ The v1 acceptance tests cover the 28 v1 Must requirements. The process Musts are
 
 | ID | Verified by |
 |---|---|
-| PR1 | `docs/REQUIREMENTS.md` v1.0 committed (c8c1745). |
+| PR1 | `docs/REQUIREMENTS.md` v1.0 committed (3190166). |
 | PR2 | [`../CHANGES.md`](../CHANGES.md) exists next to REQUIREMENTS.md and is the CR log. |
 | PR3 | This directory, `schemas/`, `docs/acceptance/`, `tests/acceptance/`, and David's approval of [`../GATE2.md`](../GATE2.md). |
 | PR4 | interfaces.md section 0: every capability is a function with a CLI front end; AT-H1 compares each page with its CLI command. |
