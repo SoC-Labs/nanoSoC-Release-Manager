@@ -36,7 +36,14 @@
         "quality_density",
         "quality_finding",
         "readme_check",
-        "doc_score"
+        "doc_score",
+        "changelog_lint",
+        "version_plan",
+        "tag_check",
+        "manifest_proposal",
+        "release_draft",
+        "yank_proposal",
+        "defect_trailers"
       ]
     },
     "subject": {
@@ -439,6 +446,76 @@
         "properties": {
           "fact": { "$ref": "#/$defs/doc_score" },
           "subject": { "pattern": "^doc_score:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "changelog_lint" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/changelog_lint" },
+          "subject": { "pattern": "^changelog_lint:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "version_plan" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/version_plan" },
+          "subject": { "pattern": "^version_plan:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "tag_check" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/tag_check" },
+          "subject": { "pattern": "^tag_check:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "manifest_proposal" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/manifest_proposal" },
+          "subject": { "pattern": "^manifest_proposal:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "release_draft" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/release_draft" },
+          "subject": { "pattern": "^release_draft:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "yank_proposal" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/yank_proposal" },
+          "subject": { "pattern": "^yank_proposal:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "defect_trailers" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "tool-release.schema.json#/$defs/defect_trailers" },
+          "subject": { "pattern": "^defect_trailers:" }
         },
         "not": { "required": ["snapshot"] }
       }

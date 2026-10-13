@@ -1,0 +1,24 @@
+# expect-error: contains at /approvals
+# G5: a breaking tool release's final tag is approved by an owner and David, never by the bot alone.
+schema: 1
+component: nanosoc_arch_tech
+version: "0.2.0"
+candidate_tag: v0.2.0-rc.1
+final_tag: v0.2.0
+previous: {tag: v0.1.0, kind: release}
+head: "99267306b6c128adf1dbd6fe4812257952cbaac8"
+class: breaking
+class_status: partial
+date: "2026-10-13"
+changelog: {breaking: ["Renamed port HSEL_O to HSEL."]}
+submodules: []
+defects: []
+gates:
+  - {tier: t0, on: null, required: true}
+  - {tier: t1, on: null, required: true}
+  - {tier: t2, on: null, required: true}
+approvals:
+  - {step: tool-candidate, what: candidate, roles: [bot], condition: null, approvals: [], state: automation-disabled}
+  - {step: tool-final, what: final, roles: [bot], condition: "T3 PASS on the candidate", approvals: [], state: automation-disabled}
+artefacts: []
+pushed: false

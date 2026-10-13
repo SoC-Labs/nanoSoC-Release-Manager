@@ -39,6 +39,7 @@ Dev dependencies are pinned in [`requirements-dev.txt`](../../requirements-dev.t
 | [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert, branch state (CR8) | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
 | [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv`; pipeline variable `RM_REQUEST` | What a CI job was asked, ran and found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci trigger/fetch/verify | A4, D2, D4, D5, D6, D7, D10, D11, PR9 | v1 (host, ip_hash, cpu_seconds: 2) |
 | [component-manifest](../../schemas/component-manifest.schema.json) | `nanosoc-component.yaml` in each repo | ID, class, version, canonical URL, provides, requires, re-exports, variants, tests with controls | registry (reads), T0 (validates) | C1, C6, C7, C11, D1, D6, E1, E3, I2 | 3 (validated by T0 from v1) |
+| [tool-release](../../schemas/tool-release.schema.json) | draft folder `release.json`; registry `versioning.yaml` (`$defs/versioning_file`) | A tool release draft for a person (G1) with its G5 approval record; the facts of the versioning observation kinds; yanked releases and grandfathered tags | versioning | C1-C12, F6, G1, G5, G6 | 3 (built under CR-15) |
 | [release-lock](../../schemas/release-lock.schema.json) | release artefact `release.lock.yaml` | Every nested pin with host and state; generated-RTL archive; GDS and netlist hashes; errata and ledger refs | lock writer | A3, B7, C10, G2, G3, G7 | 5 |
 
 Two process artefacts sit beside the schemas: [`../phase-gates.yaml`](../phase-gates.yaml) (A7, the entry gate of
@@ -54,6 +55,7 @@ errata/<configuration>/ERR-NNN.yaml   directory = configuration id; the record's
 imports.yaml                          F5 import ledger
 tiers.yaml                            optional; CR-12 local T1/T2 commands (eligibility#/$defs/tiers_file)
 quality.yaml                          optional; CR-14 comment-density thresholds (eligibility#/$defs/quality_file)
+versioning.yaml                       optional; CR-VER yanked releases, grandfathered tags (tool-release#/$defs/versioning_file)
 ```
 
 ## 2. Versioning rule
@@ -144,6 +146,9 @@ Keys:
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
 | quality_density, quality_finding, readme_check, doc_score | `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read; `worktree` outside git) | event (CR-14; one per target and commit, so they form a trend) | none |
+| changelog_lint, version_plan, manifest_proposal, defect_trailers | `<kind>:<target>:<commit>` (`+worktree` as quality's) | event (CR-VER; stored on `--store` and by `version refresh`) | none |
+| tag_check | `tag_check:<target>` | event (CR-VER) | none |
+| release_draft, yank_proposal | `<kind>:<target>:<version>` | event (CR-VER) | none |
 
 **Current value (A3).**
 

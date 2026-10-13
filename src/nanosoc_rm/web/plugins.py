@@ -3,7 +3,8 @@
 A plug-in is a module listed in PLUGINS that defines:
 
     router     a FastAPI APIRouter with its own routes (GET pages; any POST is CSRF-checked by the app's guard),
-               or a function with no arguments that returns one
+               or a function that returns one: with no arguments, or with one (the app, so it can register its
+               POST routes only in a local deployment, `app.state.rm.local_routes`, as section 13a requires)
     NAV_LABEL  optional: the top-navigation label (default: the PLUGINS label)
     NAV_PATH   optional: where the navigation entry links (default: the router's prefix); the entry is marked
                current on the prefix and every path under it
@@ -26,7 +27,8 @@ from starlette.responses import HTMLResponse
 __all__ = ["PLUGINS", "load", "render_page"]
 
 # (module, navigation label)
-PLUGINS = (("nanosoc_rm.quality.web", "Quality"),)
+PLUGINS = (("nanosoc_rm.quality.web", "Quality"),
+           ("nanosoc_rm.versioning.web", "Versions"))                   # CR-VER (Wave B versioning)
 
 
 def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:
@@ -44,7 +46,9 @@ def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:
         if router is None:
             raise RuntimeError("%s has no `router`" % modname)
         if not hasattr(router, "routes") and callable(router):
-            router = router()                            # a factory, as nanosoc_rm.quality.web defines it
+            import inspect
+            takes_app = bool(inspect.signature(router).parameters)
+            router = router(app) if takes_app else router()   # a factory, as nanosoc_rm.quality.web defines it
         app.include_router(router)
         prefix = getattr(router, "prefix", "") or "/"
         path = getattr(mod, "NAV_PATH", None) or prefix

@@ -1,0 +1,85 @@
+# release.json of a G1 tool release draft folder (tool-release.schema.json), shown as YAML.
+# ILLUSTRATIVE: produced by `nanosoc-rm version draft nanosoc_arch_tech` on the unit-test fixture (a classed
+# changelog with one fix and one feature since v0.1.0, nanosoc_gen re-exported and moved). No real repo carries a
+# classed changelog yet. Nothing was tagged or pushed: `pushed` is false by contract.
+schema: 1
+component: nanosoc_arch_tech
+version: 0.1.1
+candidate_tag: v0.1.1-rc.1
+final_tag: v0.1.1
+previous:
+  tag: v0.1.0
+  kind: release
+head: 99267306b6c128adf1dbd6fe4812257952cbaac8
+class: feature
+class_status: partial
+class_reason: 'unmeasured or undeclared: consumers'
+date: '2026-10-13'
+changelog:
+  fix:
+  - Fix the flist order.
+  feature:
+  - Add the fpga variant.
+submodules:
+- path: nanosoc_gen
+  component: nanosoc_gen
+  commit: c8972a4d970b8ae61a669b2b515ad3d5ee586544
+  release_tags: []
+defects:
+- id: SL-DEF-0001
+  title: AHB link forwards HTRANS not qualified by HSEL (phantom transfers)
+  fixed_here: []
+  introduced_here: []
+  open_forms: []
+consumers: []
+gates:
+- tier: t0
+  'on': null
+  required: true
+  evidence: null
+- tier: t1
+  'on': null
+  required: true
+  evidence: null
+- tier: t2
+  'on': null
+  required: true
+  evidence: null
+- tier: t3
+  'on': null
+  required: true
+  evidence: null
+  why: 'build-affecting unmeasured (C7 needs the generator): T3 required until shown otherwise'
+approvals:
+- step: tool-candidate
+  what: tool release candidate tag vX.Y.Z-rc.N
+  roles:
+  - bot
+  condition: null
+  approvals: []
+  state: automation-disabled
+  note: the bot is automation; it stays disabled until the Phase 3 entry gate is met (docs/phase-gates.yaml, CR-15).
+    Until then this step is not approved by anyone.
+- step: tool-final
+  what: tool final tag, fix or feature
+  roles:
+  - bot
+  condition: T3 PASS on the candidate
+  approvals: []
+  state: automation-disabled
+  note: the bot is automation; it stays disabled until the Phase 3 entry gate is met (docs/phase-gates.yaml, CR-15).
+    Until then this step is not approved by anyone.
+artefacts:
+- name: source archive with submodules
+  file: nanosoc_arch_tech-0.1.1-src.tar.gz
+- name: manifest
+  file: nanosoc-component.yaml
+- name: changelog
+  file: CHANGELOG.md
+- name: test evidence
+  file: evidence/ (T0-T2 results; T3 if build-affecting)
+patch_files:
+- CHANGELOG.md
+- nanosoc-component.yaml
+generated_at: '2026-10-13T10:00:00Z'
+pushed: false

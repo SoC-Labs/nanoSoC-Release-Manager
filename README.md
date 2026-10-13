@@ -57,6 +57,21 @@ generated layout section, docs ranking, trend). `docs --rewrite` asks Claude for
 `ANTHROPIC_API_KEY` or `[quality] api_key_file` is set (it sends those sections to the Anthropic API); without a
 key it makes no network call. Details: `docs/contracts/interfaces.md` section 14a.
 
+## Versions, change classes and tool releases (Phase 3, built per CR-15)
+
+Read-only: lint a classed changelog, compute the next version, check tag names, propose a manifest, draft a tool
+release for a person. Nothing is tagged, pushed or opened; yanks and fixed-in updates are registry patches.
+
+```
+nanosoc-rm changelog lint nanosoc_gen          # C2: every entry carries breaking/feature/fix/none
+nanosoc-rm version next nanosoc_gen            # C1, C3: next version from the class (consumer regeneration: unmeasured)
+nanosoc-rm version tags tidelink               # C10: tag names, grandfathered tags, moved release tags
+nanosoc-rm manifest init tidelink --patch m.diff
+nanosoc-rm version draft nanosoc_gen           # G1: <data_dir>/drafts/nanosoc_gen/<version>/ (README, patch, release.json)
+```
+
+Format, decision table and approval matrix: `docs/versioning.md`. Pages: `/versions/`.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

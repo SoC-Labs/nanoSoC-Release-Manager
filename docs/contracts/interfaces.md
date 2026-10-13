@@ -920,6 +920,48 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
   `comments --kind K --patch OUT`, `readme --docs --patch OUT`, `docs --rewrite --patch OUT`, `quality trend KIND
   TARGET`. Exit 0 clean, 1 findings, 2 could not answer, 3 usage or config error.
 
+## 14b. Versions, change classes and tool releases (CR-VER; Wave B, build-vs-enable per CR-15)
+
+Requirements: C1-C12, F6, G1, G5, G6 (Phase 3: built and used locally; nothing scheduled, nothing written to a
+repo, host or the registry). Package `nanosoc_rm.versioning`; user guide `docs/versioning.md`. Every function
+returns observations validated by `nanosoc_rm.contracts` (facts in `tool-release.schema.json#/$defs/*`).
+
+```python
+changelog_lint(target, *, ref=None, path=None, config=None, store=False) -> dict      # changelog_lint   (C2, C5)
+plan(target, *, ref=None, path=None, config=None, store=False, regenerator=None) -> dict   # version_plan (C1 C3 C6-C9 C11 C12)
+tag_check(target, *, path=None, config=None, store=False, alerts=False) -> dict       # tag_check        (C10)
+manifest_init(target, *, ref=None, path=None, config=None) -> (dict, patch)          # manifest_proposal (C11)
+draft(target, out_dir=None, *, config=None, date=None, regenerator=None) -> dict     # release_draft    (G1, G5)
+approve(draft_dir, step, login, *, config=None) -> step record                       # G5 (roles from [roles])
+yank(target, version, reason, by, *, config=None) -> (dict, patch)                   # yank_proposal    (G6)
+defect_trailers(target, *, ref=None, config=None) -> (dict, patch)                   # defect_trailers  (F6)
+is_yanked(component, version, *, config=None) -> bool; allowed(component, versions, *, config=None) -> list
+class Regenerator(Protocol): name; available(); consumers(component); regenerate(consumer, component, commit)
+```
+
+1. **Reads.** A component's mirror (canonical namespace for tags and the baseline; files at a commit via one
+   batch blob fetch and one `cat-file --batch`, as quality reads) or `--path DIR`. The registry's optional
+   `versioning.yaml` (`tool-release#/$defs/versioning_file`: `tag_scheme_from`, `grandfathered`, `yanked`).
+2. **Class (C3).** Signals `declared`, `api`, `consumers` (C3), `reexports` (C6), `build` (C7). `consumers` and
+   `build` need a `Regenerator`; the default `NoGenerator` reports them `unmeasured` with the reason. A class is
+   `complete` only when the three C3 signals are measured, else `partial` (some measured) or `unmeasured`.
+   Verdict PASS / WARN / UNVERIFIED / FAIL as in docs/versioning.md; the schema enforces PASS = complete.
+3. **Writes.** None outside the service's disk. Patches go to stdout or a new file (`--patch`, never overwritten);
+   `draft` writes only into a new or empty directory (default `<data_dir>/drafts/<component>/<version>`);
+   `approve` rewrites only the draft's `release.json`. `--alerts` raises `tag_moved` (about
+   `tag_check:<component>:<tag>`) for a moved release tag; `--store` stores the observation.
+4. **Jobs.** `jobs.register_kind(name, check, args)` (new, additive) adds `versions-refresh`
+   (`version refresh [COMPONENT]...`) and `version-draft` (`version draft COMPONENT`).
+5. **Pages** (plug-in `nanosoc_rm.versioning.web`, navigation "Versions"): `GET /versions/` (per component:
+   current tag, Unreleased by class, class and status, next version, verdict, changelog, manifest, API.md, tags),
+   `GET /versions/{component}` (signals, entries, notes, findings, lint table, tag table, drafts),
+   `GET /versions/{component}/manifest.diff`, `GET /versions/{component}/drafts/{version}/{file}`. In a local
+   deployment only (section 13a): `POST /versions/refresh`, `POST /versions/{component}/draft` (jobs). Row hooks:
+   `data-component`, `data-verdict`, `data-signal`, `data-rule`, `data-tag`. A plug-in's `router` factory may
+   take the app (`plugins.load`, additive) so it registers POST routes only when `app.state.rm.local_routes`.
+- **CLI:** `nanosoc-rm changelog lint`, `version next|tags|refresh|draft|approve|yank|fixed-in`, `manifest init`
+  (docs/versioning.md). Exit 0 PASS or WARN, 1 finding or FAIL, 2 could not answer, 3 usage.
+
 ## 15. Formats fixed now for later phases
 
 | Phase | What | Contract |
@@ -1027,6 +1069,8 @@ contract examples do.
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
 | `open_source`, `density`, `comments`, `readme`, `docs`, `trend`, `comment_patch` (CR-14, section 14a) | `nanosoc_rm.quality` |
+| `changelog_lint`, `plan`, `tag_check`, `manifest_init`, `draft`, `approve`, `yank`, `defect_trailers`, `is_yanked`, `allowed`, `Regenerator`, `NoGenerator` (CR-VER, section 14b) | `nanosoc_rm.versioning` |
+| `EXTRA_KINDS`, `register_kind` (CR-VER) | `nanosoc_rm.jobs` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -1050,6 +1094,9 @@ login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-kno
 `Requirements:` commit trailers.
 
 `nanosoc-rm quality density|comments|readme|docs|all|trend` (CR-14, Q1-Q6): section 14a.
+
+`nanosoc-rm changelog lint`, `nanosoc-rm version next|tags|refresh|draft|approve|yank|fixed-in`, `nanosoc-rm manifest
+init` (CR-VER, C1-C12, F6, G1, G5, G6): section 14b.
 
 ### 17.4 Test infrastructure
 

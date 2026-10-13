@@ -1,0 +1,1480 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/tool-release.schema.json",
+  "title": "Tool release draft (release.json in a G1 draft folder), plus the versioning facts and the registry versioning.yaml",
+  "description": "CR-VER (Wave B, build-vs-enable per CR-15). The top-level document is release.json, the machine-readable half of a tool release draft folder that `nanosoc-rm version draft` writes for a person (G1): version, classed changelog, submodules, defects, gates, the G5 approval record and the artefacts. Nothing in it was tagged or pushed (`pushed` is false by contract). $defs hold the facts of the versioning observation kinds (changelog_lint, version_plan, tag_check, manifest_proposal, release_draft, yank_proposal, defect_trailers) and the registry's optional versioning.yaml (yanked releases G6, grandfathered tags and the C10 scheme date). C1-C12, F6, G1, G5, G6. Additive: no existing schema number moves (README section 2 rule 4).",
+  "type": "object",
+  "required": [
+    "schema",
+    "component",
+    "version",
+    "candidate_tag",
+    "final_tag",
+    "previous",
+    "head",
+    "class",
+    "class_status",
+    "date",
+    "changelog",
+    "submodules",
+    "defects",
+    "gates",
+    "approvals",
+    "artefacts",
+    "pushed"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "component": {
+      "$ref": "defs.schema.json#/$defs/component_id"
+    },
+    "version": {
+      "$ref": "defs.schema.json#/$defs/semver"
+    },
+    "candidate_tag": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-rc\\.[1-9][0-9]*$"
+    },
+    "final_tag": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "previous": {
+      "type": "object",
+      "required": [
+        "tag",
+        "kind"
+      ],
+      "properties": {
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "release",
+            "grandfathered",
+            "none"
+          ]
+        }
+      }
+    },
+    "head": {
+      "$ref": "defs.schema.json#/$defs/sha"
+    },
+    "class": {
+      "enum": [
+        "breaking",
+        "feature",
+        "fix"
+      ],
+      "description": "C2: a release needs a releasing class; none makes no release."
+    },
+    "class_status": {
+      "enum": [
+        "complete",
+        "partial"
+      ],
+      "description": "C3: complete only when every signal (declared, API diff, consumer regeneration) was measured."
+    },
+    "class_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "date": {
+      "$ref": "defs.schema.json#/$defs/date"
+    },
+    "changelog": {
+      "type": "object",
+      "description": "C2: the Unreleased entries by class.",
+      "propertyNames": {
+        "enum": [
+          "breaking",
+          "feature",
+          "fix",
+          "none",
+          "unclassed"
+        ]
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "submodules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "component",
+          "commit",
+          "release_tags"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "component": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commit": {
+            "$ref": "defs.schema.json#/$defs/sha"
+          },
+          "release_tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "defects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "fixed_here",
+          "introduced_here",
+          "open_forms"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "defs.schema.json#/$defs/defect_id"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fixed_here": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "introduced_here": {
+            "type": "array",
+            "items": {
+              "$ref": "defs.schema.json#/$defs/sha"
+            }
+          },
+          "open_forms": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "consumers": {
+      "type": "array"
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "tier",
+          "on",
+          "required"
+        ],
+        "properties": {
+          "tier": {
+            "enum": [
+              "t0",
+              "t1",
+              "t2",
+              "t3"
+            ]
+          },
+          "on": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "defs.schema.json#/$defs/configuration_id"
+            }
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/approval_step"
+      }
+    },
+    "artefacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "file"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "patch_files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated_at": {
+      "$ref": "defs.schema.json#/$defs/utc"
+    },
+    "pushed": {
+      "const": false,
+      "description": "Hard rule: the tool never tags, pushes or opens a pull request."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "class": {
+            "const": "breaking"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "approvals": {
+            "contains": {
+              "properties": {
+                "step": {
+                  "const": "tool-final-breaking"
+                },
+                "roles": {
+                  "contains": {
+                    "const": "release-manager"
+                  }
+                }
+              },
+              "required": [
+                "step",
+                "roles"
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "approvals": {
+            "contains": {
+              "properties": {
+                "step": {
+                  "const": "tool-final"
+                },
+                "roles": {
+                  "const": [
+                    "bot"
+                  ]
+                }
+              },
+              "required": [
+                "step",
+                "roles"
+              ]
+            }
+          }
+        }
+      },
+      "description": "G5: a breaking tool release's final tag is approved by an owner and David (release-manager); a fix or feature final by the bot once T3 passes."
+    }
+  ],
+  "$defs": {
+    "approval_step": {
+      "type": "object",
+      "required": [
+        "step",
+        "what",
+        "roles",
+        "condition",
+        "approvals",
+        "state"
+      ],
+      "properties": {
+        "step": {
+          "enum": [
+            "tool-candidate",
+            "tool-final",
+            "tool-final-breaking",
+            "soc-release",
+            "soc-tapeout"
+          ]
+        },
+        "what": {
+          "type": "string"
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(bot|release-manager|reviewer|owner:[a-z0-9][a-z0-9_.-]*)$"
+          }
+        },
+        "condition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "by",
+              "at"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "role": {
+                "type": "string"
+              },
+              "by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "at": {
+                "$ref": "defs.schema.json#/$defs/utc"
+              }
+            }
+          }
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "approved",
+            "automation-disabled"
+          ]
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "roles": {
+                "contains": {
+                  "const": "bot"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "approvals": {
+                "maxItems": 0
+              }
+            },
+            "description": "G5: a bot step is never approved by a person"
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "rule",
+        "severity",
+        "line",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {
+          "type": "string",
+          "pattern": "^CL[0-9]+$"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ]
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "suggestion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "signal": {
+      "type": "object",
+      "required": [
+        "signal",
+        "class",
+        "status",
+        "detail"
+      ],
+      "properties": {
+        "signal": {
+          "enum": [
+            "declared",
+            "api",
+            "consumers",
+            "reexports",
+            "build",
+            "host_move"
+          ]
+        },
+        "class": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/change_class"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "unmeasured",
+            "undeclared"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "generator": {
+          "type": "string"
+        },
+        "build_affecting": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "versioning_file": {
+      "description": "The registry's optional versioning.yaml. G6: yanked releases (recorded, never bumped to again, tag kept); C10: grandfathered tags and the date from which new tags must follow the scheme (absent: the scheme is not adopted yet, every existing tag is grandfathered).",
+      "type": "object",
+      "required": [
+        "schema"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "tag_scheme_from": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "grandfathered": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component",
+              "tag"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "$ref": "defs.schema.json#/$defs/component_id"
+              },
+              "tag": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "yanked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component",
+              "version",
+              "tag",
+              "commit",
+              "reason",
+              "by",
+              "date"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "$ref": "defs.schema.json#/$defs/component_id"
+              },
+              "version": {
+                "$ref": "defs.schema.json#/$defs/semver"
+              },
+              "tag": {
+                "type": "string",
+                "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+              },
+              "commit": {
+                "$ref": "defs.schema.json#/$defs/sha"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "date": {
+                "$ref": "defs.schema.json#/$defs/date"
+              }
+            }
+          }
+        }
+      }
+    },
+    "changelog_lint": {
+      "description": "C2: the changelog linter's result for one commit. Event kind, subject changelog_lint:<target>:<commit>. FAIL exactly when an error finding exists.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "path",
+        "present",
+        "findings",
+        "counts",
+        "unreleased",
+        "verdict"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "path": {
+          "const": "CHANGELOG.md"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/finding"
+          }
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "error",
+            "warning"
+          ],
+          "properties": {
+            "error": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "warning": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "unreleased": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "releases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "counts": {
+                "properties": {
+                  "error": {
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": "FAIL"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "WARN"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "version_plan": {
+      "description": "C1, C3, C6-C9, C11, C12: what the next version of one component is and why. Event kind, subject version_plan:<target>:<commit>. PASS needs a next version from a complete class; a partial class (a C3 signal unmeasured, e.g. no generator) is WARN; no class at all is UNVERIFIED; a finding (a 1.0.0 that C9 refuses, a next version already tagged or yanked) is FAIL.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "current",
+        "commits_since",
+        "unreleased",
+        "classification",
+        "hint",
+        "next",
+        "changelog",
+        "manifest",
+        "api_md",
+        "yanked",
+        "findings",
+        "verdict"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "repo_class": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "current": {
+          "type": "object",
+          "required": [
+            "tag",
+            "version",
+            "kind",
+            "commit"
+          ],
+          "properties": {
+            "tag": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/semver"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "enum": [
+                "release",
+                "grandfathered",
+                "none"
+              ]
+            },
+            "commit": {
+              "anyOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/sha"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "created_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "grandfathered": {
+          "type": "array"
+        },
+        "commits_since": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unreleased": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "breaking",
+              "feature",
+              "fix",
+              "none",
+              "unclassed"
+            ]
+          }
+        },
+        "classification": {
+          "type": "object",
+          "required": [
+            "class",
+            "status",
+            "signals"
+          ],
+          "properties": {
+            "class": {
+              "anyOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/change_class"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "complete",
+                "partial",
+                "unmeasured"
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "signals": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/signal"
+              }
+            }
+          }
+        },
+        "hint": {
+          "type": "object",
+          "required": [
+            "class",
+            "commits",
+            "note"
+          ]
+        },
+        "next": {
+          "type": "object",
+          "required": [
+            "version",
+            "reason"
+          ],
+          "properties": {
+            "version": {
+              "anyOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/semver"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "changelog": {
+          "type": "object",
+          "required": [
+            "present"
+          ]
+        },
+        "manifest": {
+          "type": "object",
+          "required": [
+            "present",
+            "valid",
+            "version"
+          ]
+        },
+        "api_md": {
+          "type": "boolean"
+        },
+        "yanked": {
+          "type": "array",
+          "items": {
+            "$ref": "defs.schema.json#/$defs/semver"
+          }
+        },
+        "readiness_1_0": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL",
+            "UNVERIFIED"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "classification": {
+                "properties": {
+                  "status": {
+                    "const": "complete"
+                  }
+                }
+              },
+              "findings": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "WARN"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "classification": {
+                "properties": {
+                  "status": {
+                    "const": "partial"
+                  }
+                }
+              },
+              "findings": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "findings": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "findings"
+            ]
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": "FAIL"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "tag_check": {
+      "description": "C10: every tag of one component on every host, by kind; moves read from the mirror's reflog. Event kind, subject tag_check:<target>. FAIL exactly when a finding exists; WARN while the scheme is not adopted (no tag_scheme_from: every existing tag grandfathered).",
+      "type": "object",
+      "required": [
+        "target",
+        "scheme_from",
+        "rows",
+        "branches",
+        "findings",
+        "verdict"
+      ],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "scheme_from": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "canonical": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tag",
+              "kind",
+              "conforms",
+              "grandfathered",
+              "hosts",
+              "moved",
+              "problems",
+              "finding"
+            ],
+            "properties": {
+              "tag": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "release",
+                  "candidate",
+                  "silicon",
+                  "keep",
+                  null
+                ]
+              },
+              "conforms": {
+                "type": "boolean"
+              },
+              "grandfathered": {
+                "type": "boolean"
+              },
+              "hosts": {
+                "type": "object"
+              },
+              "annotated": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "moved": {
+                "type": "boolean"
+              },
+              "problems": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "finding": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "branches": {
+          "type": "array"
+        },
+        "counts": {
+          "type": "object"
+        },
+        "findings": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "FAIL"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "findings": {
+                "minimum": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": "FAIL"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "WARN"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "manifest_proposal": {
+      "description": "C11: a proposed nanosoc-component.yaml for a person (the patch is printed, never applied). Event kind, subject manifest_proposal:<target>:<commit>.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "present",
+        "proposed",
+        "placeholders"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "proposed": {
+          "$ref": "component-manifest.schema.json"
+        },
+        "placeholders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "version_from": {
+          "type": "string"
+        },
+        "patch_lines": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "release_draft": {
+      "description": "G1, G5: a release draft folder was written for a person. Event kind, subject release_draft:<target>:<version>. Nothing pushed (`pushed` false by contract).",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "version",
+        "class",
+        "class_status",
+        "dir",
+        "files",
+        "approvals",
+        "gates",
+        "pushed"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "version": {
+          "$ref": "defs.schema.json#/$defs/semver"
+        },
+        "class": {
+          "enum": [
+            "breaking",
+            "feature",
+            "fix"
+          ]
+        },
+        "class_status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
+        "dir": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/approval_step"
+          }
+        },
+        "gates": {
+          "type": "array"
+        },
+        "pushed": {
+          "const": false
+        }
+      }
+    },
+    "yank_proposal": {
+      "description": "G6: a proposed yank (a patch to the registry's versioning.yaml); the tag is kept. Refused for a silicon release. Event kind, subject yank_proposal:<target>:<version>.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "version",
+        "tag",
+        "entry",
+        "refused",
+        "tag_kept"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "version": {
+          "$ref": "defs.schema.json#/$defs/semver"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "entry": {
+          "type": "object"
+        },
+        "refused": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tag_kept": {
+          "const": true
+        },
+        "patch_lines": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "refused": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "refused"
+            ]
+          },
+          "then": {
+            "properties": {
+              "patch_lines": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "defect_trailers": {
+      "description": "F6: Defect:/Fixes: trailers on a component's default branch and the fixed_in entries they propose (a registry patch for a person). Event kind, subject defect_trailers:<target>:<commit>.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "rows",
+        "proposed",
+        "already",
+        "unresolved"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "commit",
+              "trailer",
+              "defect",
+              "form",
+              "state"
+            ],
+            "properties": {
+              "commit": {
+                "$ref": "defs.schema.json#/$defs/sha"
+              },
+              "trailer": {
+                "type": "string"
+              },
+              "defect": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "form": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "already",
+                  "proposed",
+                  "unresolved"
+                ]
+              },
+              "why": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "proposed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "already": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolved": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "patch_lines": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

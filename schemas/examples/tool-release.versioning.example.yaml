@@ -1,0 +1,10 @@
+# registry versioning.yaml (tool-release.schema.json#/$defs/versioning_file): G6 yanks and C10 grandfathering.
+# ILLUSTRATIVE: no release has been yanked; the TideLink tags are real (v1.0 and v0.90 predate the C10 scheme) and
+# the scheme date is a placeholder until Phase 3's gate is checked.
+schema: 1
+tag_scheme_from: "2027-01-01T00:00:00Z"
+grandfathered:
+  - {component: tidelink, tag: v1.0, reason: "two-part version, predates C10"}
+  - {component: tidelink, tag: v0.90, reason: "two-part version, predates C10"}
+yanked:
+  - {component: nanosoc_arch_tech, version: "0.1.0", tag: v0.1.0, commit: "0123456789abcdef0123456789abcdef01234567", reason: "flist order wrong for the fpga variant", by: david, date: "2026-10-13"}

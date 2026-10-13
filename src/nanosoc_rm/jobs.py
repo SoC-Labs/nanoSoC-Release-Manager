@@ -49,7 +49,8 @@ from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
-           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci"]
+           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS",
+           "register_kind"]
 
 KINDS = ("compat", "mirror-sync", "walk")
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
@@ -69,6 +70,20 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state);
 
 class JobUsage(ValueError):
     """A job request that cannot run: unknown kind, a bad id, a malformed --pin. Nothing is queued."""
+
+
+# Job kinds a module adds without editing this file (CR-VER, Wave B): name -> (check, args). `check(params)`
+# returns the checked parameters or raises ValueError (a usage error, exit 3); `args(params)` is the `nanosoc-rm`
+# argv the job runs (without --json). A module registers its kinds when its CLI commands are registered, so
+# `serve` (a CLI command) has them before its worker starts.
+EXTRA_KINDS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], list[str]]]] = {}
+
+
+def register_kind(name: str, check: Callable[[dict], dict], args: Callable[[dict], list[str]]) -> None:
+    """Add a job kind (see EXTRA_KINDS). The built-in kinds cannot be replaced."""
+    if name in KINDS:
+        raise ValueError("job kind %r is built in" % name)
+    EXTRA_KINDS[name] = (check, args)
 
 
 def is_local_ci(config: Config) -> bool:
@@ -152,6 +167,11 @@ def _check_id(value: Any, what: str) -> str:
 
 def _params(kind: str, params: dict) -> dict:
     """The job's parameters, checked; JobUsage when the CLI would exit 3 on them."""
+    if kind in EXTRA_KINDS:
+        try:
+            return EXTRA_KINDS[kind][0](params)
+        except ValueError as e:
+            raise JobUsage(str(e)) from None
     if kind == "compat":
         from nanosoc_rm.analysis.compat import CompatUsage, parse_pins
         cfg = _check_id(params.get("configuration"), "configuration")
@@ -172,11 +192,13 @@ def _params(kind: str, params: dict) -> dict:
         return {"component": _check_id(comp, "component") if comp else None}
     if kind == "walk":
         return {"configuration": _check_id(params.get("configuration"), "configuration")}
-    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS)))
+    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS + tuple(EXTRA_KINDS))))
 
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
     """The `nanosoc-rm` arguments a job runs (`--keep-work` only when `work` is given)."""
+    if kind in EXTRA_KINDS:
+        return list(EXTRA_KINDS[kind][1](params)) + ["--json"]
     if kind == "compat":
         args = ["compat", params["configuration"]]
         for p in params["pins"]:

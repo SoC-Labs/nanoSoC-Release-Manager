@@ -1,0 +1,64 @@
+{# /versions/{component}: the stored version plan, changelog lint and tag check of one component. #}
+{% set p = row.plan %}{% set l = row.lint %}{% set t = row.tags %}
+<p class="note">{{ NOT_PUSHED }} <a href="{{ vurl('') }}">All components</a></p>
+{% if local %}<div class="row">
+  <form method="post" action="/versions/refresh"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ row.component }}"><button type="submit">Refresh</button></form>
+  {% if p and p.fact.next.version %}<form method="post" action="{{ vurl(row.component, 'draft') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" title="writes a draft folder under the service's data directory">Draft release {{ p.fact.next.version }}</button></form>{% endif %}
+</div>{% else %}<p class="note">CLI: <code>nanosoc-rm version refresh {{ row.component }}</code>, <code>nanosoc-rm version draft {{ row.component }}</code>.</p>{% endif %}
+{% if job %}<div hx-get="/jobs/{{ job.id }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p>Job {{ job.id }}: {{ job.state }} <code>{{ job.command }}</code> (<a href="/jobs/{{ job.id }}/log">log</a>)</p></div>{% endif %}
+
+{% if p %}{% set f = p.fact %}
+<h2>Next version</h2>
+<table class="kv" data-component="{{ row.component }}" data-verdict="{{ f.verdict }}">
+  <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td></tr>
+  <tr><th>Read at</th><td>{{ fact(p, (f.commit or '')[:12] ~ (' (' ~ f.ref ~ ')' if f.ref else '')) }}</td></tr>
+  <tr><th>Current</th><td>{% if f.current.tag %}<code>{{ f.current.tag }}</code> = {{ f.current.version }} ({{ f.current.kind }}){% else %}no release tag{% endif %}; {{ f.commits_since if f.commits_since is not none else '?' }} commit(s) since</td></tr>
+  <tr><th>Change class</th><td>{% set k = f.classification %}{% if k['class'] %}<span class="pill {{ CLASS_CLASS[k['class']] }}">{{ k['class'] }}</span>{% else %}unmeasured{% endif %} ({{ k.status }}){% if k.reason %} <span class="note">{{ k.reason }}</span>{% endif %}</td></tr>
+  <tr><th>Next</th><td><strong>{{ f.next.version or 'none' }}</strong> <span class="note">{{ f.next.reason }}</span></td></tr>
+  <tr><th>Commit-message hint</th><td>{{ f.hint['class'] or 'none' }} over {{ f.hint.commits }} commit(s) <span class="note">{{ f.hint.note }}</span></td></tr>
+  <tr><th>Manifest (C11)</th><td>{{ 'valid' if f.manifest.valid else ('INVALID: ' ~ f.manifest.problems|join('; ') if f.manifest.present else 'missing') }} &middot; <a href="{{ vurl(row.component, 'manifest.diff') }}">proposed manifest patch</a></td></tr>
+  <tr><th>API.md (C12)</th><td>{{ 'present' if f.api_md else 'missing' }}</td></tr>
+  {% if f.yanked %}<tr><th>Yanked (G6)</th><td>{{ f.yanked|join(', ') }}</td></tr>{% endif %}
+  {% if f.readiness_1_0 %}<tr><th>1.0.0 readiness (C9)</th><td>{% for i in f.readiness_1_0['items'] %}<span class="pill {{ 'state-green' if i.ok else ('state-red' if i.ok == false else 'state-grey') }}">{{ 'ok' if i.ok else ('missing' if i.ok == false else 'unmeasured') }}</span> {{ i.item }}<br>{% endfor %}</td></tr>{% endif %}
+</table>
+{% for x in f.findings %}<p class="banner problem">FINDING: {{ x }}</p>{% endfor %}
+{% for x in f.notes %}<p class="note">{{ x }}</p>{% endfor %}
+<h3>Signals (C3: the class is the most severe)</h3>
+<div class="scroll"><table>
+  <thead><tr><th>Signal</th><th>Class</th><th>Status</th><th>Detail</th></tr></thead>
+  <tbody>{% for s in f.classification.signals %}
+    <tr data-signal="{{ s.signal }}"><td>{{ s.signal }}</td><td>{% if s['class'] %}<span class="pill {{ CLASS_CLASS[s['class']] }}">{{ s['class'] }}</span>{% endif %}</td>
+      <td><span class="pill {{ 'state-green' if s.status == 'measured' else 'state-amber' }}">{{ s.status }}</span></td><td>{{ s.detail }}</td></tr>
+  {% endfor %}</tbody>
+</table></div>
+<h3>Unreleased entries</h3>
+{% for c in ('breaking', 'feature', 'fix', 'none', 'unclassed') %}{% if f.unreleased.get(c) %}
+<p><span class="pill {{ CLASS_CLASS.get(c, 'state-red') }}">{{ c }}</span></p><ul>{% for e in f.unreleased[c] %}<li data-class="{{ c }}">{{ e }}</li>{% endfor %}</ul>
+{% endif %}{% endfor %}
+{% if not f.unreleased %}<p class="note">No Unreleased entries.</p>{% endif %}
+{% if history|length > 1 %}<details><summary>Earlier plans ({{ history|length - 1 }})</summary><ul>{% for h in history[:-1]|reverse %}<li>{{ fact(h, h.fact.commit[:12] if h.fact.commit else 'work tree') }}: next {{ h.fact.next.version or 'none' }} ({{ h.fact.verdict }})</li>{% endfor %}</ul></details>{% endif %}
+{% else %}<p class="empty">No stored plan. Refresh (or run <code>nanosoc-rm version refresh {{ row.component }}</code>).</p>{% endif %}
+
+<h2>Changelog lint (C2)</h2>
+{% if l %}{% set lf = l.fact %}
+<p>{{ fact(l, 'CHANGELOG.md ' ~ ('present' if lf.present else 'missing')) }} <span class="pill {{ VERDICT_CLASS.get(lf.verdict, '') }}">{{ lf.verdict }}</span> {{ lf.counts.error }} error(s), {{ lf.counts.warning }} warning(s)</p>
+{% if lf.findings %}<div class="scroll"><table>
+  <thead><tr><th>Line</th><th>Rule</th><th>Severity</th><th>Message</th><th>Suggestion</th></tr></thead>
+  <tbody>{% for x in lf.findings %}<tr data-rule="{{ x.rule }}"><td>{{ x.line or '' }}</td><td>{{ x.rule }}</td><td><span class="pill {{ 'state-red' if x.severity == 'error' else 'state-amber' }}">{{ x.severity }}</span></td><td>{{ x.message }}</td><td>{% if x.suggestion %}<code>{{ x.suggestion }}</code>{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>{% endif %}
+{% else %}<p class="note">Not read yet.</p>{% endif %}
+
+<h2>Tags (C10)</h2>
+{% if t %}{% set tf = t.fact %}
+<p>{{ fact(t, (tf.rows|length) ~ ' tag(s)') }} <span class="pill {{ VERDICT_CLASS.get(tf.verdict, '') }}">{{ tf.verdict }}</span> {% if tf.scheme_from %}scheme applies from {{ tf.scheme_from }}{% else %}<span class="note">scheme not adopted yet: every existing tag is grandfathered (advisory)</span>{% endif %}</p>
+<details{% if tf.findings %} open{% endif %}><summary>Tag table</summary><div class="scroll"><table>
+  <thead><tr><th>Tag</th><th>Kind</th><th>Grandfathered</th><th>Moved</th><th>Problems</th></tr></thead>
+  <tbody>{% for x in tf.rows %}<tr data-tag="{{ x.tag }}"><td><code>{{ x.tag }}</code></td><td>{{ x.kind or 'outside the scheme' }}</td><td>{{ 'yes' if x.grandfathered else '' }}</td>
+    <td>{% if x.moved %}<span class="pill state-red">MOVED</span>{% endif %}</td><td>{% if x.finding %}<span class="pill state-red">FINDING</span> {% endif %}{{ x.problems|join('; ') }}</td></tr>{% endfor %}</tbody>
+</table></div></details>
+{% else %}<p class="note">Not read yet.</p>{% endif %}
+
+<h2>Release drafts (G1, G5)</h2>
+{% if drafts %}<ul>{% for d in drafts %}<li>{{ d.version }}: {% for n in d.files %}<a href="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/' ~ n) }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
+<p class="note">Approvals are recorded by a person with <code>nanosoc-rm version approve &lt;draft folder&gt; --step &lt;step&gt; --login &lt;login&gt;</code> (roles from the service config). The bot's steps stay disabled until the Phase 3 gate.</p>
+{% else %}<p class="note">No draft yet.</p>{% endif %}
