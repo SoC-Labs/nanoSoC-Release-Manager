@@ -1,0 +1,478 @@
+# expect-error: minItems at /attempts
+# D8: a FAIL is recorded only after the re-run alone failed too; one attempt is not enough.
+attempts:
+- captured:
+    pins:
+    - commit: f60449b491d54b617c92f1ccf0538c187cd8f34a
+      tree_path: nanosoc-multicore-system
+    - commit: 4b4b89820ab1d87a123a1eac5c221b8527673def
+      tree_path: tidechart
+    - commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+      tree_path: tidelink
+    - commit: 3824aaaf9cee33b647d149b5f00b55d44022b488
+      tree_path: ASIC/asic-flows
+    - commit: 4de7860af95cbb003265f94e6c2b7b4a1618877f
+      tree_path: ASIC/asic-toolkit
+    - commit: e908ac843845d5b293616265f93a802804555540
+      tree_path: nanosoc-multicore-system/ahb_qspi
+    - commit: e811a546e87407ea56eeee6cce8629c293971d19
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb
+    - commit: 8f88eb4b44bab93b02eebf37c9241d1c4be8f755
+      tree_path: nanosoc-multicore-system/inter-processor-communications-ahb
+    - commit: ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech
+    - commit: 0874ab62772783aa4a4da4bb97e18f9dad49160f
+      tree_path: nanosoc-multicore-system/ptp-hardware-clock-ahb
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: nanosoc-multicore-system/ahb_qspi/soctools_flow
+    - commit: 44ff8b72654bc6953b97f86855fe50ad1a10e22c
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    - commit: 06b4d24b8a377e6128d645e19c244f5577ab89bd
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech
+    - commit: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    - commit: 2f602d1c1d8115d29f83146929c63520c15a75ea
+      tree_path: tidelink/deps/axi-chiplet-controller
+    - commit: e3a77b45acbd1107fb81e2e572463506a6154d4d
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb/amba_wb_bridges
+    - commit: 5f5ecee776b9bdaa4e981e5f807079a9c79d633e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/libtelnet
+    - commit: 46120abecc9fb79f7dfb2cc8192341a42e40fc8b
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/picotcp
+    - commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: 51348dea936d086d1f2fb0a058c2985d0baa75f6
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 50359ee3db4e4f72dd3d738dcdfa99d8e0f646ce
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 46c88d3fcc3f49dc8b4ed1913d2c18bd31a3a066
+      tree_path: nanosoc-multicore-system/syn/asic/asic_flow
+    - commit: 69500efd8517feb9340f4988421748eff601341c
+      tree_path: tidelink/deps/axi-chiplet-controller/asic_flow
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: b692d01c8d9372d572558737e564f14d109c3647
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 247a0afe2a4317369af893a5b5454487c20ab90e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    superproject_commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  compat_subject: compat_result:eth-rc4:fcdd5dbe635373ddeccb7e691d13631d
+  finished_at: '2026-10-13T10:04:04Z'
+  gates:
+  - detail: anonymous ls-remote of 1 known public repo(s) succeeded (github)
+    id: t0.infra.probe
+    verdict: PASS
+  - detail: local run
+    id: t0.runner.hardened
+    verdict: NOT-RUN
+  - detail: '37 of 42 pins fetched anonymously; not fetched: tidelink, ASIC/asic-toolkit; not reached: 3 below them'
+    id: t0.pins.fetchable
+    verdict: WAIVED
+  - detail: '41 of 42 pins reachable from a branch or tag of their canonical repo; unverified: ASIC/asic-toolkit'
+    id: t0.pins.reachable
+    verdict: WAIVED
+  - detail: 'public parent NanoSoC-Ethernet-Chiplet@ab73e40 pins by ssh URL: tidelink, ASIC/asic-toolkit'
+    id: t0.urls.no-ssh-public
+    verdict: WAIVED
+  - detail: no nanosoc-component.yaml at any pinned commit (5 trees not fetched)
+    id: t0.manifest.valid
+    verdict: NOT-RUN
+  - detail: configuration eth-rc4 declares no upgrade_from
+    id: t0.clone.upgrade-path
+    verdict: NOT-RUN
+  - detail: '38 of 43 trees scanned, 1 with findings: nanosoc-multicore-system; 12 with warn-covered findings only (vendor_allowlist): nanosoc-multicore-system/ethernet-subsystem-ahb, nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech,
+      nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_t'
+    id: t0.vendor.no-arm-ip
+    verdict: FAIL
+  host:
+    cpus: 16
+    load_end: 39.98
+    load_start: 40.8
+  moved: []
+  nonce: fcdd5dbe635373ddeccb7e691d13631d
+  not_run: 3
+  over_budget: false
+  reason: null
+  requested:
+    pins:
+    - commit: 3824aaaf9cee33b647d149b5f00b55d44022b488
+      tree_path: ASIC/asic-flows
+    - commit: 4de7860af95cbb003265f94e6c2b7b4a1618877f
+      tree_path: ASIC/asic-toolkit
+    - commit: f60449b491d54b617c92f1ccf0538c187cd8f34a
+      tree_path: nanosoc-multicore-system
+    - commit: e908ac843845d5b293616265f93a802804555540
+      tree_path: nanosoc-multicore-system/ahb_qspi
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: nanosoc-multicore-system/ahb_qspi/soctools_flow
+    - commit: e811a546e87407ea56eeee6cce8629c293971d19
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb
+    - commit: 44ff8b72654bc6953b97f86855fe50ad1a10e22c
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    - commit: e3a77b45acbd1107fb81e2e572463506a6154d4d
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb/amba_wb_bridges
+    - commit: 5f5ecee776b9bdaa4e981e5f807079a9c79d633e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/libtelnet
+    - commit: 46120abecc9fb79f7dfb2cc8192341a42e40fc8b
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/picotcp
+    - commit: 06b4d24b8a377e6128d645e19c244f5577ab89bd
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech
+    - commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: b692d01c8d9372d572558737e564f14d109c3647
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 247a0afe2a4317369af893a5b5454487c20ab90e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 8f88eb4b44bab93b02eebf37c9241d1c4be8f755
+      tree_path: nanosoc-multicore-system/inter-processor-communications-ahb
+    - commit: ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech
+    - commit: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: 51348dea936d086d1f2fb0a058c2985d0baa75f6
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 50359ee3db4e4f72dd3d738dcdfa99d8e0f646ce
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 0874ab62772783aa4a4da4bb97e18f9dad49160f
+      tree_path: nanosoc-multicore-system/ptp-hardware-clock-ahb
+    - commit: 46c88d3fcc3f49dc8b4ed1913d2c18bd31a3a066
+      tree_path: nanosoc-multicore-system/syn/asic/asic_flow
+    - commit: 4b4b89820ab1d87a123a1eac5c221b8527673def
+      tree_path: tidechart
+    - commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+      tree_path: tidelink
+    - commit: 2f602d1c1d8115d29f83146929c63520c15a75ea
+      tree_path: tidelink/deps/axi-chiplet-controller
+    - commit: 69500efd8517feb9340f4988421748eff601341c
+      tree_path: tidelink/deps/axi-chiplet-controller/asic_flow
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow
+    superproject_commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  started_at: '2026-10-13T10:03:07Z'
+  unjudged_overrides: []
+  verdict: FAIL
+baseline:
+  finished_at: '2026-10-13T09:59:00Z'
+  nonce: f63f73c3eadba6c31bddaaa2f91a5684
+  subject: matrix_cell:eth-rc4:-:pinned:f63f73c3eadba6c31bddaaa2f91a5684
+  verdict: FAIL
+blocks_auto_merge: true
+by: member-a
+column: latest-tag
+comparison:
+  note: null
+  rows:
+  - baseline: NOT-RUN
+    cell: NOT-RUN
+    change: same
+    gate: t0.clone.upgrade-path
+    quarantined: false
+  - baseline: PASS
+    cell: PASS
+    change: same
+    gate: t0.infra.probe
+    quarantined: false
+  - baseline: NOT-RUN
+    cell: NOT-RUN
+    change: same
+    gate: t0.manifest.valid
+    quarantined: false
+  - baseline: WAIVED
+    cell: WAIVED
+    change: same
+    gate: t0.pins.fetchable
+    quarantined: false
+  - baseline: WAIVED
+    cell: WAIVED
+    change: same
+    gate: t0.pins.reachable
+    quarantined: false
+  - baseline: NOT-RUN
+    cell: NOT-RUN
+    change: same
+    gate: t0.runner.hardened
+    quarantined: false
+  - baseline: WAIVED
+    cell: WAIVED
+    change: same
+    gate: t0.urls.no-ssh-public
+    quarantined: false
+  - baseline: FAIL
+    cell: FAIL
+    change: same
+    gate: t0.vendor.no-arm-ip
+    quarantined: false
+component: tidelink
+configuration: eth-rc4
+configuration_commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+finished_at: '2026-10-13T10:05:07Z'
+flaky_gates: []
+job: 4
+nonce: de4dbde8b576e9918a67289b1f1fead5
+overrides:
+- commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+  tree_path: tidelink
+pinned:
+- commit: 5e8bdb5a2141ff5a82103813a326a2c9df2b43ed
+  tree_path: tidelink
+provenance:
+  captured:
+    pins:
+    - commit: f60449b491d54b617c92f1ccf0538c187cd8f34a
+      tree_path: nanosoc-multicore-system
+    - commit: 4b4b89820ab1d87a123a1eac5c221b8527673def
+      tree_path: tidechart
+    - commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+      tree_path: tidelink
+    - commit: 3824aaaf9cee33b647d149b5f00b55d44022b488
+      tree_path: ASIC/asic-flows
+    - commit: 4de7860af95cbb003265f94e6c2b7b4a1618877f
+      tree_path: ASIC/asic-toolkit
+    - commit: e908ac843845d5b293616265f93a802804555540
+      tree_path: nanosoc-multicore-system/ahb_qspi
+    - commit: e811a546e87407ea56eeee6cce8629c293971d19
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb
+    - commit: 8f88eb4b44bab93b02eebf37c9241d1c4be8f755
+      tree_path: nanosoc-multicore-system/inter-processor-communications-ahb
+    - commit: ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech
+    - commit: 0874ab62772783aa4a4da4bb97e18f9dad49160f
+      tree_path: nanosoc-multicore-system/ptp-hardware-clock-ahb
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: nanosoc-multicore-system/ahb_qspi/soctools_flow
+    - commit: 44ff8b72654bc6953b97f86855fe50ad1a10e22c
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    - commit: 06b4d24b8a377e6128d645e19c244f5577ab89bd
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech
+    - commit: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    - commit: 2f602d1c1d8115d29f83146929c63520c15a75ea
+      tree_path: tidelink/deps/axi-chiplet-controller
+    - commit: e3a77b45acbd1107fb81e2e572463506a6154d4d
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb/amba_wb_bridges
+    - commit: 5f5ecee776b9bdaa4e981e5f807079a9c79d633e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/libtelnet
+    - commit: 46120abecc9fb79f7dfb2cc8192341a42e40fc8b
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/picotcp
+    - commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: 51348dea936d086d1f2fb0a058c2985d0baa75f6
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 50359ee3db4e4f72dd3d738dcdfa99d8e0f646ce
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 46c88d3fcc3f49dc8b4ed1913d2c18bd31a3a066
+      tree_path: nanosoc-multicore-system/syn/asic/asic_flow
+    - commit: 69500efd8517feb9340f4988421748eff601341c
+      tree_path: tidelink/deps/axi-chiplet-controller/asic_flow
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: b692d01c8d9372d572558737e564f14d109c3647
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 247a0afe2a4317369af893a5b5454487c20ab90e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    superproject_commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  harness: nanosoc-rm 0.1.0.dev0 compat (T0, run mode local)
+  host:
+    cpus: 16
+    load_end: 50.96
+    load_start: 39.98
+  ip_hash: null
+  ip_hash_note: T0 reads no IP file list, so there is no IP hash to record
+  moved: []
+  requested:
+    pins:
+    - commit: 3824aaaf9cee33b647d149b5f00b55d44022b488
+      tree_path: ASIC/asic-flows
+    - commit: 4de7860af95cbb003265f94e6c2b7b4a1618877f
+      tree_path: ASIC/asic-toolkit
+    - commit: f60449b491d54b617c92f1ccf0538c187cd8f34a
+      tree_path: nanosoc-multicore-system
+    - commit: e908ac843845d5b293616265f93a802804555540
+      tree_path: nanosoc-multicore-system/ahb_qspi
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: nanosoc-multicore-system/ahb_qspi/soctools_flow
+    - commit: e811a546e87407ea56eeee6cce8629c293971d19
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb
+    - commit: 44ff8b72654bc6953b97f86855fe50ad1a10e22c
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb
+    - commit: e3a77b45acbd1107fb81e2e572463506a6154d4d
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/ethernet-mac-ahb/amba_wb_bridges
+    - commit: 5f5ecee776b9bdaa4e981e5f807079a9c79d633e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/libtelnet
+    - commit: 46120abecc9fb79f7dfb2cc8192341a42e40fc8b
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/firmware/picotcp
+    - commit: 06b4d24b8a377e6128d645e19c244f5577ab89bd
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech
+    - commit: 1d7772dd0cd0e135f86f7d9906f4852883c4670e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: b692d01c8d9372d572558737e564f14d109c3647
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 247a0afe2a4317369af893a5b5454487c20ab90e
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 8f88eb4b44bab93b02eebf37c9241d1c4be8f755
+      tree_path: nanosoc-multicore-system/inter-processor-communications-ahb
+    - commit: ecf76aa569c4cd4fd05f9220a87dc428ee7c09c3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech
+    - commit: d04de2ec25d79c1fc3223f853ddb6725cbf2831c
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+    - commit: 5db46c803946656b773a04268d1ebdf183ebfd09
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/extio8x4-axis
+    - commit: 51348dea936d086d1f2fb0a058c2985d0baa75f6
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/hostio4
+    - commit: e9ed3dbfe43a2e0205f4fb86d914ec23c97286eb
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sl_ams_tech
+    - commit: d8db2016b5e5aef39cb42aadb3707a54e93d727f
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0_tech
+    - commit: eda4fdfb1026f82bba5c0a0be775463096300192
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/slcorem0p_tech
+    - commit: 7105d696b8d67e4b70c9c54cb14c807a311a24b3
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma230_tech
+    - commit: 2b77bd0c160e75dec2479c4ed934ba85276dc994
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/sldma350_tech
+    - commit: 50359ee3db4e4f72dd3d738dcdfa99d8e0f646ce
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech
+    - commit: 3ea8f99cb458acf3f6cfe27862afe77d560caf08
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/socdebug_tech/socket/uart_axi_master/core_dbg_bridge
+    - commit: 7b6139d3a9c7bcdce9f7a02034bbbd82e205a8db
+      tree_path: nanosoc-multicore-system/nanosoc_arch_tech/rtl/synopsys_28nm_slm_integration
+    - commit: 0874ab62772783aa4a4da4bb97e18f9dad49160f
+      tree_path: nanosoc-multicore-system/ptp-hardware-clock-ahb
+    - commit: 46c88d3fcc3f49dc8b4ed1913d2c18bd31a3a066
+      tree_path: nanosoc-multicore-system/syn/asic/asic_flow
+    - commit: 4b4b89820ab1d87a123a1eac5c221b8527673def
+      tree_path: tidechart
+    - commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+      tree_path: tidelink
+    - commit: 2f602d1c1d8115d29f83146929c63520c15a75ea
+      tree_path: tidelink/deps/axi-chiplet-controller
+    - commit: 69500efd8517feb9340f4988421748eff601341c
+      tree_path: tidelink/deps/axi-chiplet-controller/asic_flow
+    - commit: 0784ddc7183d3d4cf246985d89c9b7589e0bb430
+      tree_path: tidelink/deps/axi-chiplet-controller/soctools_flow
+    superproject_commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  tools:
+    git: 2.43.7
+    nanosoc_rm: 0.1.0.dev0
+    python: 3.11.13
+reason: red twice (the re-run, alone, failed again)
+split: false
+started_at: '2026-10-13T10:03:07Z'
+target:
+  column: latest-tag
+  commit: c22416c1c0e1244047d09c42857a0ba9501ac9e4
+  range: null
+  ref: v1.0
+  why: null
+verdict: FAIL

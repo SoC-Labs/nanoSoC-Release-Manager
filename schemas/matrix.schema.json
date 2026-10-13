@@ -1,0 +1,1193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/matrix.schema.json",
+  "title": "Compatibility matrix facts (D3, D4, D7, D8, D9, B7; Wave B, built per CR-15)",
+  "description": "Shared $defs only (no top-level document): the `fact` of the observation kinds matrix_cell (event, stored), matrix_quarantine (event, stored) and matrix_view (derived, never stored). interfaces.md section 18. Added without a schema bump (README section 2 rule 4): new optional kinds and $defs.",
+  "$defs": {
+    "verdict": {
+      "description": "A cell's verdict. README section 6 run verdicts, plus FLAKY (D8: red, then green on the re-run alone) and NOT-RUN (no target, or the target is the pinned tree).",
+      "enum": [
+        "PASS",
+        "WARN",
+        "WAIVED",
+        "FAIL",
+        "FLAKY",
+        "UNVERIFIED",
+        "INFRA",
+        "NOT-RUN"
+      ]
+    },
+    "column": {
+      "enum": [
+        "pinned",
+        "in-range",
+        "latest-tag",
+        "head"
+      ]
+    },
+    "nullable_sha": {
+      "oneOf": [
+        {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullable_utc": {
+      "oneOf": [
+        {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target": {
+      "description": "What the column means for this row: a commit of the component's canonical repo, or why none.",
+      "type": "object",
+      "required": [
+        "column",
+        "commit",
+        "ref",
+        "why",
+        "range"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "$ref": "#/$defs/column"
+        },
+        "commit": {
+          "$ref": "#/$defs/nullable_sha"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "why": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "range": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The in-range column's range (component-manifest requires[].range)."
+        }
+      }
+    },
+    "tree_commits": {
+      "description": "D4: a tree as a list of commits. `requested`: what the walker resolved (overrides applied). `captured`: what the run's own pin fetches hold, read AFTER the run; null = not read (the run did not fetch that commit, or its parent was not fetched anonymously).",
+      "type": "object",
+      "required": [
+        "superproject_commit",
+        "pins"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "superproject_commit": {
+          "$ref": "#/$defs/nullable_sha"
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tree_path",
+              "commit"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "$ref": "#/$defs/nullable_sha"
+              }
+            }
+          }
+        },
+        "note": {
+          "description": "Optional, on a capture: what this capture can and cannot show (a T0 run cannot move a pin, so its capture only confirms pins or shows them as not read).",
+          "type": "string"
+        }
+      }
+    },
+    "moved_pin": {
+      "type": "object",
+      "required": [
+        "tree_path",
+        "requested",
+        "captured"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tree_path": {
+          "type": "string",
+          "description": "\"\" for the superproject."
+        },
+        "requested": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "captured": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        }
+      }
+    },
+    "host": {
+      "description": "D4, D7: the host the attempt ran on: CPU count, the 1-minute load at start and end, and whether that was an overloaded host.",
+      "type": "object",
+      "required": [
+        "cpus",
+        "load_start",
+        "load_end"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "cpus": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "load_start": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "load_end": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "overloaded": {
+          "description": "D7: the load at start or end was above the overload threshold per CPU (provenance.OVERLOAD_PER_CPU). Optional: absent means not judged.",
+          "type": "boolean"
+        }
+      }
+    },
+    "attempt": {
+      "description": "One local compat T0 run of the cell's tree (analysis.compat), with its D4 capture.",
+      "type": "object",
+      "required": [
+        "nonce",
+        "started_at",
+        "finished_at",
+        "verdict",
+        "reason",
+        "gates",
+        "compat_subject",
+        "not_run",
+        "over_budget",
+        "unjudged_overrides",
+        "requested",
+        "captured",
+        "moved",
+        "host"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "nonce": {
+          "$ref": "result-bundle.schema.json#/$defs/nonce"
+        },
+        "started_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "finished_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "WAIVED",
+            "FAIL",
+            "UNVERIFIED",
+            "INFRA"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "verdict",
+              "detail"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "defs.schema.json#/$defs/gate_id"
+              },
+              "verdict": {
+                "$ref": "result-bundle.schema.json#/$defs/gate_verdict"
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "compat_subject": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^compat_result:"
+        },
+        "not_run": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "over_budget": {
+          "type": "boolean"
+        },
+        "unjudged_overrides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requested": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/tree_commits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captured": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/tree_commits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "moved": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/moved_pin"
+          }
+        },
+        "host": {
+          "$ref": "#/$defs/host"
+        }
+      },
+      "allOf": [
+        {
+          "description": "D4: an attempt that read a pin at another commit than requested is UNVERIFIED (or INFRA), never a pass or a FAIL.",
+          "if": {
+            "properties": {
+              "moved": {
+                "minItems": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "UNVERIFIED",
+                  "INFRA"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "comparison_row": {
+      "type": "object",
+      "required": [
+        "gate",
+        "baseline",
+        "cell",
+        "change",
+        "quarantined"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "gate": {
+          "$ref": "defs.schema.json#/$defs/gate_id"
+        },
+        "baseline": {
+          "oneOf": [
+            {
+              "$ref": "result-bundle.schema.json#/$defs/gate_verdict"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cell": {
+          "oneOf": [
+            {
+              "$ref": "result-bundle.schema.json#/$defs/gate_verdict"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "change": {
+          "enum": [
+            "same",
+            "new-failure",
+            "fixed",
+            "changed"
+          ]
+        },
+        "quarantined": {
+          "type": "boolean"
+        }
+      }
+    },
+    "baseline": {
+      "description": "D9: the pinned run this cell is compared with (same configuration commit, within 12 h).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "subject",
+            "nonce",
+            "verdict",
+            "finished_at"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "subject": {
+              "type": "string",
+              "pattern": "^matrix_cell:"
+            },
+            "nonce": {
+              "$ref": "result-bundle.schema.json#/$defs/nonce"
+            },
+            "verdict": {
+              "$ref": "#/$defs/verdict"
+            },
+            "finished_at": {
+              "$ref": "defs.schema.json#/$defs/utc"
+            }
+          }
+        }
+      ]
+    },
+    "matrix_cell": {
+      "description": "One matrix cell run (`nanosoc-rm matrix cell`, a matrix-cell job): the configuration's tree with every pin of `component` moved to the column's commit (the pinned column moves nothing), judged by a local compat T0 run. D7: host failures are INFRA. D4: a moved pin makes it UNVERIFIED. D8: a FAIL attempt is re-run once alone: FAIL twice is FAIL, FAIL then green is FLAKY. D9: compared with the same night's pinned run, named in `baseline`. Event kind, subject matrix_cell:<configuration>:<component or ->:<column>:<nonce>.",
+      "type": "object",
+      "required": [
+        "configuration",
+        "configuration_commit",
+        "component",
+        "column",
+        "nonce",
+        "target",
+        "pinned",
+        "split",
+        "overrides",
+        "attempts",
+        "verdict",
+        "reason",
+        "flaky_gates",
+        "blocks_auto_merge",
+        "provenance",
+        "by",
+        "job",
+        "started_at",
+        "finished_at",
+        "baseline",
+        "comparison"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "configuration_commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "component": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/component_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "column": {
+          "$ref": "#/$defs/column"
+        },
+        "nonce": {
+          "$ref": "result-bundle.schema.json#/$defs/nonce"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "pinned": {
+          "description": "B7: every pin of the component in the registered tree (more than one when split).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tree_path",
+              "commit"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "$ref": "#/$defs/nullable_sha"
+              }
+            }
+          }
+        },
+        "split": {
+          "type": "boolean"
+        },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tree_path",
+              "commit"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "commit": {
+                "$ref": "defs.schema.json#/$defs/sha"
+              }
+            }
+          }
+        },
+        "attempts": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/attempt"
+          }
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flaky_gates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "blocks_auto_merge": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "type": "object",
+          "required": [
+            "tools",
+            "harness",
+            "ip_hash",
+            "requested",
+            "captured",
+            "moved",
+            "host"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tools": {
+              "type": "object",
+              "required": [
+                "git",
+                "python",
+                "nanosoc_rm"
+              ],
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "harness": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ip_hash": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ip_hash_note": {
+              "type": "string"
+            },
+            "requested": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/tree_commits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "captured": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/tree_commits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "moved": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/moved_pin"
+              }
+            },
+            "host": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/host"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "job": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "started_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "finished_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "baseline": {
+          "$ref": "#/$defs/baseline"
+        },
+        "comparison": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "rows",
+                "note"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/comparison_row"
+                  }
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "description": "The pinned column moves nothing and has no row component.",
+          "if": {
+            "properties": {
+              "column": {
+                "const": "pinned"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "component": {
+                "type": "null"
+              },
+              "overrides": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "component": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "description": "D8: a FAIL is recorded only after the re-run alone failed too.",
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "FAIL"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attempts": {
+                "minItems": 2,
+                "items": {
+                  "properties": {
+                    "verdict": {
+                      "const": "FAIL"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "description": "D8: FLAKY = red, then green on the re-run; it names the flaky gates and blocks auto-merge.",
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "FLAKY"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attempts": {
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "properties": {
+                      "verdict": {
+                        "const": "FAIL"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "verdict": {
+                        "enum": [
+                          "PASS",
+                          "WARN",
+                          "WAIVED"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              },
+              "flaky_gates": {
+                "minItems": 1
+              },
+              "blocks_auto_merge": {
+                "const": true
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "flaky_gates": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "description": "D4: a cell whose last run read a moved pin is UNVERIFIED (or INFRA).",
+          "if": {
+            "properties": {
+              "provenance": {
+                "properties": {
+                  "moved": {
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "UNVERIFIED",
+                  "INFRA"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "description": "NOT-RUN ran nothing; every other verdict ran at least once.",
+          "if": {
+            "properties": {
+              "verdict": {
+                "const": "NOT-RUN"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "attempts": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "attempts": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "description": "D7: an INFRA attempt never yields a FAIL cell (covered by the FAIL rule) nor a pass.",
+          "if": {
+            "properties": {
+              "attempts": {
+                "contains": {
+                  "properties": {
+                    "verdict": {
+                      "const": "INFRA"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "enum": [
+                  "INFRA",
+                  "UNVERIFIED"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "matrix_quarantine": {
+      "description": "D8: a test (a T0 gate of one configuration, or `cell`) quarantined after two FLAKY cells within 14 days. Expires 30 days after `since` with no action; the owner is named by a person (`matrix quarantine --owner`). Event kind, subject matrix_quarantine:<configuration>:<test> (latest = current; history kept).",
+      "type": "object",
+      "required": [
+        "configuration",
+        "test",
+        "since",
+        "expires_at",
+        "owner",
+        "set_by",
+        "flaky_cells",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "test": {
+          "type": "string",
+          "minLength": 1
+        },
+        "since": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "expires_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "set_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "flaky_cells": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "pattern": "^matrix_cell:"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "cell_view": {
+      "type": "object",
+      "required": [
+        "target",
+        "status",
+        "verdict",
+        "subject",
+        "finished_at",
+        "age_s",
+        "stale",
+        "job",
+        "job_state",
+        "same_as_pinned",
+        "comparison",
+        "flaky_gates",
+        "quarantined_gates"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "status": {
+          "enum": [
+            "result",
+            "not-run",
+            "no-target",
+            "same-as-pinned",
+            "queued",
+            "running",
+            "job-done",
+            "job-failed",
+            "job-cancelled",
+            "job-infra"
+          ]
+        },
+        "verdict": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/verdict"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "finished_at": {
+          "$ref": "#/$defs/nullable_utc"
+        },
+        "age_s": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "job": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "job_state": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "same_as_pinned": {
+          "type": "boolean"
+        },
+        "comparison": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "baseline",
+                "changes",
+                "note"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "baseline": {
+                  "$ref": "#/$defs/baseline"
+                },
+                "changes": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/comparison_row"
+                  }
+                },
+                "note": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "flaky_gates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "quarantined_gates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "matrix_view": {
+      "description": "D3: one configuration's matrix as `nanosoc-rm matrix CONFIG --json` prints it and /matrix/{configuration} shows it. Derived from stored data (walk, mirrors, matrix_cell, jobs); never stored.",
+      "type": "object",
+      "required": [
+        "configuration",
+        "commit",
+        "columns",
+        "generated_at",
+        "rows",
+        "pinned",
+        "splits",
+        "quarantine",
+        "nightly"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "generated_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component",
+              "split",
+              "catalogued",
+              "pins",
+              "mirror_synced_at",
+              "cells"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "$ref": "defs.schema.json#/$defs/component_id"
+              },
+              "split": {
+                "type": "boolean"
+              },
+              "catalogued": {
+                "type": "boolean"
+              },
+              "pins": {
+                "$ref": "#/$defs/matrix_cell/properties/pinned"
+              },
+              "mirror_synced_at": {
+                "$ref": "#/$defs/nullable_utc"
+              },
+              "cells": {
+                "type": "object",
+                "propertyNames": {
+                  "$ref": "#/$defs/column"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/cell_view"
+                }
+              }
+            }
+          }
+        },
+        "pinned": {
+          "$ref": "#/$defs/cell_view"
+        },
+        "splits": {
+          "description": "B7: components pinned at more than one commit in this tree.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "component",
+              "pins"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "component": {
+                "$ref": "defs.schema.json#/$defs/component_id"
+              },
+              "pins": {
+                "$ref": "#/$defs/matrix_cell/properties/pinned",
+                "minItems": 2
+              }
+            }
+          }
+        },
+        "quarantine": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "configuration",
+              "test",
+              "since",
+              "expires_at",
+              "owner",
+              "set_by",
+              "flaky_cells",
+              "reason",
+              "subject",
+              "active"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "configuration": {
+                "$ref": "defs.schema.json#/$defs/configuration_id"
+              },
+              "test": {
+                "type": "string",
+                "minLength": 1
+              },
+              "since": {
+                "$ref": "defs.schema.json#/$defs/utc"
+              },
+              "expires_at": {
+                "$ref": "defs.schema.json#/$defs/utc"
+              },
+              "owner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "set_by": {
+                "type": "string",
+                "minLength": 1
+              },
+              "flaky_cells": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "string",
+                  "pattern": "^matrix_cell:"
+                }
+              },
+              "reason": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string",
+                "pattern": "^matrix_quarantine:"
+              },
+              "active": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "nightly": {
+          "description": "The nightly matrix schedule. It ships disabled: enabling it is automation, which waits for the Phase 2 entry gate (CR-15).",
+          "type": "object",
+          "required": [
+            "name",
+            "enabled",
+            "gate",
+            "covers"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "nightly_matrix"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "gate": {
+              "type": "string",
+              "minLength": 1
+            },
+            "covers": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

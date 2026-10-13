@@ -49,9 +49,13 @@ from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
-           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci"]
+           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS"]
 
-KINDS = ("compat", "mirror-sync", "walk")
+# Job kinds other packages add without editing this file's logic (interfaces.md section 18): kind -> module with
+# params(p) -> dict (ValueError = usage), cli_args(p) -> [args], outcome(docs, last_line) -> fields,
+# limit_s(config, job) -> float, and optional ACTION (an `actions` entry logged on submit).
+EXTRA_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind"}
+KINDS = ("compat", "mirror-sync", "walk") + tuple(EXTRA_KINDS)
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
@@ -150,8 +154,18 @@ def _check_id(value: Any, what: str) -> str:
     return value
 
 
+def _extra(kind: str):
+    import importlib
+    return importlib.import_module(EXTRA_KINDS[kind])
+
+
 def _params(kind: str, params: dict) -> dict:
     """The job's parameters, checked; JobUsage when the CLI would exit 3 on them."""
+    if kind in EXTRA_KINDS:
+        try:
+            return _extra(kind).params(params)
+        except ValueError as e:
+            raise JobUsage(str(e)) from None
     if kind == "compat":
         from nanosoc_rm.analysis.compat import CompatUsage, parse_pins
         cfg = _check_id(params.get("configuration"), "configuration")
@@ -177,6 +191,8 @@ def _params(kind: str, params: dict) -> dict:
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
     """The `nanosoc-rm` arguments a job runs (`--keep-work` only when `work` is given)."""
+    if kind in EXTRA_KINDS:
+        return _extra(kind).cli_args(params)
     if kind == "compat":
         args = ["compat", params["configuration"]]
         for p in params["pins"]:
@@ -209,9 +225,11 @@ def submit(config: Config, kind: str, params: dict, by: str) -> dict:
         cur = con.execute("INSERT INTO jobs (kind, params, state, by, created_at, command) VALUES (?, ?, 'queued', ?, ?, ?)",
                           (kind, json.dumps(p, sort_keys=True), by, clock.iso(), command_text(kind, p)))
         job_id = cur.lastrowid
-    if kind == "compat":
+    action = "run_t0" if kind == "compat" else getattr(_extra(kind), "ACTION", None) if kind in EXTRA_KINDS else None
+    if action:
         from nanosoc_rm import db
-        db.log_action(by, "run_t0", p["configuration"], "local job %d" % job_id, config=config)
+        db.log_action(by, action, p["configuration"], "local job %d" % job_id + (
+            "" if kind == "compat" else " (%s)" % command_text(kind, p)), config=config)
     return get(config, job_id)
 
 
@@ -363,6 +381,8 @@ def _append_log(config: Config, job_id: int, text: str) -> None:
 
 
 def _limit_s(config: Config, job: dict) -> float:
+    if job["kind"] in EXTRA_KINDS:
+        return float(_extra(job["kind"]).limit_s(config, job))
     limit = float(JOB_LIMIT_S)
     tier = job["params"].get("tier")
     if job["kind"] == "compat" and tier:
@@ -402,6 +422,8 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
         return {"state": "infra", "verdict": "INFRA",
                 "reason": "the job process ended with %s%s" % ("signal %d" % -rc if rc is not None and rc < 0
                                                                else "exit %s" % rc, ": " + last if last else "")}
+    if job["kind"] in EXTRA_KINDS:
+        return _extra(job["kind"]).outcome(docs, last)
     if job["kind"] == "compat":
         doc = next((d for d in reversed(docs) if d.get("kind") == "compat_result"), None)
         if doc is None:

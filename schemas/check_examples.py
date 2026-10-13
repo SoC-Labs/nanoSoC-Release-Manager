@@ -135,7 +135,9 @@ DEF_EXAMPLES = {
 }
 # Valid and invalid examples of one $defs entry, by file-name prefix (CR-12: registry tiers.yaml).
 DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file"),
-                "eligibility.quality": ("eligibility", "/$defs/quality_file")}       # CR-14: registry quality.yaml
+                "eligibility.quality": ("eligibility", "/$defs/quality_file"),       # CR-14: registry quality.yaml
+                "matrix.cell": ("matrix", "/$defs/matrix_cell"),                     # CR-18-matrix (D3, D4, D8)
+                "matrix.quarantine": ("matrix", "/$defs/matrix_quarantine")}
 # rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
 # of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
 ITEMS_PREFIX = "result-bundle.items."
@@ -240,7 +242,9 @@ def main():
                        [describe(e) for e in errs[:4]] or "NO ERROR (the schema cannot fail here)"))
 
     doc_schemas = set(schemas) - {"defs"}
-    missing_valid = sorted(doc_schemas - covered)
+    # $defs-only libraries (no top-level document) are covered by their $defs examples (DEF_PREFIXES)
+    libraries = {"matrix"}
+    missing_valid = sorted(doc_schemas - covered - libraries)
     missing_bad = sorted(doc_schemas - bad_covered)
     if missing_valid:
         report(False, "coverage", "no valid example for: " + ", ".join(missing_valid))

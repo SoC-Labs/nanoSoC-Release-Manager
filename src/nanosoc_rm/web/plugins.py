@@ -26,7 +26,7 @@ from starlette.responses import HTMLResponse
 __all__ = ["PLUGINS", "load", "render_page"]
 
 # (module, navigation label)
-PLUGINS = (("nanosoc_rm.quality.web", "Quality"),)
+PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Matrix"))
 
 
 def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:

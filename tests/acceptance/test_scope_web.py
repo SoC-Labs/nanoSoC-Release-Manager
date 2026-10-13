@@ -148,8 +148,12 @@ HOOK = {
 }
 DASHBOARD_ITEMS = ("t0-result", "red-pins", "open-errata", "host-drift", "runner-status", "data-age")
 
-# Later-phase surfaces that must not exist before their entry gate (A7).
+# Later-phase surfaces (A7). CR-15 (2026-10-12): they may be BUILT before their entry gate; what the gate still
+# governs is ENABLING each phase's automation (LATER_AUTOMATION: the scheduler must not run it).
 LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
+LATER_AUTOMATION = {"Phase 2": ["nightly_matrix"], "Phase 3": ["tool_release"], "Phase 4": ["bump_bot"],
+                    "Phase 5": ["soc_release"]}
+CR15_BUILD_FROM = "2026-10-12T00:00:00Z"
 LATER_SURFACES = {
     "Phase 2": {"routes": ["/matrix"], "cli": ["matrix"]},
     "Phase 3": {"routes": [], "cli": ["release", "changelog"]},
@@ -1415,14 +1419,18 @@ def git_commits(repo):
 IMPLEMENTATION_PREFIXES = ("src/",)      # contracts, schemas, docs and tests for later phases are gate-2 work (§15)
 
 
-def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
-    """A7: each later phase has a written, checked entry gate before its code or surfaces appear.
+def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, automation=()):
+    """A7: each later phase has a written, checked entry gate before its automation is enabled.
     Only commits that change implementation (src/) count: PR3 writes later phases' formats and
     tests before any code (interfaces.md §15), and that is not starting the phase.
     CR-5: a register `exemptions` entry {commit, ids, cr} takes its ids out of that one commit, and only
-    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha."""
+    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha.
+    CR-15: build and enable are separate. An implementation commit from CR15_BUILD_FROM on that names a
+    later-phase id is building, not starting the phase; routes and commands may exist. The breach is an
+    enabled automation (`automation`: the scheduler's job names) of a phase whose gate is not met."""
     probs = []
-    commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
+    commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))
+               and utc(c["at"]) < utc(CR15_BUILD_FROM)]
     rows = [r for r in (changes or "").splitlines() if r.startswith("|") and r.count("|") > 2]
     exempt = {}
     for e in (gates_doc or {}).get("exemptions") or []:
@@ -1458,12 +1466,10 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
                 probs.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
                              % (ph, first["sha"][:7], first["at"], sorted(named(first) & ph_ids)))
         if not met:
-            for r in LATER_SURFACES[ph]["routes"]:
-                if any(x == r or x.startswith(r + "/") for x in routes):
-                    probs.append("%s: route %s exists before its entry gate" % (ph, r))
-            for c in LATER_SURFACES[ph]["cli"]:
-                if c in cli_commands:
-                    probs.append("%s: command `%s` exists before its entry gate" % (ph, c))
+            governed = (g or {}).get("automation")
+            for name in (governed if isinstance(governed, list) else LATER_AUTOMATION[ph]):
+                if name in automation:
+                    probs.append("%s: automation `%s` is enabled before its entry gate" % (ph, name))
     return probs
 
 
@@ -2011,9 +2017,19 @@ def _nc_A7_checker(tmp):
     met = json.loads(json.dumps(gates))
     met["phases"][0].update(status="gate-met", checked={"at": "2026-10-04T09:00:00Z", "by": "david", "evidence": "x"})
     assert check_a7(met, phase_of, git_commits(repo), routes=["/"], cli_commands=["walk"]) == [], "baseline must pass"
-    probs = check_a7(met, phase_of, git_commits(repo), routes=["/", "/releases"], cli_commands=["walk", "lock"])
-    assert "Phase 5: route /releases exists before its entry gate" in probs
-    assert "Phase 5: command `lock` exists before its entry gate" in probs
+    # CR-15: a /releases route and a `lock` command may be built; an enabled nightly matrix may not
+    assert check_a7(met, phase_of, git_commits(repo), routes=["/", "/releases"], cli_commands=["walk", "lock"]) == []
+    probs = check_a7(gates, phase_of, [], routes=["/"], cli_commands=["walk"], automation=["poll", "nightly_matrix"])
+    assert probs == ["Phase 2: automation `nightly_matrix` is enabled before its entry gate"], probs
+    assert check_a7(met, phase_of, [], ["/"], ["walk"], automation=["nightly_matrix"]) == []
+    # a job under another name that queues the matrix enables nightly_matrix all the same (CR-18-matrix-r1)
+    from nanosoc_rm.phasegates import automation_reached
+    from nanosoc_rm.schedule import Job
+    sweep = Job("matrix", "nightly", lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"]).queue("x", by="n"))
+    reached = sorted(automation_reached([sweep]))
+    assert reached == ["nightly_matrix"], reached
+    assert check_a7(gates, phase_of, [], ["/"], ["walk"], automation=["matrix"] + reached) == [
+        "Phase 2: automation `nightly_matrix` is enabled before its entry gate"]
     assert "Phase 2: no entry gate written down" in check_a7({"phases": met["phases"][1:]}, phase_of, [], [], [])
     # CR-5: an exemption for the D3 commit counts only with a CHANGES.md row for its CR naming that commit
     d3 = next(c for c in git_commits(repo) if "D3" in c["message"])
@@ -2022,6 +2038,10 @@ def _nc_A7_checker(tmp):
     assert not [p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=row) if "Phase 2" in p]
     for changes in (None, row.replace("CR-5", "CR-9"), row.replace(d3["sha"][:7], "0000000")):
         assert any("['D3']" in p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=changes))
+    # CR-15: the same D3 commit made after the build-allowed date is building, not starting Phase 2
+    commit(repo, "src/matrix2.py", "x\n", "feat(matrix): D3 matrix cells", "2026-10-13T10:00:00Z")
+    late = [c for c in git_commits(repo) if "cells" in c["message"]]
+    assert check_a7(gates, phase_of, late, ["/"], ["walk"]) == []
 
 
 def _nc_H1_checker():
@@ -2608,15 +2628,21 @@ def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
     #   that changes src/ names a later-phase requirement before that phase's gate was checked; and
     #   no later-phase route or command exists before its gate.
     changes = (REPO / "docs" / "CHANGES.md").read_text()                  # CR-5: recorded exemptions
-    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes) == []
+    from nanosoc_rm.schedule import JOBS                                  # CR-15: what the scheduler runs
+    from nanosoc_rm.phasegates import automation_reached                  # and what its jobs reach, by any name
+    automation = [j.name for j in JOBS] + sorted(automation_reached(JOBS))
+    assert "poll" in automation, "could not read the scheduler's jobs"
+    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes,
+                    automation=automation) == []
 
 
 @pytest.mark.requirement("A7")
 def test_AT_A7_negative_control(tmp_path):
     # Checker level (the whole control, A7 being a process requirement): a D3 implementation commit
-    # before the Phase 2 gate, a /releases route and a `lock` command before the Phase 5 gate, and a
-    # missing Phase 2 gate are each caught; a contracts-only commit naming G3 and C11 is not; the same
-    # repo with the Phase 2 gate checked first passes.
+    # made before CR-15 and before the Phase 2 gate, an enabled nightly matrix before the Phase 2 gate, and a
+    # missing Phase 2 gate are each caught; a contracts-only commit naming G3 and C11 is not, nor (CR-15) a
+    # /releases route, a `lock` command or a D3 commit made after CR-15; the same repo with the Phase 2 gate
+    # checked first passes.
     _nc_A7_checker(tmp_path)
 
 

@@ -63,6 +63,7 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Registry | components, defects, errata |
 | Mirrors | fetch status and age; **Sync** one component or all |
 | Alerts | open and cleared alerts; **Clear** (logged with your login) |
+| Matrix | per configuration: a row per component, columns pinned / latest tag in range / latest tag / default-branch head; each cell's verdict (text and colour), age and stale flag; **Run cell**, **Run row**, **Run column**, **Run all** queue local jobs (a T0 run each, about 3 minutes); a cell page with every attempt, the D4 provenance and the comparison with the same night's pinned run; the D8 quarantine list. The nightly matrix is disabled until the Phase 2 gate |
 | Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; run `nanosoc-rm quality all <target> --store` once first (a cold page takes about a minute) |
 
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).

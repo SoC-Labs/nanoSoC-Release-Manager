@@ -1027,6 +1027,7 @@ contract examples do.
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
 | `open_source`, `density`, `comments`, `readme`, `docs`, `trend`, `comment_patch` (CR-14, section 14a) | `nanosoc_rm.quality` |
+| `matrix`, `queue`, `nightly_plan`, `NIGHTLY` / `run_cell`, `compare`, `baseline_for`, `quarantine`, `set_owner` / `capture`, `moved` (section 18) | `nanosoc_rm.matrix` / `.cells` / `.provenance` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -1051,6 +1052,8 @@ login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-kno
 
 `nanosoc-rm quality density|comments|readme|docs|all|trend` (CR-14, Q1-Q6): section 14a.
 
+`nanosoc-rm matrix CONFIG|cell|quarantine|nightly` (D3, D4, D7, D8, D9, B7; built per CR-15): section 18.
+
 ### 17.4 Test infrastructure
 
 - **Markers** (registered in `tests/conftest.py`): `requirement("<ID>")` on every acceptance test; `live` on every test that needs the lab.
@@ -1074,7 +1077,18 @@ A static census of the package (AT-A2) must find every entry, and every call it 
 ### 17.6 Phase-gate register (A7)
 
 `docs/phase-gates.yaml`: `phases: [{phase: "Phase N", capabilities: [ids], entry_gate: [{criterion, check}],
-status: not-met|gate-met|started, checked: {at, by, evidence}}]`. A phase moves to `gate-met` only with
+automation: [names], status: not-met|gate-met|started, checked: {at, by, evidence}}]`. **CR-15:** a later phase's
+code, routes and commands may be built before its gate; the gate governs enabling its `automation` (a name there
+must not be a `schedule.JOBS` job until the phase is `gate-met`), and the commit rule below applies only to
+commits made before 2026-10-12. An automation is enabled when a `schedule.JOBS` job has its name, or when it is
+REACHED (`phasegates.automation_reached`, CR-18-matrix-r1): `AUTOMATION_CODE` names each automation's code
+(`nightly_matrix`: the package `nanosoc_rm.matrix`, the job kind `matrix-cell`, the flag `NIGHTLY.enabled`), and a
+job whose code, read statically from its defining module and every `nanosoc_rm` module that module imports (at
+any depth, including imports inside functions and `__import__`/`import_module` with a literal name), imports
+that package or names that job kind outside the job runner's own kind table, enables it under any job name; so
+does the flag set True. **Limit:** the static read does not follow a module name built at run time, and an
+automation with no `AUTOMATION_CODE` entry (Phases 3 to 5 have no code yet) is matched by name only; bot pull
+requests and published releases are not scheduler jobs at all (hard rule: the tool never writes to a forge). A phase moves to `gate-met` only with
 `checked.at` and `checked.by` filled in by a person. A commit that changes `src/` and names (in its message or
 its `Requirements:` trailer) a requirement of a later phase must come after that phase's `checked.at`.
 Contracts, schemas, docs and tests for later phases are gate-2 work and do not count (section 15).
@@ -1131,3 +1145,103 @@ Where each gap the three acceptance files logged is resolved:
 | scope_web G19 | 3 (`--no-tags`) |
 | scope_web G21 | 17.4 |
 | scope_web G22 | 13 (host drift) |
+
+## 18. Compatibility matrix (Wave B, built per CR-15)
+
+Requirements: D3, D4, D7, D8, D9 (Phase 2), B7; CR-15 (build now, enable at the Phase 2 gate) and CR-18-matrix
+(`docs/CHANGES.md`). Package `nanosoc_rm.matrix`; front ends `nanosoc-rm matrix` and `/matrix/` over the same
+functions (section 0.1). Local mode only: every cell is a local compat T0 run (section 9a) queued as a local job
+(section 13a). Nothing is scheduled: the nightly matrix ships disabled.
+
+```python
+# nanosoc_rm.matrix
+COLUMNS = ("pinned", "in-range", "latest-tag", "head")
+def matrix(configuration, *, columns=None, components=None, config=None, now=None) -> dict   # matrix_view (not stored)
+def queue(configuration, *, columns=None, components=None, cells=None, by, config=None) -> list[dict]   # jobs
+def nightly_plan(configuration, now, *, config=None, weekly_day=6) -> list[tuple]           # what it WOULD queue
+NIGHTLY = Nightly(name="nightly_matrix", enabled=False, gate="Phase 2 entry gate ...", covers=...)
+# nanosoc_rm.matrix.cells
+def run_cell(configuration, column, component=None, *, config=None, store=False, by="cli", job=None,
+             compat_fn=None, capture_fn=None, url_map=None, policy=None) -> list[dict]  # [matrix_cell, matrix_quarantine...]
+def compare(cell_fact, baseline, quarantined=frozenset()) -> dict;  def baseline_for(cell_fact, stored) -> dict | None
+def quarantine(configuration, config) -> list[dict];  def set_owner(configuration, test, owner, by, *, config) -> dict
+# nanosoc_rm.matrix.provenance
+def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def moved(requested, captured) -> list
+# nanosoc_rm.matrix.versions (VersionPolicy: latest, parse_range, latest_in_range; the Phase 3 versioning module
+# may supply its own policy with these three functions)
+```
+
+1. **Rows and columns.** One row per component of the configuration's latest stored walk (section 4), in tree
+   order; a component pinned at more than one commit (B7) is one row listing every pin, and its cells move every
+   pin (a pin below another moved pin of the same component is left to the outer override). Columns, each a commit
+   of the component's canonical repo read from its mirror: `pinned` (no override; one run serves every row and is
+   the D9 baseline); `in-range` (the highest release tag inside the range the parent's `nanosoc-component.yaml`
+   `requires[]` gives this id and gitlink path; else "no range"); `latest-tag` (the highest release tag
+   `vMAJOR.MINOR[.PATCH]`, no pre-release; keep/, archive/ and freeze names are not versions); `head` (the default
+   branch head the host advertised at the last sync). No commit: the cell says why and runs nothing. A commit equal
+   to every pinned commit: "same as pinned", which shows the pinned result.
+2. **A cell** (`run_cell`): `analysis.compat(configuration, overrides)` with its work directory kept; after the
+   run the tree is re-read from the run's own pin fetches (`provenance.capture`, offline: one bare repo borrowing
+   the objects of the `fetch-*` slots only, never the reachability clones `refs-*`, the negative controls or the
+   upgrade work) and the directory is deleted. A pin is captured only when the run fetched its commit; a pin the
+   run did not fetch (`t0.pins.fetchable` "not fetched", or below one) is null, "not read", and never counts as
+   "captured equals requested". T0 checks out nothing and runs no setup script, so on a T0 run the capture can
+   only confirm or fail to read a pin, never find one moved; the capture's `note` and the cell page say so. The
+   rule (moved = UNVERIFIED) is for runs that can move a pin (a later tier with setup scripts). Recorded per attempt: requested and captured
+   commits, the moved pins, gates (id, verdict, detail), compat's subject, host CPUs and 1-minute load at start and
+   end; per cell: tool versions (git, python, nanosoc_rm), the harness, `ip_hash` null (T0 reads no IP file list).
+3. **Verdict.** D7: MemoryError, OSError, TimeoutError, or a FAIL whose every failing gate's detail matches an
+   infrastructure signature is INFRA, never FAIL. Signatures are whole phrases a host prints (`timed out`, `timeout
+   after`, `out of memory`, `killed by signal`, `OOM-killer`, `licence checkout denied`, `no space left on device`,
+   ...), never a bare word, so a real finding that names a file such as `watchdog_timeout.v` stays FAIL; one
+   failing gate without a signature keeps the cell FAIL. Overloaded host: each attempt records `host.overloaded`
+   (1-minute load above `provenance.OVERLOAD_PER_CPU` = 2.0 per CPU at start or end); a FAIL on an overloaded host
+   whose re-run is green is INFRA, not FLAKY (and never counts toward quarantine); red twice stays FAIL, with the
+   overload noted in the reason. D4: a pin captured at another commit than requested makes the attempt UNVERIFIED. D8: a FAIL attempt is run
+   once more in the same job (the worker runs one job at a time: alone); FAIL again = FAIL, then PASS/WARN/WAIVED =
+   FLAKY (`flaky_gates`: the gates that failed only the first time; `blocks_auto_merge`), anything else UNVERIFIED.
+4. **Quarantine (D8).** A test is one T0 gate of one configuration (`cell` when no gate differs). The second FLAKY
+   of a test within 14 days stores a `matrix_quarantine` with `owner` (the login that ran the cell), `since` and
+   `expires_at` = since + 30 days. Expiry needs no action: an entry past `expires_at` is listed as expired and no
+   longer counts. `nanosoc-rm matrix quarantine CONFIG --owner GATE=LOGIN` names another owner.
+5. **Baseline (D9).** A cell is compared gate by gate with the pinned cell of the same configuration commit whose
+   start is nearest within 12 hours (the same night); the comparison names that run (`baseline.subject`, `nonce`).
+   With none, it says so and compares with nothing: never with older history. A pinned run with no gate results
+   (INFRA, unanswered) or one that read moved pins is used only when no other run of that night is usable; it is
+   then named, and the comparison has no rows and a note saying why it was not compared.
+6. **Jobs.** Kind `matrix-cell` (params `configuration`, `component`, `column`) through `jobs.EXTRA_KINDS`
+   (`nanosoc_rm.matrix.jobkind`: params, cli_args, outcome, limit_s, ACTION): the worker runs
+   `nanosoc-rm matrix cell CONFIG --column COL [--component C] --store --json`; the cell takes its job id from
+   `NANOSOC_RM_JOB` and the login from that job's record. Ceiling 3600 s (two T0 runs). Submitting logs `run_t0`
+   (H2). `queue` skips cells already queued or running, no-target and same-as-pinned cells, and queues pinned first.
+   A job that ended `infra` with no stored cell shows the cell INFRA (D7).
+7. **Nightly (D3), disabled.** `NIGHTLY.enabled` is False and no `schedule.JOBS` job reaches the matrix; the
+   Phase 2 register lists `nightly_matrix` under `automation`, so the A7 check fails if it is ever enabled before
+   the gate (CR-15): a job of that name, any job whose code reaches `nanosoc_rm.matrix` or the `matrix-cell` job
+   kind, or `NIGHTLY.enabled` set True (section 17.6, `phasegates.automation_reached`).
+   `nightly_plan` / `nanosoc-rm matrix nightly CONFIG` print what it would queue: the pinned column, every non-head
+   cell whose commit moved since its last stored run, and the head column once a week.
+- **Observations** (`schemas/matrix.schema.json`, kinds added to observation.schema.json without a bump):
+  `matrix_cell` (event, `matrix_cell:<configuration>:<component or ->:<column>:<nonce>`), `matrix_quarantine`
+  (event, `matrix_quarantine:<configuration>:<test>`; latest is current), `matrix_view` (derived, never stored).
+  The schema refuses a FAIL cell with fewer than two FAIL attempts, a FLAKY cell that is not FAIL-then-green, a cell
+  or attempt with a moved pin that is not UNVERIFIED or INFRA, a NOT-RUN cell with an attempt, an INFRA attempt
+  under a FAIL or green cell, and a quarantine with fewer than two FLAKY cells.
+- **CLI:** `nanosoc-rm matrix CONFIG [--columns a,b] [--component C]... [--run [--wait]] [--json]` (the grid; `--run`
+  queues, `--wait` works the queue in this process unless the service's worker holds it); `matrix cell CONFIG
+  --column COL [--component C] [--store] [--json]`; `matrix quarantine CONFIG [--owner GATE=LOGIN] [--json]`;
+  `matrix nightly CONFIG [--json]`. Exit: view 1 when a shown cell is FAIL or FLAKY; else 2 when a shown cell
+  is UNVERIFIED or INFRA (could not answer, section 0.2) or no cell has a green result; else 0 (NOT-RUN cells, which
+  have no commit to run, count neither way); cell 0 PASS/WARN/WAIVED, 1 FAIL/FLAKY, 2 UNVERIFIED/INFRA/NOT-RUN; 3 usage (unknown configuration, component
+  or column; `--component` with the pinned column).
+- **Pages** (plug-in `nanosoc_rm.matrix.web`, navigation "Matrix"): `GET /matrix/`, `GET /matrix/{configuration}`
+  (`?component=` repeatable, `&columns=`), `GET /matrix/{configuration}/cell?component=&column=`, `POST
+  /matrix/{configuration}/run` (`scope` = cell | row | column | all, `component`, `column`; 303 back to the grid
+  with `queued=N`, and N = 0 is shown as "Nothing was queued"). The cell page answers 400 for a non-pinned column
+  without `component`, or the pinned column with one (the CLI's exit 3).
+  The POST answers 404 unless the app has local routes (section 13a), and then the pages show the CLI command
+  instead of buttons. Hooks: `data-matrix`, `data-column`, `data-component`, `data-cell="<component or ->/<column>"`
+  with `data-verdict` and `data-status`, `data-matrix-run="<scope>"`, `data-quarantine`, `data-nightly`, and on the
+  cell page `data-attempt`, `data-baseline`, `data-change`. Colours: README section 6 with FLAKY amber, always with
+  the verdict as text.
+- **Not built here:** T1/T2 cells (the matrix runs T0; `compat --tier` stays per run), CI-run cells (needs gate 3).

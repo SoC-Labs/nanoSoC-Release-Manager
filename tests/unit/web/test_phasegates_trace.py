@@ -47,6 +47,14 @@ def test_requirement_map_reads_the_headings():
     assert idx["B7"]["priority"] == "Should"
 
 
+def test_a_later_phase_commit_after_cr15_is_building_not_a_breach(tmp_path):
+    repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
+                                   ("src/matrix/x.py", "feat(matrix): D3 matrix\n\nRequirements: D3, D8",
+                                    "2026-10-13T10:00:00Z")])
+    res = phasegates.check(gates(), PHASE_OF, phasegates.git_commits(repo), ["/", "/matrix/"], ["matrix"])
+    assert all(r["problems"] == [] for r in res), res
+
+
 def test_an_implementation_commit_before_its_gate_is_caught(tmp_path):
     repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
                                    ("schemas/x.json", "contracts: release-lock for G3, manifest for C11", "2026-10-01T10:00:00Z"),
@@ -93,13 +101,22 @@ def test_a_cr_recorded_exemption_takes_only_its_ids_out_of_only_its_commit():
     assert phasegates.exemptions(reg, row) == {sha: {"D7"}}
 
 
-def test_surfaces_and_register_shape_are_checked():
-    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x"],
-                                                                ["walk", "lock", "matrix"])}
-    assert "Phase 5: route /releases exists before its entry gate" in res["Phase 5"]
-    assert "Phase 5: command `lock` exists before its entry gate" in res["Phase 5"]
-    assert "Phase 4: route /bumps exists before its entry gate" in res["Phase 4"]
-    assert "Phase 2: command `matrix` exists before its entry gate" in res["Phase 2"]
+def test_automation_and_register_shape_are_checked():
+    """CR-15: later-phase routes and commands may be built; an enabled later-phase automation is the breach."""
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x",
+                                                                "/matrix/x"], ["walk", "lock", "matrix"])}
+    assert all(p == [] for p in res.values()), res
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/"], ["walk"],
+                                                                automation=["poll", "nightly_matrix", "bump_bot"])}
+    assert res["Phase 2"] == ["Phase 2: automation `nightly_matrix` is enabled before its entry gate (CR-15: build, "
+                              "do not enable)"]
+    assert any("`bump_bot`" in p for p in res["Phase 4"]) and res["Phase 5"] == []
+    met = gates("gate-met", {"at": "2026-10-04T09:00:00Z", "by": "david"})
+    assert phasegates.check(met, PHASE_OF, [], [], [], automation=["nightly_matrix"])[0]["problems"] == []
+    own = gates()
+    own["phases"][0]["automation"] = ["matrix_sweep"]               # the register names what its gate governs
+    p2 = phasegates.check(own, PHASE_OF, [], [], [], automation=["matrix_sweep", "nightly_matrix"])[0]["problems"]
+    assert p2 == ["Phase 2: automation `matrix_sweep` is enabled before its entry gate (CR-15: build, do not enable)"]
     res = {r["phase"]: r["problems"] for r in phasegates.check(gates(drop="Phase 2"), PHASE_OF, [], [], [])}
     assert res["Phase 2"] == ["Phase 2: no entry gate written down"]
     unchecked = gates("gate-met", {})
@@ -109,11 +126,76 @@ def test_surfaces_and_register_shape_are_checked():
     assert phasegates.check(nocheck, PHASE_OF, [], [], [])[1]["problems"] == ["Phase 3: criterion 'c' has no check"]
 
 
+def _jobs_module(tmp_path, name, body):
+    """A scheduler job table written as its own module (the check reads what the job's code imports)."""
+    import importlib.util
+    f = tmp_path / ("%s.py" % name)
+    f.write_text("from nanosoc_rm.schedule import Job\n" + body)
+    spec = importlib.util.spec_from_file_location(name, f)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.JOBS
+
+
+def test_a_later_phase_automation_is_found_by_what_a_job_runs_not_by_its_name(tmp_path, monkeypatch):
+    """Review item 1: a job under any name that reaches the matrix (its package, or its job kind through the job
+    runner), or the shipped NIGHTLY flag turned on, enables `nightly_matrix`. The real scheduler reaches none."""
+    import dataclasses
+
+    from nanosoc_rm import matrix as M
+    from nanosoc_rm.schedule import JOBS
+    assert phasegates.automation_reached(JOBS) == {}
+    named_other = _jobs_module(tmp_path, "jobs_named_other", (
+        'JOBS = (Job("matrix", "nightly", lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"])'
+        '.queue("eth-rc4", by="nightly", config=c)),)\n'))
+    got = phasegates.automation_reached(named_other)
+    assert set(got) == {"nightly_matrix"} and "`matrix`" in got["nightly_matrix"], got
+    via_kind = _jobs_module(tmp_path, "jobs_via_kind", (
+        "def _nightly_t0(c):\n    from nanosoc_rm import jobs\n"
+        '    jobs.submit(c, "matrix-cell", {"configuration": "x", "column": "pinned"}, "nightly")\n'
+        'JOBS = (Job("nightly_t0", "nightly", _nightly_t0),)\n'))
+    assert set(phasegates.automation_reached(via_kind)) == {"nightly_matrix"}
+    from_import = _jobs_module(tmp_path, "jobs_from_import", (
+        "def _sweep(c):\n    from nanosoc_rm.matrix import queue\n    queue('x', by='n', config=c)\n"
+        'JOBS = (Job("sweep", "nightly", _sweep),)\n'))
+    assert set(phasegates.automation_reached(from_import)) == {"nightly_matrix"}
+    # through a helper module next to the job's own (any depth), and not for a job that only uses the job runner
+    monkeypatch.syspath_prepend(str(tmp_path))
+    (tmp_path / "sweep_helper.py").write_text("def go(c):\n    from nanosoc_rm import matrix\n    matrix.queue('x', by='n')\n")
+    via_helper = _jobs_module(tmp_path, "jobs_via_helper", (
+        "import sweep_helper\nJOBS = (Job(\"poll\", \"poll\", sweep_helper.go),)\n"))
+    assert "sweep_helper" in phasegates.automation_reached(via_helper).get("nightly_matrix", ""), \
+        phasegates.automation_reached(via_helper)
+    (tmp_path / "plain_helper.py").write_text("from nanosoc_rm import jobs\ndef go(c):\n    pass\n")
+    via_plain = _jobs_module(tmp_path, "jobs_via_plain", (
+        "import plain_helper\ndef _t0(c):\n    from nanosoc_rm import jobs\n"
+        '    jobs.submit(c, "compat", {"configuration": "x"}, "nightly")\n'
+        'JOBS = (Job("nightly_t0", "nightly", _t0), Job("poll", "poll", plain_helper.go))\n'))
+    assert phasegates.automation_reached(via_plain) == {}          # the runner's kind table is not a queue call
+    res = phasegates.check(gates(), PHASE_OF, [], [], [], automation=phasegates.automation_in_use(named_other))
+    assert len(res[0]["problems"]) == 1 and "`nightly_matrix` is enabled" in res[0]["problems"][0], res[0]
+    assert "`matrix`" in res[0]["problems"][0]
+    monkeypatch.setattr(M, "NIGHTLY", dataclasses.replace(M.NIGHTLY, enabled=True))
+    assert "NIGHTLY.enabled" in phasegates.automation_reached(JOBS)["nightly_matrix"]
+
+
 def test_this_repo_meets_a7_with_the_real_app_and_cli():
     res = phasegates.check_repo(REPO)
     assert [r["phase"] for r in res] == list(LATER)
     assert all(r["problems"] == [] for r in res), res
     assert "/" in phasegates.app_routes() and "phase-gates" in phasegates.cli_commands()
+
+
+def test_check_repo_reads_what_the_scheduler_reaches_by_default(monkeypatch):
+    """Review item 1 on the path `nanosoc-rm phase-gates` takes: with no `automation` given, check_repo judges what
+    schedule.JOBS reaches, so a job under another name that queues the matrix turns Phase 2 red."""
+    from nanosoc_rm import schedule
+    sweep = schedule.Job("matrix", "nightly",
+                         lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"]).queue("x", by="n", config=c))
+    monkeypatch.setattr(schedule, "JOBS", schedule.JOBS + (sweep,))
+    res = phasegates.check_repo(REPO)
+    probs = [p for r in res for p in r["problems"]]
+    assert len(probs) == 1 and "`nightly_matrix` is enabled" in probs[0] and "`matrix`" in probs[0], probs
 
 
 def _cli(*args, cwd=None):
@@ -139,7 +221,7 @@ def test_phase_gates_command_finds_a_planted_breach(tmp_path):
     git("commit", "-q", "-m", "docs", cwd=repo)
     (repo / "src" / "lock.py").write_text("x\n")
     git("add", "src", cwd=repo)
-    git("commit", "-q", "-m", "feat: lock writer for G3", cwd=repo)
+    git("commit", "-q", "-m", "feat: lock writer for G3", cwd=repo)          # dated 2026-09-30: before CR-15
     p = _cli("phase-gates", "--json", "--repo", str(repo))
     assert p.returncode == 1, p.stdout + p.stderr
     probs = {json.loads(x)["phase"]: json.loads(x)["problems"] for x in p.stdout.splitlines()}

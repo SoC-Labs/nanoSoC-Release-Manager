@@ -15,6 +15,10 @@ DEF_EXAMPLES = {"result-bundle.rm-request.example.json": ("result-bundle", "/$de
 def _target(name):
     if name.startswith("result-bundle.items."):
         return "result-bundle", "/$defs/gate_item"
+    if name.startswith("matrix.cell"):                            # CR-18-matrix: $defs library examples
+        return "matrix", "/$defs/matrix_cell"
+    if name.startswith("matrix.quarantine"):
+        return "matrix", "/$defs/matrix_quarantine"
     if name.startswith("eligibility.tiers"):                     # CR-12: registry tiers.yaml
         return "eligibility", "/$defs/tiers_file"
     if name.startswith("eligibility.quality"):                   # CR-14: registry quality.yaml
@@ -25,7 +29,7 @@ def _target(name):
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum", "import-ledger",
-        "observation", "pin-state", "release-lock", "result-bundle"])
+        "matrix", "observation", "pin-state", "release-lock", "result-bundle"])
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 
