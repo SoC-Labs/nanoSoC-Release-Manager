@@ -19,6 +19,8 @@ def _target(name):
         return "eligibility", "/$defs/tiers_file"
     if name.startswith("eligibility.quality"):                   # CR-14: registry quality.yaml
         return "eligibility", "/$defs/quality_file"
+    if name.startswith("release-lock.draft"):                    # CR-R1: release.lock.draft.yaml
+        return "release-lock", "/$defs/draft_lock"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 

@@ -48,7 +48,8 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
              "runner_settings", "credential_status", "registry_record", "branch_state")
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
-               "quality_density", "quality_finding", "readme_check", "doc_score")      # CR-14 (Q5)
+               "quality_density", "quality_finding", "readme_check", "doc_score",      # CR-14 (Q5)
+               "release_draft", "release_verify", "fork_status")                      # CR-R1
 ACTIONS = ("run_t0", "clear_alert")                   # interfaces.md section 14 Logging: the v1 write actions
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
@@ -113,6 +114,10 @@ _SUBJECT = {
     "alert": lambda f: "%s:%s" % (f["alert_kind"], f["about"]),
     "branch_state": lambda f: "%s:%s" % (_repo_key(f["repo"]), f["branch"]),
     "compat_result": lambda f: "%s:%s" % (f["configuration"], f["nonce"]),
+    # CR-R1 (Wave B releases): event kinds, one per draft and per fork
+    "release_draft": lambda f: "%s:%s" % (f["configuration"], f["version"]),
+    "release_verify": lambda f: "%s:%s" % (f["configuration"], f["version"]),
+    "fork_status": lambda f: "%s:%s:%s" % (f["component"], f["fork"]["host"], f["fork"]["path"]),
     **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
                                   "+worktree" if f["worktree"] and f["commit"] else ""))
        for k in ("quality_density", "quality_finding", "readme_check", "doc_score")},

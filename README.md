@@ -57,6 +57,25 @@ generated layout section, docs ranking, trend). `docs --rewrite` asks Claude for
 `ANTHROPIC_API_KEY` or `[quality] api_key_file` is set (it sends those sections to the Anthropic API); without a
 key it makes no network call. Details: `docs/contracts/interfaces.md` section 14a.
 
+## Releases, errata documents and forks (local drafts; CR-R1)
+
+Built under CR-15: the Phase 5 gate still governs publishing. The tool never tags, pushes or uploads; every such
+step is a command in the draft's CHECKLIST.md for a person.
+
+```
+nanosoc-rm release draft eth-rc4 1.0.0 --archive build_soc.tar.gz --gds chip.gds --netlist chip.pnr.v \
+    --waiver '*=taped out before the release scheme'      # folder in <data_dir>/releases/eth-rc4/1.0.0/
+nanosoc-rm release draft quickstart-main 0.2.0             # no archive: release.lock.draft.yaml lists what is pending
+nanosoc-rm release verify eth-rc4/1.0.0 --against <dir holding build_soc/>   # re-check against the mirrors now
+nanosoc-rm release list
+nanosoc-rm forks --store                                   # public forks of the example projects (anonymous)
+```
+
+A draft holds the release lock (every pin with its host, state and protection), ERRATA.md/.html with its
+revision (F4), release notes, CHECKLIST.md (tag commands, approvals), GATES.md (the gate ledger to sign) and the
+generated-RTL md5 manifest (G7). Exit 0 PASS/WARN/WAIVED, 1 FAIL, 2 UNVERIFIED (gate evidence or a person step
+still open), 3 usage. The pages are under `/releases/`; details: `docs/contracts/interfaces.md` section 14b.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

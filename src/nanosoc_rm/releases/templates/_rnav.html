@@ -1,0 +1,2 @@
+<nav class="rnav"><a href="/releases/">All drafts</a><a href="/releases/forks">Forks</a>{% if configuration is defined and version is defined %}<a href="{{ rurl(configuration, version) }}">Draft {{ configuration }} {{ version }}</a><a href="{{ rurl(configuration, version, 'errata') }}">Errata document</a><a href="{{ rurl(configuration, version, 'download.zip') }}" data-download>Download zip</a>{% endif %}</nav>
+<p class="banner info" data-publish-note>{{ PUBLISH_NOTE }}</p>

@@ -36,7 +36,10 @@
         "quality_density",
         "quality_finding",
         "readme_check",
-        "doc_score"
+        "doc_score",
+        "release_draft",
+        "release_verify",
+        "fork_status"
       ]
     },
     "subject": {
@@ -442,9 +445,218 @@
         },
         "not": { "required": ["snapshot"] }
       }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "release_draft" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/release_draft" },
+          "subject": { "pattern": "^release_draft:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "release_verify" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/release_verify" },
+          "subject": { "pattern": "^release_verify:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "fork_status" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/fork_status" },
+          "subject": { "pattern": "^fork_status:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
     }
   ],
   "$defs": {
+    "release_check": {
+      "description": "Wave B releases (CR-R1): one check of a release draft or of its re-verification. `verdict` uses README section 6 gate verdicts (NOT-RUN with a reason never blocks); `person` marks a step only a person can complete (a tag, an approval, a tier with no runner here): the draft lists it, never does it.",
+      "type": "object",
+      "required": ["id", "verdict", "detail", "person"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+        "verdict": { "enum": ["PASS", "WARN", "WAIVED", "INFRA", "UNVERIFIED", "FAIL", "NOT-RUN"] },
+        "detail": { "type": "string" },
+        "person": { "type": "boolean" },
+        "requirement": { "type": "string", "pattern": "^[A-Z]+[0-9]+$" }
+      }
+    },
+    "release_file": {
+      "type": "object",
+      "required": ["name", "md5", "bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+$" },
+        "md5": { "$ref": "defs.schema.json#/$defs/md5" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "release_draft": {
+      "description": "Wave B releases (CR-R1; G2, G3, G4, G7, F4): one LOCAL release draft of a registered configuration, written as a folder (release lock or draft lock, ERRATA.md and .html, release notes, the person-only checklist, the unsigned gate ledger, the generated-RTL md5 manifest). Nothing is tagged, pushed or published: `published` is always false and every tag or approval is a person step. `verdict` is the README section 6 run ladder over the checks (FAIL > UNVERIFIED > INFRA > WAIVED > WARN > PASS; NOT-RUN ignored). `ready` = the lock is complete and every check the tool makes (`person` false) is PASS, WARN, WAIVED or NOT-RUN; the person checks (UNVERIFIED until a person acts) and steps remain, so a ready draft's verdict may still be UNVERIFIED, never FAIL or INFRA. Event kind (`release_draft:<configuration>:<version>`). Additive optional $defs: no schema bump.",
+      "type": "object",
+      "required": ["configuration", "component", "version", "tag", "commit", "kind", "silicon", "generated_at", "lock", "errata", "archive", "checks", "verdict", "ready", "person_steps", "train", "files", "published"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "version": { "$ref": "defs.schema.json#/$defs/semver" },
+        "tag": { "type": "string", "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "kind": { "description": "G2: fix needs T0-T3, feature adds T4, tapeout adds T6.", "enum": ["fix", "feature", "tapeout"] },
+        "silicon": { "type": "boolean" },
+        "generated_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "lock": {
+          "type": "object",
+          "required": ["file", "complete", "pins", "pending"],
+          "additionalProperties": false,
+          "properties": {
+            "file": { "enum": ["release.lock.yaml", "release.lock.draft.yaml"] },
+            "complete": { "type": "boolean" },
+            "pins": { "type": "integer", "minimum": 0 },
+            "unprotected": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "pending": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "errata": {
+          "description": "F4: the document revision is the highest doc_revision of the configuration's records (1 with none); `digest` is the md5 of the rendered entries (ERRATA.md below its header), so it changes exactly when a record's rendered text does.",
+          "type": "object",
+          "required": ["revision", "records", "digest"],
+          "additionalProperties": false,
+          "properties": {
+            "revision": { "type": "integer", "minimum": 1 },
+            "records": { "type": "integer", "minimum": 0 },
+            "digest": { "$ref": "defs.schema.json#/$defs/md5" }
+          }
+        },
+        "archive": {
+          "description": "G7: the generated-RTL archive and its md5 manifest, or null when none was given.",
+          "type": ["object", "null"],
+          "required": ["md5", "bytes", "files", "manifest_md5"],
+          "additionalProperties": false,
+          "properties": {
+            "md5": { "$ref": "defs.schema.json#/$defs/md5" },
+            "bytes": { "type": "integer", "minimum": 0 },
+            "files": { "type": "integer", "minimum": 0 },
+            "manifest_md5": { "$ref": "defs.schema.json#/$defs/md5" }
+          }
+        },
+        "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/release_check" } },
+        "verdict": { "enum": ["PASS", "WARN", "WAIVED", "INFRA", "UNVERIFIED", "FAIL"] },
+        "ready": { "type": "boolean" },
+        "person_steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["step", "who"],
+            "additionalProperties": false,
+            "properties": {
+              "step": { "type": "string", "minLength": 1 },
+              "who": { "type": "string", "minLength": 1 },
+              "command": { "type": "string" }
+            }
+          }
+        },
+        "train": {
+          "description": "G4: members of the release train, deepest first (the order they are finalised): components in the tree whose pinned commit carries no release tag.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["component", "commit", "depth", "tree_paths"],
+            "additionalProperties": false,
+            "properties": {
+              "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+              "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+              "depth": { "type": "integer", "minimum": 1 },
+              "tree_paths": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/release_file" } },
+        "published": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ready": { "const": true } } },
+          "then": {
+            "properties": {
+              "verdict": { "enum": ["PASS", "WARN", "WAIVED", "UNVERIFIED"] },
+              "lock": { "properties": { "complete": { "const": true }, "file": { "const": "release.lock.yaml" } } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "lock": { "properties": { "complete": { "const": true } } } } },
+          "then": { "properties": { "lock": { "properties": { "pending": { "maxItems": 0 } } } } }
+        }
+      ]
+    },
+    "release_verify": {
+      "description": "Wave B releases (CR-R1): `nanosoc-rm release verify DIR` re-checks a draft against the mirrors and the registry now: the release commit and every lock pin still resolve with the same state, the release and keep tags still point where the draft saw them, the archive still matches its manifest, the errata document re-renders to the same digest, and every file still has the md5 draft.json recorded. `drift` lists each difference. Event kind (`release_verify:<configuration>:<version>`). Additive optional $defs.",
+      "type": "object",
+      "required": ["configuration", "version", "draft_generated_at", "checks", "drift", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "version": { "$ref": "defs.schema.json#/$defs/semver" },
+        "draft_generated_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "checks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/release_check" } },
+        "drift": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "verdict": { "enum": ["PASS", "WARN", "WAIVED", "INFRA", "UNVERIFIED", "FAIL"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "verdict": { "enum": ["PASS", "WARN"] } } }, "then": { "properties": { "drift": { "maxItems": 0 } } } }
+      ]
+    },
+    "fork_status": {
+      "description": "Wave B releases (CR-R1; I1, I2 read-only part): one fork of an example project, found through the host's fork API read anonymously (GET only). `ahead`/`behind` against the upstream default branch; `based_on` is the newest upstream tag the merge base contains; `releases_behind` the upstream release tags (vX.Y.Z) after it. `user_paths` is judged only when the upstream declares a fork contract (component-manifest `fork_contract`, I2): otherwise NOT-RUN with the reason. Never writes to a fork. Event kind (`fork_status:<component>:<host>:<fork path>`). Additive optional $defs.",
+      "type": "object",
+      "required": ["component", "upstream", "fork", "default_branch", "merge_base", "ahead", "behind", "based_on", "releases_behind", "errata", "user_paths", "contract", "verdict", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "upstream": { "$ref": "defs.schema.json#/$defs/repo" },
+        "fork": { "$ref": "defs.schema.json#/$defs/repo" },
+        "default_branch": { "type": ["string", "null"] },
+        "merge_base": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] },
+        "ahead": { "type": ["integer", "null"], "minimum": 0 },
+        "behind": { "type": ["integer", "null"], "minimum": 0 },
+        "based_on": { "type": ["string", "null"] },
+        "releases_behind": { "type": ["integer", "null"], "minimum": 0 },
+        "errata": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "user_paths": {
+          "type": "object",
+          "required": ["verdict", "outside", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": { "enum": ["PASS", "FAIL", "UNVERIFIED", "NOT-RUN"] },
+            "outside": { "type": "array", "items": { "type": "string" } },
+            "reason": { "type": "string" }
+          }
+        },
+        "contract": {
+          "description": "I2: whether the upstream at its default branch declares a fork contract and documents the upgrade steps.",
+          "type": "object",
+          "required": ["declared", "upgrade_steps"],
+          "additionalProperties": false,
+          "properties": {
+            "declared": { "type": ["boolean", "null"] },
+            "upgrade_steps": { "type": ["boolean", "null"] }
+          }
+        },
+        "verdict": { "description": "PASS up to date; WARN behind or diverged; UNVERIFIED could not read the fork.", "enum": ["PASS", "WARN", "UNVERIFIED"] },
+        "reason": { "type": "string" }
+      }
+    },
     "compat_result": {
       "description": "CR-11 (MVP S2, `nanosoc-rm compat`, interfaces.md section 9a): one LOCAL compatibility check of a configuration's tree, optionally with pin overrides (`--pin TREE_PATH=SHA`). The tree is resolved by the pin walker with each override replacing the gitlink at its tree path; the configuration T0 gates then run locally (run mode `local`: anonymous, outside CI) with their negative controls, and roll up by README section 6 with the configuration's t0_waivers. `t0.runner.hardened` is always NOT-RUN with detail `local run` in this mode: never PASS, never FAIL. With overrides, `t0.clone.upgrade-path` may also be NOT-RUN (it clones the registered commit). `unjudged_overrides`: overrides the gates' anonymous walk did not reach; any makes the verdict UNVERIFIED. Event kind (`compat_result:<configuration>:<nonce>`), stored only on request and only for a run without overrides (a what-if is not a fact). Additive optional $defs (README section 2 rule 4): no schema bump.",
       "type": "object",

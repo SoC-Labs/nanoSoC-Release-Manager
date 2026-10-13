@@ -20,8 +20,9 @@ but fails to import is an error, never skipped. Two modules that share a command
 `t0 run`, and ci's `t0 trigger|fetch|runs|items|coverage`) both call `subgroup(main, "t0")`.
 
 Rules for plug-ins: import heavy or CI-only code inside the command function, not at module level (the
-service process imports every plug-in, and must never import `nanosoc_rm.t0.runner`, AT-A4); never register
-a later phase's command before its entry gate (AT-A7: matrix, release, changelog, bump, lock, forks).
+service process imports every plug-in, and must never import `nanosoc_rm.t0.runner`, AT-A4). A later phase's
+command may be built for local use (CR-15); what it may not do before its entry gate is enable automation (a
+schedule, a bot write): the phase-gate check (AT-A7) reads that from the scheduler and the write allowlist.
 """
 from __future__ import annotations
 
@@ -41,9 +42,10 @@ __all__ = ["main", "EXIT_OK", "EXIT_FINDING", "EXIT_UNVERIFIED", "EXIT_USAGE", "
            "emit", "table", "exit_code", "subgroup", "load_plugins", "RMGroup"]
 
 # interfaces.md section 0.5 modules that own commands, in --help order of registration. `db` is the
-# foundation's own (`alerts`, section 8). Phase 5's `lock` is deliberately absent (A7).
+# foundation's own (`alerts`, section 8). `releases` (CR-R1) is a Phase 5 capability built for local use under
+# CR-15: it drafts, never tags or publishes; the phase gate governs enabling (A7, phasegates.py).
 PLUGIN_MODULES = ("db", "registry", "mirror", "walker", "analysis", "t0", "ci", "scan", "credentials", "web",
-                  "schedule", "trace", "quality")
+                  "schedule", "trace", "quality", "releases")
 
 
 class RMGroup(click.Group):

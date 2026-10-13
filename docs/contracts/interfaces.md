@@ -34,7 +34,7 @@ src/nanosoc_rm/
   cli.py   config.py   schedule.py   gitrun.py (the one git runner)   contracts/ (packaged schemas, validate(), WRITE_CALLS)
   registry/ (loader, imports.py census)   mirror/   walker/   analysis/ (hosts.py, contains.py, protect.py, detect.py)
   t0/ (gates.py and tiers.py shared; runner.py runs IN CI only)   ci/ (client.py, trigger.py, fetch.py, verify.py)
-  scan/ (rules.py, scan.py)   credentials.py   db/   web/   auth.py   lock/ (Phase 5)
+  scan/ (rules.py, scan.py)   credentials.py   db/   web/   auth.py   releases/ (Phase 5, built under CR-15: 14b)
 ```
 
 **Data flow:**
@@ -835,8 +835,13 @@ class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), sto
   sync and walk), failed (exit 3), cancelled, infra (no answer: a crash, the ceiling, or the service stopped or
   restarted while it ran; `recover()` at start marks such jobs INFRA with the reason and stops their process).
 - **Plug-ins** (`nanosoc_rm.web.plugins`): a module in `PLUGINS` with a FastAPI `router` is mounted with a
-  navigation entry (`Quality` for `nanosoc_rm.quality.web`) and renders through `render_page(request, template,
-  title, environment=...)`. Its routes sit behind the same guard and CSRF check.
+  navigation entry (`Quality` for `nanosoc_rm.quality.web`, `Releases` for `nanosoc_rm.releases.web`) and renders
+  through `render_page(request, template, title, environment=...)`. Its routes sit behind the same guard and CSRF
+  check (CR-R6).
+- **Job kinds from plug-ins (CR-R2):** `jobs.register_kind(name, params, args)`; the worker imports the modules
+  in `jobs.KIND_MODULES` on first use of a kind it does not know. Kinds today: `quality`, `release-draft`,
+  `release-verify`, `forks`. A plug-in kind's job ends `done` with the verdict of its exit code (0 PASS, 1 FAIL,
+  2 UNVERIFIED), `failed` on exit 3, as walk and sync do.
 
 ## 14. Auth and roles
 
@@ -912,13 +917,109 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
 8. **Pages (Q6).** `GET /quality/` (every target: ratio, outliers, findings, README mismatches, doc score, trend
    sparklines), `/quality/{target}` (summary), `/{target}/density|comments|readme|docs|trend`,
    `/{target}/comments.diff`, `/{target}/readme.diff` (404 with a plain-text reason when there is nothing to
-   patch). Query `ref`, `analyse=1` (analyse again). GET only;
+   patch). Query `ref`, `analyse=1` (analyse again). A page never analyses inside its request (CR-R2): with no
+   stored result for the ref (or with `analyse=1`) it queues job kind `quality` (`nanosoc-rm quality all TARGET
+   [--ref R] --store`, one per target and ref at a time) and answers 202 "analysing, refresh" with the job's card
+   (`comments.diff`: 202 as text). GET only;
    mounted through the plug-in seam (`web/plugins.py`: navigation entry "Quality", the app's layout, sign-in and
    CSRF token); behind the section 14 guard; the same rows as the CLI's `--json`. Row hooks: `data-path` (density, docs),
    `data-kind` (comments, readme), `data-commit` (trend), `data-target` (overview).
 - **CLI:** `nanosoc-rm quality density|comments|readme|docs|all [TARGET] [--ref R] [--path DIR] [--store] [--json]`,
   `comments --kind K --patch OUT`, `readme --docs --patch OUT`, `docs --rewrite --patch OUT`, `quality trend KIND
   TARGET`. Exit 0 clean, 1 findings, 2 could not answer, 3 usage or config error.
+
+## 14b. Releases, errata documents and forks in local mode (CR-R1)
+
+Requirements: G2, G3, G4, G7, F4, I1, I2 (Phase 5), built under CR-15: usable locally now; the Phase 5 entry gate
+still governs enabling (published releases, tool-made tags). Package `nanosoc_rm.releases`. Nothing in it tags,
+pushes, uploads or writes to a host: each such action is a person step with its command, and every page and
+generated file says so.
+
+```python
+# nanosoc_rm.releases (builder, forkscan, errata, archive, notes, checklist, lock)
+draft(configuration, version, *, kind=None, archive=None, generator=None, rtl_committed=False, gds=None,
+      netlist=None, artefacts=(), waivers=(), since=None, candidate=None, out=None, replace=False,
+      store=True) -> dict                         # one release_draft observation; writes the draft folder
+verify(ref, *, against=None, store=True) -> dict  # one release_verify observation
+drafts(config=None, configuration=None) -> [{dir, configuration, version, doc, problems}]
+forks(component=None, *, get=None, store=False) -> [fork_status observation]
+ReleaseUsage (exit 3), ReleaseError (exit 2)
+```
+
+1. **Inputs.** A fresh walk of the configuration over the mirrors (`walker.walk(..., store=False, alerts=False)`),
+   the registry loaded whole, the tags in the mirrors, and stored `compat_result` / `t0_result` facts of the same
+   commit for the gate evidence. Nothing is fetched; nothing is written outside `<data_dir>`.
+2. **Folder.** `<data_dir>/releases/<configuration>/<version>/` (or `--out`), written beside its place and swapped
+   in whole: `release.lock.yaml` (release-lock.schema.json) when nothing is pending, else
+   `release.lock.draft.yaml` (`$defs/draft_lock`: the same fields plus `pending: [{field, reason}]`);
+   `ERRATA.md`, `ERRATA.html`; `RELEASE_NOTES.md`; `CHECKLIST.md`; `GATES.md`; `README.txt`; with `--archive`,
+   `build_soc.md5sums.txt` and a copy of the archive (up to 256 MB); `draft.json` (the observation). An existing
+   non-empty folder is exit 3 without `--replace`.
+3. **Lock (G3).** One pin per walked pin with its pinned host's state, lag, tags and optional `protection`
+   (`by`: release-tag, keep-tag, default-branch or none, judged on the pinned host; `hosts`: the pinned and
+   canonical hosts' own answers, `not-held` when a host lacks the commit). A pin with no state is `pending`
+   (`pins`), never emitted. Lock `sources` are the walk's commands with the mirror directory shown as `<mirrors>`.
+   `generated_rtl` needs `--archive` (G7: md5 manifest of every regular file, sorted, `md5sum` format; the
+   generator is the shallowest `nanosoc_gen` pin unless `--generator TREE_PATH`). A silicon configuration's
+   `outputs` need `--gds` and `--netlist` (hashed, never copied, never scanned).
+4. **Checks** (`release_check`: id, verdict, detail, person, requirement), rolled up by README section 6's ladder:
+   `lock.pins-stated`, `lock.pins-protected` (FAIL on a frozen or silicon configuration, else WARN, for a pin
+   protected by nothing on its pinned host), `lock.pins-canonical` (WARN: canonical-host gaps, B5 decision R1),
+   `lock.pins-tagged` (G2: every pin release-tagged or keep-tagged; `--waiver PATHS=REASON` makes it WAIVED),
+   `release.tag` and `release.silicon-tag` (C10: PASS already at the commit, FAIL at another commit, UNVERIFIED
+   person step when absent), `release.version-order` (C1), `errata.revision` (F4, below), `errata.category-a`
+   (G2), `rtl.archive` (G7), `outputs.hashes` (G3), `tier.t0` ... `tier.t6` by release kind (fix T0-T3, feature
+   +T4, tapeout +T6: a stored result for this commit, else UNVERIFIED with the command; T3, T4, T6 are person
+   checks), `clone.clean` and `clone.upgrade-path` (from the stored T0 gates), `ledger.signed` (person),
+   `lock.complete`, `notes.classes` (C2: WARN for an unclassed change), `vendor.scan` (D11: the shareable files;
+   a finding FAILs) and `vendor.scan-private` (the archive's members and `--artefact` files, which go only to the
+   private store: a finding is WARN). `ready` = lock complete and every non-person check PASS, WARN, WAIVED or
+   NOT-RUN. Exit: 0 PASS/WARN/WAIVED, 1 FAIL, 2 UNVERIFIED/INFRA, 3 usage.
+5. **Errata document (F4).** Rendered from the configuration's records only (summary, one section per erratum,
+   revision history). Its revision is the highest `doc_revision` of its records (1 with none); a silicon
+   configuration's document is its revision's own. `digest` = md5 of the entries below the header. Against every
+   earlier draft of the same configuration: entries changed with the revision unchanged, or a lower revision, is
+   FAIL. A new revision adds the G5 step "David and a second reviewer".
+6. **Notes.** Classed changes of the SoC since the previous release tag (`--since`, default the newest older
+   vX.Y.Z), and of each pin that moved since the newest earlier draft. Interface for the versioning module (C2):
+   `nanosoc_rm.versioning.changelog_entries(component, old, new, *, config) -> [{class, summary, commit}]` is used
+   when it exists; otherwise the mirror's `git log old..new` classed by `Change-Class:` trailer, then breaking
+   marker, then conventional-commit type, else `unclassed`.
+7. **Person steps.** Keep-tag commands for each untagged, unwaived pin on its component's canonical host
+   (`keep/<configuration>/<component>`, or the tree path's last part when the component is split; "push the
+   commit there first" when that host lacks it), the release and silicon tag commands (`git tag -a ...` then
+   `git push <ssh URL> refs/tags/...`), the candidate tag with `--candidate N`, the train (G4: catalogued pins
+   with no release tag, deepest first, finalised bottom-up), the G5 approvals (a SoC release: David; tapeout or
+   silicon: David and a second reviewer), signing GATES.md, and the upload after a clean vendor scan.
+8. **Verify.** Re-reads `draft.json`; every listed file's md5; a re-walk compared pin by pin (commit, state,
+   protection) when the configuration still resolves to the drafted commit (a moved branch is WARN, not drift);
+   the release and silicon tags; the errata digest and revision; the archive copy against its manifest; with
+   `--against DIR`, the manifest against DIR's `build_soc/` file for file (G7 done-when). Any drift is FAIL.
+9. **Forks (I1, I2 check half).** For each `example` component (or the one named) and each of its repos, the host's
+   fork list read anonymously (GitHub `GET repos/<path>/forks`, GitLab `GET projects/<path>/forks`, 100 per page,
+   at most 5 pages; a refused listing is one UNVERIFIED row). Each fork's default branch is fetched anonymously
+   (`fetch --filter=blob:none`, git config isolated) into a temporary repository that borrows the upstream
+   mirror's objects: merge base, ahead/behind, `based_on` (newest upstream tag in the merge base),
+   `releases_behind` (vX.Y.Z tags it lacks), open errata of the upstream's configurations, and, only when the
+   upstream's `nanosoc-component.yaml` declares `fork_contract`, the changed files outside `user_paths`
+   (`contract.upgrade_steps`: README or UPGRADE.md shows a merge and `git submodule update`). Not done: forks
+   registered by URL (the registry has no field yet) and writing a fork contract into a project (a repo change for
+   a person).
+- **Observations:** event kinds `release_draft` (`release_draft:<configuration>:<version>`), `release_verify`
+  (same key), `fork_status` (`fork_status:<component>:<host>:<fork path>`); `release_draft.published` is always
+  false. Stored by `draft`, `verify` and `forks --store`.
+- **CLI:** `nanosoc-rm release draft CONFIG VERSION [--kind fix|feature|tapeout] [--archive TAR] [--generator
+  TREE_PATH] [--rtl-committed] [--gds F --netlist F] [--artefact KIND=PATH]... [--waiver PATHS=REASON]... [--since
+  TAG] [--candidate N] [--out DIR] [--replace] [--json]`; `release verify DRAFT [--against DIR] [--json]` (DRAFT
+  a folder or CONFIG/VERSION); `release list [CONFIG] [--json]`; `forks [COMPONENT] [--store] [--json]` (exit 1
+  when a fork is behind or changes paths outside its contract, 2 when one could not be read). Section 15's
+  Phase 5 `lock` command is this `release draft`.
+- **Pages** (web/plugins.py, navigation "Releases"): `GET /releases/`, `/releases/forks`,
+  `/releases/{configuration}/{version}` (checks with `data-check`/`data-verdict`, pins with `data-pin`/
+  `data-protection`, person steps, train, files), `.../errata`, `.../download.zip`, `.../files/{name}`;
+  `POST /releases/jobs`, `/releases/{configuration}/{version}/verify`, `/releases/forks/jobs` queue job kinds
+  `release-draft`, `release-verify`, `forks` (404 in a deployment without local actions). A draft's input files
+  are chosen only from `<data_dir>/release-inputs/`.
 
 ## 15. Formats fixed now for later phases
 
@@ -1027,6 +1128,9 @@ contract examples do.
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
 | `open_source`, `density`, `comments`, `readme`, `docs`, `trend`, `comment_patch` (CR-14, section 14a) | `nanosoc_rm.quality` |
+| `draft`, `verify`, `drafts`, `forks`, `ReleaseUsage`, `ReleaseError` (CR-R1, section 14b) | `nanosoc_rm.releases` |
+| `register_kind`, `KIND_MODULES` (CR-R2, section 13a) | `nanosoc_rm.jobs` |
+| `trailer_text`, `build_allowed`, `LATER_AUTOMATION`, `scheduled_jobs`, `outbound_writes` (CR-R3, CR-R4) | `nanosoc_rm.phasegates` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -1050,6 +1154,9 @@ login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-kno
 `Requirements:` commit trailers.
 
 `nanosoc-rm quality density|comments|readme|docs|all|trend` (CR-14, Q1-Q6): section 14a.
+
+`nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (CR-R1; G2, G3, G4, G7, F4, I1, I2, built under
+CR-15): section 14b.
 
 ### 17.4 Test infrastructure
 
@@ -1082,6 +1189,14 @@ Contracts, schemas, docs and tests for later phases are gate-2 work and do not c
 later-phase id before a CR corrected the text that told it to. It takes exactly `ids` out of that one commit (full
 sha), and counts only while `docs/CHANGES.md` has a row whose CR column is `cr` and which names the commit's first 7
 characters. The one entry today is build/ci `6946076` (D7, CR-5). History is not rewritten.
+**Trailer only (CR-R3):** a commit names an id only in its `Requirements:` trailer lines; the subject and body are
+never read (a review label `G1:` is not a claim).
+**Build and enable (CR-15, CR-R4):** an optional top-level `build_allowed: {cr, phases}` counts only while
+`docs/CHANGES.md` has a row whose CR column is `cr`. For each listed phase whose gate is not met, implementation
+commits naming its ids and its routes and commands are reported as `built` (not problems), and the check fails
+instead when that phase's automation is enabled: a scheduler job (`nanosoc_rm.schedule.JOBS`) whose name starts
+with one of `phasegates.LATER_AUTOMATION[phase]`, or, for Phase 4 and 5, any `WRITE_CALLS` entry with effect
+`write` other than the CI trigger. The register's entry lists Phase 2 to 5.
 
 ### 17.7 Gap index
 

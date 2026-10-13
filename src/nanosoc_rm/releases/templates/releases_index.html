@@ -1,0 +1,55 @@
+{% include "_rstyle.html" %}{% include "_rnav.html" %}
+<p class="note">A draft is a folder: the release lock, the errata document, release notes, the person-only checklist and the gate ledger (G2, G3, G7, F4). The same as <code>nanosoc-rm release draft CONFIGURATION VERSION</code>.</p>
+{% if actions %}<form class="panel" method="post" action="/releases/jobs">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row">
+    <label>Configuration <select name="configuration" required>{% for c in configs %}<option>{{ c }}</option>{% endfor %}</select></label>
+    <label>Version <input name="version" placeholder="1.0.0" pattern="(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)" required size="10"></label>
+    <label>Kind <select name="kind"><option value="">default</option><option>fix</option><option>feature</option><option>tapeout</option></select></label>
+  </div>
+  <div class="row">
+    {% for key, label in (('archive', 'Generated-RTL archive'), ('gds', 'GDS (silicon)'), ('netlist', 'P&amp;R netlist (silicon)')) %}
+    <label>{{ label|safe }} <select name="{{ key }}"><option value="">none</option>{% for n in inputs %}<option>{{ n }}</option>{% endfor %}</select></label>
+    {% endfor %}
+  </div>
+  <div class="row">
+    <label>Waivers (one <code>PATHS=REASON</code> per line, <code>*</code> for every untagged pin)<br><textarea name="waivers" rows="2" cols="70"></textarea></label>
+  </div>
+  <div class="row">
+    <label><input type="checkbox" name="replace" value="1"> replace an existing draft</label>
+    <button type="submit" class="primary">Draft</button>
+    <span class="note">Input files come from <code>&lt;data_dir&gt;/{{ inputs_path }}/</code> on this host ({{ inputs|length }} there). A draft of a 44-pin tree takes about 30 s, plus the GDS hash.</span>
+  </div>
+</form>{% else %}<p class="note">This deployment runs no local jobs: draft with <code>nanosoc-rm release draft CONFIGURATION VERSION</code>.</p>{% endif %}
+{% if job_html %}{{ job_html }}{% endif %}
+{% if recent %}
+<details{% if not job_html %} open{% endif %}><summary>Recent release jobs ({{ recent|length }})</summary>
+<table>
+  <thead><tr><th>Job</th><th>State</th><th>Result</th><th>Command</th><th>By</th><th>Queued</th></tr></thead>
+  <tbody>{% for j in recent %}<tr><td><a href="?job={{ j.id }}">{{ j.id }}</a></td><td><span class="pill {{ JOB_CLASS.get(j.state, '') }}">{{ j.state }}</span></td><td>{% if j.verdict %}<span class="pill {{ VERDICT_CLASS.get(j.verdict, '') }}">{{ j.verdict }}</span>{% endif %}</td><td><code>{{ j.command }}</code></td><td>{{ j.by }}</td><td>{{ age_text(j.created_at) }} ago</td></tr>{% endfor %}</tbody>
+</table>
+</details>
+{% endif %}
+<h2>Drafts</h2>
+{% if rows %}
+<div class="scroll"><table>
+  <thead><tr><th>Configuration</th><th>Version</th><th>Verdict</th><th>Ready</th><th>Lock</th><th>Errata</th><th>Generated</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set f = r.doc.fact if r.doc else none %}
+    <tr data-draft="{{ r.configuration }}/{{ r.version }}"{% if f %} data-verdict="{{ f.verdict }}"{% endif %}>
+      <td>{{ r.configuration }}</td>
+      <td><a href="{{ rurl(r.configuration, r.version) }}">{{ r.version }}</a></td>
+      {% if f %}
+      <td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td>
+      <td>{{ 'ready for the person steps' if f.ready else 'not ready' }}</td>
+      <td>{{ f.lock.pins }} pins, {{ 'complete' if f.lock.complete else 'pending: ' ~ (f.lock.pending|length) }}</td>
+      <td>revision {{ f.errata.revision }}, {{ f.errata.records }} record(s)</td>
+      <td>{{ fact(r.doc, age_text(f.generated_at) ~ ' ago') }}</td>
+      {% else %}
+      <td colspan="5"><span class="pill state-red">UNREADABLE</span> {{ r.problems|join('; ') }}</td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No release draft on this host yet.</p>{% endif %}

@@ -63,13 +63,14 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Registry | components, defects, errata |
 | Mirrors | fetch status and age; **Sync** one component or all |
 | Alerts | open and cleared alerts; **Clear** (logged with your login) |
-| Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; run `nanosoc-rm quality all <target> --store` once first (a cold page takes about a minute) |
+| Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; a page with no stored result queues a quality job and says "analysing, refresh" (about a minute on a large repository) |
+| Releases | release drafts (lock, errata document, notes, checklist, gate ledger), **Draft** and **Verify** as jobs, download a draft as a zip, the errata document; forks of the example projects with **List forks now**. Input files (archive, GDS, netlist) are picked from `<data_dir>/release-inputs/`. Nothing is published |
 
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 
 ## Jobs
 
-Run, Sync and Walk queue a job; one runs at a time. A job is the CLI command shown on its card, run as a child
+Run, Sync, Walk, a quality analysis, a release draft or verify and a fork listing queue a job; one runs at a time. A job is the CLI command shown on its card, run as a child
 process: cancel stops it and everything it started. A run without pin overrides is stored (the dashboard shows
 it); a what-if with overrides is shown but never stored. If the service stops while a job runs, the job becomes
 INFRA with the reason when the service starts again.
