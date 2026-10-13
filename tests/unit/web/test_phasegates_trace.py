@@ -109,6 +109,30 @@ def test_surfaces_and_register_shape_are_checked():
     assert phasegates.check(nocheck, PHASE_OF, [], [], [])[1]["problems"] == ["Phase 3: criterion 'c' has no check"]
 
 
+def test_cr15_build_allowed_lets_later_phases_be_built_but_not_enabled():
+    """CR-15: from build_allowed.from on (and only while CHANGES.md has its CR row), an implementation commit may
+    name a later-phase id and its command may exist; an enabled later-phase automation is still caught."""
+    early = {"sha": "e" * 40, "at": "2026-10-11T10:00:00Z", "files": ["src/m.py"], "message": "x\n\nRequirements: D3\n"}
+    late = dict(early, sha="f" * 40, at="2026-10-13T10:00:00Z", message="x\n\nRequirements: C1, D3\n")
+    reg = dict(gates(), build_allowed={"cr": "CR-15", "from": "2026-10-12T00:00:00Z"})
+    row = "| CR-15 | 2026-10-12 | A7, phase gates | build and enable are separate | ... | David |\n"
+    by = lambda r: {x["phase"]: x["problems"] for x in r}
+    res = by(phasegates.check(reg, PHASE_OF, [late], ["/", "/matrix"], ["walk", "matrix", "changelog"], changes=row))
+    assert all(p == [] for p in res.values()), res
+    # a commit before `from` is still caught; so is everything without the CHANGES.md row
+    assert any("['D3']" in p for p in by(phasegates.check(reg, PHASE_OF, [early], ["/"], ["walk"], changes=row))["Phase 2"])
+    for changes in (None, row.replace("CR-15", "CR-14")):
+        res = by(phasegates.check(reg, PHASE_OF, [late], ["/"], ["walk", "changelog"], changes=changes))
+        assert any("['C1']" in p for p in res["Phase 3"]) and "Phase 3: command `changelog` exists before its entry gate" in res["Phase 3"]
+    assert phasegates.build_allowed(reg, row) == "2026-10-12T00:00:00Z"
+    assert phasegates.build_allowed(dict(reg, build_allowed={"cr": "CR-15", "from": "not a time"}), row) is None
+    # enabling stays gated: an enabled Phase 2 automation is a problem with or without build_allowed
+    res = by(phasegates.check(reg, PHASE_OF, [], ["/"], ["walk"], changes=row, automation=[("nightly_matrix", "Phase 2")]))
+    assert res["Phase 2"] == ["Phase 2: automation nightly_matrix is enabled before its entry gate"]
+    met = gates("gate-met", {"at": "2026-10-04T09:00:00Z", "by": "david"})
+    assert by(phasegates.check(met, PHASE_OF, [], ["/"], ["walk"], automation=[("nightly_matrix", "Phase 2")]))["Phase 2"] == []
+
+
 def test_this_repo_meets_a7_with_the_real_app_and_cli():
     res = phasegates.check_repo(REPO)
     assert [r["phase"] for r in res] == list(LATER)

@@ -1082,6 +1082,12 @@ Contracts, schemas, docs and tests for later phases are gate-2 work and do not c
 later-phase id before a CR corrected the text that told it to. It takes exactly `ids` out of that one commit (full
 sha), and counts only while `docs/CHANGES.md` has a row whose CR column is `cr` and which names the commit's first 7
 characters. The one entry today is build/ci `6946076` (D7, CR-5). History is not rewritten.
+**Build and enable (CR-15, implemented by CR-15a).** An optional top-level `build_allowed: {cr, from}` counts only
+while `docs/CHANGES.md` has a row whose CR column is `cr` (today CR-15, from 2026-10-12). From `from` on, an
+implementation commit may name a later-phase id and the later-phase routes and commands may exist: the phase is
+being *built* and used locally. Enabling stays gated: a scheduled job that declares a later `phase` and is enabled
+(`phasegates.enabled_automation()`) is a problem until that phase is `gate-met`. Anything scheduled ships disabled
+and names its gate.
 
 ### 17.7 Gap index
 

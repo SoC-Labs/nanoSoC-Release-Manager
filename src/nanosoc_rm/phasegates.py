@@ -10,6 +10,13 @@ the tool repo against that rule:
    phases are gate-2 work and do not count (interfaces.md section 15);
 4. no later-phase route or CLI command exists before its gate is met (docs/acceptance/scope_web.md AT-A7).
 
+Build and enable (CR-15). From the register's `build_allowed.from` on, a later phase's capabilities may be BUILT
+and used locally: an implementation commit may name its ids (rule 3) and its routes and commands may exist
+(rule 4). What a phase's gate still governs is ENABLING automation (nightly CI matrix, bot pull requests,
+published releases): rule 5, no automation of a later phase is enabled before its gate (`automation`: the
+scheduled jobs that declare a later `phase` and are enabled). `build_allowed` counts only while docs/CHANGES.md
+has a row for its `cr`, as an exemption does; without it rules 3 and 4 apply as written.
+
 Exemptions (CR-5): the register's `exemptions` list names commits that named a later-phase id only because the
 contract text told them to, before a CR corrected it. An entry `{commit, ids, cr}` takes exactly its `ids` out of
 that one commit, and only while docs/CHANGES.md has a row for `cr` that names the commit (its first 7 characters).
@@ -29,8 +36,8 @@ from nanosoc_rm import clock, contracts
 from nanosoc_rm.gitrun import run_git
 
 __all__ = ["LATER_PHASES", "LATER_SURFACES", "IMPLEMENTATION_PREFIXES", "REGISTER", "REQUIREMENTS",
-           "requirement_phases", "requirement_index", "git_commits", "check", "exemptions", "gather", "check_repo",
-           "app_routes", "cli_commands", "find_repo"]
+           "requirement_phases", "requirement_index", "git_commits", "check", "exemptions", "build_allowed", "gather",
+           "check_repo", "app_routes", "cli_commands", "enabled_automation", "find_repo"]
 
 LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
 # The surfaces each later phase brings (scope_web.md AT-A7, Then 4). None may exist before its gate.
@@ -90,12 +97,36 @@ def exemptions(register: dict | None, changes: str | None) -> dict[str, set[str]
     return out
 
 
+def build_allowed(register: dict | None, changes: str | None) -> str | None:
+    """CR-15: the time from which later-phase capabilities may be built (`build_allowed.from`), or None. Counts
+    only while `changes` (docs/CHANGES.md) holds a table row whose CR column is `build_allowed.cr`."""
+    b = (register or {}).get("build_allowed") or {}
+    if not isinstance(b, dict):
+        return None
+    cr, frm = str(b.get("cr") or ""), b.get("from")
+    if not cr or not frm:
+        return None
+    rows = [line for line in (changes or "").splitlines() if line.startswith("|") and line.count("|") > 2]
+    if not any(r.split("|")[1].strip() == cr for r in rows):
+        return None
+    try:
+        _parse_time(str(frm))
+    except ValueError:
+        return None
+    return str(frm)
+
+
 def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dict], routes: Sequence[str],
-          commands: Sequence[str], changes: str | None = None) -> list[dict]:
+          commands: Sequence[str], changes: str | None = None,
+          automation: Sequence[tuple[str, str]] | None = None) -> list[dict]:
     """One result per later phase: {phase, status, met, checked_at, problems}. [] problems everywhere = A7 holds.
-    `changes` is docs/CHANGES.md: without it no exemption counts."""
+    `changes` is docs/CHANGES.md: without it no exemption counts, and neither does CR-15's `build_allowed`.
+    `automation`: (name, phase) of every enabled automation (rule 5)."""
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
     exempt = exemptions(register, changes)
+    built_from = build_allowed(register, changes)
+    if built_from:                                   # CR-15: building a later phase is allowed from this time on
+        commits = [c for c in commits if _parse_time(c["at"]) < _parse_time(built_from)]
     phases = {g.get("phase"): g for g in (register or {}).get("phases", []) if isinstance(g, dict)}
     ids = sorted(phase_of, key=len, reverse=True)
     # A requirement id stands alone: `E1`, `(E1)`, `E1,`. A review label such as `CI-E1` or `MW-R1` contains an id
@@ -135,6 +166,10 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
                                     % (ph, first["sha"][:7], first["at"],
                                        sorted(named(first) & ph_ids)))
         if not met:
+            for name, phase in automation or ():
+                if phase == ph:
+                    problems.append("%s: automation %s is enabled before its entry gate" % (ph, name))
+        if not met and not built_from:
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
                     problems.append("%s: route %s exists before its entry gate" % (ph, r))
@@ -158,6 +193,18 @@ def cli_commands() -> list[str]:
     return sorted(main.commands)
 
 
+def enabled_automation() -> list[tuple[str, str]]:
+    """(name, phase) of every scheduled job that declares a later `phase` and is enabled (CR-15 rule 5). A job
+    that ships disabled (`enabled = False`) names its gate and is not counted."""
+    from nanosoc_rm import schedule
+    out = []
+    for j in getattr(schedule, "JOBS", ()):
+        phase = getattr(j, "phase", None)
+        if phase in LATER_PHASES and getattr(j, "enabled", True):
+            out.append((j.name, phase))
+    return out
+
+
 def find_repo(start: Path | None = None) -> Path | None:
     """The tool repo: `start` if given (and None if it is not one); else the checkout this package runs from
     (editable install), else the current directory: the first that holds docs/phase-gates.yaml and a .git."""
@@ -179,4 +226,5 @@ def gather(repo: Path) -> dict[str, Any]:
 def check_repo(repo: Path, routes: Sequence[str] | None = None, commands: Sequence[str] | None = None) -> list[dict]:
     g = gather(repo)
     return check(g["register"], g["phase_of"], g["commits"], app_routes() if routes is None else routes,
-                 cli_commands() if commands is None else commands, changes=g["changes"])
+                 cli_commands() if commands is None else commands, changes=g["changes"],
+                 automation=enabled_automation())

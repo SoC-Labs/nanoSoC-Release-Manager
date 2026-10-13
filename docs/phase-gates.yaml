@@ -48,3 +48,10 @@ exemptions:
     ids: [D7]
     cr: CR-5
     reason: build/ci's trailer copied the section 9/10 "Requirements:" lines, which named D7 (Phase 2) before CR-5.
+# CR-15 (David 2026-10-12): build and enable are separate. From `from` on, Phase 2-5 capabilities may be built and
+# used locally (implementation commits may name their ids; their commands and routes may exist). Each phase's
+# entry gate above still governs ENABLING automation: no scheduled job of a later phase may be enabled before its
+# gate (interfaces.md section 17.6). Counts only while docs/CHANGES.md has a CR-15 row.
+build_allowed:
+  cr: CR-15
+  from: "2026-10-12T00:00:00Z"

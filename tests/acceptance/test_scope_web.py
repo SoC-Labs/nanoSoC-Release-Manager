@@ -1420,10 +1420,17 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
     Only commits that change implementation (src/) count: PR3 writes later phases' formats and
     tests before any code (interfaces.md §15), and that is not starting the phase.
     CR-5: a register `exemptions` entry {commit, ids, cr} takes its ids out of that one commit, and only
-    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha."""
+    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha.
+    CR-15: build and enable are separate. The register's `build_allowed` {cr, from} (counted only while
+    `changes` has a row for that CR) lets commits from `from` on name later-phase ids, and lets later-phase
+    routes and commands exist; enabling automation stays gated (phasegates.enabled_automation)."""
     probs = []
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
     rows = [r for r in (changes or "").splitlines() if r.startswith("|") and r.count("|") > 2]
+    ba = (gates_doc or {}).get("build_allowed") or {}
+    built_from = ba.get("from") if ba.get("cr") and any(r.split("|")[1].strip() == ba["cr"] for r in rows) else None
+    if built_from:
+        commits = [c for c in commits if utc(c["at"]) < utc(str(built_from))]
     exempt = {}
     for e in (gates_doc or {}).get("exemptions") or []:
         sha, cr = str(e.get("commit") or ""), str(e.get("cr") or "")
@@ -1457,7 +1464,7 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
             if not met or not checked_at or utc(first["at"]) < utc(checked_at):
                 probs.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
                              % (ph, first["sha"][:7], first["at"], sorted(named(first) & ph_ids)))
-        if not met:
+        if not met and not built_from:
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
                     probs.append("%s: route %s exists before its entry gate" % (ph, r))
@@ -2022,6 +2029,15 @@ def _nc_A7_checker(tmp):
     assert not [p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=row) if "Phase 2" in p]
     for changes in (None, row.replace("CR-5", "CR-9"), row.replace(d3["sha"][:7], "0000000")):
         assert any("['D3']" in p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=changes))
+    # CR-15: with a recorded build_allowed, a D3 commit from `from` on and a later-phase command are allowed;
+    # a D3 commit before `from`, or the same register without a CR-15 row, is still caught.
+    ba = dict(gates, build_allowed={"cr": "CR-15", "from": "2026-10-05T00:00:00Z"})
+    row15 = "| CR-15 | 2026-10-12 | A7 | build vs enable | why | David |"
+    assert check_a7(ba, phase_of, git_commits(repo), ["/", "/releases"], ["walk", "lock"], changes=row15) == []
+    late = dict(ba, build_allowed={"cr": "CR-15", "from": "2026-10-06T00:00:00Z"})
+    assert any("['D3']" in p for p in check_a7(late, phase_of, git_commits(repo), ["/"], ["walk"], changes=row15))
+    probs = check_a7(ba, phase_of, git_commits(repo), ["/"], ["walk", "lock"], changes=row)
+    assert any("['D3']" in p for p in probs) and "Phase 5: command `lock` exists before its entry gate" in probs
 
 
 def _nc_H1_checker():
