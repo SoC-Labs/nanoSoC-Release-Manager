@@ -60,7 +60,7 @@ def _env() -> Environment:
     env.globals.update(PUBLISH_NOTE=PUBLISH_NOTE, rurl=_rurl,
                        PROTECTION_CLASS={"release-tag": "state-green", "keep-tag": "state-green",
                                          "default-branch": "state-amber", "none": "state-red",
-                                         "not-held": "state-red"})
+                                         "not-held": "state-red", "unreadable": "state-grey"})
     return env
 
 

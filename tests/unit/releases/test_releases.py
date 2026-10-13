@@ -496,3 +496,25 @@ def test_nothing_in_the_package_can_push_or_tag():
     with pytest.raises(GitRefused):
         run_git("push", "origin", "refs/tags/v1.0.0")
     assert subprocess.run(["git", "--version"], capture_output=True).returncode == 0
+
+
+def test_an_unreadable_pin_is_not_judged_never_unprotected(scene, tmp_path, monkeypatch):
+    """A private repo read without a token is UNREADABLE: its protection is `unreadable` and the check is
+    UNVERIFIED (could not answer), not FAIL (the real eth-rc4 draft's ASIC toolkit pin)."""
+    from nanosoc_rm.releases import lock as L
+    from nanosoc_rm.walker import walk
+    assert L.host_protection({"state": "UNREADABLE", "tags": [], "branches": [], "default_branch": None,
+                              "lag": None}) == "unreadable"
+
+    def unreadable_gen(cid, config):
+        docs = walk(cid, config=config, store=False, alerts=False)
+        for d in docs:
+            if d["fact"]["path"] == "gen":
+                for st in d["fact"]["hosts"].values():
+                    st.update(state="UNREADABLE", tags=[], branches=[])
+        return docs
+    doc = D.draft("soc-v1", "1.0.0", out=tmp_path / "d", walk=unreadable_gen)
+    c = _checks(doc)["lock.pins-protected"]
+    assert c["verdict"] == "UNVERIFIED" and "gen" in c["detail"] and doc["fact"]["lock"]["unprotected"] == []
+    lock = yaml.safe_load((tmp_path / "d" / "release.lock.draft.yaml").read_text())
+    assert {p["path"]: p["protection"]["by"] for p in lock["pins"]}["gen"] == "unreadable"

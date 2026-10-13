@@ -957,7 +957,8 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
    non-empty folder is exit 3 without `--replace`.
 3. **Lock (G3).** One pin per walked pin with its pinned host's state, lag, tags and optional `protection`
    (`by`: release-tag, keep-tag, default-branch or none, judged on the pinned host; `hosts`: the pinned and
-   canonical hosts' own answers, `not-held` when a host lacks the commit). A pin with no state is `pending`
+   canonical hosts' own answers, `not-held` when a host lacks the commit, `unreadable` when the host refused the
+   read: not judged, so `lock.pins-protected` is UNVERIFIED for it, never FAIL). A pin with no state is `pending`
    (`pins`), never emitted. Lock `sources` are the walk's commands with the mirror directory shown as `<mirrors>`.
    `generated_rtl` needs `--archive` (G7: md5 manifest of every regular file, sorted, `md5sum` format; the
    generator is the shallowest `nanosoc_gen` pin unless `--generator TREE_PATH`). A silicon configuration's

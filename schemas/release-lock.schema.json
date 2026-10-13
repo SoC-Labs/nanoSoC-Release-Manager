@@ -212,12 +212,12 @@
           "required": ["by", "tags", "hosts"],
           "additionalProperties": false,
           "properties": {
-            "by": { "enum": ["release-tag", "keep-tag", "default-branch", "none"] },
+            "by": { "enum": ["release-tag", "keep-tag", "default-branch", "none", "unreadable"] },
             "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
             "hosts": {
               "type": "object",
               "propertyNames": { "$ref": "defs.schema.json#/$defs/host" },
-              "additionalProperties": { "enum": ["release-tag", "keep-tag", "default-branch", "none", "not-held"] }
+              "additionalProperties": { "enum": ["release-tag", "keep-tag", "default-branch", "none", "not-held", "unreadable"] }
             }
           }
         }

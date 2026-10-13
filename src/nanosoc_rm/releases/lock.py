@@ -8,7 +8,8 @@
 Protection is judged on the pinned host (what a recursive clone of the release uses) and on the component's
 canonical host (where C10's keep tags belong; GATE2 Q9: both hosts), from the walker's per-host states:
 release-tag (a tag other than keep/* contains the commit), keep-tag (a keep/* tag contains it), default-branch
-(the default branch reaches it, no tag does), none. A host that does not hold the commit is `not-held`. The pin's
+(the default branch reaches it, no tag does), none. A host that does not hold the commit is `not-held`; one
+that refused the read (UNREADABLE, e.g. a private repo read anonymously) is `unreadable`: not judged. The pin's
 `by` is the pinned host's answer; the canonical host's gaps are reported separately (draft check
 `lock.pins-canonical`), as B5's decision-R1 rows are.
 """
@@ -30,6 +31,8 @@ def host_protection(st: dict) -> str:
     """One host's answer for one pinned commit (a pin-state host state)."""
     if st["state"] in _NOT_HELD:
         return "not-held"
+    if st["state"] == "UNREADABLE":
+        return "unreadable"                      # the host refused the read: not judged, never "none"
     tags = st.get("tags") or []
     if any(not t.startswith("keep/") for t in tags):
         return "release-tag"

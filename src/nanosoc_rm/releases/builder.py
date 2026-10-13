@@ -223,10 +223,18 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
     unprotected = [p["tree_paths"][0] for p in pins if (p.get("protection") or {}).get("by", "none") == "none"]
     protected_where = ", ".join("%s %d" % (b, n) for b, n in sorted(
         _count(p.get("protection", {}).get("by", "none") for p in pins).items()))
+    unread = [p["tree_paths"][0] for p in pins if (p.get("protection") or {}).get("by") == "unreadable"]
     strict = bool(silicon or cfg.get("frozen"))
-    checks.append(check("lock.pins-protected", ("FAIL" if strict else "WARN") if unprotected else "PASS",
-                        ("unprotected on the pinned host: %s" % ", ".join(unprotected)) if unprotected else
-                        "every pin protected on its pinned host (%s)" % protected_where, requirement="G3"))
+    if unprotected:
+        verdict, detail = ("FAIL" if strict else "WARN"), "unprotected on the pinned host: %s" % ", ".join(unprotected)
+    elif unread:
+        verdict, detail = "UNVERIFIED", ("not judged, the host refused the read (a private repo read without a "
+                                         "token): %s" % ", ".join(unread))
+    else:
+        verdict, detail = "PASS", "every pin protected on its pinned host (%s)" % protected_where
+    if unprotected and unread:
+        detail += "; not judged (unreadable): %s" % ", ".join(unread)
+    checks.append(check("lock.pins-protected", verdict, detail, requirement="G3"))
     gaps = sorted({"%s (%s: %s)" % (p["tree_paths"][0], h, a) for p in pins
                    for h, a in (p.get("protection") or {}).get("hosts", {}).items()
                    if a in ("none", "not-held") and h != p["repo"]["host"]})
