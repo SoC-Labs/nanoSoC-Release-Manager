@@ -32,7 +32,11 @@
         "registry_record",
         "alert",
         "branch_state",
-        "compat_result"
+        "compat_result",
+        "quality_density",
+        "quality_finding",
+        "readme_check",
+        "doc_score"
       ]
     },
     "subject": {
@@ -395,6 +399,46 @@
         "properties": {
           "fact": { "$ref": "#/$defs/compat_result" },
           "subject": { "pattern": "^compat_result:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "quality_density" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/quality_density" },
+          "subject": { "pattern": "^quality_density:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "quality_finding" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/quality_finding" },
+          "subject": { "pattern": "^quality_finding:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "readme_check" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/readme_check" },
+          "subject": { "pattern": "^readme_check:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "doc_score" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/doc_score" },
+          "subject": { "pattern": "^doc_score:" }
         },
         "not": { "required": ["snapshot"] }
       }
@@ -2641,6 +2685,748 @@
         "message": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "quality_density": {
+      "description": "CR-14 (Q1): comment density of one repository snapshot: per file, directory (2 levels), language and repository; ratio = (comment + docstring) / (code + comment + docstring); outliers exceed the language's max_ratio with at least min_lines non-blank lines. Markdown is counted separately in `docs`. Event kind, subject `quality_density:<target>:<commit>` (`<commit>+worktree` for a work-tree read, `worktree` without git), so stored results form a trend per target (Q5). Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "totals",
+        "languages",
+        "dirs",
+        "files",
+        "outliers",
+        "docs",
+        "thresholds"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A catalogue component id, a [quality] paths name, or the label of a --path run."
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The analysed commit; null for a directory that is not a git work tree."
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean",
+          "description": "true: read from a local directory as it is on disk (may differ from commit)."
+        },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
+        "totals": {
+          "type": "object",
+          "required": [
+            "code",
+            "comment",
+            "docstring",
+            "blank",
+            "ratio"
+          ],
+          "properties": {
+            "files": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "code": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "comment": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "docstring": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blank": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "inline": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "type": "object",
+                "required": [
+                  "code",
+                  "comment",
+                  "docstring",
+                  "blank",
+                  "ratio"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "code": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "comment": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "docstring": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "blank": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "inline": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "language",
+                  "max_ratio",
+                  "outliers"
+                ],
+                "properties": {
+                  "language": {
+                    "type": "string"
+                  },
+                  "max_ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "min_lines": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "outliers": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "over": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "dirs": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              {
+                "type": "object",
+                "required": [
+                  "code",
+                  "comment",
+                  "docstring",
+                  "blank",
+                  "ratio"
+                ],
+                "properties": {
+                  "files": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "code": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "comment": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "docstring": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "blank": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "inline": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "ratio": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "dir"
+                ],
+                "properties": {
+                  "dir": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "language",
+              "code",
+              "comment",
+              "docstring",
+              "blank",
+              "ratio",
+              "outlier"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "language": {
+                "type": "string"
+              },
+              "code": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "comment": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "docstring": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "blank": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "inline": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "ratio": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "max_ratio": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "outlier": {
+                "type": "boolean"
+              },
+              "excess_lines": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "outliers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "docs": {
+          "type": "object"
+        },
+        "skipped": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "required": [
+            "origin"
+          ]
+        },
+        "fallback_lexed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "quality_finding": {
+      "description": "CR-14 (Q2): comment problems of one repository snapshot, each with file, line, evidence and a suggested edit; `edit` (whole-line replacement) is set where the change is mechanical and is what the patch applies. Event kind, subject `quality_finding:<target>:<commit>` (`<commit>+worktree` for a work-tree read, `worktree` without git), so stored results form a trend per target (Q5). Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "counts",
+        "total",
+        "findings"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A catalogue component id, a [quality] paths name, or the label of a --path run."
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The analysed commit; null for a directory that is not a git work tree."
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean",
+          "description": "true: read from a local directory as it is on disk (may differ from commit)."
+        },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
+        "counts": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "commented_out_code",
+              "restates_code",
+              "banner",
+              "boilerplate",
+              "stale_todo",
+              "unknown_identifier"
+            ]
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "line",
+              "end_line",
+              "kind",
+              "evidence",
+              "suggestion",
+              "edit"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "end_line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "kind": {
+                "enum": [
+                  "commented_out_code",
+                  "restates_code",
+                  "banner",
+                  "boilerplate",
+                  "stale_todo",
+                  "unknown_identifier"
+                ]
+              },
+              "language": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "suggestion": {
+                "type": "string",
+                "minLength": 1
+              },
+              "edit": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "start",
+                      "end",
+                      "replacement"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "start": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "end": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "replacement": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "age_days": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "identifier": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "undated_todos": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "commented_out_code",
+              "restates_code",
+              "banner",
+              "boilerplate",
+              "stale_todo",
+              "unknown_identifier"
+            ]
+          }
+        },
+        "stale_todo_days": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "readme_check": {
+      "description": "CR-14 (Q3): every path, make target, script, command, submodule, flow (make target -> recipe -> script) and layout entry each README names, checked against the tree at the commit; `mismatches` are the checks with status missing, `unverified` those the reader could not confirm (an unresolved Makefile include); `layout` is the generated Repository layout section. Event kind, subject `readme_check:<target>:<commit>` (`<commit>+worktree` for a work-tree read, `worktree` without git), so stored results form a trend per target (Q5). Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "readmes",
+        "checked",
+        "mismatch_count",
+        "mismatches",
+        "layout"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A catalogue component id, a [quality] paths name, or the label of a --path run."
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The analysed commit; null for a directory that is not a git work tree."
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean",
+          "description": "true: read from a local directory as it is on disk (may differ from commit)."
+        },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
+        "readmes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checked": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ok": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mismatch_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ignored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "counts": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "path",
+              "make_target",
+              "script",
+              "not_executable",
+              "submodule",
+              "flow",
+              "layout",
+              "layout_undocumented"
+            ]
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "mismatches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/readme_check_row"
+          }
+        },
+        "unverified": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/readme_check_row"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/readme_check_row"
+          }
+        },
+        "layout": {
+          "type": "object",
+          "required": [
+            "entries",
+            "markdown"
+          ]
+        }
+      }
+    },
+    "doc_score": {
+      "description": "CR-14 (Q4): conciseness of each Markdown file and section (words, sentence length, filler and hedge words, passive share, repeated sentences, paragraphs duplicated across files) and a 0-100 score, higher is more concise; `score` is the word-weighted mean; files are ranked worst first. Event kind, subject `doc_score:<target>:<commit>` (`<commit>+worktree` for a work-tree read, `worktree` without git), so stored results form a trend per target (Q5). Additive optional $defs (README section 2 rule 4): no schema bump.",
+      "type": "object",
+      "required": [
+        "target",
+        "commit",
+        "ref",
+        "worktree",
+        "score",
+        "files",
+        "duplicates",
+        "words"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A catalogue component id, a [quality] paths name, or the label of a --path run."
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The analysed commit; null for a directory that is not a git work tree."
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktree": {
+          "type": "boolean",
+          "description": "true: read from a local directory as it is on disk (may differ from commit)."
+        },
+        "worktree_state": {
+          "type": "string",
+          "description": "Work-tree reads only: a digest of the listed files' paths, modes, sizes and mtimes when read. A stored result whose digest differs from the disk is stale (the GUI re-analyses)."
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "words": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "score",
+              "words"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "words": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sections": {
+                "type": "array"
+              }
+            }
+          }
+        },
+        "duplicates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "a",
+              "b",
+              "similarity"
+            ]
+          }
+        }
+      }
+    },
+    "readme_check_row": {
+      "type": "object",
+      "required": [
+        "readme",
+        "line",
+        "kind",
+        "token",
+        "status",
+        "detail"
+      ],
+      "properties": {
+        "readme": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "path",
+            "make_target",
+            "script",
+            "not_executable",
+            "submodule",
+            "flow",
+            "layout",
+            "layout_undocumented"
+          ]
+        },
+        "token": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "missing",
+            "unverified",
+            "ignored"
+          ]
+        },
+        "detail": {
+          "type": "string"
         }
       }
     }

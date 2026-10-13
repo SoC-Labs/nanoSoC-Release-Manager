@@ -17,6 +17,8 @@ def _target(name):
         return "result-bundle", "/$defs/gate_item"
     if name.startswith("eligibility.tiers"):                     # CR-12: registry tiers.yaml
         return "eligibility", "/$defs/tiers_file"
+    if name.startswith("eligibility.quality"):                   # CR-14: registry quality.yaml
+        return "eligibility", "/$defs/quality_file"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 

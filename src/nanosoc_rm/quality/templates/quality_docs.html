@@ -1,0 +1,21 @@
+{% include "_qstyle.html" %}
+{% set here = 'docs' %}
+{% include "_qnav.html" %}
+<p>Score 0 to 100, higher is more concise: filler and hedge words, sentences over 25 words, passive voice, repeated sentences and paragraphs duplicated in another file all cost points. {% if f.words %}Repository score {{ '%.1f'|format(f.score) }} (word-weighted) over {{ f.words }} words.{% else %}No Markdown words to score: nothing measured.{% endif %} A shorter rewrite per section: <code>nanosoc-rm quality docs {{ target }} --rewrite --patch OUT.diff</code> (needs an Anthropic API key).</p>
+<div class="scroll"><table class="sortable" data-quality="docs">
+  <thead><tr><th>File</th><th class="num">Score</th><th class="num">Words</th><th class="num">Mean sentence</th><th class="num">Filler /100 words</th><th class="num">Passive</th><th class="num">Repeated</th><th class="num">Duplicated paras</th><th>Worst section</th></tr></thead>
+  <tbody>
+{% for r in f.files %}
+  {% set w = r.sections|sort(attribute='score')|first if r.sections else none %}
+  <tr class="{{ 'state-red' if r.score < 40 else ('state-amber' if r.score < 60 else '') }}" data-path="{{ r.path }}"><td><code>{{ r.path }}</code></td><td class="num">{{ '%.1f'|format(r.score) }}</td><td class="num">{{ r.words }}</td><td class="num">{{ r.mean_sentence }}</td><td class="num">{{ r.filler_per_100 }}</td><td class="num" data-v="{{ r.passive_share }}">{{ pct(r.passive_share) }}</td><td class="num">{{ r.repeated }}</td><td class="num">{{ r.duplicated }}</td>
+  <td>{% if w %}{{ w.title }} (line {{ w.line }}, {{ '%.0f'|format(w.score) }}){% if w.filler_words %} <span class="note">{{ w.filler_words.keys()|list|join(', ') }}</span>{% endif %}{% endif %}</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+{% if f.duplicates %}
+<h2>Paragraphs duplicated across files</h2>
+<table><thead><tr><th>Here</th><th>And here</th><th class="num">Similarity</th><th>Excerpt</th></tr></thead><tbody>
+{% for d in f.duplicates[:200] %}<tr><td><code>{{ d.a }}</code></td><td><code>{{ d.b }}</code></td><td class="num">{{ d.similarity }}</td><td>{{ d.excerpt }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% include "_qsort.html" %}

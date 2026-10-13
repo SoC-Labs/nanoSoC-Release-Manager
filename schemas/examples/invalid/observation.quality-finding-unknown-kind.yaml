@@ -1,0 +1,45 @@
+# expect-error: enum at /fact/findings/0/kind
+# CR-14: a finding kind outside the six Q2 kinds has no fixture proving it can fire and stay quiet.
+schema: 1
+kind: quality_finding
+subject: quality_finding:demo:9ae9034dd20ca436912bffbc40f911ee7d746608+worktree
+observed_at: '2026-10-12T18:00:00Z'
+sources:
+- kind: derived
+  command: nanosoc-rm quality comments demo --path <checkout>
+- kind: git
+  command: git -C <checkout> --no-optional-locks ls-files -s -z
+fact:
+  target: demo
+  commit: 9ae9034dd20ca436912bffbc40f911ee7d746608
+  ref: null
+  worktree: true
+  counts:
+    commented_out_code: 1
+    restates_code: 0
+    banner: 1
+    boilerplate: 0
+    stale_todo: 0
+    unknown_identifier: 0
+  total: 2
+  findings:
+  - path: src/a.py
+    line: 2
+    end_line: 3
+    kind: long_comment
+    language: python
+    evidence: y = compute(x)
+    suggestion: Delete the commented-out code (2 lines); git history keeps it.
+    edit:
+      start: 2
+      end: 3
+      replacement: []
+  undated_todos: 0
+  kinds:
+  - commented_out_code
+  - restates_code
+  - banner
+  - boilerplate
+  - stale_todo
+  - unknown_identifier
+  stale_todo_days: 180

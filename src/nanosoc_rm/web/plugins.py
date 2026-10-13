@@ -2,9 +2,11 @@
 
 A plug-in is a module listed in PLUGINS that defines:
 
-    router     a FastAPI APIRouter with its own routes (GET pages; any POST is CSRF-checked by the app's guard)
+    router     a FastAPI APIRouter with its own routes (GET pages; any POST is CSRF-checked by the app's guard),
+               or a function with no arguments that returns one
     NAV_LABEL  optional: the top-navigation label (default: the PLUGINS label)
-    NAV_PATH   optional: where the navigation entry links (default: the router's prefix)
+    NAV_PATH   optional: where the navigation entry links (default: the router's prefix); the entry is marked
+               current on the prefix and every path under it
 
 It renders its pages inside the app's shell with `render_page(request, template, title, environment=..., **ctx)`:
 the same layout, sign-in, CSRF token, data age and fact hooks (`fact(obs, label)`) as every other page.
@@ -41,9 +43,12 @@ def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:
         router = getattr(mod, "router", None)
         if router is None:
             raise RuntimeError("%s has no `router`" % modname)
+        if not hasattr(router, "routes") and callable(router):
+            router = router()                            # a factory, as nanosoc_rm.quality.web defines it
         app.include_router(router)
-        path = getattr(mod, "NAV_PATH", None) or getattr(router, "prefix", "") or "/"
-        nav.append((getattr(mod, "NAV_LABEL", label), path, (path,)))
+        prefix = getattr(router, "prefix", "") or "/"
+        path = getattr(mod, "NAV_PATH", None) or prefix
+        nav.append((getattr(mod, "NAV_LABEL", label), path, (prefix,)))
     return nav
 
 

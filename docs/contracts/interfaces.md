@@ -558,7 +558,9 @@ Registry.tiers(configuration) -> dict; configs.tiers(configuration, config=None)
    then `env` in file order, where `${NAME}` expands a name already set (an unknown name is exit 3), then
    `NANOSOC_GEN_OK=1` only for `regenerates: true`. Nothing else is inherited: `ARM_IP_LIBRARY_PATH` is absent unless
    `env` names it. The declared verdicts file is deleted before the run. `needs: [vcs-seat]` takes a host-local
-   lock (`$TMPDIR/nanosoc-rm-vcs-seat.lock`) for the run; held elsewhere = INFRA, not run. The command runs in its
+   lock (`$TMPDIR/nanosoc-rm-vcs-seat.lock`) for the run; held elsewhere = INFRA, not run. An absolute path in the
+   tier's own `env` (any `:`-separated part) that does not exist on this host, outside the sandbox, is INFRA, not
+   run, with reason `tool not on this host: VAR=path does not exist`. The command runs in its
    own process group with stdin closed and output to `tier-<tier>.log`; at `budget_s x 1.5` the group gets SIGTERM
    (SIGKILL 10 s later) and the tier is FAIL (`killed`). After it exits, the group is killed so nothing outlives it.
    Longer than `budget_s` is `over_budget: true`, a warning.
@@ -859,6 +861,65 @@ Requirements: A5, H2.
   `serve` refuses a non-loopback `--host` in local mode (exit 3) unless `--i-know-this-is-exposed`: the service is
   reached through an SSH tunnel. GitHub mode (`mode = "github"`, the default) is unchanged.
 
+## 14a. Code and documentation quality (CR-14)
+
+Requirements: Q1-Q6 (`docs/REQUIREMENTS.md` group Q). Package `nanosoc_rm.quality`; every function returns one
+observation; the CLI and the `/quality` pages are front ends over them (section 0.1).
+
+```python
+open_source(target, *, ref=None, path=None, config=None) -> Source   # mirror at a ref, a [quality] paths name, or --path
+density(target, *, ref=None, path=None, config=None, store=False, thresholds=None) -> dict   # quality_density   (Q1)
+comments(target, ...) -> dict                                                              # quality_finding   (Q2)
+readme(target, ..., include_docs=False) -> dict                                            # readme_check      (Q3)
+docs(target, ...) -> dict                                                                  # doc_score         (Q4)
+comment_patch(source, obs) -> (unified diff, edits not applied)                           # Q2, Q5
+readmes.layout_patch(source) -> unified diff                                               # Q3
+rewrite.rewrite_sections(source, doc_score_fact, *, config=None, client=None) -> dict      # Q4, needs an API key
+trend(kind, target) -> [{commit, worktree, observed_at, value}]                            # Q5
+```
+
+1. **Sources.** A catalogue component is read from its mirror (`git ls-tree`, one `git cat-file --batch`,
+   `git blame` for TODO ages; no checkout). `--ref` is a branch or tag of any of the component's repos
+   (`refs/r/<key>/heads|tags/<ref>`) or a sha; the default is the canonical repo's default branch. `--path DIR`
+   reads a local directory read-only (tracked files of a git work tree, else every file); `--path DIR --ref R`
+   reads that repository's objects at R. Submodule contents are never read.
+2. **Lexers (Q1).** One per language: Python (`tokenize` + `ast` docstrings), Verilog/SystemVerilog, C family,
+   Tcl, shell, make, YAML, TOML; Markdown is documentation, counted separately. Comment markers inside string
+   literals are never comments. Ratio = (comment + docstring lines) / (code + comment + docstring lines).
+3. **Thresholds.** Registry `quality.yaml` (optional; `eligibility.schema.json#/$defs/quality_file`) over the
+   defaults in `quality.languages.DEFAULTS`; `components.<id>` overrides per component; `--thresholds FILE` for a
+   one-off. Outlier: ratio over the language's `max_ratio` with at least `min_lines` non-blank lines.
+4. **Findings (Q2).** Kinds `commented_out_code`, `restates_code`, `banner`, `boilerplate`, `stale_todo`,
+   `unknown_identifier`; each with path, line, evidence, a suggestion and, where the change is mechanical, an
+   `edit` (whole lines replaced). Only edits go into the patch. Licence and copyright lines are never edited.
+   No edit for a guess: `unknown_identifier` gives `did_you_mean` only; `commented_out_code` edits only a run
+   of two or more lines with no prose line beside it (a single line, or a run next to prose, is reported without
+   an edit; a run inside a paragraph or an introduced example is not reported).
+5. **README check (Q3).** Paths, links, make targets (with includes, best-effort), scripts and executable bits,
+   submodules, flows (target → recipe → script) and layout drawings; statuses `ok`, `missing`, `unverified`
+   (could not confirm), `ignored` (gitignored output, inside a submodule). The generated Repository layout
+   section covers the top two directory levels with each directory README's first line as its purpose.
+6. **Conciseness (Q4).** Words, sentence length, filler and hedge words, passive share, repeated sentences,
+   paragraphs duplicated across files (5-word shingles, Jaccard ≥ 0.8); score 0-100. The rewrite runs only with
+   an API key (`$ANTHROPIC_API_KEY` or `[quality] api_key_file`; model `[quality] model`, default
+   `claude-sonnet-5-5`); without one no client is built and no connection is opened. A rewrite that drops any
+   inline code span, link target or code block, or is not shorter, is rejected.
+7. **Storage (Q5).** Event kinds `quality_density`, `quality_finding`, `readme_check`, `doc_score`, subject
+   `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read). Stored on `--store` and by every page
+   view that had to analyse. A work-tree fact carries `worktree_state` (digest of listed paths, modes, sizes,
+   mtimes); a page reuses a stored work-tree result only while the digest matches the disk. No write path: patches are text for a person (the `--patch` file is never
+   overwritten); the Messages API call is the `read-post` WRITE_CALLS entry of `quality/rewrite.py`.
+8. **Pages (Q6).** `GET /quality/` (every target: ratio, outliers, findings, README mismatches, doc score, trend
+   sparklines), `/quality/{target}` (summary), `/{target}/density|comments|readme|docs|trend`,
+   `/{target}/comments.diff`, `/{target}/readme.diff` (404 with a plain-text reason when there is nothing to
+   patch). Query `ref`, `analyse=1` (analyse again). GET only;
+   mounted through the plug-in seam (`web/plugins.py`: navigation entry "Quality", the app's layout, sign-in and
+   CSRF token); behind the section 14 guard; the same rows as the CLI's `--json`. Row hooks: `data-path` (density, docs),
+   `data-kind` (comments, readme), `data-commit` (trend), `data-target` (overview).
+- **CLI:** `nanosoc-rm quality density|comments|readme|docs|all [TARGET] [--ref R] [--path DIR] [--store] [--json]`,
+  `comments --kind K --patch OUT`, `readme --docs --patch OUT`, `docs --rewrite --patch OUT`, `quality trend KIND
+  TARGET`. Exit 0 clean, 1 findings, 2 could not answer, 3 usage or config error.
+
 ## 15. Formats fixed now for later phases
 
 | Phase | What | Contract |
@@ -933,6 +994,7 @@ builder who wants a different name changes it here, through a CR after gate 2, a
 [roles]        default = ["member"]  # plus "<login>" = [...]
 [schedule]     poll_minutes = 15  nightly_utc = "02:00"  fetch_minutes = 2
 [auth]         mode = "github"       # CR-16: or "local", with [[auth.users]] login = "..."  hash = "scrypt$..."  roles = [...]
+[quality]      api_key_file = "..."  model = "claude-sonnet-5-5"  paths = { <name> = "<local checkout>" }   # CR-14, all optional
 ```
 
 GitLab projects are addressed in API paths by their URL-encoded path (`projects/soclabs%2Fnanosoc_gen`), as the
@@ -964,6 +1026,7 @@ contract examples do.
 | `create_app(config_path, auth=None)` | `nanosoc_rm.web` |
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
+| `open_source`, `density`, `comments`, `readme`, `docs`, `trend`, `comment_patch` (CR-14, section 14a) | `nanosoc_rm.quality` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -986,6 +1049,8 @@ login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-kno
 `nanosoc-rm trace [--json]` (PR7): requirement → tests → commits, from the `requirement` markers and the
 `Requirements:` commit trailers.
 
+`nanosoc-rm quality density|comments|readme|docs|all|trend` (CR-14, Q1-Q6): section 14a.
+
 ### 17.4 Test infrastructure
 
 - **Markers** (registered in `tests/conftest.py`): `requirement("<ID>")` on every acceptance test; `live` on every test that needs the lab.
@@ -1002,7 +1067,7 @@ A static census of the package (AT-A2) must find every entry, and every call it 
 | effect | Meaning | Allowed |
 |---|---|---|
 | `write` | an outbound write | exactly one: `POST projects/:id/trigger/pipeline`, guard "target is `ci.project` only" |
-| `read-post` | a POST that writes nothing | only the OAuth code exchange `login/oauth/access_token` |
+| `read-post` | a POST that writes nothing | the OAuth code exchange `login/oauth/access_token`; the Messages API `v1/messages` (CR-14, Q4 rewrite, only with a configured key) |
 | `local` | a call the census mistakes for HTTP (a sqlite `delete`) | only in a file that imports no HTTP library |
 | `git-runner` | the one dynamic git runner (`nanosoc_rm.gitrun`) | at most one; guard: refuses `push`, `send-pack`, `receive-pack` at run time |
 

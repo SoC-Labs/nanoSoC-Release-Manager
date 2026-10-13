@@ -1,0 +1,6 @@
+# expect-error: maximum at /languages/python/max_ratio
+# CR-14: a comment ratio is a share of lines, so a threshold above 1 can never be exceeded and would hide every outlier.
+schema: 1
+languages:
+  python:
+    max_ratio: 1.5

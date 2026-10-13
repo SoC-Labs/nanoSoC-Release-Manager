@@ -1,0 +1,20 @@
+{% include "_qstyle.html" %}
+{% set here = 'readme' %}
+{% include "_qnav.html" %}
+<p>{{ f.readmes|length }} README(s) checked against the tree: {{ f.checked }} references, {{ f.ok }} ok, <strong>{{ f.mismatch_count }} mismatches</strong>, {{ f.unverified|length }} unverified, {{ f.ignored }} ignored (generated outputs, submodule contents).</p>
+<h2>Mismatches</h2>
+<div class="scroll"><table class="sortable" data-quality="readme">
+  <thead><tr><th>Where</th><th>Kind</th><th>Names</th><th>Detail</th></tr></thead>
+  <tbody>
+{% for r in f.mismatches %}<tr data-kind="{{ r.kind }}"><td><code>{{ r.readme }}:{{ r.line }}</code></td><td>{{ r.kind }}</td><td><code>{{ r.token }}</code></td><td>{{ r.detail }}</td></tr>
+{% else %}<tr><td colspan="4">None: every reference resolves.</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+{% if f.unverified %}
+<h2>Unverified</h2>
+<table><tbody>{% for r in f.unverified %}<tr><td><code>{{ r.readme }}:{{ r.line }}</code></td><td>{{ r.kind }}</td><td><code>{{ r.token }}</code></td><td>{{ r.detail }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}
+<h2>Generated "Repository layout" section</h2>
+<p>From the tree at this commit (top two levels; purposes from each directory's README). <a data-patch href="{{ qurl(target, 'readme.diff', ref=ref) }}">Download patch</a> that puts it in <code>README.md</code>.</p>
+<pre>{{ f.layout.markdown }}</pre>

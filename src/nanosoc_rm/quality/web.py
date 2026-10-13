@@ -1,0 +1,284 @@
+"""Q6: the quality pages, a FastAPI APIRouter mounted at /quality by the web app (behind its sign-in guard).
+
+    GET /quality/                               overview: every target with its latest stored numbers and trend
+    GET /quality/{target}                       summary of one target at a ref (analyses it when not stored)
+    GET /quality/{target}/density               Q1 language table and sortable file table
+    GET /quality/{target}/comments              Q2 findings with suggested edits     .../comments.diff  the patch
+    GET /quality/{target}/readme                Q3 mismatches and generated layout   .../readme.diff    the patch
+    GET /quality/{target}/docs                  Q4 files ranked least concise first
+    GET /quality/{target}/trend                 Q5 stored results per commit
+
+Query: `ref` (branch, tag or sha; default the default branch, or the work tree for a `[quality] paths` target),
+`analyse=1` to analyse again now. A page shows the stored result for the commit the ref names when there is one,
+else analyses it and stores it (results are a cache of a deterministic read of one commit). Every page shows the
+same rows as its CLI command (`nanosoc-rm quality ...`) and links each result to `/facts/<subject>` (A3).
+"""
+from __future__ import annotations
+
+import threading
+import urllib.parse
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
+from markupsafe import Markup
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+
+from nanosoc_rm import quality as q
+from nanosoc_rm.config import load_config
+
+__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page"]
+
+PREFIX = "/quality"
+NAV_LABEL = "Quality"                                         # web/plugins.py: the top-navigation entry
+NAV_PATH = PREFIX + "/"
+HERE = Path(__file__).resolve().parent
+_WEB_TEMPLATES = HERE.parent / "web" / "templates"
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def _env() -> Environment:
+    loaders = [FileSystemLoader(str(HERE / "templates"))]
+    if _WEB_TEMPLATES.is_dir():
+        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
+    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
+                      lstrip_blocks=True)
+    try:
+        from nanosoc_rm.web.page import env as web_env
+        env.globals.update(web_env.globals)
+    except ImportError:                                       # pragma: no cover - the web package is optional
+        pass
+    env.globals.update(sparkline=sparkline, qurl=_qurl, pct=lambda x: "%.1f%%" % (100 * (x or 0)))
+    return env
+
+
+
+def _base_template() -> str:
+    """The GUI's base template when it has one (base.html, else layout.html), else this package's own."""
+    for name in ("base.html", "layout.html"):
+        if (_WEB_TEMPLATES / name).is_file():
+            return name
+    return "quality_base.html"
+
+
+def render_page(template: str, *, title: str, identity: Any = None, problems: list[str] | None = None,
+                **ctx: Any) -> str:
+    """The body first (its facts recorded for the data age, A3), then the GUI's base around it."""
+    from nanosoc_rm import clock
+    try:
+        from nanosoc_rm.web.page import Page, human_age
+    except ImportError:                                       # pragma: no cover
+        Page, human_age = None, None
+    page = Page() if Page else None
+    fact = page.fact if page else (lambda obs, label=None, **k: Markup(label or obs["subject"]))
+    body = ENV.get_template(template).render(page=page, fact=fact, identity=identity, **ctx)
+    return ENV.get_template(_base_template()).render(
+        body=Markup(body), title=title, identity=identity, problems=problems or [],
+        age_seconds=page.age_seconds() if page else None, oldest=page.oldest() if page else None,
+        human_age=human_age or (lambda s: ""), now=clock.iso(page.now if page else None))
+
+
+def sparkline(values: list[float], width: int = 120, height: int = 24, invert: bool = False) -> Markup:
+    """An inline SVG polyline of `values` (oldest first); a single point is drawn as a dot."""
+    vals = [float(v) for v in values if v is not None]
+    if not vals:
+        return Markup('<span class="note">no history</span>')
+    lo, hi = min(vals), max(vals)
+    span = (hi - lo) or 1.0
+    n = len(vals)
+    pts = []
+    for i, v in enumerate(vals):
+        x = 2 + (width - 4) * (i / (n - 1) if n > 1 else 0.5)
+        y = 2 + (height - 4) * (1 - (v - lo) / span if not invert else (v - lo) / span)
+        pts.append("%.1f,%.1f" % (x, y))
+    last = pts[-1].split(",")
+    title = " → ".join(("%.3f" % v).rstrip("0").rstrip(".") for v in vals[-6:])
+    return Markup('<svg class="spark" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="%s">'
+                  '<title>%s</title><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="%s"/>'
+                  '<circle cx="%s" cy="%s" r="2.2" fill="currentColor"/></svg>'
+                  % (width, height, width, height, title, title, " ".join(pts), last[0], last[1]))
+
+
+def _qurl(target: str, page: str = "", **params: Any) -> str:
+    path = "%s/%s%s" % (PREFIX, urllib.parse.quote(target, safe=""), ("/" + page) if page else "")
+    params = {k: v for k, v in params.items() if v not in (None, "", False)}
+    return path + ("?" + urllib.parse.urlencode(params) if params else "")
+
+
+def _config(request: Request):
+    cfg = getattr(request.state, "config", None)
+    return cfg if cfg is not None else load_config()
+
+
+def _lock(key: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.Lock())
+
+
+def _key(fact_or_source) -> str:
+    if isinstance(fact_or_source, dict):
+        f = fact_or_source
+        return "%s:%s%s" % (f["target"], f["commit"] or "worktree", "+worktree" if f["worktree"] and f["commit"] else "")
+    s = fact_or_source
+    return "%s:%s%s" % (s.label, s.commit or "worktree", "+worktree" if s.worktree and s.commit else "")
+
+
+def _result(config, kind: str, target: str, ref: str | None, analyse: bool) -> tuple[dict, Any]:
+    """(observation, source) for one kind at one ref: stored when present, else analysed now and stored."""
+    from nanosoc_rm import db
+    source = q.open_source(target, ref=ref, config=config)
+    obs_kind = q.KINDS[kind]
+    subject = "%s:%s" % (obs_kind, _key(source))
+    with _lock(subject):
+        if not analyse:
+            hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
+            # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
+            if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
+                return hit[-1], source
+        fn = {"density": q.density, "comments": q.comments, "readme": q.readme, "docs": q.docs}[kind]
+        obs = fn(target, ref=ref, config=config, store=True,
+                 command="GET %s" % _qurl(target, kind, ref=ref))
+        return obs, source
+
+
+def _targets(config) -> list[dict]:
+    """Configured targets plus any target with stored results (a --path run stored from the CLI)."""
+    rows = {t["target"]: dict(t) for t in q.targets(config)}
+    for kind in q.KINDS:
+        for d in q.stored(kind, config=config):
+            rows.setdefault(d["fact"]["target"], {"target": d["fact"]["target"], "origin": "stored", "where": ""})
+    return [rows[k] for k in sorted(rows)]
+
+
+def _overview_rows(config) -> list[dict]:
+    out = []
+    for t in _targets(config):
+        row = dict(t)
+        for kind in q.KINDS:
+            hist = q.stored(kind, t["target"], config=config)
+            row[kind] = hist[-1] if hist else None
+            row[kind + "_trend"] = [p["value"] for p in q.trend(kind, t["target"], config=config)] if hist else []
+        out.append(row)
+    return out
+
+
+def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
+    """In the GUI's shell (navigation, sign-out form, CSRF token) when mounted by the web app; else stand-alone."""
+    if getattr(getattr(request.app, "state", None), "rm", None) is not None:
+        from nanosoc_rm.web import plugins
+        return plugins.render_page(request, template, title, status=status, environment=ENV, **ctx)
+    html = render_page(template, title=title, identity=getattr(request.state, "identity", None), **ctx)
+    return HTMLResponse(html, status_code=status)
+
+
+def _error(request: Request, e: Exception) -> HTMLResponse:
+    status = 404 if isinstance(e, q.UsageError) else 503
+    return _page(request, "quality_message.html", "Quality", status=status, message=str(e))
+
+
+def router() -> APIRouter:
+    r = APIRouter(prefix=PREFIX)
+
+    def overview(request: Request) -> HTMLResponse:
+        config = _config(request)
+        return _page(request, "quality_overview.html", "Code and doc quality", rows=_overview_rows(config))
+
+    def summary(request: Request, target: str) -> Response:
+        config = _config(request)
+        ref = request.query_params.get("ref") or None
+        analyse = request.query_params.get("analyse") == "1"
+        try:
+            res = {k: _result(config, k, target, ref, analyse)[0] for k in q.KINDS}
+        except (q.UsageError, q.QualityError, q.SourceError) as e:
+            return _error(request, e)
+        if analyse:
+            return RedirectResponse(_qurl(target, ref=ref), 303)
+        trends = {k: q.trend(k, target, config=config) for k in q.KINDS}
+        return _page(request, "quality_summary.html", "Quality: %s" % target, target=target, ref=ref, res=res,
+                     trends=trends)
+
+    def kind_page(kind: str, template: str, title: str):
+        def handler(request: Request, target: str) -> Response:
+            config = _config(request)
+            ref = request.query_params.get("ref") or None
+            analyse = request.query_params.get("analyse") == "1"
+            try:
+                obs, _ = _result(config, kind, target, ref, analyse)
+            except (q.UsageError, q.QualityError, q.SourceError) as e:
+                return _error(request, e)
+            if analyse:
+                return RedirectResponse(_qurl(target, kind, ref=ref), 303)
+            sel = request.query_params.get("kind") or ""
+            return _page(request, template, "%s: %s" % (title, target), target=target, ref=ref, obs=obs, f=obs["fact"],
+                         sel=sel)
+        return handler
+
+    def comments_diff(request: Request, target: str) -> Response:
+        config = _config(request)
+        ref = request.query_params.get("ref") or None
+        sel = request.query_params.get("kind") or ""
+        try:
+            obs, source = _result(config, "comments", target, ref, False)   # re-analysed if the disk moved on
+        except (q.UsageError, q.QualityError, q.SourceError) as e:
+            return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
+        findings = [x for x in obs["fact"]["findings"] if not sel or x["kind"] == sel]
+        text, _ = q.comment_patch(source, {"fact": {"findings": findings}})
+        if not text.strip():
+            return PlainTextResponse("Nothing to patch: no finding%s of %s has a mechanical edit.\n"
+                                     % ((" of kind %s" % sel) if sel else "", target), 404)
+        return _diff_response(text, "%s-comments%s.diff" % (target, ("-" + sel) if sel else ""))
+
+    def readme_diff(request: Request, target: str) -> Response:
+        config = _config(request)
+        ref = request.query_params.get("ref") or None
+        from nanosoc_rm.quality.readmes import layout_patch
+        try:
+            source = q.open_source(target, ref=ref, config=config)
+        except (q.UsageError, q.QualityError, q.SourceError) as e:
+            return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
+        text = layout_patch(source)
+        if not text.strip():
+            why = "has no README.md" if source.text("README.md") is None else \
+                "README.md already has this Repository layout"
+            return PlainTextResponse("Nothing to patch: %s %s.\n" % (target, why), 404)
+        return _diff_response(text, "%s-readme-layout.diff" % target)
+
+    def trend_page(request: Request, target: str) -> HTMLResponse:
+        config = _config(request)
+        by_key: dict[str, dict] = {}
+        for k in q.KINDS:
+            for d in q.stored(k, target, config=config):
+                row = by_key.setdefault(d["subject"].split(":", 1)[1], {"first": d["observed_at"]})
+                row[k] = d
+                row["first"] = min(row["first"], d["observed_at"])
+        table = sorted(by_key.values(), key=lambda r: r["first"])
+        return _page(request, "quality_trend.html", "Quality trend: %s" % target, target=target, table=table,
+                     trends={k: q.trend(k, target, config=config) for k in q.KINDS})
+
+    get = ["GET"]
+    r.add_api_route("/", overview, methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/density", kind_page("density", "quality_density.html", "Comment density"),
+                    methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/comments", kind_page("comments", "quality_comments.html", "Comment findings"),
+                    methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/comments.diff", comments_diff, methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/readme", kind_page("readme", "quality_readme.html", "README check"),
+                    methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/readme.diff", readme_diff, methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/docs", kind_page("docs", "quality_docs.html", "Doc conciseness"),
+                    methods=get, include_in_schema=False)
+    r.add_api_route("/{target}/trend", trend_page, methods=get, include_in_schema=False)
+    r.add_api_route("/{target}", summary, methods=get, include_in_schema=False)
+    return r
+
+
+def _diff_response(text: str, name: str) -> Response:
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in name)
+    return Response(text, media_type="text/x-diff",
+                    headers={"content-disposition": 'attachment; filename="%s"' % safe})
+
+
+ENV = _env()

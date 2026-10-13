@@ -53,6 +53,7 @@ defects/SL-DEF-NNNN.yaml              file name = id
 errata/<configuration>/ERR-NNN.yaml   directory = configuration id; the record's id is <errata_prefix>-ERR-NNN
 imports.yaml                          F5 import ledger
 tiers.yaml                            optional; CR-12 local T1/T2 commands (eligibility#/$defs/tiers_file)
+quality.yaml                          optional; CR-14 comment-density thresholds (eligibility#/$defs/quality_file)
 ```
 
 ## 2. Versioning rule
@@ -142,6 +143,7 @@ Keys:
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
+| quality_density, quality_finding, readme_check, doc_score | `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read; `worktree` outside git) | event (CR-14; one per target and commit, so they form a trend) | none |
 
 **Current value (A3).**
 

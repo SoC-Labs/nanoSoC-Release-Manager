@@ -1,0 +1,37 @@
+{% include "_qstyle.html" %}
+{% set here = 'density' %}
+{% include "_qnav.html" %}
+<p>Ratio = (comment + docstring lines) / (code + comment + docstring lines). A file is an outlier above its language's threshold with at least {{ f.thresholds.defaults.min_lines }} non-blank lines; <em>excess</em> is how many comment lines to remove to meet it. Thresholds: {{ f.thresholds.origin }}.</p>
+<div class="tiles">
+  <div class="tile"><div class="num">{{ pct(f.totals.ratio) }}</div><div class="lbl">repository ratio</div></div>
+  <div class="tile"><div class="num">{{ f.totals.code }}</div><div class="lbl">code lines</div></div>
+  <div class="tile"><div class="num">{{ f.totals.comment + f.totals.docstring }}</div><div class="lbl">comment + docstring lines</div></div>
+  <div class="tile"><div class="num">{{ f.outliers|length }}</div><div class="lbl">outlier files</div></div>
+</div>
+<h2>Languages</h2>
+<table data-quality="languages">
+  <thead><tr><th>Language</th><th class="num">Files</th><th class="num">Code</th><th class="num">Comment</th><th class="num">Docstring</th><th class="num">Blank</th><th class="num">Ratio</th><th class="num">Threshold</th><th class="num">Outliers</th></tr></thead>
+  <tbody>
+{% for l in f.languages %}
+  <tr class="{{ 'state-amber' if l.over }}" data-language="{{ l.language }}"><td>{{ l.language }}</td><td class="num">{{ l.files }}</td><td class="num">{{ l.code }}</td><td class="num">{{ l.comment }}</td><td class="num">{{ l.docstring }}</td><td class="num">{{ l.blank }}</td><td class="num">{{ pct(l.ratio) }}</td><td class="num">{{ pct(l.max_ratio) }}</td><td class="num">{{ l.outliers }}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+<h2>Directories</h2>
+<div class="scroll"><table class="sortable">
+  <thead><tr><th>Directory</th><th class="num">Files</th><th class="num">Code</th><th class="num">Comment</th><th class="num">Docstring</th><th class="num">Ratio</th></tr></thead>
+  <tbody>
+{% for r in f.dirs %}<tr><td><code>{{ r.dir }}</code></td><td class="num">{{ r.files }}</td><td class="num">{{ r.code }}</td><td class="num">{{ r.comment }}</td><td class="num">{{ r.docstring }}</td><td class="num" data-v="{{ r.ratio }}">{{ pct(r.ratio) }}</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+<h2>Files <span class="note">(click a heading to sort)</span></h2>
+<div class="scroll"><table class="sortable" data-quality="files">
+  <thead><tr><th>Path</th><th>Language</th><th class="num">Code</th><th class="num">Comment</th><th class="num">Docstring</th><th class="num">Blank</th><th class="num">Inline</th><th class="num">Ratio</th><th class="num">Excess</th></tr></thead>
+  <tbody>
+{% for r in f.files|sort(attribute='excess_lines', reverse=True) %}<tr class="{{ 'state-amber' if r.outlier }}" data-path="{{ r.path }}"><td><code>{{ r.path }}</code></td><td>{{ r.language }}</td><td class="num">{{ r.code }}</td><td class="num">{{ r.comment }}</td><td class="num">{{ r.docstring }}</td><td class="num">{{ r.blank }}</td><td class="num">{{ r.inline }}</td><td class="num" data-v="{{ r.ratio }}">{{ pct(r.ratio) }}</td><td class="num">{{ r.excess_lines }}</td></tr>
+{% endfor %}
+  </tbody>
+</table></div>
+<p class="note">Docs (Markdown, not in the ratios): {{ f.docs.files }} files, {{ f.docs.prose }} prose lines, {{ f.docs.words }} words.{% if f.skipped %} Not read: {% for k, v in f.skipped.items() %}{{ v }} {{ k }}{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}</p>
+{% include "_qsort.html" %}

@@ -232,8 +232,9 @@ def test_a_plugin_post_is_csrf_checked_too(local, monkeypatch):
     assert c.post("/quality/scan", headers={"X-CSRF-Token": page_csrf(c)}).text == "scanned"
 
 
-def test_no_plugin_installed_means_no_quality_entry(local):
-    c = TestClient(local["app"])
+def test_no_plugin_installed_means_no_quality_entry(local, monkeypatch):
+    monkeypatch.setitem(sys.modules, "nanosoc_rm.quality.web", None)                # as if not built here
+    c = TestClient(create_app(local["cfg"]))
     sign_in(c)
     assert ">Quality<" not in c.get("/").text and c.get("/quality").status_code == 404
 

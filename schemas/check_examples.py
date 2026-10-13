@@ -134,7 +134,8 @@ DEF_EXAMPLES = {
     "result-bundle.rm-request.example.json": ("result-bundle", "/$defs/rm_request"),
 }
 # Valid and invalid examples of one $defs entry, by file-name prefix (CR-12: registry tiers.yaml).
-DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file")}
+DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file"),
+                "eligibility.quality": ("eligibility", "/$defs/quality_file")}       # CR-14: registry quality.yaml
 # rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
 # of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
 ITEMS_PREFIX = "result-bundle.items."

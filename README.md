@@ -36,6 +36,27 @@ environment plus the `env` its tiers.yaml entry declares.
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
 `nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`.
 
+## Code and documentation quality (CR-14, Q1-Q6)
+
+Read-only reports on any catalogued repo at any ref, or a local checkout; every fix is a patch you review and
+apply with `git apply`. No config is needed with `--path`.
+
+```
+nanosoc-rm quality density  --path ~/work/my-repo          # comment ratio per language, directory, file; outliers
+nanosoc-rm quality comments --path ~/work/my-repo --patch fix.diff   # findings + mechanical edits as a patch
+nanosoc-rm quality readme   --path ~/work/my-repo --patch layout.diff  # stale paths, make targets, submodules, flows
+nanosoc-rm quality docs     --path ~/work/my-repo          # conciseness score per Markdown file and section
+nanosoc-rm quality all tidelink --ref main --store          # a mirrored component; stored per commit for trends
+nanosoc-rm quality trend density tidelink                   # one point per stored commit
+```
+
+Thresholds: the registry's optional `quality.yaml` (example: `schemas/examples/eligibility.quality.example.yaml`).
+Local checkouts the GUI offers: `[quality] paths = { name = "/path/to/checkout" }` in the service config. The
+pages live under `/quality/` (overview, per-repo density, findings with a patch download, README check with the
+generated layout section, docs ranking, trend). `docs --rewrite` asks Claude for shorter sections only when
+`ANTHROPIC_API_KEY` or `[quality] api_key_file` is set (it sends those sections to the Anthropic API); without a
+key it makes no network call. Details: `docs/contracts/interfaces.md` section 14a.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

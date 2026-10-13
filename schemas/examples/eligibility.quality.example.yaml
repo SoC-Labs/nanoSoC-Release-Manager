@@ -1,0 +1,22 @@
+# CR-14 (Q1, Q2): a registry quality.yaml. Every key is optional; defaults fill the rest.
+schema: 1
+defaults:
+  max_ratio: 0.35
+  min_lines: 20
+languages:
+  verilog:
+    max_ratio: 0.45
+  python:
+    max_ratio: 0.40
+exclude:
+  - "**/generated/**"
+  - "build_soc/*"
+max_file_bytes: 1048576
+stale_todo_days: 180
+components:
+  tidelink:
+    exclude:
+      - "fpga/targets/*/ip/*"
+    languages:
+      tcl:
+        max_ratio: 0.50

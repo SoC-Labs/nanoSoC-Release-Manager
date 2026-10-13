@@ -1,0 +1,22 @@
+{% include "_qstyle.html" %}
+{% set here = 'summary' %}{% set obs = res.density %}{% set f = res.density.fact %}
+{% include "_qnav.html" %}
+{% set d, c, m, s = res.density.fact, res.comments.fact, res.readme.fact, res.docs.fact %}
+<div class="tiles">
+  <div class="tile"><div class="num">{{ pct(d.totals.ratio) }}</div><div class="lbl">comment ratio · {{ d.totals.files }} code files</div>{{ sparkline(trends.density|map(attribute='value')|list) }}</div>
+  <div class="tile"><div class="num">{{ d.outliers|length }}</div><div class="lbl"><a href="{{ qurl(target, 'density', ref=ref) }}">outlier files</a></div></div>
+  <div class="tile"><div class="num">{{ c.total }}</div><div class="lbl"><a href="{{ qurl(target, 'comments', ref=ref) }}">comment findings</a></div>{{ sparkline(trends.comments|map(attribute='value')|list) }}</div>
+  <div class="tile"><div class="num">{{ m.mismatch_count }}</div><div class="lbl"><a href="{{ qurl(target, 'readme', ref=ref) }}">README mismatches</a> in {{ m.readmes|length }} README(s)</div></div>
+  <div class="tile"><div class="num">{{ '%.1f'|format(s.score) if s.words else '-' }}</div><div class="lbl"><a href="{{ qurl(target, 'docs', ref=ref) }}">doc score</a> (100 = concise)</div>{{ sparkline(trends.docs|map(attribute='value')|list) }}</div>
+</div>
+<h2>Languages</h2>
+<table>
+  <thead><tr><th>Language</th><th class="num">Files</th><th class="num">Code</th><th class="num">Comment</th><th class="num">Docstring</th><th class="num">Ratio</th><th class="num">Threshold</th><th class="num">Outliers</th></tr></thead>
+  <tbody>
+{% for l in d.languages %}
+  <tr class="{{ 'state-amber' if l.over }}"><td>{{ l.language }}</td><td class="num">{{ l.files }}</td><td class="num">{{ l.code }}</td><td class="num">{{ l.comment }}</td><td class="num">{{ l.docstring }}</td><td class="num">{{ pct(l.ratio) }}</td><td class="num">{{ pct(l.max_ratio) }}</td><td class="num">{{ l.outliers }}</td></tr>
+{% endfor %}
+  </tbody>
+</table>
+<h2>Findings by kind</h2>
+<p class="kindchips">{% for k, n in c.counts.items() %}<a href="{{ qurl(target, 'comments', ref=ref, kind=k) }}">{{ k }}: {{ n }}</a>{% endfor %}</p>

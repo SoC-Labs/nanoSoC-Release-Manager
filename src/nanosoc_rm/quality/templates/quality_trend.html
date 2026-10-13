@@ -1,0 +1,22 @@
+{% include "_qstyle.html" %}
+{% set here = 'trend' %}{% set ref = none %}
+{% include "_qnav.html" %}
+<p>One point per analysed commit (stored results, oldest first). A falling comment ratio, findings count or mismatch count, and a rising doc score, are the reductions Q5 tracks.</p>
+<div class="tiles">
+  <div class="tile"><div class="lbl">comment ratio</div>{{ sparkline(trends.density|map(attribute='value')|list, 220, 40) }}</div>
+  <div class="tile"><div class="lbl">comment findings</div>{{ sparkline(trends.comments|map(attribute='value')|list, 220, 40) }}</div>
+  <div class="tile"><div class="lbl">README mismatches</div>{{ sparkline(trends.readme|map(attribute='value')|list, 220, 40) }}</div>
+  <div class="tile"><div class="lbl">doc score</div>{{ sparkline(trends.docs|map(attribute='value')|list, 220, 40) }}</div>
+</div>
+<table data-quality="trend">
+  <thead><tr><th>Analysed</th><th>Commit</th><th class="num">Comment ratio</th><th class="num">Findings</th><th class="num">README mismatches</th><th class="num">Doc score</th></tr></thead>
+  <tbody>
+{% for r in table %}
+  {% set any = r.density or r.comments or r.readme or r.docs %}
+  <tr data-commit="{{ any.fact.commit or '' }}"><td>{{ fact(any, any.observed_at) }}</td><td><code>{{ short(any.fact.commit) if any.fact.commit else 'no commit' }}</code>{% if any.fact.worktree %} + work tree{% endif %}</td>
+    <td class="num">{{ pct(r.density.fact.totals.ratio) if r.density else '-' }}</td><td class="num">{{ r.comments.fact.total if r.comments else '-' }}</td>
+    <td class="num">{{ r.readme.fact.mismatch_count if r.readme else '-' }}</td><td class="num">{{ '%.1f'|format(r.docs.fact.score) if r.docs and r.docs.fact.words else '-' }}</td></tr>
+{% else %}<tr><td colspan="6">Nothing stored yet for {{ target }}.</td></tr>
+{% endfor %}
+  </tbody>
+</table>

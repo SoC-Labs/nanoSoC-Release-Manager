@@ -137,10 +137,15 @@ def test_t0_items_prints_the_stored_bundle(ce, ci_config):
 def test_the_census_finds_exactly_one_write_and_it_is_the_trigger(sw):
     census = sw.write_call_census(REPO / "src" / "nanosoc_rm")
     posts = [c for c in census if c["kind"] == "http"]
-    # On the integrated tree the web's OAuth code exchange is the one other POST; it is declared read-post
-    # (interfaces.md section 17.5), so the trigger is still the only write.
+    # On the integrated tree the web's OAuth code exchange and (CR-14) the quality rewrite's Messages API call
+    # are the other POSTs; both are declared read-post (interfaces.md section 17.5), so the trigger is still the
+    # only write.
     assert sorted((c["file"], c["method"]) for c in posts) == [("nanosoc_rm/auth.py", "POST"),
-                                                               ("nanosoc_rm/ci/client.py", "POST")]
+                                                               ("nanosoc_rm/ci/client.py", "POST"),
+                                                               ("nanosoc_rm/quality/rewrite.py", "POST")]
+    rewrite = [c for c in posts if c["file"] == "nanosoc_rm/quality/rewrite.py"]
+    assert sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
+    assert not sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
     writes = [c for c in posts if c["file"] == "nanosoc_rm/ci/client.py"]
     assert sw.allowed(writes[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
     oauth = [c for c in posts if c["file"] == "nanosoc_rm/auth.py"]
