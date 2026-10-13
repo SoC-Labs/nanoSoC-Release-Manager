@@ -48,6 +48,11 @@ class Job:
     name: str
     every: str              # "poll" | "fetch" (a period from [schedule]) or "nightly" (once per UTC day)
     run: Callable[[Config], object]
+    # CR-15: the phase whose capability the job automates, and whether it is switched on. A later-phase job ships
+    # with enabled=False and names its gate; tick() never runs a disabled job, and the phase-gate check
+    # (phasegates.enabled_automation) reads both fields.
+    phase: str = "v1"
+    enabled: bool = True
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -184,7 +189,7 @@ def tick(now: dt.datetime, *, config: Config | None = None, jobs: tuple[Job, ...
     if jobs is None:
         jobs = JOBS if (config.get("ci") or {}).get("project") else tuple(j for j in JOBS if j.name not in CI_JOBS)
     for job in jobs:
-        if not due(job, now, state.get(job.name), config):
+        if not getattr(job, "enabled", True) or not due(job, now, state.get(job.name), config):
             continue
         try:
             job.run(config)

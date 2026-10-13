@@ -1,0 +1,27 @@
+# expect-error: const at /fact/classification/status
+# C3: a version plan is PASS only from a complete class; a partial one (consumer regeneration unmeasured) is WARN.
+schema: 1
+kind: version_plan
+subject: "version_plan:nanosoc_arch_tech:99267306b6c128adf1dbd6fe4812257952cbaac8"
+observed_at: "2026-10-13T10:00:00Z"
+sources: [{kind: derived, command: "nanosoc-rm version next nanosoc_arch_tech"}]
+fact:
+  target: nanosoc_arch_tech
+  commit: "99267306b6c128adf1dbd6fe4812257952cbaac8"
+  ref: main
+  worktree: false
+  current: {tag: v0.1.0, version: "0.1.0", kind: release, commit: "9588f14bb0643089dccfa0421230f4ca079c91bf"}
+  commits_since: 3
+  unreleased: {fix: ["Fix the flist order."]}
+  classification:
+    class: fix
+    status: partial
+    signals: [{signal: consumers, class: null, status: unmeasured, detail: "no generator"}]
+  hint: {class: fix, commits: 3, note: hint}
+  next: {version: "0.1.1", reason: "fix change after 0.1.0"}
+  changelog: {present: true}
+  manifest: {present: true, valid: true, version: "0.1.0"}
+  api_md: true
+  yanked: []
+  findings: []
+  verdict: PASS

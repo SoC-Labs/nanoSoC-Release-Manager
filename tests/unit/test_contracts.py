@@ -23,13 +23,15 @@ def _target(name):
         return "eligibility", "/$defs/tiers_file"
     if name.startswith("eligibility.quality"):                   # CR-14: registry quality.yaml
         return "eligibility", "/$defs/quality_file"
+    if name.startswith("tool-release.versioning"):               # CR-VER: registry versioning.yaml
+        return "tool-release", "/$defs/versioning_file"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum", "import-ledger",
-        "matrix", "observation", "pin-state", "release-lock", "result-bundle"])
+        "matrix", "observation", "pin-state", "release-lock", "result-bundle", "tool-release"])
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 

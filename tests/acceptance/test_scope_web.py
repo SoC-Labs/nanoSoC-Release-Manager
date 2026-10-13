@@ -1432,6 +1432,10 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, a
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))
                and utc(c["at"]) < utc(CR15_BUILD_FROM)]
     rows = [r for r in (changes or "").splitlines() if r.startswith("|") and r.count("|") > 2]
+    ba = (gates_doc or {}).get("build_allowed") or {}
+    built_from = ba.get("from") if ba.get("cr") and any(r.split("|")[1].strip() == ba["cr"] for r in rows) else None
+    if built_from:
+        commits = [c for c in commits if utc(c["at"]) < utc(str(built_from))]
     exempt = {}
     for e in (gates_doc or {}).get("exemptions") or []:
         sha, cr = str(e.get("commit") or ""), str(e.get("cr") or "")

@@ -49,13 +49,15 @@ from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
-           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS"]
+           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS",
+           "MODULE_KINDS", "register_kind"]
 
-# Job kinds other packages add without editing this file's logic (interfaces.md section 18): kind -> module with
-# params(p) -> dict (ValueError = usage), cli_args(p) -> [args], outcome(docs, last_line) -> fields,
-# limit_s(config, job) -> float, and optional ACTION (an `actions` entry logged on submit).
-EXTRA_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind"}
-KINDS = ("compat", "mirror-sync", "walk") + tuple(EXTRA_KINDS)
+# Job kinds other packages add without editing this file's logic. Two seams, merged at integration (Wave B):
+# MODULE_KINDS (interfaces.md section 18): kind -> module with params(p) -> dict (ValueError = usage),
+# cli_args(p) -> [args], and optional outcome(docs, last_line) -> fields, limit_s(config, job) -> float and ACTION
+# (an `actions` entry logged on submit). EXTRA_KINDS (register_kind, below): kind -> (check, args) callables.
+MODULE_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind"}
+KINDS = ("compat", "mirror-sync", "walk") + tuple(MODULE_KINDS)
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
@@ -73,6 +75,20 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state);
 
 class JobUsage(ValueError):
     """A job request that cannot run: unknown kind, a bad id, a malformed --pin. Nothing is queued."""
+
+
+# Job kinds a module adds without editing this file (CR-VER, Wave B): name -> (check, args). `check(params)`
+# returns the checked parameters or raises ValueError (a usage error, exit 3); `args(params)` is the `nanosoc-rm`
+# argv the job runs (`--json` is added when missing). A module registers its kinds when its CLI commands are registered, so
+# `serve` (a CLI command) has them before its worker starts.
+EXTRA_KINDS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], list[str]]]] = {}
+
+
+def register_kind(name: str, check: Callable[[dict], dict], args: Callable[[dict], list[str]]) -> None:
+    """Add a job kind (see EXTRA_KINDS). A built-in or module kind (KINDS) cannot be replaced."""
+    if name in KINDS:
+        raise ValueError("job kind %r is built in" % name)
+    EXTRA_KINDS[name] = (check, args)
 
 
 def is_local_ci(config: Config) -> bool:
@@ -156,14 +172,14 @@ def _check_id(value: Any, what: str) -> str:
 
 def _extra(kind: str):
     import importlib
-    return importlib.import_module(EXTRA_KINDS[kind])
+    return importlib.import_module(MODULE_KINDS[kind])
 
 
 def _params(kind: str, params: dict) -> dict:
     """The job's parameters, checked; JobUsage when the CLI would exit 3 on them."""
-    if kind in EXTRA_KINDS:
+    if kind in MODULE_KINDS or kind in EXTRA_KINDS:
         try:
-            return _extra(kind).params(params)
+            return _extra(kind).params(params) if kind in MODULE_KINDS else EXTRA_KINDS[kind][0](params)
         except ValueError as e:
             raise JobUsage(str(e)) from None
     if kind == "compat":
@@ -186,13 +202,16 @@ def _params(kind: str, params: dict) -> dict:
         return {"component": _check_id(comp, "component") if comp else None}
     if kind == "walk":
         return {"configuration": _check_id(params.get("configuration"), "configuration")}
-    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS)))
+    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS + tuple(EXTRA_KINDS))))
 
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
     """The `nanosoc-rm` arguments a job runs (`--keep-work` only when `work` is given)."""
+    if kind in MODULE_KINDS:
+        return list(_extra(kind).cli_args(params))
     if kind in EXTRA_KINDS:
-        return _extra(kind).cli_args(params)
+        args = list(EXTRA_KINDS[kind][1](params))
+        return args if "--json" in args else args + ["--json"]
     if kind == "compat":
         args = ["compat", params["configuration"]]
         for p in params["pins"]:
@@ -225,7 +244,7 @@ def submit(config: Config, kind: str, params: dict, by: str) -> dict:
         cur = con.execute("INSERT INTO jobs (kind, params, state, by, created_at, command) VALUES (?, ?, 'queued', ?, ?, ?)",
                           (kind, json.dumps(p, sort_keys=True), by, clock.iso(), command_text(kind, p)))
         job_id = cur.lastrowid
-    action = "run_t0" if kind == "compat" else getattr(_extra(kind), "ACTION", None) if kind in EXTRA_KINDS else None
+    action = "run_t0" if kind == "compat" else getattr(_extra(kind), "ACTION", None) if kind in MODULE_KINDS else None
     if action:
         from nanosoc_rm import db
         db.log_action(by, action, p["configuration"], "local job %d" % job_id + (
@@ -381,7 +400,7 @@ def _append_log(config: Config, job_id: int, text: str) -> None:
 
 
 def _limit_s(config: Config, job: dict) -> float:
-    if job["kind"] in EXTRA_KINDS:
+    if job["kind"] in MODULE_KINDS and hasattr(_extra(job["kind"]), "limit_s"):
         return float(_extra(job["kind"]).limit_s(config, job))
     limit = float(JOB_LIMIT_S)
     tier = job["params"].get("tier")
@@ -422,7 +441,7 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
         return {"state": "infra", "verdict": "INFRA",
                 "reason": "the job process ended with %s%s" % ("signal %d" % -rc if rc is not None and rc < 0
                                                                else "exit %s" % rc, ": " + last if last else "")}
-    if job["kind"] in EXTRA_KINDS:
+    if job["kind"] in MODULE_KINDS and hasattr(_extra(job["kind"]), "outcome"):
         return _extra(job["kind"]).outcome(docs, last)
     if job["kind"] == "compat":
         doc = next((d for d in reversed(docs) if d.get("kind") == "compat_result"), None)

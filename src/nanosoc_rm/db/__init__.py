@@ -49,7 +49,9 @@ SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "
              "runner_settings", "credential_status", "registry_record", "branch_state")
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
                "quality_density", "quality_finding", "readme_check", "doc_score",      # CR-14 (Q5)
-               "matrix_cell", "matrix_quarantine")                                    # D3, D8 (section 18)
+               "matrix_cell", "matrix_quarantine",                                    # D3, D8 (section 18)
+               "changelog_lint", "version_plan", "tag_check", "manifest_proposal",     # CR-VER (Wave B versioning)
+               "release_draft", "yank_proposal", "defect_trailers")
 ACTIONS = ("run_t0", "clear_alert")                   # interfaces.md section 14 Logging: the v1 write actions
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
@@ -119,6 +121,13 @@ _SUBJECT = {
     **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
                                   "+worktree" if f["worktree"] and f["commit"] else ""))
        for k in ("quality_density", "quality_finding", "readme_check", "doc_score")},
+    # CR-VER (Wave B versioning): the quality key for per-commit kinds; per component, or per component and version
+    **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
+                                  "+worktree" if f["worktree"] and f["commit"] else ""))
+       for k in ("changelog_lint", "version_plan", "manifest_proposal", "defect_trailers")},
+    "tag_check": lambda f: f["target"],
+    "release_draft": lambda f: "%s:%s" % (f["target"], f["version"]),
+    "yank_proposal": lambda f: "%s:%s" % (f["target"], f["version"]),
 }
 
 

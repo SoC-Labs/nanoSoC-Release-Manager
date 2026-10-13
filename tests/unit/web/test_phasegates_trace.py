@@ -38,6 +38,12 @@ def scratch_repo(tmp_path, commits):
 
 
 PHASE_OF = phasegates.requirement_phases((REPO / "docs" / "REQUIREMENTS.md").read_text())
+# CR-15 as the integrated register states it (Wave B integration: build_allowed {cr, from, phases} with its row)
+CR15_ROW = "| CR-15 | 2026-10-12 | A7, phase gates | build and enable are separate | ... | David |\n"
+
+
+def built_gates(*a, **kw):
+    return dict(gates(*a, **kw), build_allowed={"cr": "CR-15", "from": "2026-10-12T00:00:00Z"})
 
 
 def test_requirement_map_reads_the_headings():
@@ -51,14 +57,16 @@ def test_a_later_phase_commit_after_cr15_is_building_not_a_breach(tmp_path):
     repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
                                    ("src/matrix/x.py", "feat(matrix): D3 matrix\n\nRequirements: D3, D8",
                                     "2026-10-13T10:00:00Z")])
-    res = phasegates.check(gates(), PHASE_OF, phasegates.git_commits(repo), ["/", "/matrix/"], ["matrix"])
+    res = phasegates.check(built_gates(), PHASE_OF, phasegates.git_commits(repo), ["/", "/matrix/"], ["matrix"],
+                           changes=CR15_ROW)
     assert all(r["problems"] == [] for r in res), res
 
 
 def test_an_implementation_commit_before_its_gate_is_caught(tmp_path):
     repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
                                    ("schemas/x.json", "contracts: release-lock for G3, manifest for C11", "2026-10-01T10:00:00Z"),
-                                   ("src/matrix.py", "feat(matrix): D3 compatibility matrix", "2026-10-05T10:00:00Z")])
+                                   ("src/matrix.py", "feat(matrix): compatibility matrix\n\nRequirements: D3",
+                                    "2026-10-05T10:00:00Z")])
     commits = phasegates.git_commits(repo)
     res = {r["phase"]: r for r in phasegates.check(gates(), PHASE_OF, commits, ["/"], ["walk"])}
     assert any("implementation commit" in p and "['D3']" in p for p in res["Phase 2"]["problems"])
@@ -103,8 +111,9 @@ def test_a_cr_recorded_exemption_takes_only_its_ids_out_of_only_its_commit():
 
 def test_automation_and_register_shape_are_checked():
     """CR-15: later-phase routes and commands may be built; an enabled later-phase automation is the breach."""
-    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x",
-                                                                "/matrix/x"], ["walk", "lock", "matrix"])}
+    res = {r["phase"]: r["problems"] for r in phasegates.check(built_gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x",
+                                                                "/matrix/x"], ["walk", "lock", "matrix"],
+                                                                changes=CR15_ROW)}
     assert all(p == [] for p in res.values()), res
     res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/"], ["walk"],
                                                                 automation=["poll", "nightly_matrix", "bump_bot"])}
@@ -177,6 +186,29 @@ def test_a_later_phase_automation_is_found_by_what_a_job_runs_not_by_its_name(tm
     assert "`matrix`" in res[0]["problems"][0]
     monkeypatch.setattr(M, "NIGHTLY", dataclasses.replace(M.NIGHTLY, enabled=True))
     assert "NIGHTLY.enabled" in phasegates.automation_reached(JOBS)["nightly_matrix"]
+def test_cr15_build_allowed_lets_later_phases_be_built_but_not_enabled():
+    """CR-15: from build_allowed.from on (and only while CHANGES.md has its CR row), an implementation commit may
+    name a later-phase id and its command may exist; an enabled later-phase automation is still caught."""
+    early = {"sha": "e" * 40, "at": "2026-10-11T10:00:00Z", "files": ["src/m.py"], "message": "x\n\nRequirements: D3\n"}
+    late = dict(early, sha="f" * 40, at="2026-10-13T10:00:00Z", message="x\n\nRequirements: C1, D3\n")
+    reg = dict(gates(), build_allowed={"cr": "CR-15", "from": "2026-10-12T00:00:00Z"})
+    row = "| CR-15 | 2026-10-12 | A7, phase gates | build and enable are separate | ... | David |\n"
+    by = lambda r: {x["phase"]: x["problems"] for x in r}
+    res = by(phasegates.check(reg, PHASE_OF, [late], ["/", "/matrix"], ["walk", "matrix", "changelog"], changes=row))
+    assert all(p == [] for p in res.values()), res
+    # a commit before `from` is still caught; so is everything without the CHANGES.md row
+    assert any("['D3']" in p for p in by(phasegates.check(reg, PHASE_OF, [early], ["/"], ["walk"], changes=row))["Phase 2"])
+    for changes in (None, row.replace("CR-15", "CR-14")):
+        res = by(phasegates.check(reg, PHASE_OF, [late], ["/"], ["walk", "changelog"], changes=changes))
+        assert any("['C1']" in p for p in res["Phase 3"]) and "Phase 3: command `changelog` exists before its entry gate" in res["Phase 3"]
+    assert phasegates.build_allowed(reg, row) == "2026-10-12T00:00:00Z"
+    assert phasegates.build_allowed(dict(reg, build_allowed={"cr": "CR-15", "from": "not a time"}), row) is None
+    # enabling stays gated: an enabled Phase 2 automation is a problem with or without build_allowed
+    res = by(phasegates.check(reg, PHASE_OF, [], ["/"], ["walk"], changes=row, automation=[("nightly_matrix", "Phase 2")]))
+    assert res["Phase 2"] == ["Phase 2: automation `nightly_matrix` is enabled before its entry gate (CR-15: build, "
+                              "do not enable)"]
+    met = gates("gate-met", {"at": "2026-10-04T09:00:00Z", "by": "david"})
+    assert by(phasegates.check(met, PHASE_OF, [], ["/"], ["walk"], automation=[("nightly_matrix", "Phase 2")]))["Phase 2"] == []
 
 
 def test_this_repo_meets_a7_with_the_real_app_and_cli():
@@ -195,7 +227,9 @@ def test_check_repo_reads_what_the_scheduler_reaches_by_default(monkeypatch):
     monkeypatch.setattr(schedule, "JOBS", schedule.JOBS + (sweep,))
     res = phasegates.check_repo(REPO)
     probs = [p for r in res for p in r["problems"]]
-    assert len(probs) == 1 and "`nightly_matrix` is enabled" in probs[0] and "`matrix`" in probs[0], probs
+    # integration: rule 5b (what it reaches) and 5a (its name) both see it, and nothing else is red
+    assert any("`nightly_matrix` is enabled" in p and "`matrix`" in p for p in probs), probs
+    assert all(p.startswith("Phase 2: ") for p in probs), probs
 
 
 def _cli(*args, cwd=None):
@@ -221,7 +255,28 @@ def test_phase_gates_command_finds_a_planted_breach(tmp_path):
     git("commit", "-q", "-m", "docs", cwd=repo)
     (repo / "src" / "lock.py").write_text("x\n")
     git("add", "src", cwd=repo)
-    git("commit", "-q", "-m", "feat: lock writer for G3", cwd=repo)          # dated 2026-09-30: before CR-15
+    git("commit", "-q", "-m", "feat: lock writer\n\nRequirements: G3", cwd=repo)   # dated 2026-09-30: before CR-15
+    p = _cli("phase-gates", "--json", "--repo", str(repo))
+    assert p.returncode == 1, p.stdout + p.stderr
+    probs = {json.loads(x)["phase"]: json.loads(x)["problems"] for x in p.stdout.splitlines()}
+    assert any("names ['G3']" in x for x in probs["Phase 5"])
+    # CR-15: the same commit made after build_allowed.from (with its CHANGES.md row) is a build: exit 0
+    git("reset", "-q", "--hard", "HEAD~1", cwd=repo)
+    (repo / "src").mkdir(exist_ok=True)
+    (repo / "src" / "lock.py").write_text("x\n")
+    git("add", "src", cwd=repo)
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+               GIT_COMMITTER_EMAIL="t@example.invalid", GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1",
+               GIT_AUTHOR_DATE="2026-10-13T12:00:00Z", GIT_COMMITTER_DATE="2026-10-13T12:00:00Z")
+    subprocess.run(["git", "commit", "-q", "-m", "feat: lock writer\n\nRequirements: G3"], cwd=repo, env=env,
+                   check=True)
+    p = _cli("phase-gates", "--json", "--repo", str(repo))
+    assert p.returncode == 0, p.stdout + p.stderr
+    built = {json.loads(x)["phase"]: json.loads(x)["built"] for x in p.stdout.splitlines()}
+    assert any("names ['G3']" in x for x in built["Phase 5"])
+    # without the entry the same commit is the breach it always was
+    reg = repo / "docs" / "phase-gates.yaml"
+    reg.write_text(reg.read_text().split("build_allowed:", 1)[0])
     p = _cli("phase-gates", "--json", "--repo", str(repo))
     assert p.returncode == 1, p.stdout + p.stderr
     probs = {json.loads(x)["phase"]: json.loads(x)["problems"] for x in p.stdout.splitlines()}

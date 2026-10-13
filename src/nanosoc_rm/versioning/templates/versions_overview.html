@@ -1,0 +1,39 @@
+{# /versions/: one row per catalogue component, from STORED results (`nanosoc-rm version refresh` stores them). #}
+<p class="note">Versions and change classes (C1-C12): the current release tag, the Unreleased changelog entries by class, and the next version under SemVer with the Cargo pre-1.0 rule. {{ NOT_PUSHED }}</p>
+{% if local %}<form class="panel" method="post" action="/versions/refresh">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row">
+    <label>Component <input name="component" placeholder="every component"></label>
+    <button type="submit" class="primary">Refresh</button>
+    <span class="note">Runs <code>nanosoc-rm version refresh</code> as a job: lint, next and tags, stored. Every component takes about a minute; one, seconds.</span>
+  </div>
+</form>{% else %}<p class="note">To refresh: <code>nanosoc-rm version refresh</code> on the service host.</p>{% endif %}
+{% if job %}<div hx-get="/jobs/{{ job.id }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p>Job {{ job.id }}: {{ job.state }} <code>{{ job.command }}</code> (<a href="/jobs/{{ job.id }}/log">log</a>)</p></div>{% endif %}
+{% set stored = rows|selectattr('plan')|list %}
+{% if stored %}
+<div class="scroll"><table>
+  <thead><tr><th>Component</th><th>Class of repo</th><th>Current tag</th><th>Unreleased</th><th>Change class</th><th>Next</th><th>Verdict</th><th>Changelog</th><th>Manifest</th><th>API.md</th><th>Tags (C10)</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set p = r.plan %}
+    {% if p %}{% set f = p.fact %}
+    <tr data-component="{{ r.component }}" data-verdict="{{ f.verdict }}">
+      <td><a href="{{ vurl(r.component) }}">{{ r.component }}</a></td>
+      <td>{{ r['class'] or '' }}</td>
+      <td>{% if f.current.tag %}<code>{{ f.current.tag }}</code>{% if f.current.kind == 'grandfathered' %} <span class="note">grandfathered{% if f.current.ambiguous %}, AMBIGUOUS{% endif %}</span>{% endif %}{% else %}<span class="note">none</span>{% endif %}</td>
+      <td>{% for c in ('breaking', 'feature', 'fix', 'none', 'unclassed') %}{% if f.unreleased.get(c) %}<span class="pill {{ CLASS_CLASS.get(c, 'state-red') }}">{{ f.unreleased[c]|length }} {{ c }}</span> {% endif %}{% endfor %}{% if not f.unreleased %}<span class="note">none</span>{% endif %}</td>
+      <td>{% set k = f.classification %}{% if k['class'] %}<span class="pill {{ CLASS_CLASS[k['class']] }}">{{ k['class'] }}</span>{% else %}<span class="note">unmeasured</span>{% endif %} <span class="note">{{ k.status }}</span></td>
+      <td>{{ fact(p, f.next.version or 'none') }}</td>
+      <td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td>
+      <td>{% set l = r.lint %}{% if l %}<span class="pill {{ VERDICT_CLASS.get(l.fact.verdict, '') }}">{{ l.fact.verdict if l.fact.present else 'MISSING' }}</span>{% else %}<span class="note">not read</span>{% endif %}</td>
+      <td>{{ 'valid' if f.manifest.valid else ('INVALID' if f.manifest.present else 'missing') }}</td>
+      <td>{{ 'present' if f.api_md else 'missing' }}</td>
+      <td>{% set t = r.tags %}{% if t %}<span class="pill {{ VERDICT_CLASS.get(t.fact.verdict, '') }}">{{ t.fact.verdict }}</span> <span class="note">{{ t.fact.rows|length }} tag(s)</span>{% else %}<span class="note">not read</span>{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr data-component="{{ r.component }}"><td><a href="{{ vurl(r.component) }}">{{ r.component }}</a></td><td>{{ r['class'] or '' }}</td><td colspan="9" class="note">not read yet</td></tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="note">Verdict: PASS a next version from a complete class; WARN from a partial class (a C3 signal is unmeasured: consumer regeneration needs the generator); UNVERIFIED no class at all (no classed changelog); FAIL a finding (a 1.0.0 that C9 refuses, a next version already tagged or yanked).</p>
+{% else %}<p class="empty">Nothing stored yet. Press Refresh (or run <code>nanosoc-rm version refresh</code>).</p>{% endif %}

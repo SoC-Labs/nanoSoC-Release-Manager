@@ -1,0 +1,5 @@
+# expect-error: required at /yanked/0 ~ 'reason'
+# G6: a yank is recorded with its reason and who decided it.
+schema: 1
+yanked:
+  - {component: nanosoc_arch_tech, version: "0.1.0", tag: v0.1.0, commit: "0123456789abcdef0123456789abcdef01234567", by: david, date: "2026-10-13"}
