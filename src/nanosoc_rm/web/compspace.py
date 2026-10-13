@@ -114,6 +114,10 @@ def branch_view(rows: list[dict], *, canonical: tuple[str, str] | None = None, o
     del_keys = [_bkey(d["fact"]) for d in deletable]
     chosen = set(del_keys) if not picked else set(selected) & set(del_keys)
     sel_docs = [d for d in deletable if _bkey(d["fact"]) in chosen]
+    # ticked rows outside the current scope (canonical-only hides the copies) ride along unchanged, so a scope
+    # or filter link never re-ticks or drops them (review K-R1)
+    every_del = {_bkey(d["fact"]) for d in delete_list(every)}
+    carry = sorted(chosen | ((set(selected) & every_del) if picked else set()))
     counts: dict[str, int] = {}
     for d in rows:
         counts[d["fact"]["verdict"]] = counts.get(d["fact"]["verdict"], 0) + 1
@@ -152,7 +156,7 @@ def branch_view(rows: list[dict], *, canonical: tuple[str, str] | None = None, o
     return {"rows": shown, "total": len(rows), "every": len(every), "deletable": len(deletable),
             "selected": len(sel_docs), "counts": counts, "kept": len(kept), "verdict": verdict, "q": q,
             "delete_text": "\n".join(delete_commands(sel_docs)) if sel_docs else "",
-            "warnings": warnings, "hidden": sorted(chosen - shown_keys), "filters": filters,
+            "warnings": warnings, "hidden": [k for k in carry if k not in shown_keys], "carry": carry if picked else [], "filters": filters,
             "only_canonical": only_canonical, "canonical": canonical, "repos": repos,
             "canonical_empty": bool(only_canonical and not rows and every), "picked": picked,
             "all_keys": del_keys}
@@ -546,9 +550,14 @@ def _review_fragment(request: Request, comp: str, obs: dict, st: dict) -> HTMLRe
     config, ident = _ctx(request)
     state = request.app.state.rm
     p = Page()
-    return HTMLResponse(env.get_template("review_main.html").render(
+    body = env.get_template("review_main.html").render(
         comp=comp, obs=obs, st=st, href=_href, page=p, fact=p.fact, csrf=state.csrf_for(ident, config),
-        actions=state.local_routes))
+        actions=state.local_routes)
+    # the tabs sit outside #review: send them out of band so "N left" follows the decision (review K-R5)
+    qv = quality_view(config, comp)
+    t = tabs(comp, branches_n=len(_stored_branches(config, comp)),
+             worth=qv.get("worth") if qv.get("analysed") else None, left=st.get("left"))
+    return HTMLResponse(body + env.get_template("_comp_tabs.html").render(ws_tabs=t, ws_tab="review", oob=True))
 
 
 def _patch_diff(request: Request, id: str) -> Response:

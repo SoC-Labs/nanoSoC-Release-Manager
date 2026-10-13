@@ -225,7 +225,7 @@ button[disabled] { opacity: .55; cursor: not-allowed; }
 .ghost:hover { background: var(--panel-2); color: var(--fg); }
 .seg { display: inline-flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line);
   border-radius: 22px; padding: 6px 14px; min-height: 44px; color: var(--fg); font-weight: 700; text-decoration: none; }
-.seg.is-on, .seg[aria-pressed="true"] { background: var(--ink); color: var(--ink-fg); border-color: var(--ink); }
+.seg.is-on, .seg[aria-pressed="true"], .seg[aria-current] { background: var(--ink); color: var(--ink-fg); border-color: var(--ink); }
 button.link { border: 0; background: none; padding: 0; min-height: 0; color: inherit; text-decoration: underline; }
 form { display: inline; }
 label { display: inline-flex; flex-direction: column; gap: .15rem; font-size: .9em; color: var(--muted); }
@@ -309,3 +309,13 @@ details summary { cursor: pointer; }
 .rail nav[aria-label="main"] a.current { background: var(--panel); border-color: var(--fg); }
 a.skip:focus { position: static; width: auto; height: auto; clip: auto; padding: 8px; background: var(--panel); }
 .body { display: block; }
+
+/* ---- component workspace (unit K): review grid, step strip, kind bars, one-button forms ---------------- */
+.review-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .review-grid { grid-template-columns: minmax(0, 1fr); } }
+ol.steps { list-style: none; padding: 0; margin: 0 0 12px; }
+ol.steps li { display: inline-flex; align-items: center; }
+ul.bars { list-style: none; padding: 0; margin: 0; }
+ul.bars li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 2px 0; }
+ul.bars .bar { max-width: 100%; }
+form.inline { display: inline; margin: 0; }

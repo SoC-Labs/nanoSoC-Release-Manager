@@ -6,4 +6,4 @@
   <p data-sentence>{{ hdr.sentence }}</p>
   {% if hdr.primary %}<p><a class="prim" href="{{ hdr.primary.href }}" data-primary>{{ hdr.primary.label }}</a> <span class="note">You run the commands; nothing is changed from here.</span></p>{% endif %}
 </section>
-{{ ui.tabs(ws_tabs, ws_tab) }}
+{% include "_comp_tabs.html" %}

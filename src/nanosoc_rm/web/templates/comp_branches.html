@@ -23,11 +23,11 @@
 
   <section class="panel" aria-labelledby="h-brs">
     <h2 id="h-brs">Branches</h2>
-    <p class="note">{% if v.only_canonical %}Canonical repo only. <a href="{{ href(comp, 'branches') }}">Count every copy</a>{% else %}Every copy counted ({{ v.repos|length }} repo{{ "" if v.repos|length == 1 else "s" }}).{% if v.canonical %} <a href="{{ href(comp, 'branches', canonical='1') }}">Canonical repo only</a>{% endif %}{% endif %}</p>
-    {% if v.canonical_empty %}<p class="empty">The canonical repo has no stored branch; {{ v.every }} rows are on other copies. <a href="{{ href(comp, 'branches') }}">Show every copy</a>.</p>{% endif %}
+    <p class="note">{% if v.only_canonical %}Canonical repo only. <a href="{{ href(comp, 'branches', picked='1' if v.picked else None, verdict=v.verdict, q=v.q, del=v.carry) }}">Count every copy</a>{% else %}Every copy counted ({{ v.repos|length }} repo{{ "" if v.repos|length == 1 else "s" }}).{% if v.canonical %} <a href="{{ href(comp, 'branches', canonical='1', picked='1' if v.picked else None, verdict=v.verdict, q=v.q, del=v.carry) }}">Canonical repo only</a>{% endif %}{% endif %}</p>
+    {% if v.canonical_empty %}<p class="empty">The canonical repo has no stored branch; {{ v.every }} rows are on other copies. <a href="{{ href(comp, 'branches', picked='1' if v.picked else None, verdict=v.verdict, q=v.q, del=v.carry) }}">Show every copy</a>.</p>{% endif %}
     <nav class="filters" aria-label="Branch filters">
     {% for fl in v.filters %}
-      <a class="seg" href="{{ href(comp, 'branches', canonical='1' if v.only_canonical else None, verdict=fl.key, q=v.q) }}"{% if fl.key == v.verdict %} aria-current="true"{% endif %} data-filter="{{ fl.key or 'all' }}">{{ fl.label }} <span class="chip c-neutral">{{ fl.count }}</span></a>
+      <a class="seg" href="{{ href(comp, 'branches', canonical='1' if v.only_canonical else None, verdict=fl.key, q=v.q, picked='1' if v.picked else None, del=v.carry) }}"{% if fl.key == v.verdict %} aria-current="true"{% endif %} data-filter="{{ fl.key or 'all' }}">{{ fl.label }} <span class="chip c-neutral">{{ fl.count }}</span></a>
     {% endfor %}
     </nav>
     <div class="row">

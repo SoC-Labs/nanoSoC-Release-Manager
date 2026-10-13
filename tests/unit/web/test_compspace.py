@@ -248,3 +248,60 @@ def test_review_post_needs_the_csrf_token(tmp_path, monkeypatch, seeded_db):
     assert r.status_code == 303
     r = c.post("/components/tidelink/review/decide", data={"key": "x", "decision": "skip"})
     assert r.status_code == 403 and "CSRF" in r.text
+
+
+def _links(t):
+    import html as _h
+    return [_h.unescape(h) for h in re.findall(r'<a class="seg" href="([^"]+)"', t)] + \
+        [_h.unescape(h) for h in re.findall(r'<a href="(/components/tidelink/branches[^"]*)">(?:Count every copy|Canonical repo only|Show every copy)', t)]
+
+
+def test_filter_and_scope_links_keep_the_ticked_selection(ws):
+    """Review K-R1: a filter or scope link must not tick every deletable row again."""
+    c = ws["client"]
+    one = "gitlab:soclabs/tidelink:feat/kr260-port"
+    t = c.get("/components/tidelink/branches", params=[("picked", "1"), ("del", one)]).text
+    assert "Delete list: 1 of 3" in t
+    links = _links(t)
+    assert len(links) >= 8 and any("canonical=1" in h for h in links)
+    for h in links:
+        if "canonical=1" in h:
+            continue                                             # the canonical repo has no row in this fixture
+        t2 = c.get(h).text
+        assert "Delete list: 1 of 3" in t2, h
+        pre = re.search(r'<pre class="code" id="delete-list"[^>]*>(.*?)</pre>', t2, re.S).group(1)
+        assert "feat/kr260-port" in pre and "exp/v1-route-a" not in pre, h
+    # into the canonical-only view and back again: the copy's ticked row survives the round trip
+    canon = next(h for h in links if "canonical=1" in h)
+    back = [h for h in _links(c.get(canon).text) if "canonical=1" not in h and "verdict" not in h]
+    assert back and "Delete list: 1 of 3" in c.get(back[0]).text
+    # the first load (no `picked`) still ticks every deletable row through its links
+    for h in _links(c.get("/components/tidelink/branches").text):
+        if "canonical=1" not in h:
+            assert "Delete list: 3 of 3" in c.get(h).text, h
+
+
+def test_return_redirect_stays_inside_the_component():
+    """K-R3 A: the `return` field of a review POST may only point back into /components/{id}/."""
+    back = lambda ret: compspace._back(None, "demo", {"return": ret}, 4, "abc")
+    default = "/components/demo/review?commit=abc&i=4"
+    assert back("/components/demo/review?i=2") == "/components/demo/review?i=2"
+    for bad in ("https://evil.example/", "//evil.example/", "/components/other/review", "/components/demo//x",
+                "/components/demo/\\x", "/quality/", ""):
+        assert back(bad) == default, bad
+
+
+def test_current_filter_and_step_are_styled_and_the_review_layout_has_rules():
+    """K-R4: the templates mark the current .seg with aria-current, so rm.css must style it like .is-on; the
+    review grid, the step strip, the kind bars and one-button forms need their rules."""
+    from pathlib import Path
+    web = Path(compspace.__file__).resolve().parent
+    css = (web / "static" / "rm.css").read_text()
+    used = "".join((web / "templates" / n).read_text() for n in ("comp_branches.html", "review_main.html",
+                                                                 "comp_quality.html"))
+    assert re.search(r'class="seg"[^>]*aria-current=', used)
+    on = re.search(r"([^{}]*\.seg\.is-on[^{]*)\{", css).group(1)
+    assert ".seg[aria-current" in on, "the current filter or step looks like every other one"
+    for cls in ("review-grid", "steps", "bars", "inline"):
+        assert 'class="%s' % cls in used or ' %s"' % cls in used, cls
+        assert re.search(r"(^|[\s,}])(\w+)?\.%s[\s,{.\[:>]" % cls, css, re.M), "no rule for .%s" % cls

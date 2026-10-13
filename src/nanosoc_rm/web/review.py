@@ -133,6 +133,8 @@ def _edit_of(item_finding: dict, decision: dict | None) -> dict | None:
         return item_finding.get("edit") or None
     if decision["decision"] == "edit":
         text = (decision.get("text") or "").replace("\r\n", "\n")
+        if text.endswith("\n"):                     # Enter at the end of the textarea is not a blank line
+            text = text[:-1]
         lines = text.split("\n") if text.strip("\n") != "" else []
         ed = item_finding.get("edit") or {}
         start = int(ed.get("start") or item_finding["line"])

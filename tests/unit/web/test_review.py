@@ -290,3 +290,70 @@ def test_a_blob_less_mirror_is_never_fetched_by_a_page(tmp_path, monkeypatch):
     t = client.get("/components/tidelink/review?i=%d" % i).text
     assert rt.NOT_LOCAL in t and "- line " in t                 # edit shown as line numbers, with the note
     assert missing() == before, "the page fetched a blob"
+
+
+# ----- review K-R2 / K-R3: rules whose breakage no other test noticed -----------------------------------
+def test_edit_text_ending_in_a_newline_adds_no_blank_line(rv):
+    """K-R2: pressing Enter at the end of the textarea must not put a '+' blank line into the patch."""
+    c, obs = rv["client"], _obs(rv)
+    cm = review.commit_of(obs)
+    target = next(it for it in review.queue(obs) if it["kind"] == "unknown_identifier")
+    c.post("/components/demo/review/decide", data={"key": target["key"], "decision": "edit",
+                                                   "text": "    # compute_total() adds the values\r\n", "commit": cm})
+    r = c.get("/components/demo/review/patch.diff")
+    assert r.status_code == 200
+    _apply_check(rv, r.text)
+    assert "+    # compute_total() adds the values\n" in r.text
+    assert not re.search(r"^\+$", r.text, re.M), "a stray blank '+' line"
+
+
+def test_an_edit_replaces_every_line_of_a_multi_line_finding():
+    """K-R3 B: an Edit of a finding spanning lines 2..3 replaces both, not only the first."""
+    f = {"kind": "commented_out_code", "line": 2, "edit": {"start": 2, "end": 3, "replacement": []}}
+    assert review._edit_of(f, {"decision": "edit", "text": "    # kept"}) == \
+        {"start": 2, "end": 3, "replacement": ["    # kept"]}
+    g = {"kind": "commented_out_code", "line": 5, "end_line": 7}
+    assert review._edit_of(g, {"decision": "edit", "text": ""}) == {"start": 5, "end": 7, "replacement": []}
+
+
+def test_next_index_wraps_to_the_start():
+    """K-R3 C: after the last undecided item the queue goes back to the first undecided one."""
+    items = [{"key": "a"}, {"key": "b"}, {"key": "c"}]
+    assert review.next_index(items, {"c": {}}, after=1) == 0
+    assert review.next_index(items, {"a": {}, "c": {}}, after=2) == 1
+    assert review.next_index(items, {"a": {}, "b": {}, "c": {}}, after=0) is None
+
+
+def test_one_layout_section_per_readme_carries_the_basket_button():
+    """K-R3 E: only a README's first layout row has the mechanical edit; the others are covered by it."""
+    obs = {"fact": {"mismatches": [
+        {"readme": "README.md", "line": 3, "kind": "layout_heading", "token": "a", "status": "missing"},
+        {"readme": "README.md", "line": 9, "kind": "layout_order", "token": "b", "status": "missing"},
+        {"readme": "docs/README.md", "line": 4, "kind": "layout_heading", "token": "c", "status": "missing"},
+        {"readme": "README.md", "line": 5, "kind": "path", "token": "x.md", "status": "missing"}]}}
+    rows = {(r["readme"], r["line"]): r for r in review.readme_rows(obs)}
+    assert rows[("README.md", 3)]["mechanical"] and not rows[("README.md", 9)]["mechanical"]
+    assert rows[("README.md", 9)]["layout_covered"] and rows[("docs/README.md", 4)]["mechanical"]
+    assert not rows[("README.md", 5)]["mechanical"]
+
+
+def test_caution_when_the_next_line_names_the_same_identifier():
+    """K-R3 G: 'Line N+1 has the same pattern' for an identifier repeated on the next line."""
+    f = {"kind": "unknown_identifier", "identifier": "rx_ptp_dt", "line": 1}
+    assert review.caution(f, ["# rx_ptp_dt is set", "# rx_ptp_dt is cleared"]) == \
+        "Line 2 has the same pattern; use Edit to fix both."
+    assert review.caution(f, ["# rx_ptp_dt is set", "x = 1"]) is None
+
+
+def test_htmx_decide_also_updates_the_review_tab_count(rv):
+    """K-R5: the tabs sit outside #review, so the fragment carries an out-of-band copy with the new count."""
+    c, obs = rv["client"], _obs(rv)
+    n = len(review.queue(obs))
+    page = c.get("/components/demo/review").text
+    assert re.search(r'<div id="ws-tabs">.*?Review <span class="chip c-neutral">%d left</span>' % n, page, re.S)
+    it = review.queue(obs)[0]
+    r = c.post("/components/demo/review/decide", data={"key": it["key"], "decision": "skip",
+                                                       "commit": review.commit_of(obs)}, headers={"HX-Request": "true"})
+    oob = re.search(r'<div id="ws-tabs" hx-swap-oob="true">(.*?)</div>', r.text, re.S)
+    assert oob and "Review <span class=\"chip c-neutral\">%d left</span>" % (n - 1) in oob.group(1), r.text[-800:]
+    assert 'aria-current="page">Review' in oob.group(1)
