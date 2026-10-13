@@ -72,6 +72,18 @@ def _walk(configuration: str, config: Config) -> list[dict]:
         raise ReleaseError("the walk of %s could not answer: %s" % (configuration, e)) from None
 
 
+def _walk_at(configuration: str, config: Config, commit: str) -> list[dict]:
+    """The tree of `commit` (the drafted root), judged on the hosts now: a what-if walk, never stored."""
+    from nanosoc_rm.walker import UnknownConfiguration, WalkError, walk
+    try:
+        return walk(configuration, config=config, store=False, alerts=False, at=commit)
+    except UnknownConfiguration:
+        raise ReleaseUsage("no registered configuration %r" % configuration) from None
+    except WalkError as e:
+        raise ReleaseError("the walk of %s at the drafted commit %s could not answer: %s" % (
+            configuration, commit[:12], e)) from None
+
+
 def _repo(r: Any) -> dict:
     return {"host": r.host, "path": r.path} if hasattr(r, "host") else {"host": r["host"], "path": r["path"]}
 
@@ -153,6 +165,36 @@ def _earlier(config: Config, configuration: str, version: str) -> list[dict]:
     return out
 
 
+def _issued_errata(config: Config, configuration: str, earlier: list[dict], target: Path) -> list[dict]:
+    """Every errata block ({revision, digest, version}) an earlier draft of this configuration issued, for F4: the
+    other drafts on disk, the draft this one replaces (same version), and every release_draft the store holds for
+    the configuration (history survives a deleted or replaced folder)."""
+    out = [dict(e["errata"], version=e["version"]) for e in earlier]
+    if (target / DRAFT_FILE).is_file():
+        try:
+            f = read_draft(target)["fact"]
+            if f["configuration"] == configuration:
+                out.append(dict(f["errata"], version="%s (the draft being replaced)" % f["version"]))
+        except (OSError, ValueError, ReleaseError):
+            pass
+    try:
+        from nanosoc_rm import db
+        for latest in db.latest("release_draft", "release_draft:%s:" % configuration, config=config):
+            for d in db.history(latest["subject"], config=config):
+                f = d["fact"]
+                if f.get("configuration") == configuration and f.get("errata"):
+                    out.append(dict(f["errata"], version="%s (stored %s)" % (f["version"], f["generated_at"])))
+    except Exception:                                    # noqa: BLE001 - no store yet: the folders are the memory
+        pass
+    seen, uniq = set(), []
+    for e in out:
+        key = (e.get("revision"), e.get("digest"))
+        if key not in seen:
+            seen.add(key)
+            uniq.append(e)
+    return uniq
+
+
 def _lock_of(d: Path) -> dict | None:
     for name in (LOCK, DRAFT_LOCK):
         if (d / name).is_file():
@@ -195,8 +237,7 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
         if not Path(p).is_file():
             raise ReleaseUsage("--artefact %s=%s: no such file" % (k, p))
     target = Path(out) if out is not None else draft_path(config, configuration, version)
-    if target.exists() and any(target.iterdir()) and not replace:
-        raise ReleaseUsage("%s already holds a draft; pass --replace to rebuild it" % target)
+    _check_target(target, replace)
     waivers = [dict(w) for w in waivers]
     comp = cfg["component"]
     canon = _repo(reg.canonical(comp))
@@ -278,7 +319,7 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
     # -- errata (F4) ------------------------------------------------------------------------------------------
     earlier = _earlier(config, configuration, version)
     edoc = errmod.document(reg, configuration, release=release)
-    checks.append(errmod.revision_check(edoc, [dict(e["errata"], version=e["version"]) for e in earlier]))
+    checks.append(errmod.revision_check(edoc, _issued_errata(config, configuration, earlier, target)))
     cat_a = [e["id"] for e in edoc.records if e.get("category") == "A" and e["status"] in errmod.OPEN_STATUSES]
     undecided = [e["id"] for e in edoc.records if e.get("category") is None and e["status"] in errmod.OPEN_STATUSES]
     if cat_a:
@@ -344,6 +385,11 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
                             "(--gds, --netlist)"})
             checks.append(check("outputs.hashes", "UNVERIFIED", "silicon release without --gds and --netlist",
                                 person=True, requirement="G3"))
+    missing = [k for k in ("flists", "bitstream", "logs") if k not in {a for a, _ in artefacts}]
+    checks.append(check("lock.artefacts", "WARN" if missing else "PASS",
+                        ("G3 also lists %s: none given (--artefact KIND=PATH); the lock does not carry them"
+                         % ", ".join(missing)) if missing else "file lists, bitstream and logs recorded",
+                        requirement="G3"))
     arts = []
     for k, p in artefacts:
         h, n = md5_file(Path(p))
@@ -412,12 +458,15 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
                         "every listed change has a class", requirement="C2"))
 
     # -- vendor scan (D11): the files meant for sharing must be clean; the archive and artefacts are private -----
-    checks.append(_scan_check("vendor.scan", [(n, b) for n, b in files.items()], gds is not None or netlist is not None))
+    # GATES.md, CHECKLIST.md and README.txt list the checks, so they are rendered once without the scan rows,
+    # scanned with the rest, then rendered again with them (the rows add only this tool's own check text).
     if scan_items:
         checks.append(_scan_check("vendor.scan-private", scan_items, False))
-    files["GATES.md"] = cl.ledger(release, checks).encode()
-    files["CHECKLIST.md"] = cl.checklist(release, checks, steps).encode()
-    files["README.txt"] = _readme(release, complete).encode()
+    shared = dict(files)
+    shared.update(_person_files(release, checks, steps, complete))
+    checks.insert(len(checks) - (1 if scan_items else 0), _scan_check(
+        "vendor.scan", list(shared.items()), gds is not None or netlist is not None))
+    files.update(_person_files(release, checks, steps, complete))
 
     verdict = ladder(c["verdict"] for c in checks)
     machine_ok = all(c["verdict"] in ("PASS", "WARN", "WAIVED", "NOT-RUN") for c in checks if not c["person"])
@@ -439,6 +488,12 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
         from nanosoc_rm import db
         db.put(obs, config=config)
     return obs
+
+
+def _person_files(release: dict, checks: list[dict], steps: list[dict], complete: bool) -> dict[str, bytes]:
+    return {"GATES.md": cl.ledger(release, checks).encode(),
+            "CHECKLIST.md": cl.checklist(release, checks, steps).encode(),
+            "README.txt": _readme(release, complete).encode()}
 
 
 def _count(values: Iterable[str]) -> dict[str, int]:
@@ -593,6 +648,21 @@ def _readme(release: dict, complete: bool) -> str:
             + "Re-check it later with: nanosoc-rm release verify %(configuration)s/%(version)s\n" % release)
 
 
+def _check_target(target: Path, replace: bool) -> None:
+    """The draft folder may be absent or empty; with `replace` it may also hold an earlier draft (a draft.json).
+    Anything else is refused: --replace swaps the folder out and deletes it, so it must never meet a directory the
+    tool did not write (a mistyped --out naming a checkout)."""
+    if target.is_symlink() or (target.exists() and not target.is_dir()):
+        raise ReleaseUsage("%s is not a directory the release manager wrote; choose another --out" % target)
+    if not target.exists() or not any(target.iterdir()):
+        return
+    if not replace:
+        raise ReleaseUsage("%s already holds a draft; pass --replace to rebuild it" % target)
+    if not (target / DRAFT_FILE).is_file():
+        raise ReleaseUsage("%s is not empty and holds no %s: --replace only rebuilds an earlier release draft, it "
+                           "never deletes another directory" % (target, DRAFT_FILE))
+
+
 def _write(target: Path, files: dict[str, bytes], copy_archive, obs: dict, replace: bool) -> None:
     """Write the folder next to its final place, then swap it in, so a reader never sees half a draft."""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -612,9 +682,8 @@ def _write(target: Path, files: dict[str, bytes], copy_archive, obs: dict, repla
             raise ReleaseError("the release_draft document does not meet its contract: %s" % "; ".join(problems[:5]))
         (tmp / DRAFT_FILE).write_text(json.dumps(obs, indent=1, sort_keys=True) + "\n", encoding="utf-8")
         old = None
-        if target.exists():
-            if not replace and any(target.iterdir()):
-                raise ReleaseUsage("%s already holds a draft; pass --replace to rebuild it" % target)
+        if target.exists() or target.is_symlink():
+            _check_target(target, replace)
             old = target.with_name(".%s.old-%d" % (target.name, os.getpid()))
             os.replace(target, old)
         os.replace(tmp, target)
@@ -660,19 +729,20 @@ def verify(ref: str | os.PathLike, *, config: Config | str | None = None, agains
         raise ReleaseError("configuration %s is no longer registered" % cid)
     docs = (walk or _walk)(cid, config)
     lock = _lock_of(d) or {}
-    now_pins, _ = lockmod.lock_pins(docs)
     now_root = _root_commit(config, cfg, _repo(reg.canonical(f["component"])), docs)
     if now_root != commit:
         checks.append(check("release.commit", "WARN", "the configuration's ref now resolves to %s, not the drafted %s: "
-                            "the draft still describes %s; draft again to release the new commit" % (
-                                now_root[:12], commit[:12], commit[:12])))
-        pin_checks = []
+                            "the draft still describes %s, whose tree is re-walked below; draft again to release the "
+                            "new commit" % (now_root[:12], commit[:12], commit[:12])))
+        # the lock describes the drafted commit's tree: re-judge THAT tree against the hosts now (never skip it)
+        docs = _walk_at(cid, config, commit)
     else:
         checks.append(check("release.commit", "PASS", "the configuration still resolves to %s" % commit[:12]))
-        pin_checks = _pin_drift(lock.get("pins") or [], now_pins)
-        drift += pin_checks
-        checks.append(check("lock.pins", "FAIL" if pin_checks else "PASS",
-                            "; ".join(pin_checks) or "every lock pin has the same commit, state and protection now"))
+    now_pins, _ = lockmod.lock_pins(docs)
+    pin_checks = _pin_drift(lock.get("pins") or [], now_pins)
+    drift += pin_checks
+    checks.append(check("lock.pins", "FAIL" if pin_checks else "PASS",
+                        "; ".join(pin_checks) or "every lock pin has the same commit, state and protection now"))
     # tags
     tags = lockmod.repo_tags(config, f["component"], _repo(reg.canonical(f["component"])))
     for name in [f["tag"]] + ([lock["release"]["silicon"]["tag"]] if lock.get("release", {}).get("silicon") else []):

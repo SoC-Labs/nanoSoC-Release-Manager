@@ -19,7 +19,7 @@ import html
 from dataclasses import dataclass
 from typing import Any
 
-from nanosoc_rm.releases.core import check, md5_bytes
+from nanosoc_rm.releases.core import PUBLISH_NOTE, check, md5_bytes
 
 __all__ = ["ErrataDoc", "document", "revision_check", "OPEN_STATUSES"]
 
@@ -97,6 +97,8 @@ def document(registry: Any, configuration: str, *, release: dict | None = None) 
         "" if not release else ", release %s (`%s`, commit `%s`)" % (release["version"], release["tag"],
                                                                      release["commit"][:12])),
         "Generated from the registry's errata records by nanosoc-release-manager; edit the records, not this file.", ""]
+    if release:
+        head[-1:] = ["", "Draft. %s" % PUBLISH_NOTE, ""]
     markdown = "\n".join(head) + "\n" + body_text
     return ErrataDoc(configuration, title, revision, records, markdown,
                      _html(title, revision, configuration, release, records, defects, history),
@@ -126,6 +128,8 @@ def _html(title, revision, configuration, release, records, defects, history) ->
                 "" if not release else ", release %s (<code>%s</code>, commit <code>%s</code>)"
                 % (e_(release["version"]), e_(release["tag"]), e_(release["commit"][:12]))),
              "<p class=\"note\">Generated from the registry's errata records; edit the records, not this file.</p>"]
+    if release:
+        parts.append("<p class=\"note\" data-publish-note>Draft. %s</p>" % e_(PUBLISH_NOTE))
     if not records:
         parts.append("<p>No erratum is recorded for %s.</p>" % e_(configuration))
     else:

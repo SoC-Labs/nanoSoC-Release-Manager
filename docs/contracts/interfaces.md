@@ -174,6 +174,10 @@ Requirements: B2, B3, B7, B9. Reuses `walk.py`.
 def walk(configuration_id: str) -> list[dict]          # kind pin_state, one per pin; stored as one snapshot
 ```
 
+Optional keywords (additive): `store`, `alerts`, `overrides` (CR-11) and `at=SHA` (CR-R7: walk the tree from that
+root commit instead of the one the configuration resolves to now; a what-if like `overrides`, never stored and
+raising no alert; used by `release verify` to re-judge the drafted commit's tree).
+
 **Algorithm** (walk.py's, reading mirrors first):
 1. Resolve the configuration to a commit on its canonical host. A frozen configuration always uses its recorded `commit`, and its `ref` is informational: if a **tag** `ref` no longer peels to that commit, raise a `tag_moved` alert; a branch `ref` that moves on raises nothing.
 2. At each (repo, commit):
@@ -954,7 +958,9 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
    `release.lock.draft.yaml` (`$defs/draft_lock`: the same fields plus `pending: [{field, reason}]`);
    `ERRATA.md`, `ERRATA.html`; `RELEASE_NOTES.md`; `CHECKLIST.md`; `GATES.md`; `README.txt`; with `--archive`,
    `build_soc.md5sums.txt` and a copy of the archive (up to 256 MB); `draft.json` (the observation). An existing
-   non-empty folder is exit 3 without `--replace`.
+   non-empty folder is exit 3 without `--replace`; with `--replace` it is exit 3 unless it holds a `draft.json`
+   (CR-R7: --replace rebuilds an earlier draft, it never deletes another directory), and a target that is a file
+   or a symlink is exit 3.
 3. **Lock (G3).** One pin per walked pin with its pinned host's state, lag, tags and optional `protection`
    (`by`: release-tag, keep-tag, default-branch or none, judged on the pinned host; `hosts`: the pinned and
    canonical hosts' own answers, `not-held` when a host lacks the commit, `unreadable` when the host refused the
@@ -972,15 +978,17 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
    (G2), `rtl.archive` (G7), `outputs.hashes` (G3), `tier.t0` ... `tier.t6` by release kind (fix T0-T3, feature
    +T4, tapeout +T6: a stored result for this commit, else UNVERIFIED with the command; T3, T4, T6 are person
    checks), `clone.clean` and `clone.upgrade-path` (from the stored T0 gates), `ledger.signed` (person),
-   `lock.complete`, `notes.classes` (C2: WARN for an unclassed change), `vendor.scan` (D11: the shareable files;
-   a finding FAILs) and `vendor.scan-private` (the archive's members and `--artefact` files, which go only to the
+   `lock.complete`, `lock.artefacts` (G3, CR-R7: WARN naming which of file lists, bitstream and logs no
+   `--artefact` gave), `notes.classes` (C2: WARN for an unclassed change), `vendor.scan` (D11: every shareable
+   file, GATES.md, CHECKLIST.md and README.txt included; a finding FAILs) and `vendor.scan-private` (the archive's members and `--artefact` files, which go only to the
    private store: a finding is WARN). `ready` = lock complete and every non-person check PASS, WARN, WAIVED or
    NOT-RUN. Exit: 0 PASS/WARN/WAIVED, 1 FAIL, 2 UNVERIFIED/INFRA, 3 usage.
 5. **Errata document (F4).** Rendered from the configuration's records only (summary, one section per erratum,
    revision history). Its revision is the highest `doc_revision` of its records (1 with none); a silicon
    configuration's document is its revision's own. `digest` = md5 of the entries below the header. Against every
-   earlier draft of the same configuration: entries changed with the revision unchanged, or a lower revision, is
-   FAIL. A new revision adds the G5 step "David and a second reviewer".
+   earlier draft of the same configuration (other drafts on disk, the draft a `--replace` rebuilds, and every
+   stored `release_draft` of the configuration: CR-R7): entries changed with the revision unchanged, or a lower
+   revision, is FAIL. A release draft's ERRATA.md, ERRATA.html and RELEASE_NOTES.md carry the draft note. A new revision adds the G5 step "David and a second reviewer".
 6. **Notes.** Classed changes of the SoC since the previous release tag (`--since`, default the newest older
    vX.Y.Z), and of each pin that moved since the newest earlier draft. Interface for the versioning module (C2):
    `nanosoc_rm.versioning.changelog_entries(component, old, new, *, config) -> [{class, summary, commit}]` is used
@@ -993,7 +1001,8 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
    with no release tag, deepest first, finalised bottom-up), the G5 approvals (a SoC release: David; tapeout or
    silicon: David and a second reviewer), signing GATES.md, and the upload after a clean vendor scan.
 8. **Verify.** Re-reads `draft.json`; every listed file's md5; a re-walk compared pin by pin (commit, state,
-   protection) when the configuration still resolves to the drafted commit (a moved branch is WARN, not drift);
+   protection) of the drafted commit's tree (a moved branch is WARN, not drift, and the tree is then walked with
+   `at=` the drafted commit: CR-R7);
    the release and silicon tags; the errata digest and revision; the archive copy against its manifest; with
    `--against DIR`, the manifest against DIR's `build_soc/` file for file (G7 done-when). Any drift is FAIL.
 9. **Forks (I1, I2 check half).** For each `example` component (or the one named) and each of its repos, the host's

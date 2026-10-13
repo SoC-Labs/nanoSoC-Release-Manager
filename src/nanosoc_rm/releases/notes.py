@@ -24,6 +24,7 @@ from typing import Any
 
 from nanosoc_rm.config import Config
 from nanosoc_rm.mirror.layout import mirror_path, run_in
+from nanosoc_rm.releases.core import PUBLISH_NOTE
 
 __all__ = ["entries", "classify", "render", "CLASSES", "MAX_ENTRIES"]
 
@@ -104,7 +105,8 @@ def render(release: dict, notes: dict[str, Any], errata_revision: int, errata_re
     lines = ["# %s %s (%s)" % (release["component"], release["version"], release["configuration"]), "",
              "- Tag `%s` on commit `%s` (a person makes it: see CHECKLIST.md)." % (release["tag"], release["commit"]),
              "- Release kind: %s%s." % (release["kind"], ", silicon" if release.get("silicon") else ""),
-             "- Changes since: %s." % (notes["since"] or "no earlier release (first release)"), ""]
+             "- Changes since: %s." % (notes["since"] or "no earlier release (first release)"),
+             "- Draft. %s" % PUBLISH_NOTE, ""]
 
     def section(title: str, items: list[dict]) -> None:
         lines.extend(["## %s" % title, ""])

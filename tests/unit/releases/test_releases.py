@@ -42,11 +42,11 @@ def _defect(i0):
             "regression_test": None}
 
 
-def _erratum(conf, prefix, status="permanent", rev=1, conditions="always"):
+def _erratum(conf, prefix, status="permanent", rev=1, conditions="always", category=None):
     return {"schema": 1, "id": "%s-ERR-001" % prefix, "defect": "SL-DEF-0009", "configuration": conf,
             "forms_present": ["A"], "effects_present": ["E1"],
             "exposure": {"level": "probably-exposed", "method": "ancestry", "evidence": "by ancestry"},
-            "category": None, "conditions": conditions, "workaround": None, "status": status, "doc_revision": rev}
+            "category": category, "conditions": conditions, "workaround": None, "status": status, "doc_revision": rev}
 
 
 class Scene:
@@ -78,7 +78,7 @@ class Scene:
         h.tag(GH, "SoC-Labs/soc", "silicon/demo-r0p0", self.s1)
         self.write_registry()
 
-    def write_registry(self, errata_rev=1, conditions="always"):
+    def write_registry(self, errata_rev=1, conditions="always", category=None):
         h, at = self.h, self.at
         comps = ["soc", "ip", "nanosoc_gen"]
         catalogue = {"schema": 1, "components": [
@@ -93,7 +93,8 @@ class Scene:
         (reg / "defects" / "SL-DEF-0009.yaml").write_text(yaml.safe_dump(_defect(self.i0), sort_keys=False))
         (reg / "errata" / "soc-v1").mkdir(parents=True, exist_ok=True)
         (reg / "errata" / "soc-v1" / "ERR-001.yaml").write_text(yaml.safe_dump(
-            _erratum("soc-v1", "DEMO-R0P0", rev=errata_rev, conditions=conditions), sort_keys=False))
+            _erratum("soc-v1", "DEMO-R0P0", rev=errata_rev, conditions=conditions,
+                                                category=category), sort_keys=False))
         self.registry = reg
         self.env = h.tool_env(reg, "rel")
         with self.env.active():
@@ -518,3 +519,141 @@ def test_an_unreadable_pin_is_not_judged_never_unprotected(scene, tmp_path, monk
     assert c["verdict"] == "UNVERIFIED" and "gen" in c["detail"] and doc["fact"]["lock"]["unprotected"] == []
     lock = yaml.safe_load((tmp_path / "d" / "release.lock.draft.yaml").read_text())
     assert {p["path"]: p["protection"]["by"] for p in lock["pins"]}["gen"] == "unreadable"
+
+
+# ---------------------------------------------------------------------------------------------------------
+# review items (R-1 to R-7)
+# ---------------------------------------------------------------------------------------------------------
+def test_replace_never_deletes_a_directory_that_is_not_a_draft(scene, tmp_path):
+    """R-1: --out naming a checkout with --replace is refused, and the directory is left whole."""
+    precious = tmp_path / "precious"
+    (precious / ".git").mkdir(parents=True)
+    (precious / "keep.txt").write_text("mine\n")
+    with pytest.raises(ReleaseUsage, match="holds no draft.json"):
+        D.draft("soc-v1", "1.0.0", out=precious, replace=True)
+    assert sorted(p.name for p in precious.iterdir()) == [".git", "keep.txt"]
+    res = CliRunner().invoke(cli.main, ["release", "draft", "soc-v1", "1.0.0", "--out", str(precious), "--replace"])
+    assert res.exit_code == 3 and (precious / "keep.txt").read_text() == "mine\n", res.output
+    f = tmp_path / "a-file"
+    f.write_text("x")
+    with pytest.raises(ReleaseUsage):
+        D.draft("soc-v1", "1.0.0", out=f, replace=True)
+    assert f.read_text() == "x"
+
+
+def test_verify_rejudges_the_drafted_tree_after_the_branch_moves(scene, tmp_path):
+    """R-2: a moved branch is WARN, but the drafted commit's pins are still re-judged: a pin that lost its
+    protection is drift (FAIL), never a blind WARN."""
+    d = tmp_path / "d"
+    D.draft("soc-main", "2.0.0", out=d)
+    h = scene.h
+    s2 = h.commit(GH, "SoC-Labs/soc", parents=[scene.s1], files={"README": "soc 2\n"}, message="docs: two")
+    h.push(GH, "SoC-Labs/soc", s2, "main")
+    scene.sync()
+    calm = D.verify(d)["fact"]
+    cc = {c["id"]: c for c in calm["checks"]}
+    assert cc["release.commit"]["verdict"] == "WARN" and cc["lock.pins"]["verdict"] == "PASS", calm
+    assert calm["verdict"] == "WARN" and calm["drift"] == []
+    h.delete_remote_ref(GH, "SoC-Labs/nanosoc_gen", "refs/tags/keep/soc-v1/nanosoc_gen")
+    h.delete_remote_ref(GH, "SoC-Labs/nanosoc_gen", "refs/heads/dev")
+    scene.sync()
+    f = D.verify(d)["fact"]
+    c = {x["id"]: x for x in f["checks"]}
+    assert c["release.commit"]["verdict"] == "WARN" and c["lock.pins"]["verdict"] == "FAIL", f
+    assert f["verdict"] == "FAIL" and any(x.startswith("gen: state PROTECTED_BY_TAG") for x in f["drift"]), f
+
+
+def test_verify_sees_an_added_file_a_changed_archive_and_changed_errata(scene, tmp_path):
+    """R-3 (mutations R3, R7, R10): each verify check can fail on its own."""
+    d = tmp_path / "d"
+    D.draft("soc-v1", "1.0.0", archive=_archive(tmp_path, RTL), out=d)
+    (d / "extra.txt").write_text("added later\n")
+    f = D.verify(d)["fact"]
+    assert "extra.txt was added after the draft" in f["drift"] and f["verdict"] == "FAIL"
+    (d / "extra.txt").unlink()
+    other = _archive(tmp_path, dict(RTL, **{"build_soc/rtl/top.v": "module other; endmodule\n"}), name="o.tar.gz")
+    (d / "build_soc.tar.gz").write_bytes(other.read_bytes())
+    c = {x["id"]: x for x in D.verify(d)["fact"]["checks"]}
+    assert c["rtl.archive"]["verdict"] == "FAIL" and c["errata.digest"]["verdict"] == "PASS"
+    d2 = tmp_path / "d2"
+    D.draft("soc-v1", "1.0.0", out=d2)
+    scene.write_registry(errata_rev=1, conditions="only on Tuesdays")
+    f = D.verify(d2)["fact"]
+    c = {x["id"]: x for x in f["checks"]}
+    assert c["errata.digest"]["verdict"] == "FAIL" and f["verdict"] == "FAIL", f
+
+
+def test_canonical_gaps_category_a_and_t0_evidence(scene, tmp_path, monkeypatch):
+    """R-3 (mutations R1, R4, R5, R6): a canonical host without the commit WARNs; an open Category A erratum
+    FAILs; a forced T1 is not evidence; a T0 result of another commit is not evidence."""
+    from nanosoc_rm.walker import walk
+
+    def gap_on_a_second_host(cid, config):
+        docs = walk(cid, config=config, store=False, alerts=False)
+        for d in docs:
+            if d["fact"]["path"] == "ip":
+                st = next(iter(d["fact"]["hosts"].values()))
+                d["fact"]["hosts"]["gitlab"] = dict(st, pinned=False, role="canonical", state="MISSING", tags=[],
+                                                    branches=[], repo={"host": "gitlab", "path": "soclabs/ip"})
+        return docs
+    c = _checks(D.draft("soc-v1", "1.0.0", out=tmp_path / "g", walk=gap_on_a_second_host))
+    assert c["lock.pins-canonical"]["verdict"] == "WARN" and "ip (gitlab: not-held)" in c["lock.pins-canonical"]["detail"]
+    assert _checks(D.draft("soc-v1", "1.0.0", out=tmp_path / "n"))["lock.pins-canonical"]["verdict"] == "PASS"
+
+    scene.write_registry(category="A")
+    doc = D.draft("soc-v1", "1.0.0", out=tmp_path / "a")
+    assert _checks(doc)["errata.category-a"]["verdict"] == "FAIL" and "DEMO-R0P0-ERR-001" in \
+        _checks(doc)["errata.category-a"]["detail"]
+
+    import nanosoc_rm.releases.checklist as CL
+    stored = []
+    monkeypatch.setattr(CL.db, "latest", lambda kind, prefix, config=None: [x for x in stored if x["kind"] == kind])
+
+    def result(commit, tier=None, forced=False, verdict="PASS"):
+        fact = {"configuration": "soc-v1", "commit": commit, "verdict": verdict}
+        if tier:
+            fact["tier"] = {"tier": tier, "verdict": verdict, "forced": forced}
+        return {"kind": "compat_result", "subject": "compat_result:soc-v1:%s:%s" % (commit[:7], tier or "t0"),
+                "observed_at": "2026-10-13T00:00:00Z", "fact": fact}
+    stored[:] = [result(scene.s0)]
+    c = {x["id"]: x for x in CL.tier_checks(scene.config(), "soc-v1", scene.s1, "fix")[0]}
+    assert c["tier.t0"]["verdict"] == "UNVERIFIED", "a T0 result of another commit is not evidence"
+    stored[:] = [result(scene.s1), result(scene.s1, tier="t1", forced=True)]
+    c = {x["id"]: x for x in CL.tier_checks(scene.config(), "soc-v1", scene.s1, "fix")[0]}
+    assert c["tier.t0"]["verdict"] == "PASS"
+    assert c["tier.t1"]["verdict"] == "UNVERIFIED" and "forced past" in c["tier.t1"]["detail"]
+
+
+def test_errata_revision_remembers_a_replaced_or_deleted_draft(scene, tmp_path):
+    """R-4: rebuilding the same version with --replace, or deleting the earlier draft, does not reset F4's memory."""
+    import shutil
+    where = D.draft_path(scene.config(), "soc-v1", "1.0.0")
+    D.draft("soc-v1", "1.0.0", out=where)
+    scene.write_registry(errata_rev=1, conditions="only on Tuesdays")
+    c = _checks(D.draft("soc-v1", "1.0.0", out=where, replace=True, store=False))
+    assert c["errata.revision"]["verdict"] == "FAIL" and "still 1" in c["errata.revision"]["detail"]
+    shutil.rmtree(where)
+    c = _checks(D.draft("soc-v1", "1.0.1", out=tmp_path / "x", store=False))
+    assert c["errata.revision"]["verdict"] == "FAIL", "the store's history is the memory once a folder is gone"
+
+
+def test_every_shared_file_is_scanned_and_says_it_is_a_draft(scene, tmp_path):
+    """R-5: the vendor scan covers GATES.md, CHECKLIST.md and README.txt too. R-6: every generated file says it is
+    a draft that nothing published. R-7: G3's file lists, bitstream and logs are named when absent."""
+    from nanosoc_rm.releases.core import PUBLISH_NOTE
+    d = tmp_path / "d"
+    clean = D.draft("soc-v1", "1.0.0", out=d)
+    shared = [x["name"] for x in clean["fact"]["files"]]
+    assert len(shared) == 7 and {"GATES.md", "CHECKLIST.md", "README.txt"} <= set(shared)
+    assert _checks(clean)["vendor.scan"]["detail"].startswith("7 release file(s) scanned"), _checks(clean)["vendor.scan"]
+    for name in ("RELEASE_NOTES.md", "ERRATA.md", "ERRATA.html", "CHECKLIST.md", "GATES.md", "README.txt",
+                 "release.lock.draft.yaml"):
+        assert PUBLISH_NOTE in (d / name).read_text(), name
+    assert "Draft." in (d / "ERRATA.md").read_text() and "data-publish-note" in (d / "ERRATA.html").read_text()
+    assert _checks(clean)["lock.artefacts"]["verdict"] == "WARN"
+    arts = []
+    for k in ("flists", "bitstream", "logs"):
+        p = tmp_path / ("%s.txt" % k)
+        p.write_text(k)
+        arts.append((k, str(p)))
+    assert _checks(D.draft("soc-v1", "1.0.0", out=d, replace=True, artefacts=arts))["lock.artefacts"]["verdict"] == "PASS"

@@ -156,7 +156,7 @@ def _resolve_commit(config: Config, catalogue: Catalogue, cfg: dict, alerts: boo
 
 def walk(configuration_id: str, *, config: Config | None = None, store: bool = True,
          overrides: dict[str, str] | None = None, alerts: bool = True,
-         replaced: dict | None = None) -> list[dict]:
+         replaced: dict | None = None, at: str | None = None) -> list[dict]:
     """Walk one registered configuration's whole tree. Returns (and stores, as one snapshot) its pin_state
     observations, ordered by tree path. UnknownConfiguration (exit 3); WalkError when it cannot answer (exit 2).
 
@@ -164,11 +164,13 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
     and the tree below it is walked from that commit's own .gitmodules. A what-if is never stored and raises no
     alert (`store` must be False). A tree path that holds no gitlink pin in the (overridden) tree is OverrideError.
     `alerts=False` raises no alert (tag_moved, unknown_url): a read that must leave the store untouched.
-    `replaced`, when given, is filled with {tree path: the gitlink each override replaced}."""
+    `replaced`, when given, is filled with {tree path: the gitlink each override replaced}.
+    `at` (CR-R7): walk the tree from this root commit instead of the one the configuration resolves to now (a
+    release re-check of the commit it drafted). Like an override it is a what-if: never stored, no alert."""
     overrides = dict(overrides or {})
-    if overrides and store:
-        raise ValueError("a walk with pin overrides is a what-if: it is never stored")
-    if overrides:
+    if (overrides or at) and store:
+        raise ValueError("a walk with pin overrides or a given root commit is a what-if: it is never stored")
+    if overrides or at:
         alerts = False
     config = config if config is not None else load_config()
     catalogue = load_catalogue(config)
@@ -181,7 +183,11 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
                         % (configuration_id, cfg["component"]))
     started = clock.iso()
     root_entry = catalogue.entry(cfg["component"])
-    root_commit, root_sources = _resolve_commit(config, catalogue, cfg, alerts)
+    if at:
+        root_commit = at
+        root_sources = [{"kind": "derived", "command": "walk %s at the given root commit %s" % (configuration_id, at)}]
+    else:
+        root_commit, root_sources = _resolve_commit(config, catalogue, cfg, alerts)
     canon = root_entry.canonical
     # The root commit must be in the mirror: otherwise its .gitmodules cannot be read, and an empty walk would be
     # stored and read as "no pins" (README section 4: a producer that cannot finish writes no snapshot).
