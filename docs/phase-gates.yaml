@@ -48,3 +48,11 @@ exemptions:
     ids: [D7]
     cr: CR-5
     reason: build/ci's trailer copied the section 9/10 "Requirements:" lines, which named D7 (Phase 2) before CR-5.
+# CR-15 (David 2026-10-12): build and enable are separate. Every later phase may be BUILT and used locally before
+# its gate; the gate still governs ENABLING its automation (nightly CI matrix, bot pull requests, published
+# releases). The phase-gate check honours this entry only while docs/CHANGES.md has the CR-15 row; for these
+# phases it reports commits and surfaces as `built` and fails instead on an enabled schedule or a bot write
+# (phasegates.py rule 5; interfaces.md section 17.6).
+build_allowed:
+  cr: CR-15
+  phases: [Phase 2, Phase 3, Phase 4, Phase 5]

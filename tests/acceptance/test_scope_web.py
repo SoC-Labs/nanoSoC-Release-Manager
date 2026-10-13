@@ -1415,15 +1415,29 @@ def git_commits(repo):
 IMPLEMENTATION_PREFIXES = ("src/",)      # contracts, schemas, docs and tests for later phases are gate-2 work (§15)
 
 
-def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
+LATER_AUTOMATION = {"Phase 2": ("matrix", "flaky", "quarantine"), "Phase 3": ("changelog", "classify", "tool_release"),
+                    "Phase 4": ("bump", "auto_merge", "revert"), "Phase 5": ("release", "lock", "forks", "train")}
+
+
+def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, scheduled=(), writes=()):
     """A7: each later phase has a written, checked entry gate before its code or surfaces appear.
     Only commits that change implementation (src/) count: PR3 writes later phases' formats and
     tests before any code (interfaces.md §15), and that is not starting the phase.
     CR-5: a register `exemptions` entry {commit, ids, cr} takes its ids out of that one commit, and only
-    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha."""
+    while `changes` (docs/CHANGES.md) has a row for that CR naming the commit's short sha.
+    CR-R3: ids are read only from a commit's `Requirements:` trailer lines.
+    CR-15: a register `build_allowed` entry {cr, phases}, counted only while `changes` has a row for its CR,
+    lets those phases be BUILT before their gate (commits and surfaces are not problems); what must not happen
+    is ENABLING their automation: a scheduler job of that phase (`scheduled`, by name prefix) or an outbound
+    write other than the CI trigger (`writes`, the WRITE_CALLS entries) for Phase 4 and 5."""
     probs = []
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
     rows = [r for r in (changes or "").splitlines() if r.startswith("|") and r.count("|") > 2]
+    ba = (gates_doc or {}).get("build_allowed") or {}
+    buildable = set(ba.get("phases") or []) if ba.get("cr") and any(
+        r.split("|")[1].strip() == ba["cr"] for r in rows) else set()
+    bot_writes = [w for w in writes if w.get("effect") == "write" and "trigger/pipeline" not in str(w.get("target"))]
+    trailer = lambda msg: "\n".join(re.findall(r"^Requirements:[ \t]*(.*)$", msg or "", re.M | re.I))
     exempt = {}
     for e in (gates_doc or {}).get("exemptions") or []:
         sha, cr = str(e.get("commit") or ""), str(e.get("cr") or "")
@@ -1450,14 +1464,19 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None):
             if met and not (checked_at and checked.get("by")):
                 probs.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
         ph_ids = {i for i, p in phase_of.items() if p == ph}
-        named = lambda c: set(ids_rx.findall(c["message"])) - exempt.get(c["sha"], set())
+        named = lambda c: set(ids_rx.findall(trailer(c["message"]))) - exempt.get(c["sha"], set())
         naming = [c for c in commits if named(c) & ph_ids]
-        if naming:
+        if naming and not (ph in buildable and not met):
             first = min(naming, key=lambda c: utc(c["at"]))
             if not met or not checked_at or utc(first["at"]) < utc(checked_at):
                 probs.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
                              % (ph, first["sha"][:7], first["at"], sorted(named(first) & ph_ids)))
-        if not met:
+        if not met and ph in buildable:
+            probs += ["%s: scheduled job %s enables automation before its entry gate" % (ph, j)
+                      for j in scheduled if j.startswith(LATER_AUTOMATION[ph])]
+            if ph in ("Phase 4", "Phase 5") and bot_writes:
+                probs.append("%s: outbound write(s) enable bot automation before its entry gate" % ph)
+        elif not met:
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
                     probs.append("%s: route %s exists before its entry gate" % (ph, r))
@@ -2001,13 +2020,18 @@ def _nc_A7_checker(tmp):
     # Gate-2 work names later-phase IDs legitimately (formats fixed now, interfaces.md §15): not flagged.
     commit(repo, "schemas/release-lock.schema.json", "{}\n", "contracts: release-lock for G3, manifest for C11",
            "2026-10-01T10:00:00Z")
-    commit(repo, "src/matrix.py", "x\n", "feat(matrix): D3 compatibility matrix view", "2026-10-05T10:00:00Z")
+    commit(repo, "src/matrix.py", "x\n", "feat(matrix): compatibility matrix view\n\nRequirements: D3",
+           "2026-10-05T10:00:00Z")
+    # CR-R3: an id outside the trailer (a review label, prose) is not a claim
+    commit(repo, "src/other.py", "x\n", "fix: G1: review item; touches E1 prose\n\nRequirements: A2",
+           "2026-10-05T11:00:00Z")
     gates = {"phases": [
         {"phase": ph, "entry_gate": [{"criterion": "stated in proposal §9", "check": "a command or evidence path"}],
          "status": "not-started", "checked": {}} for ph in LATER_PHASES]}
     probs = check_a7(gates, phase_of, git_commits(repo), routes=["/"], cli_commands=["walk"])
     assert any(p.startswith("Phase 2: implementation commit") and "['D3']" in p for p in probs), probs
     assert not [p for p in probs if "Phase 3" in p or "Phase 5" in p], "a contracts-only commit is not implementation: %s" % probs
+    assert not [p for p in probs if "Phase 4" in p], "an id outside the Requirements: trailer was read: %s" % probs
     met = json.loads(json.dumps(gates))
     met["phases"][0].update(status="gate-met", checked={"at": "2026-10-04T09:00:00Z", "by": "david", "evidence": "x"})
     assert check_a7(met, phase_of, git_commits(repo), routes=["/"], cli_commands=["walk"]) == [], "baseline must pass"
@@ -2022,6 +2046,17 @@ def _nc_A7_checker(tmp):
     assert not [p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=row) if "Phase 2" in p]
     for changes in (None, row.replace("CR-5", "CR-9"), row.replace(d3["sha"][:7], "0000000")):
         assert any("['D3']" in p for p in check_a7(ex, phase_of, git_commits(repo), ["/"], ["walk"], changes=changes))
+    # CR-15: build_allowed (with its CHANGES.md row) lets the phases be built, never enabled
+    ba = dict(gates, build_allowed={"cr": "CR-15", "phases": list(LATER_PHASES)})
+    cr15 = "| CR-15 | 2026-10-12 | A7 | build and enable | why | David |"
+    assert check_a7(ba, phase_of, git_commits(repo), ["/", "/releases"], ["walk", "lock"], changes=cr15) == []
+    assert "Phase 2: scheduled job matrix_nightly enables automation before its entry gate" in \
+        check_a7(ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15, scheduled=["poll", "matrix_nightly"])
+    assert "Phase 4: outbound write(s) enable bot automation before its entry gate" in check_a7(
+        ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15,
+        writes=[{"effect": "write", "method": "POST", "target": "repos/:repo/pulls"}])
+    assert any("['D3']" in p for p in check_a7(ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=None)), \
+        "build_allowed without its CR row must not count"
 
 
 def _nc_H1_checker():
@@ -2608,7 +2643,10 @@ def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
     #   that changes src/ names a later-phase requirement before that phase's gate was checked; and
     #   no later-phase route or command exists before its gate.
     changes = (REPO / "docs" / "CHANGES.md").read_text()                  # CR-5: recorded exemptions
-    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes) == []
+    from nanosoc_rm.contracts import WRITE_CALLS                          # CR-15: what enables automation
+    from nanosoc_rm.schedule import JOBS
+    assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes,
+                    scheduled=[j.name for j in JOBS], writes=WRITE_CALLS) == []
 
 
 @pytest.mark.requirement("A7")

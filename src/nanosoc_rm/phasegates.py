@@ -5,10 +5,19 @@ the tool repo against that rule:
 
 1. each later phase has an entry gate with at least one criterion, and every criterion has a `check`;
 2. a phase marked `gate-met` or `started` has `checked.at` and `checked.by`;
-3. no implementation commit (one that changes `src/`) names a requirement of a later phase, in its message or
-   its `Requirements:` trailer, before that phase's `checked.at`. Contracts, schemas, docs and tests for later
+3. no implementation commit (one that changes `src/`) names a requirement of a later phase in its
+   `Requirements:` trailer before that phase's `checked.at`. Only the trailer is read (CR-R3): a review label or
+   an id in prose is not a claim that the commit implements it. Contracts, schemas, docs and tests for later
    phases are gate-2 work and do not count (interfaces.md section 15);
 4. no later-phase route or CLI command exists before its gate is met (docs/acceptance/scope_web.md AT-A7).
+
+Build and enable (CR-15). The register's optional `build_allowed: {cr, phases}` says which later phases may be
+BUILT before their gate; it counts only while docs/CHANGES.md has a row for `cr`. For those phases rules 3 and 4
+become information (`built`: the commits and surfaces that exist), and rule 5 holds instead:
+
+5. nothing ENABLES a later phase's automation before its gate: no scheduled job of that phase in
+   `nanosoc_rm.schedule.JOBS` (names in LATER_AUTOMATION), and no outbound write in `WRITE_CALLS` other than the
+   one CI trigger (bot pull requests and tags are Phase 4 and 5 automation).
 
 Exemptions (CR-5): the register's `exemptions` list names commits that named a later-phase id only because the
 contract text told them to, before a CR corrected it. An entry `{commit, ids, cr}` takes exactly its `ids` out of
@@ -28,9 +37,10 @@ from typing import Any, Iterable, Sequence
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.gitrun import run_git
 
-__all__ = ["LATER_PHASES", "LATER_SURFACES", "IMPLEMENTATION_PREFIXES", "REGISTER", "REQUIREMENTS",
-           "requirement_phases", "requirement_index", "git_commits", "check", "exemptions", "gather", "check_repo",
-           "app_routes", "cli_commands", "find_repo"]
+__all__ = ["LATER_PHASES", "LATER_SURFACES", "LATER_AUTOMATION", "IMPLEMENTATION_PREFIXES", "REGISTER",
+           "REQUIREMENTS", "requirement_phases", "requirement_index", "git_commits", "check", "exemptions",
+           "build_allowed", "trailer_text", "gather", "check_repo", "app_routes", "cli_commands", "scheduled_jobs",
+           "outbound_writes", "find_repo"]
 
 LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
 # The surfaces each later phase brings (scope_web.md AT-A7, Then 4). None may exist before its gate.
@@ -40,6 +50,16 @@ LATER_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
     "Phase 4": {"routes": ("/bumps",), "cli": ("bump",)},
     "Phase 5": {"routes": ("/releases", "/trains", "/forks"), "cli": ("lock", "forks")},
 }
+# CR-15: the automation each later phase may not ENABLE before its gate, as scheduler job-name prefixes.
+LATER_AUTOMATION: dict[str, tuple[str, ...]] = {
+    "Phase 2": ("matrix", "flaky", "quarantine"),
+    "Phase 3": ("changelog", "classify", "tool_release"),
+    "Phase 4": ("bump", "auto_merge", "revert"),
+    "Phase 5": ("release", "lock", "forks", "train"),
+}
+# The one outbound write v1 makes (interfaces.md section 17.5); any other `write` entry is bot automation.
+CI_TRIGGER = "trigger/pipeline"
+_TRAILER = re.compile(r"^Requirements:[ \t]*(.*)$", re.M | re.I)
 IMPLEMENTATION_PREFIXES = ("src/",)
 REGISTER = Path("docs") / "phase-gates.yaml"
 REQUIREMENTS = Path("docs") / "REQUIREMENTS.md"
@@ -90,12 +110,34 @@ def exemptions(register: dict | None, changes: str | None) -> dict[str, set[str]
     return out
 
 
+def trailer_text(message: str) -> str:
+    """The values of a commit message's `Requirements:` trailer lines (CR-R3: the only place ids are read)."""
+    return "\n".join(m.group(1) for m in _TRAILER.finditer(message or ""))
+
+
+def build_allowed(register: dict | None, changes: str | None) -> set[str]:
+    """CR-15: the later phases the register lets be BUILT before their gate. Counts only while docs/CHANGES.md
+    has a row whose CR column is the entry's `cr` (as exemptions do)."""
+    entry = (register or {}).get("build_allowed")
+    if not isinstance(entry, dict):
+        return set()
+    cr = str(entry.get("cr") or "")
+    rows = [line for line in (changes or "").splitlines() if line.startswith("|") and line.count("|") > 2]
+    if not cr or not any(r.split("|")[1].strip() == cr for r in rows):
+        return set()
+    return {str(p) for p in entry.get("phases") or [] if p in LATER_PHASES}
+
+
 def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dict], routes: Sequence[str],
-          commands: Sequence[str], changes: str | None = None) -> list[dict]:
-    """One result per later phase: {phase, status, met, checked_at, problems}. [] problems everywhere = A7 holds.
-    `changes` is docs/CHANGES.md: without it no exemption counts."""
+          commands: Sequence[str], changes: str | None = None, scheduled: Sequence[str] = (),
+          writes: Sequence[dict] = ()) -> list[dict]:
+    """One result per later phase: {phase, status, met, checked_at, built, problems}. [] problems everywhere = A7
+    holds. `changes` is docs/CHANGES.md: without it no exemption and no build_allowed entry counts. `scheduled`:
+    the scheduler's job names; `writes`: the WRITE_CALLS entries (rule 5, CR-15)."""
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
     exempt = exemptions(register, changes)
+    buildable = build_allowed(register, changes)
+    bot_writes = [w for w in writes if w.get("effect") == "write" and CI_TRIGGER not in str(w.get("target", ""))]
     phases = {g.get("phase"): g for g in (register or {}).get("phases", []) if isinstance(g, dict)}
     ids = sorted(phase_of, key=len, reverse=True)
     # A requirement id stands alone: `E1`, `(E1)`, `E1,`. A review label such as `CI-E1` or `MW-R1` contains an id
@@ -121,10 +163,13 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
             if met and not (checked_at and checked.get("by")):
                 problems.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
         ph_ids = {i for i, p in phase_of.items() if p == ph}
+        built: list[str] = []
         if ids_rx is not None and ph_ids:
-            named = lambda c: set(ids_rx.findall(c["message"])) - exempt.get(c["sha"], set())
+            named = lambda c: set(ids_rx.findall(trailer_text(c["message"]))) - exempt.get(c["sha"], set())
             naming = [c for c in commits if named(c) & ph_ids]
-            if naming:
+            if naming and ph in buildable and not met:
+                built += ["commit %s names %s" % (c["sha"][:7], sorted(named(c) & ph_ids)) for c in naming]
+            elif naming:
                 first = min(naming, key=lambda c: _parse_time(c["at"]))
                 try:
                     early = not met or not checked_at or _parse_time(first["at"]) < _parse_time(str(checked_at))
@@ -135,27 +180,60 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
                                     % (ph, first["sha"][:7], first["at"],
                                        sorted(named(first) & ph_ids)))
         if not met:
+            surfaces = []
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
-                    problems.append("%s: route %s exists before its entry gate" % (ph, r))
+                    surfaces.append("route %s" % r)
             for c in LATER_SURFACES[ph]["cli"]:
                 if c in commands:
-                    problems.append("%s: command `%s` exists before its entry gate" % (ph, c))
+                    surfaces.append("command `%s`" % c)
+            if ph in buildable:
+                built += ["%s built (CR-15)" % s for s in surfaces]
+                for j in scheduled:
+                    if j.startswith(LATER_AUTOMATION[ph]):
+                        problems.append("%s: scheduled job %s enables automation before its entry gate" % (ph, j))
+                if ph in ("Phase 4", "Phase 5") and bot_writes:
+                    problems.append("%s: outbound write(s) %s enable bot automation before its entry gate" % (
+                        ph, ", ".join("%s %s" % (w.get("method"), w.get("target")) for w in bot_writes)))
+            else:
+                problems += ["%s: %s exists before its entry gate" % (ph, s) for s in surfaces]
         out.append({"phase": ph, "status": (g or {}).get("status"), "met": met, "checked_at": checked_at,
-                    "problems": problems})
+                    "built": built, "problems": problems})
     return out
 
 
 def app_routes() -> list[str]:
-    """Every path in the web app's own route table."""
+    """Every path in the web app's own route table, including the plug-in routers' routes (FastAPI keeps an
+    included router as one entry without a path; its routes carry their full paths)."""
     from nanosoc_rm.web import create_app
-    return [getattr(r, "path", "") for r in create_app(None).routes if getattr(r, "path", None)]
+
+    def walk(routes) -> list[str]:
+        out = []
+        for r in routes:
+            if getattr(r, "path", None):
+                out.append(r.path)
+            sub = getattr(r, "original_router", None)
+            if sub is not None:
+                out += walk(sub.routes)
+        return out
+    return walk(create_app(None).routes)
 
 
 def cli_commands() -> list[str]:
     """The top-level `nanosoc-rm` commands."""
     from nanosoc_rm.cli import main
     return sorted(main.commands)
+
+
+def scheduled_jobs() -> list[str]:
+    """The names of the jobs the scheduler runs (rule 5)."""
+    from nanosoc_rm.schedule import JOBS
+    return [j.name for j in JOBS]
+
+
+def outbound_writes() -> list[dict]:
+    """The declared outbound calls (WRITE_CALLS, interfaces.md section 17.5)."""
+    return list(contracts.WRITE_CALLS)
 
 
 def find_repo(start: Path | None = None) -> Path | None:
@@ -176,7 +254,10 @@ def gather(repo: Path) -> dict[str, Any]:
     return {"register": register, "phase_of": phase_of, "commits": git_commits(repo), "changes": changes}
 
 
-def check_repo(repo: Path, routes: Sequence[str] | None = None, commands: Sequence[str] | None = None) -> list[dict]:
+def check_repo(repo: Path, routes: Sequence[str] | None = None, commands: Sequence[str] | None = None,
+               scheduled: Sequence[str] | None = None, writes: Sequence[dict] | None = None) -> list[dict]:
     g = gather(repo)
     return check(g["register"], g["phase_of"], g["commits"], app_routes() if routes is None else routes,
-                 cli_commands() if commands is None else commands, changes=g["changes"])
+                 cli_commands() if commands is None else commands, changes=g["changes"],
+                 scheduled=scheduled_jobs() if scheduled is None else scheduled,
+                 writes=outbound_writes() if writes is None else writes)

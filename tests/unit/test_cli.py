@@ -125,10 +125,15 @@ def test_plugin_seam(tmp_path, monkeypatch):
         subgroup(g, "walk")
 
 
-def test_real_main_registers_no_later_phase_command():
-    # AT-A7: no Phase 2-5 command before its entry gate.
-    assert not {"matrix", "release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
+def test_real_main_later_phase_commands_are_built_not_enabled():
+    # CR-15 (CR-R4): a later phase's command may be built; the phase-gate check accepts it only while the
+    # register's build_allowed entry counts, and fails on an enabled schedule instead (phasegates rule 5).
+    from nanosoc_rm import phasegates
+    later = {"matrix", "release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
+    assert later <= {"release", "forks"}, later                     # this branch builds only the release commands
     assert "lock" not in cli.PLUGIN_MODULES
+    assert not [j for j in phasegates.scheduled_jobs() for ph in phasegates.LATER_AUTOMATION
+                if j.startswith(phasegates.LATER_AUTOMATION[ph])], "a later phase's schedule is enabled"
     # In a fresh interpreter: in the merged suite other tests import the runner into this process (AT-A4).
     probe = subprocess.run([sys.executable, "-c", "import sys, nanosoc_rm.cli, nanosoc_rm.web; "
                             "sys.exit(1 if 'nanosoc_rm.t0.runner' in sys.modules else 0)"], capture_output=True, text=True)
