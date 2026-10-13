@@ -56,3 +56,7 @@ exemptions:
     ids: [E1, E2, E3, E5, E7]
     cr: CR-WB-bumps-review
     reason: wave-b/bumps builds Phase 4 bump proposals in shadow mode (CR-15 build, not enable); the required Requirements trailer names the Phase 4 ids. Remove when the A7 check implements CR-15.
+  - commit: e3019aedcc24adc59cdc79143c897c16e359149e
+    ids: [E1, E2]
+    cr: CR-WB-bumps-review2
+    reason: wave-b/bumps second review fixes to the shadow-mode bump proposals (CR-15 build, not enable); the required Requirements trailer names the Phase 4 ids. Remove when the A7 check implements CR-15. Exemptions are keyed by full sha, so merge this branch with a merge commit (no squash or rebase) or re-pin these entries.
