@@ -1,12 +1,29 @@
-<p class="note">Raised by the mirrors (a failed fetch, a rewritten branch) and the credential and runner checks. Clearing one is logged with your login.</p>
-<h2>Open ({{ open_alerts|length }})</h2>
-{% if open_alerts %}
+{# GET /alerts (spec 5.1, build-first fix 1; CR-W3): one row per cause group, its alerts in a <details>; the
+   cleared alerts flat. Messages are shown after shell.redact (`redacted`, by subject): no URL reaches the page. #}
+{% import "_ui.html" as ui %}
+<p class="note">Raised by the mirrors (a failed fetch, a rewritten branch) and the credential and runner checks. Alerts with one cause are one line. Clearing is logged with your login, one <code>clear_alert</code> per alert.</p>
+<h2>Open ({{ open_n }} in {{ groups|length }} {{ 'group' if groups|length == 1 else 'groups' }})</h2>
+{% if groups %}
 <div class="scroll"><table>
-  <thead><tr><th>Kind</th><th>About</th><th>Message</th><th>Raised</th><th></th></tr></thead>
+  <thead><tr><th>Cause</th><th>Alerts</th><th>What to do</th><th>Newest</th><th></th></tr></thead>
   <tbody>
-  {% for a in open_alerts %}{% set f = a.fact %}
-    <tr class="state-red"><td>{{ f.alert_kind }}</td><td>{{ fact(a, f.about) }}</td><td>{{ f.message }}</td><td>{{ f.raised_at }} ({{ age_text(f.raised_at) }} ago)</td>
-      <td>{% if actions %}<form method="post" action="/alerts/clear"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="subject" value="{{ a.subject }}"><button type="submit">Clear</button></form>{% endif %}</td></tr>
+  {% for g in groups %}
+    <tr id="group-{{ g.key }}" data-alert-group="{{ g.key }}">
+      <td>{{ ui.chip(g.kind, "c-fail") }} <strong>{{ g.label }}</strong>
+        <details id="alerts-{{ g.key }}"><summary>{{ g.count }} {{ 'alert' if g.count == 1 else 'alerts' }}{% if g.hosts_text %}: {{ g.hosts_text }}{% endif %}</summary>
+          <ul>
+          {% for a in g.alerts %}{% set f = a.fact %}
+            <li>{{ fact(a, f.about) }}: {{ redacted[a.subject] }} <span class="note">raised {{ f.raised_at }}</span>
+              {% if actions %}<form method="post" action="/alerts/clear"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="subject" value="{{ a.subject }}"><button type="submit" class="ghost">Clear this one</button></form>{% endif %}</li>
+          {% endfor %}
+          </ul>
+        </details>
+      </td>
+      <td class="num">{{ g.count }}</td>
+      <td>{{ g.advice }}</td>
+      <td>{{ g.newest_at }} ({{ age_text(g.newest_at) }} ago)</td>
+      <td>{% if actions %}<form method="post" action="/alerts/clear-group"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="group" value="{{ g.key }}"><button type="submit" class="prim">Clear all {{ g.count }}</button></form>{% endif %}</td>
+    </tr>
   {% endfor %}
   </tbody>
 </table></div>
@@ -15,6 +32,6 @@
 {% if cleared %}
 <div class="scroll"><table>
   <thead><tr><th>Kind</th><th>About</th><th>Message</th><th>Raised</th><th>Cleared</th></tr></thead>
-  <tbody>{% for a in cleared %}{% set f = a.fact %}<tr><td>{{ f.alert_kind }}</td><td>{{ fact(a, f.about) }}</td><td>{{ f.message }}</td><td>{{ f.raised_at }}</td><td>{{ f.cleared_at }} by {{ f.cleared_by }}</td></tr>{% endfor %}</tbody>
+  <tbody>{% for a in cleared %}{% set f = a.fact %}<tr><td>{{ f.alert_kind }}</td><td>{{ fact(a, f.about) }}</td><td>{{ redacted[a.subject] }}</td><td>{{ f.raised_at }}</td><td>{{ f.cleared_at }} by {{ f.cleared_by }}</td></tr>{% endfor %}</tbody>
 </table></div>
 {% else %}<p class="empty">None cleared yet.</p>{% endif %}

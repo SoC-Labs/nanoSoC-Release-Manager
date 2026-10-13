@@ -1,0 +1,68 @@
+{# One inbox card (spec 2.3): what is wrong, why it matters, evidence, one primary action. `c` is an inbox.Card;
+   `first` marks card 1. Every value is computed in web/inbox.py; this only prints. #}
+{% import "_ui.html" as ui %}
+<article class="card" id="card-{{ c.number }}" data-card="{{ c.id }}" data-kind="{{ c.kind }}" data-rank="{{ c.rank }}" aria-labelledby="card-h-{{ c.number }}">
+  <div class="body">
+    <div class="filters">
+      <span class="rail-h">{{ c.cat_label }}</span>
+      {{ ui.chip(c.chip[0], c.chip[1]) }}
+      <span class="note">{% if c.fact %}{{ fact(c.fact, c.meta) }}{% else %}{{ c.meta }}{% endif %}</span>
+    </div>
+    <h3 id="card-h-{{ c.number }}" class="disp">{{ c.title }}</h3>
+    <p>{{ c.why }}</p>
+    {% if c.note %}<p class="note"><strong>{{ c.note }}</strong></p>{% endif %}
+    <details id="ev-{{ c.code_id }}"{% if first %} open{% endif %}>
+      <summary>Evidence ({{ c.evidence|length }})</summary>
+      <ul>
+      {% for e in c.shown_evidence %}
+        <li>{{ ui.chip(e.tag, e.tone) }} <span class="mono">{{ e.what }}</span>{% if e.say %} <span>{{ e.say }}</span>{% endif %}</li>
+      {% endfor %}
+      {% if c.more %}<li class="note">+{{ c.more }} more</li>{% endif %}
+      </ul>
+      {% if c.code %}{{ ui.copybox(c.code_id, c.code, "Commands for a person to run (this tool never runs them)") }}{% endif %}
+      {% if c.forms %}
+      <div class="filters">
+        {% for f in c.forms %}
+        <form method="post" action="{{ f.action }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="ghost">{{ f.label }}</button></form>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </details>
+    {% if actions %}
+    <div class="filters">
+      <form method="post" action="/inbox/done" hx-post="/inbox/done" hx-target="#inbox" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ c.id }}">
+        <input type="hidden" name="fp" value="{{ c.fingerprint }}"><input type="hidden" name="cat" value="{{ inbox.cat }}">
+        <button type="submit" class="ghost">Mark done</button>
+      </form>
+      <details id="snooze-{{ c.code_id }}">
+        <summary class="ghost">Snooze</summary>
+        <form method="post" action="/inbox/snooze" hx-post="/inbox/snooze" hx-target="#inbox" hx-swap="outerHTML" aria-label="Snooze this card">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ c.id }}">
+          <input type="hidden" name="fp" value="{{ c.fingerprint }}"><input type="hidden" name="cat" value="{{ inbox.cat }}">
+          {% for n in inbox.snooze_days %}<button type="submit" name="days" value="{{ n }}" class="ghost">{{ n }} {{ 'day' if n == 1 else 'days' }}</button> {% endfor %}
+        </form>
+      </details>
+    </div>
+    {% endif %}
+  </div>
+  <div class="stub{% if first %} is-first{% endif %}">
+    <p class="disp" style="margin:0;font-size:2rem;font-weight:800;line-height:1"><span class="sr">Rank </span>{{ "%02d" % c.number }}{% if first %} <span style="font-size:.8rem;letter-spacing:.06em;text-transform:uppercase">Do this first</span>{% endif %}</p>
+    {% set p = c.primary %}
+    {% if p %}
+      {% if p.method == "post" and (actions or not p.local) %}
+      <form method="post" action="{{ p.href }}"{% if p.local %} hx-post="{{ p.href }}" hx-target="#inbox" hx-swap="outerHTML"{% endif %}>
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        {% for k, v in p.fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+        {% if p.local %}<input type="hidden" name="cat" value="{{ inbox.cat }}">{% endif %}
+        <button type="submit" class="prim">{{ p.label }}</button>
+      </form>
+      {% elif p.method == "post" %}
+      <a class="prim" href="{{ p.fallback }}">Open the alerts</a>
+      {% else %}
+      <a class="prim" href="{{ p.href }}">{{ p.label }}</a>
+      {% endif %}
+    {% endif %}
+    <span>{{ c.dest }}</span>
+  </div>
+</article>
