@@ -1,0 +1,29 @@
+<p class="note">Each component's copies on the other host compared with its canonical repo (<code>nanosoc-rm hosts</code>). Drift is AHEAD, BEHIND, DIVERGED or UNRELATED; UNKNOWN means the comparison could not be made.</p>
+<form class="panel" method="get" action="/hosts">
+  <div class="row">
+    <label>Component <input name="component" value="{{ component or '' }}" placeholder="all with copies"></label>
+    <button type="submit">Show</button>
+  </div>
+</form>
+{% if actions %}<form class="panel" method="post" action="/hosts/refresh">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ component or '' }}">
+  <button type="submit" title="compare now, from the mirrors, and store the result">Compare now{{ ' ' ~ component if component }}</button>
+</form>{% else %}<p class="note">To compare now: <code>nanosoc-rm hosts{{ ' ' ~ component if component }}</code>.</p>{% endif %}
+{% if rows %}
+<div class="scroll"><table>
+  <thead><tr><th>Component</th><th>Canonical</th><th>Copy</th><th>Relation</th><th class="num">Canonical only</th><th class="num">Copy only</th><th>Default branches</th></tr></thead>
+  <tbody>
+  {% for h in rows %}{% set f = h.fact %}
+    <tr>
+      <td><a href="/components/{{ f.component }}">{{ f.component }}</a></td>
+      <td>{{ f.canonical.repo.host }}:{{ f.canonical.repo.path }}</td>
+      <td>{{ fact(h, f['copy'].repo.host ~ ':' ~ f['copy'].repo.path) }}</td>
+      <td><span class="pill {{ RELATION_CLASS.get(f.relation, '') }}">{{ f.relation|lower if f.relation == 'UNKNOWN' else f.relation }}</span></td>
+      <td class="num">{{ f.canonical_only if f.canonical_only is not none else '' }}</td>
+      <td class="num">{{ f.copy_only if f.copy_only is not none else '' }}</td>
+      <td>{{ f.canonical.default_branch }} vs {{ f['copy'].default_branch }}{% if f.default_branch_mismatch %} <span class="warn">names differ</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No host comparison stored{% if component %} for {{ component }}{% endif %}. Press Compare now (it reads the mirrors; sync them first on <a href="/mirrors">Mirrors</a>).</p>{% endif %}

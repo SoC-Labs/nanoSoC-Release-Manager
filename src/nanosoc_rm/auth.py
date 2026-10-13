@@ -24,14 +24,28 @@ the service config. Everything else is refused.
   login, as an active member. Roles still come from the config. There is no cookie, so there is no
   cross-site request to forge, and the CSRF check does not apply to it.
 
+**Local mode (CR-16).** `[auth] mode = "local"` replaces GitHub sign-in for a single-host deployment: named users
+in `[[auth.users]]` (login, `hash` from `nanosoc-rm user add`: scrypt via hashlib, salted), a login form at
+`/auth/login` (POST, with a double-submit CSRF cookie so nobody can sign a browser in as someone else), the same
+signed session cookie (HttpOnly, SameSite=Strict, 8 h) and the same CSRF token on every POST. A user removed from
+the config is signed out on the next request, and so is every session of a user whose hash changes. Logout
+revokes the session (`<data_dir>/sessions.sqlite`), so a copied cookie stops working too. Roles: `roles.default`, `roles."<login>"` and the user's own
+`roles` (default `["member"]`). Without `[session] secret_file`, the secret is generated once in
+`<data_dir>/session.secret` (mode 0600). Failed sign-ins are throttled per login.
+
 The OAuth exchange is a POST that writes nothing, declared `read-post` in `nanosoc_rm.contracts.WRITE_CALLS`.
 Tokens never appear in a URL, a log, an error or a page (interfaces.md section 0.3).
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import os
 import secrets
+import sqlite3
+import threading
+import time
 import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping
@@ -45,7 +59,9 @@ from nanosoc_rm.config import Config, ConfigError
 __all__ = ["SESSION_COOKIE", "STATE_COOKIE", "SESSION_MAX_AGE_S", "STATE_MAX_AGE_S", "RECHECK_S", "MEMBER_ROLE",
            "AUTH_PREFIX", "LOGIN_PATH", "CALLBACK_PATH", "LOGOUT_PATH", "CSRF_FIELD", "Identity", "AuthError",
            "FakeMembership", "GitHubAuth", "roles_for", "is_member", "authorize_url", "exchange_code",
-           "user_login", "membership_state", "github_org", "Sessions", "session_seconds_left"]
+           "user_login", "membership_state", "github_org", "Sessions", "session_seconds_left", "LocalAuth",
+           "ConfiguredAuth", "hash_password", "verify_password", "local_users", "check_local_password", "LOGIN_CSRF_COOKIE", "Throttle",
+           "same_site"]
 
 SESSION_COOKIE = "rm_session"
 STATE_COOKIE = "rm_oauth_state"
@@ -57,6 +73,9 @@ MEMBER_ROLE = "member"                  # v1's one role: view + Run T0
 AUTH_PREFIX = "/auth"
 LOGIN_PATH, CALLBACK_PATH, LOGOUT_PATH = AUTH_PREFIX + "/login", AUTH_PREFIX + "/callback", AUTH_PREFIX + "/logout"
 CSRF_FIELD = "csrf_token"
+LOGIN_CSRF_COOKIE = "rm_login_csrf"     # local mode: double-submit token of the login form
+SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_DKLEN = 2 ** 14, 8, 1, 32
+_SCRYPT_MAXMEM = 64 * 1024 * 1024
 OAUTH_SCOPE = "read:org"
 _HTTP_TIMEOUT_S = 20
 
@@ -67,8 +86,9 @@ class AuthError(Exception):
 
 @dataclass
 class Identity:
-    """Who a request is. `status`: member (active SoC-Labs member) or refused. `via`: session (signed cookie)
-    or fake (the FakeMembership test seam). `sid` binds the CSRF token to one session."""
+    """Who a request is. `status`: member (active SoC-Labs member) or refused. `via`: session (signed cookie),
+    local (the CR-16 login form) or fake (the FakeMembership test seam). `sid` binds the CSRF token to one
+    session."""
     login: str
     status: str
     via: str
@@ -95,7 +115,138 @@ def github_org(config: Mapping[str, Any]) -> str:
 def roles_for(config: Mapping[str, Any], login: str) -> set[str]:
     """roles.default plus roles."<login>" (interfaces.md section 1). An empty table gives no roles."""
     table = config.get("roles") or {}
-    return set(table.get("default") or []) | set(table.get(login) or [])
+    roles = set(table.get("default") or []) | set(table.get(login) or [])
+    if (config.get("auth") or {}).get("mode") == "local":
+        user = local_users(config).get(login)
+        if user is not None:
+            roles |= set(user.get("roles") or [MEMBER_ROLE])
+    return roles
+
+
+def same_site(config: Mapping[str, Any]) -> str:
+    """The session cookie's SameSite: Strict in local mode (CR-16); Lax for GitHub sign-in, whose callback is a
+    cross-site redirect."""
+    return "strict" if (config.get("auth") or {}).get("mode") == "local" else "lax"
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Local users (CR-16)
+# ---------------------------------------------------------------------------------------------------------
+def _b64(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")
+
+
+def hash_password(password: str, *, salt: bytes | None = None, n: int = SCRYPT_N, r: int = SCRYPT_R,
+                  p: int = SCRYPT_P) -> str:
+    """`scrypt$<n>$<r>$<p>$<salt>$<hash>` (base64): what `[[auth.users]] hash` holds."""
+    if not password:
+        raise ValueError("an empty password is not a password")
+    salt = salt if salt is not None else secrets.token_bytes(16)
+    dk = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=n, r=r, p=p, dklen=SCRYPT_DKLEN,
+                        maxmem=_SCRYPT_MAXMEM)
+    return "scrypt$%d$%d$%d$%s$%s" % (n, r, p, _b64(salt), _b64(dk))
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    """True when `password` matches `encoded` (hash_password's format). A malformed hash never matches."""
+    try:
+        name, n, r, p, salt, want = encoded.split("$")
+        if name != "scrypt":
+            return False
+        n, r, p = int(n), int(r), int(p)
+        if not (2 ** 10 <= n <= 2 ** 20 and 1 <= r <= 32 and 1 <= p <= 16):
+            return False
+        want_b = base64.b64decode(want, validate=True)
+        dk = hashlib.scrypt((password or "").encode("utf-8"), salt=base64.b64decode(salt, validate=True), n=n, r=r,
+                            p=p, dklen=len(want_b), maxmem=_SCRYPT_MAXMEM)
+    except (ValueError, TypeError, MemoryError):
+        return False
+    return hmac.compare_digest(dk, want_b)
+
+
+_DUMMY_HASH = None
+
+
+def _dummy_hash() -> str:
+    """A hash nobody's password matches, verified for an unknown login so its timing matches a known one."""
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password(secrets.token_hex(16))
+    return _DUMMY_HASH
+
+
+def local_users(config: Mapping[str, Any]) -> dict[str, dict]:
+    """{login: [[auth.users]] entry} of the config (local mode)."""
+    return {u["login"]: u for u in (config.get("auth") or {}).get("users") or [] if isinstance(u, dict)
+            and u.get("login")}
+
+
+def check_local_password(config: Mapping[str, Any], login: str, password: str) -> bool:
+    user = local_users(config).get(login)
+    ok = verify_password(password, user["hash"] if user else _dummy_hash())
+    return bool(user) and ok
+
+
+def hash_tag(encoded: str) -> str:
+    """A short digest of a user's configured hash, carried in the session: a new password ends old sessions."""
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _revoked_db(config: Config) -> sqlite3.Connection:
+    con = sqlite3.connect(config.data_dir / "sessions.sqlite", timeout=10)
+    con.execute("CREATE TABLE IF NOT EXISTS revoked (sid TEXT PRIMARY KEY, until REAL NOT NULL)")
+    return con
+
+
+def revoke_session(config: Config, sid: str, seconds_left: int) -> None:
+    """Logout: refuse session `sid` from now until it would have ended anyway."""
+    if not sid:
+        return
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    con = _revoked_db(config)
+    try:
+        with con:
+            con.execute("DELETE FROM revoked WHERE until < ?", (time.time(),))
+            con.execute("INSERT OR REPLACE INTO revoked VALUES (?, ?)", (sid, time.time() + max(0, seconds_left) + 60))
+    finally:
+        con.close()
+
+
+def session_revoked(config: Config, sid: str) -> bool:
+    if not (config.data_dir / "sessions.sqlite").exists():
+        return False
+    con = _revoked_db(config)
+    try:
+        return con.execute("SELECT 1 FROM revoked WHERE sid = ?", (sid,)).fetchone() is not None
+    finally:
+        con.close()
+
+
+class Throttle:
+    """At most `limit` failed sign-ins per login in `window_s`; then that login is refused until the window
+    passes. In memory: a restart forgets it, which is fine on a host reached through an SSH tunnel."""
+
+    def __init__(self, limit: int = 5, window_s: float = 300.0):
+        self.limit, self.window_s = limit, window_s
+        self._fails: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        fails = [t for t in self._fails.get(key, []) if now - t < self.window_s]
+        self._fails[key] = fails
+        return fails
+
+    def blocked(self, key: str) -> bool:
+        with self._lock:
+            return len(self._recent(key, time.monotonic())) >= self.limit
+
+    def fail(self, key: str) -> None:
+        with self._lock:
+            self._recent(key, time.monotonic()).append(time.monotonic())
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._fails.pop(key, None)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -214,6 +365,33 @@ def session_seconds_left(d: Mapping[str, Any]) -> int | None:
     return int(SESSION_MAX_AGE_S - age)
 
 
+def _local_secret(config: Config) -> str:
+    """Local mode without [session] secret_file: `<data_dir>/session.secret`, created once (0600). Deleting it
+    signs everybody out."""
+    path = config.data_dir / "session.secret"
+    try:
+        value = path.read_text().strip()
+        if value:
+            return value
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        raise ConfigError("%s: the session secret is unreadable (%s)" % (path, e.strerror)) from None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    value = secrets.token_hex(32)
+    tmp = path.with_name(".session.secret.%d" % os.getpid())
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        fh.write(value + "\n")
+    try:
+        os.link(tmp, path)                       # first writer wins; a racing one reads the winner's secret
+    except FileExistsError:
+        value = path.read_text().strip()
+    finally:
+        tmp.unlink(missing_ok=True)
+    return value
+
+
 class Sessions:
     """Signed cookies: the session ({login, status, sid, checked_at}) and the OAuth state. The session secret
     is `session.secret_file`; without it nobody can sign in (the login page says so)."""
@@ -226,17 +404,22 @@ class Sessions:
     @classmethod
     def from_config(cls, config: Config) -> "Sessions | None":
         if "secret_file" not in (config.get("session") or {}):
+            if config.auth_mode == "local":
+                return cls(_local_secret(config))
             return None
         return cls(config.read_secret("session"))
 
     def dump_session(self, login: str, status: str, sid: str | None = None, checked_at: str | None = None,
-                     iat: str | None = None, attempt_at: str | None = None) -> str:
-        """The signed session. `iat` (default now) is the sign-in time: pass it through on every re-sign."""
+                     iat: str | None = None, attempt_at: str | None = None, hash_tag: str | None = None) -> str:
+        """The signed session. `iat` (default now) is the sign-in time: pass it through on every re-sign.
+        `hash_tag` (local mode): hash_tag() of the user's configured hash at sign-in."""
         now = clock.iso()
         d = {"login": login, "status": status, "sid": sid or secrets.token_hex(16),
              "checked_at": checked_at or now, "iat": iat or now}
         if attempt_at:
             d["attempt_at"] = attempt_at
+        if hash_tag:
+            d["hash_tag"] = hash_tag
         return self._session.dumps(d)
 
     def load_session(self, value: str) -> dict | None:
@@ -306,6 +489,40 @@ class GitHubAuth:
                 ident.status = "refused"
             ident.refreshed = ident.session()
         return ident
+
+
+class LocalAuth:
+    """CR-16: the signed session cookie set by the local login form. The login must still be a configured user:
+    removing a user from [[auth.users]] signs them out on their next request."""
+    requires_csrf = True
+
+    def identify(self, cookies: Mapping[str, str], config: Config, sessions: "Sessions | None") -> Identity | None:
+        if sessions is None or SESSION_COOKIE not in cookies:
+            return None
+        d = sessions.load_session(cookies[SESSION_COOKIE])
+        if d is None or d.get("status") != "member":
+            return None
+        user = local_users(config).get(d["login"])
+        if user is None or not hmac.compare_digest(str(d.get("hash_tag") or ""), hash_tag(user["hash"])):
+            return None                                   # removed, or the password changed since sign-in
+        if session_revoked(config, d.get("sid", "")):
+            return None                                   # signed out: a copied cookie is refused too
+        return Identity(login=d["login"], status="member", via="local", sid=d.get("sid", ""),
+                        checked_at=d.get("checked_at", ""), iat=d.get("iat", ""))
+
+
+class ConfiguredAuth:
+    """The default authenticator: the config's [auth] mode, read per request (CR-16). GitHub sign-in unless
+    mode = "local"."""
+    requires_csrf = True
+
+    def __init__(self, github: "GitHubAuth | None" = None, local: LocalAuth | None = None):
+        self.github = github or GitHubAuth()
+        self.local = local or LocalAuth()
+
+    def identify(self, cookies: Mapping[str, str], config: Config, sessions: "Sessions | None") -> Identity | None:
+        impl = self.local if config.auth_mode == "local" else self.github
+        return impl.identify(cookies, config, sessions)
 
 
 class FakeMembership:

@@ -1,0 +1,88 @@
+{# One local job (CR-17): status, command, log tail, result. While it is queued or running, htmx re-fetches it every 2 s. #}
+{% set live = job.state in ('queued', 'running') %}
+<div class="job" id="job-{{ job.id }}" data-job="{{ job.id }}" data-job-state="{{ job.state }}"{% if live %} hx-get="/jobs/{{ job.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <div class="head">
+    <strong>Job {{ job.id }}</strong>
+    <span class="pill {{ JOB_CLASS.get(job.state, '') }}">{{ job.state }}{% if position %} (#{{ position }} in queue){% endif %}</span>
+    {% if job.verdict %}<span class="pill {{ VERDICT_CLASS.get(job.verdict, '') }}" data-verdict="{{ job.verdict }}">{{ job.verdict }}</span>{% endif %}
+    <span class="note">by {{ job.by }}, queued {{ job.created_at }}{% if job.started_at %}, started {{ job.started_at }}{% endif %}{% if job.finished_at %}, finished {{ job.finished_at }}{% elif job.state == 'running' %} (running for {{ age_text(job.started_at) }}){% endif %}</span>
+    {% if live %}
+    <form method="post" action="/jobs/{{ job.id }}/cancel" hx-post="/jobs/{{ job.id }}/cancel" hx-target="#job-{{ job.id }}" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button type="submit"{% if job.cancel_by %} disabled{% endif %}>{{ 'Stopping...' if job.cancel_by else 'Cancel' }}</button>
+    </form>
+    {% if not job.started_at %}<noscript><a href="?job={{ job.id }}">refresh</a></noscript>{% endif %}
+    {% endif %}
+  </div>
+  <p><code>{{ job.command }}</code></p>
+  {% if job.reason %}<p class="{{ 'banner problem' if job.state in ('failed', 'infra') else 'note' }}">{{ job.reason }}</p>{% endif %}
+  {% set r = job.result %}
+  {% if job.kind == 'compat' and r %}
+    {% set f = r.fact %}
+    {% if stored %}<p class="note">Stored result: {{ fact(stored, 'compat_result ' ~ short(f.nonce, 12)) }}</p>
+    {% elif f.overrides %}<p class="banner info">What-if run (pins overridden): shown here, never stored as a fact.</p>{% endif %}
+    <table class="kv">
+      <tr><th>Run verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.run_verdict or f.verdict, '') }}">{{ f.run_verdict or f.verdict }}</span>
+        {% if f.tier %}(T0 {{ f.verdict }} + {{ f.tier.tier }} {{ f.tier.verdict }}){% endif %}
+        {% if f.not_run %}<span class="note">NOT-RUN gates: {{ f.not_run }}</span>{% endif %}
+        {% if f.over_budget %}<span class="warn">T0 over the 120 s budget</span>{% endif %}</td></tr>
+      <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a> at <code>{{ short(f.commit, 12) }}</code></td></tr>
+      <tr><th>Time</th><td>{{ f.started_at }} to {{ f.finished_at }}</td></tr>
+      {% if f.overrides %}<tr><th>Overrides</th><td>{% for o in f.overrides %}<code>{{ o.tree_path }}</code> = <code>{{ short(o.commit, 12) }}</code> (was <code>{{ short(o.replaces, 12) if o.replaces else 'none' }}</code>)<br>{% endfor %}</td></tr>{% endif %}
+      {% if f.unused_waivers %}<tr><th>Unused waivers</th><td>{{ f.unused_waivers }}</td></tr>{% endif %}
+    </table>
+    <h3>Gates</h3>
+    <div class="scroll"><table>
+      <thead><tr><th>Gate</th><th>Verdict</th><th>Control</th><th>Detail</th></tr></thead>
+      <tbody>
+      {% for g in f.gates %}
+        <tr data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}" data-control="{{ g.control }}">
+          <td><code>{{ g.id }}</code></td>
+          <td><span class="pill {{ VERDICT_CLASS.get(g.verdict, '') }}">{{ g.verdict }}</span>{% if g.raw_verdict %} <span class="note">raw {{ g.raw_verdict }}</span>{% endif %}</td>
+          <td>{{ g.control }}</td><td>{{ g.detail }}
+            {% for w in g.waived or [] %}<br><span class="note">waived {{ w.tree_path }} ({{ w.result }}), approved by {{ w.approved_by }}: {{ w.reason }}</span>{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      {% if f.tier %}
+        <tr data-gate="tier.{{ f.tier.tier }}" data-verdict="{{ f.tier.verdict }}">
+          <td><code>tier.{{ f.tier.tier }}</code>{% if f.tier.forced %} <span class="warn">forced</span>{% endif %}</td>
+          <td><span class="pill {{ VERDICT_CLASS.get(f.tier.verdict, '') }}">{{ f.tier.verdict }}</span></td>
+          <td></td><td><code>{{ f.tier.command }}</code>{% if f.tier.seconds is not none %}: {{ f.tier.seconds }} s of {{ f.tier.budget_s }} s{% endif %}{% if f.tier.over_budget %} <span class="warn">OVER BUDGET</span>{% endif %}{% if f.tier.killed %} <span class="warn">KILLED</span>{% endif %}{% if f.tier.reason %}<br>{{ f.tier.reason }}{% endif %}</td>
+        </tr>
+        {% for row in f.tier.rows[1:] %}
+        <tr><td><code>{{ row.gate }}</code></td><td><span class="pill {{ VERDICT_CLASS.get(row.status, '') }}">{{ row.status }}</span></td><td></td><td>{{ row.detail }}</td></tr>
+        {% endfor %}
+      {% endif %}
+      </tbody>
+    </table></div>
+    {% if f.splits %}
+    <h3>B7 splits (a component pinned at more than one commit)</h3>
+    <ul>{% for sp in f.splits %}<li><strong>{{ sp.component }}</strong>: {% for p in sp.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit) }}</code>{{ ', ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
+    {% endif %}
+    <h3>Pins ({{ f.pins|length }})</h3>
+    <div class="scroll"><table>
+      <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>State</th><th>URL</th><th>fetchable</th><th>reachable</th><th>no ssh</th><th>manifest</th><th>vendor</th></tr></thead>
+      <tbody>
+      {% for p in f.pins %}
+        <tr>
+          <td><code>{{ p.tree_path }}</code>{% if p.split %} <span class="badge">split</span>{% endif %}</td>
+          <td>{{ p.component or '' }}</td>
+          <td><code>{{ short(p.commit) }}</code>{% if p.overridden %} <span class="pill state-info">override</span> <span class="note">was {{ short(p.replaces) }}</span>{% endif %}</td>
+          <td><span class="{{ STATE_CLASS.get(p.state, 'state-red' if p.state else '') }}">{{ p.state or '' }}</span></td>
+          <td>{{ p.url_kind }}</td>
+          {% for col in ('fetchable', 'reachable', 'no_ssh', 'manifest', 'vendor') %}
+          {% set v = p['items'].get(col) %}
+          <td>{% if v %}<span class="pill {{ ITEM_CLASS.get(v, '') }}">{{ v }}</span>{% endif %}</td>
+          {% endfor %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  {% elif r %}
+    <p class="note">{{ r.documents }} document(s){% for k, n in r.kinds|dictsort %}: {{ n }} {{ k }}{% endfor %}{% if r.failed %}; failed: {{ r.failed|join(', ') }}{% endif %}</p>
+  {% endif %}
+  <details{% if live or job.state in ('failed', 'infra') %} open{% endif %}><summary>Log</summary>
+    <pre class="log">{{ log or '(no output yet)' }}</pre>
+    <a href="/jobs/{{ job.id }}/log">plain text</a>
+  </details>
+</div>

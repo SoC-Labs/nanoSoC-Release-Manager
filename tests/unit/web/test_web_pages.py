@@ -68,6 +68,10 @@ def test_every_page_shows_one_age_from_its_oldest_fact_and_links_every_fact(site
         url = fill(path) if path != "/contains" else "/contains?sha=036d381&component=nanosoc_gen"
         r = c.get(url)
         fetched = clock.now()
+        if path.startswith("/jobs/"):
+            # a local job's fragment and log (CR-17): no job "x" exists, and the answer is text, not a page
+            assert r.status_code == 404 and r.headers["content-type"].startswith("text/plain"), (url, r.status_code)
+            continue
         assert r.status_code == 200, (url, r.status_code)
         h = Hooks(r.text)
         ages = h.with_attr("data-age-seconds")
@@ -321,6 +325,8 @@ def test_a_trigger_that_raises_is_reported_not_a_crash(site, monkeypatch):
 
 
 def test_only_the_two_run_routes_write_and_no_docs_routes(site):
+    """GitHub sign-in with a CI project: section 13's two Run routes are the only writes (D5). The CR-16/CR-17
+    routes exist only in a local deployment (test_web_local.py)."""
     app = site["client"].app
     writes = {(m, r.path) for r in app.routes for m in (getattr(r, "methods", None) or ()) if m not in ("GET", "HEAD")}
     assert writes == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs")}

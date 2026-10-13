@@ -1,0 +1,7 @@
+<div class="scroll"><table>
+  <thead><tr><th>Erratum</th><th>Defect</th><th>Configuration</th><th>Status</th><th>Exposure</th><th>Workaround</th></tr></thead>
+  <tbody>
+{% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6">No errata recorded in the registry.</td></tr>{% endfor %}
+  </tbody>
+</table></div>
+<p class="note">Amber: probably (ancestry or source reading). Red: exposed or affected, proven by a detector run. Green: not affected, proven by a detector run.</p>

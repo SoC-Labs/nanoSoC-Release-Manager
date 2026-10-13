@@ -201,6 +201,8 @@ def dashboard(config: Config, now=None) -> dict:
     compares = host_compares(config)
     runners = runner_settings(config)
     all_runs = runs(config)
+    all_compat = compat_results(config)
+    active = _active_jobs(config)
     rows = []
     for rec in configurations(config):
         cid = rec["fact"]["id"]
@@ -213,13 +215,15 @@ def dashboard(config: Config, now=None) -> dict:
         drifting, unknown, in_tree = drift(compares, tree)
         er = errata(config, cid)
         op = [d for d in er if d["fact"]["record"].get("status") in OPEN_ERRATUM_STATUSES]
-        row_facts = [rec] + p + r[:1] + in_tree + er + runners
+        compat = next((d for d in all_compat if d["fact"]["configuration"] == cid), None)
+        row_facts = [rec] + p + r[:1] + in_tree + er + runners + ([compat] if compat else [])
         oldest = min((d["observed_at"] for d in row_facts), key=clock.parse)
         rows.append({
             "id": cid, "record": rec, "frozen": frozen, "pins": p, "red": red_pins(p, frozen),
             "last": last, "pending": pend, "not_run": _not_run(last),
             "drifting": drifting, "unknown": unknown, "in_tree": in_tree, "errata": er, "open_errata": op,
             "age_s": _age_s(oldest, now), "pending_age_s": [_age_s(d["fact"]["run"]["triggered_at"], now) for d in pend],
+            "compat": compat, "jobs": [j for j in active if j["params"].get("configuration") == cid],
         })
     return {"rows": rows, "runners": runners, "alerts": db.alerts(open_only=True, config=config)}
 
@@ -238,7 +242,22 @@ def configuration_page(config: Config, cid: str) -> dict | None:
         return None
     frozen = is_frozen(rec)
     return {"id": cid, "record": rec, "frozen": frozen, "pins": p, "red": red_pins(p, frozen), "runs": r,
-            "pending": pending_runs(r), "errata": errata(config, cid)}
+            "pending": pending_runs(r), "errata": errata(config, cid), "compat": compat_results(config, cid),
+            "splits": splits(p), "waivers": waivers_of(rec), "silicon": silicon_protection(config, cid),
+            "jobs": safe_jobs(config, limit=10, configuration=cid)}
+
+
+def safe_jobs(config: Config, **kw: Any) -> list[dict]:
+    """Local job records (jobs.jobs), or none when the job store cannot be read."""
+    from nanosoc_rm import jobs as jobsmod
+    try:
+        return jobsmod.jobs(config, **kw)
+    except Exception:                                            # noqa: BLE001 - a page never fails on it
+        return []
+
+
+def _active_jobs(config: Config) -> list[dict]:
+    return safe_jobs(config, limit=200, states=("queued", "running"))
 
 
 def component_page(config: Config, comp: str) -> dict | None:
@@ -316,3 +335,140 @@ def run_t0(config: Config, cid: str, login: str) -> dict:
         raise RunPending(pend[0])
     from nanosoc_rm.ci.trigger import trigger
     return db.as_doc(trigger(cid, by=login, kind="manual"))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Local GUI (CR-16, CR-17): compat, branches, hosts, mirrors, alerts, registry lists
+# ---------------------------------------------------------------------------------------------------------
+LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")      # README section 6, worst first
+
+
+def compat_results(config: Config, cid: str | None = None) -> list[dict]:
+    """Stored compat_result observations (local runs without overrides), newest first."""
+    docs = db.latest("compat_result", "compat_result:%s:" % cid if cid else "compat_result:", config=config)
+    return sorted(docs, key=lambda d: d["fact"]["finished_at"], reverse=True)
+
+
+def run_verdict(doc: dict | None) -> str | None:
+    """A compat_result's verdict as Run shows it: T0 plus the tier when one ran."""
+    if not doc:
+        return None
+    f = doc.get("fact") or {}
+    return f.get("run_verdict") or f.get("verdict")
+
+
+def splits(pin_docs: Iterable[dict]) -> list[dict]:
+    """B7: components pinned at more than one commit in this tree, with every pin of each."""
+    out: dict[str, list[dict]] = {}
+    for d in pin_docs:
+        f = d["fact"]
+        comp = (f.get("child") or {}).get("component")
+        if f.get("split") and comp:
+            out.setdefault(comp, []).append(d)
+    return [{"component": c, "pins": ps} for c, ps in sorted(out.items())]
+
+
+def waivers_of(record: dict | None) -> list[dict]:
+    """The configuration's t0_waivers as the registry states them (only a frozen configuration may carry any)."""
+    rec = (record or {}).get("fact", {}).get("record", {})
+    return list(rec.get("t0_waivers") or []) if rec.get("frozen") else []
+
+
+def component_refs(config: Config, component: str) -> list[dict]:
+    """Every head and tag of the component's repos in its mirror: [{host, path, kind, name, sha, date}], newest
+    first. Empty when there is no mirror (`nanosoc-rm mirror sync --component <id>`)."""
+    from nanosoc_rm.gitrun import run_git
+    from nanosoc_rm.mirror.layout import mirror_path, split_key
+    if not is_valid_id(component):
+        return []
+    mirror = mirror_path(config, component)
+    if not mirror.is_dir():
+        return []
+    # %(*objectname) peels an annotated tag to its commit: an override must name the commit, not the tag object
+    r = run_git("for-each-ref", "--format=%(refname) %(objectname) %(*objectname) %(creatordate:iso-strict)",
+                "refs/r/", cwd=mirror, timeout=60)
+    if not r.ok:
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        parts = line.split(" ")
+        if len(parts) < 4 or not parts[0].startswith("refs/r/"):
+            continue
+        parts = [parts[0], parts[2] or parts[1], parts[3]]
+        rest = parts[0][len("refs/r/"):]
+        host, _, tail = rest.partition("/")
+        quoted, _, ref = tail.partition("/")
+        kind, _, name = ref.partition("/")
+        if kind not in ("heads", "tags") or not name:
+            continue
+        _, path = split_key("%s/%s" % (host, quoted))
+        out.append({"host": host, "path": path, "kind": "tag" if kind == "tags" else "branch", "name": name,
+                    "sha": parts[1], "date": parts[2] if len(parts) > 2 else ""})
+    return sorted(out, key=lambda x: x["date"], reverse=True)
+
+
+def branch_rows(config: Config, component: str, *, all_repos: bool = False, refresh: bool = False
+                ) -> tuple[list[dict], list[str], bool]:
+    """(branch_state rows of the component, problems, computed now?). The stored rows, or when there are none
+    (or `refresh`), `analysis.branches.branches` reads the mirror now and stores them (CR8)."""
+    if not is_valid_id(component):
+        return [], ["%r is not a component id" % component[:60]], False
+    stored = [d for d in db.latest("branch_state", "branch_state:", config=config)
+              if d["fact"]["component"] == component]
+    if not all_repos and stored:
+        canonical = _canonical_repo(config, component)
+        if canonical is not None:
+            stored = [d for d in stored if (d["fact"]["repo"]["host"], d["fact"]["repo"]["path"]) == canonical]
+    if stored and not refresh:
+        return _sort_branches(stored), [], False
+    from nanosoc_rm.analysis import AnalysisError
+    from nanosoc_rm.analysis.branches import branches
+    try:
+        docs = [db.as_doc(d) for d in branches(component, all_repos=all_repos, config=config)]
+    except AnalysisError as e:
+        return _sort_branches(stored), [str(e)[:400] or type(e).__name__], False
+    except Exception as e:                                       # noqa: BLE001 - shown, never a 500
+        return _sort_branches(stored), ["the branch inventory could not answer: %s" % (str(e)[:300] or type(e).__name__)], False
+    return _sort_branches(docs), [], True
+
+
+def _canonical_repo(config: Config, component: str) -> tuple[str, str] | None:
+    rec = next((d for d in components(config) if d["fact"]["id"] == component), None)
+    can = ((rec or {}).get("fact", {}).get("record", {}) or {}).get("canonical") or {}
+    return (can["host"], can["path"]) if can.get("host") and can.get("path") else None
+
+
+_BRANCH_ORDER = {"STALE": 0, "MERGED": 1, "ACTIVE": 2, "PINNED": 3, "PROTECTED": 4}
+
+
+def _sort_branches(docs: list[dict]) -> list[dict]:
+    return sorted(docs, key=lambda d: (d["fact"]["repo"]["host"], d["fact"]["repo"]["path"],
+                                       _BRANCH_ORDER.get(d["fact"]["verdict"], 9), d["fact"]["branch"]))
+
+
+def delete_text(docs: list[dict]) -> str:
+    from nanosoc_rm.analysis.branches import delete_commands
+    lines = delete_commands(docs)
+    return "\n".join(lines) if lines else "# nothing to delete: no MERGED or STALE branch without a pin, citation or tag"
+
+
+def compare_now(config: Config, component: str | None) -> list[str]:
+    """Run the host comparison (section 5) for one component, or every component with copies. Problems only."""
+    from nanosoc_rm.analysis.hosts import compare_hosts, components_with_copies
+    problems = []
+    try:
+        ids = [component] if component else components_with_copies(config=config)
+    except Exception as e:                                       # noqa: BLE001
+        return ["the host comparison could not start: %s" % (str(e)[:300] or type(e).__name__)]
+    for cid in ids:
+        try:
+            compare_hosts(cid, config=config)
+        except Exception as e:                                   # noqa: BLE001
+            problems.append("hosts %s: %s" % (cid, str(e)[:300] or type(e).__name__))
+    return problems
+
+
+def all_alerts(config: Config) -> tuple[list[dict], list[dict]]:
+    """(open, cleared) alerts, newest raise first."""
+    docs = db.alerts(open_only=False, config=config)
+    return [d for d in docs if not d["fact"]["cleared_at"]], [d for d in docs if d["fact"]["cleared_at"]]

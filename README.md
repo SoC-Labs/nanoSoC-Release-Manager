@@ -31,6 +31,11 @@ follows `run_verdict` (the ladder over T0 and the tier); a tier that regenerates
 is refused with exit 3 unless `NANOSOC_GEN_OK=1` is set. No set_env.sh is ever sourced: a tier command gets a clean
 environment plus the `env` its tiers.yaml entry declares.
 
+## Web GUI on one host (local sign-in, local jobs)
+
+`nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
+`nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

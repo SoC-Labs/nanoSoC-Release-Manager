@@ -3,29 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>{{ title }} · nanoSoC Release Manager</title>
 <link rel="stylesheet" href="/static/rm.css">
+<script src="/static/htmx.min.js" defer></script>
+<script src="/static/rm.js" defer></script>
 </head>
-<body>
+<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>
 <header class="top">
-  <a class="brand" href="/">nanoSoC Release Manager</a>
-  <nav>
-    <a href="/">Dashboard</a>
-    <a href="/silicon-protection">Silicon protection</a>
-    <a href="/contains">Contains commit</a>
-    <a href="/defects">Defects and errata</a>
+  <a class="brand" href="/">nanoSoC <span>Release Manager</span></a>
+  <nav aria-label="main">
+  {% for label, href, _ in nav %}
+    <a href="{{ href }}"{% if current == href %} aria-current="page" class="current"{% endif %}>{{ label }}</a>
+  {% endfor %}
   </nav>
-  {% if identity %}<span class="who">{{ identity.login }} · <a href="/auth/logout">sign out</a></span>{% endif %}
+  {% if identity %}
+  <span class="who">{{ identity.login }}
+    {% if auth_mode == 'local' %}
+    <form method="post" action="/auth/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="link" type="submit">sign out</button></form>
+    {% else %}· <a href="/auth/logout">sign out</a>{% endif %}
+  </span>
+  {% endif %}
 </header>
 <main>
 {% for p in problems %}
-  <p class="banner problem">{{ p }}</p>
+  <p class="banner problem" role="status"><strong>Problem:</strong> {{ p }}</p>
 {% endfor %}
-  <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}">
-    Data age: <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %}, measured from the oldest fact on this page ({{ oldest }}){% endif %}. Rendered {{ now }}.
-  </p>
-  <h1>{{ title }}</h1>
+  <div class="titlebar">
+    <h1>{{ title }}</h1>
+    <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}" title="{% if oldest %}measured from the oldest fact on this page ({{ oldest }}){% else %}this page shows no stored fact{% endif %}; rendered {{ now }}">
+      Data age <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %} <span class="note">(oldest fact {{ oldest }})</span>{% endif %}
+    </p>
+  </div>
 {{ body }}
 </main>
+<footer class="foot note">Every fact links to <em>src</em>: the commands that found it. Read-only: this tool never pushes, tags or deletes.</footer>
 </body>
 </html>

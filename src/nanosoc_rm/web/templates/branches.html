@@ -1,0 +1,61 @@
+<p class="note">Every branch of a repo, judged from its local mirror (<code>nanosoc-rm branches</code>). The tool never deletes: the delete list is text for a person to review and run.</p>
+<form class="panel" method="get" action="/branches">
+  <div class="row">
+    <label>Component
+      <select name="component">
+        <option value="">choose...</option>
+        {% for c in choices %}<option value="{{ c }}"{% if c == component %} selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select></label>
+    <label class="check"><input type="checkbox" name="all" value="1"{% if all_repos %} checked{% endif %}> every copy (--all)</label>
+    <button type="submit">Show</button>
+  </div>
+</form>
+{% if component and actions %}<form class="panel" method="post" action="/branches/refresh">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ component }}">
+  {% if all_repos %}<input type="hidden" name="all" value="1">{% endif %}
+  <button type="submit" title="re-read the mirror now and store the result">Re-read mirror</button>
+</form>{% elif component %}<p class="note">To re-read the mirror: <code>nanosoc-rm branches {{ component }}{{ ' --all' if all_repos }}</code>.</p>{% endif %}
+
+{% if component %}
+  {% if total %}
+  <p>{{ total }} branch(es){% if computed %}, read from the mirror now{% endif %}.
+    <span class="filters">Filter:
+      <a href="?component={{ component }}{{ '&all=1' if all_repos }}"{% if not verdict %} class="on"{% endif %}>all</a>
+      <a href="?component={{ component }}{{ '&all=1' if all_repos }}&verdict=deletable"{% if verdict == 'deletable' %} class="on"{% endif %}>deletable</a>
+      {% for v in ('MERGED', 'STALE', 'PINNED', 'PROTECTED', 'ACTIVE') %}{% if counts.get(v) %}<a href="?component={{ component }}{{ '&all=1' if all_repos }}&verdict={{ v }}"{% if verdict == v %} class="on"{% endif %}><span class="pill {{ BRANCH_CLASS[v] }}">{{ v }} {{ counts[v] }}</span></a>{% endif %}{% endfor %}
+    </span></p>
+  <div class="scroll"><table>
+    <thead><tr><th>Repo</th><th>Branch</th><th>Verdict</th><th>Tip</th><th class="num">Ahead</th><th class="num">Behind</th><th>Last commit</th><th>Tags on tip</th><th>Held by</th><th>Deletable</th></tr></thead>
+    <tbody>
+    {% for d in rows %}{% set f = d.fact %}
+      <tr data-verdict="{{ f.verdict }}">
+        <td>{{ f.repo.host }}:{{ f.repo.path }}</td>
+        <td>{{ fact(d, f.branch) }}</td>
+        <td><span class="pill {{ BRANCH_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td>
+        <td><code>{{ short(f.tip) }}</code></td>
+        <td class="num">{{ f.ahead }}</td><td class="num">{{ f.behind }}</td>
+        <td>{{ f.last_commit_at[:10] }}</td>
+        <td>{% for t in f.tags %}<code>{{ t }}</code> {% endfor %}</td>
+        <td>{% for p in f.pins %}<span class="note">pin {{ p.configuration }}:{{ p.tree_path }}</span><br>{% endfor %}{% for c in f.cited %}<span class="note">cited by {{ c.file }} {{ short(c.commit) }}</span><br>{% endfor %}</td>
+        <td>{{ 'yes' if f.deletable else 'no' }}</td>
+      </tr>
+    {% else %}<tr><td colspan="10">no branch with this verdict</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <h2>Delete list</h2>
+  <p class="note">MERGED or STALE, with no pin, citation or tag. Review, then run these yourself.</p>
+  <pre id="delete-list">{{ delete_text }}</pre>
+  <button type="button" data-copy="delete-list">Copy</button>
+  {% else %}
+  <p class="empty">No branch inventory for {{ component }}. Its mirror may be missing: sync it on <a href="/mirrors">Mirrors</a> (or <code>nanosoc-rm mirror sync --component {{ component }}</code>), then press Re-read mirror.</p>
+  {% endif %}
+{% else %}
+  <h2>Mirrored components</h2>
+  {% if comps %}
+  <div class="scroll"><table>
+    <thead><tr><th>Component</th><th>Class</th><th>Canonical</th></tr></thead>
+    <tbody>{% for c in comps %}<tr><td><a href="/branches?component={{ c.fact.id }}">{{ c.fact.id }}</a> {{ fact(c, 'registry') }}</td><td>{{ c.fact.record['class'] }}</td><td>{{ c.fact.record.canonical.host }}:{{ c.fact.record.canonical.path }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="empty">No mirror yet. Sync one on <a href="/mirrors">Mirrors</a> (or <code>nanosoc-rm mirror sync --component tidelink</code>).</p>{% endif %}
+{% endif %}

@@ -1,0 +1,15 @@
+<p class="note">The registry's catalogue: every component, its canonical repo and copies. <a href="/defects">Defects and errata</a> · <a href="/errata">all errata</a>.</p>
+{% if components %}
+<div class="scroll"><table>
+  <thead><tr><th>Component</th><th>Class</th><th>Canonical</th><th>Copies</th><th>Mirror</th><th></th></tr></thead>
+  <tbody>
+  {% for c in components %}{% set r = c.fact.record %}
+    <tr><td><a href="/components/{{ c.fact.id }}">{{ c.fact.id }}</a> {{ fact(c, 'registry') }}</td><td>{{ r['class'] }}</td>
+      <td>{{ r.canonical.host }}:{{ r.canonical.path }}</td>
+      <td>{% for cp in r.copies or [] %}{{ cp.host }}:{{ cp.path }}<br>{% endfor %}</td>
+      <td>{{ 'yes' if c.fact.id in mirrored else 'no' }}</td>
+      <td>{% if c.fact.id in mirrored %}<a href="/branches?component={{ c.fact.id }}">branches</a>{% if r.copies %} · <a href="/hosts?component={{ c.fact.id }}">hosts</a>{% endif %}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No catalogue read yet. Set <code>[registry] path</code> in the config to a registry checkout.</p>{% endif %}

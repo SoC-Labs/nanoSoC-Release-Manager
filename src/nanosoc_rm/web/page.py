@@ -23,7 +23,7 @@ from markupsafe import Markup, escape
 from nanosoc_rm import clock
 
 __all__ = ["Page", "env", "render", "fact_href", "short", "human_age", "STATE_CLASS", "EXPOSURE_CLASS",
-           "VERDICT_CLASS"]
+           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV"]
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 
@@ -35,6 +35,15 @@ EXPOSURE_CLASS = {"exposed": "state-red", "affected": "state-red", "probably-exp
 VERDICT_CLASS = {"PASS": "state-green", "WAIVED": "state-amber", "WARN": "state-amber", "FAIL": "state-red",
                  "UNVERIFIED": "state-red",
                  "INFRA": "state-amber", "NOT-RUN": "state-grey"}
+# A gate's per-item result (compat_item) and a branch verdict (CR8): text is always shown beside the colour.
+ITEM_CLASS = {"pass": "state-green", "warn": "state-amber", "waived": "state-amber", "fail": "state-red",
+              "unverified": "state-red", "not-reached": "state-grey"}
+BRANCH_CLASS = {"MERGED": "state-green", "STALE": "state-amber", "PINNED": "state-info", "PROTECTED": "state-info",
+                "ACTIVE": "state-grey"}
+RELATION_CLASS = {"SAME": "state-green", "AHEAD": "state-amber", "BEHIND": "state-amber", "DIVERGED": "state-red",
+                  "UNRELATED": "state-red", "UNKNOWN": "state-grey"}
+JOB_CLASS = {"queued": "state-grey", "running": "state-info", "done": "", "failed": "state-red",
+             "cancelled": "state-grey", "infra": "state-amber"}
 
 
 def fact_href(subject: str) -> str:
@@ -132,17 +141,42 @@ def _json(obj: Any) -> str:
 
 env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html"]),
                   trim_blocks=True, lstrip_blocks=True)
+# The top navigation: (label, href, the path prefixes that mark it current). Plug-ins add entries per app.
+NAV = (("Dashboard", "/", ("/", "/configurations", "/runs")), ("Compat", "/compat", ("/compat",)),
+       ("Branches", "/branches", ("/branches",)), ("Hosts", "/hosts", ("/hosts",)),
+       ("Contains", "/contains", ("/contains",)), ("Silicon", "/silicon-protection", ("/silicon-protection",)),
+       ("Registry", "/components", ("/components", "/defects", "/errata")), ("Mirrors", "/mirrors", ("/mirrors",)),
+       ("Alerts", "/alerts", ("/alerts",)))
+
+
+def _age_text(at: str | None) -> str:
+    if not at:
+        return ""
+    try:
+        return human_age((clock.now() - clock.parse(at)).total_seconds())
+    except (TypeError, ValueError):
+        return ""
+
+
 env.globals.update(short=short, fact_href=fact_href, human_age=human_age, STATE_CLASS=STATE_CLASS,
-                   EXPOSURE_CLASS=EXPOSURE_CLASS, VERDICT_CLASS=VERDICT_CLASS, to_json=_json, verbatim=verbatim,
+                   EXPOSURE_CLASS=EXPOSURE_CLASS, VERDICT_CLASS=VERDICT_CLASS, ITEM_CLASS=ITEM_CLASS,
+                   BRANCH_CLASS=BRANCH_CLASS, RELATION_CLASS=RELATION_CLASS, JOB_CLASS=JOB_CLASS, age_text=_age_text,
+                   to_json=_json, verbatim=verbatim,
                    shown_command=shown_command, page_doc=page_doc,
                    quote=lambda s: urllib.parse.quote(s, safe=""))
 
 
 def render(template: str, *, title: str, identity: Any = None, problems: list[str] | None = None,
-           now: dt.datetime | None = None, csrf: str = "", **ctx: Any) -> str:
-    """The body template rendered first (its facts recorded), then the layout with the page's data age."""
+           now: dt.datetime | None = None, csrf: str = "", environment: Environment | None = None,
+           nav: tuple = NAV, path: str = "", auth_mode: str = "github", **ctx: Any) -> str:
+    """The body template rendered first (its facts recorded), then the layout with the page's data age.
+    `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's)."""
     page = Page(now)
-    body = env.get_template(template).render(page=page, fact=page.fact, csrf=csrf, identity=identity, **ctx)
+    body_env = environment or env
+    body_env.globals.update({k: v for k, v in env.globals.items() if k not in body_env.globals})
+    body = body_env.get_template(template).render(page=page, fact=page.fact, csrf=csrf, identity=identity, **ctx)
+    current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
     return env.get_template("layout.html").render(
-        body=Markup(body), title=title, identity=identity, problems=problems or [],
+        body=Markup(body), title=title, identity=identity, problems=problems or [], csrf=csrf, nav=nav,
+        current=current[1] if current else None, auth_mode=auth_mode,
         age_seconds=page.age_seconds(), oldest=page.oldest(), human_age=human_age, now=clock.iso(page.now))
