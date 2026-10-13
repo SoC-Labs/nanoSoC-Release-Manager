@@ -16,7 +16,7 @@
     {% else %}<td class="num" data-v="-1">-</td><td></td><td class="num">-</td>{% endif %}
     <td class="num">{% if c %}<a href="{{ qurl(r.target, 'comments') }}">{{ c.fact.total }}</a>{% else %}-{% endif %}</td>
     <td class="num {{ 'state-amber' if m and m.fact.mismatch_count }}">{% if m %}<a href="{{ qurl(r.target, 'readme') }}">{{ m.fact.mismatch_count }}</a>{% else %}-{% endif %}</td>
-    <td class="num">{% if s %}<a href="{{ qurl(r.target, 'docs') }}">{{ '%.1f'|format(s.fact.score) }}</a>{% else %}-{% endif %}</td>
+    <td class="num">{% if s %}<a href="{{ qurl(r.target, 'docs') }}">{{ '%.1f'|format(s.fact.score) if s.fact.words else 'no docs' }}</a>{% else %}-{% endif %}</td>
     <td>{% if s %}{{ sparkline(r.docs_trend) }}{% endif %}</td>
     <td>{% if d %}<span class="note">{{ d.observed_at }}</span>{% else %}<a href="{{ qurl(r.target) }}">analyse now</a>{% endif %}</td>
   </tr>

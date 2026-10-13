@@ -114,3 +114,14 @@ def test_a_rewrite_that_drops_a_command_is_rejected(tmp_path, monkeypatch):
     res = rewrite.rewrite_sections(WorktreeSource(repo), quality.docs(None, path=repo)["fact"], client=client)
     assert res["proposals"] == [] and res["patch"] == ""
     assert "verbatim" in res["rejected"][0]["reason"]
+
+
+def test_no_docs_is_not_a_perfect_score_and_all_exits_like_its_parts(tmp_path):
+    """Review Q-5: nothing measured reads as nothing measured, and `all` exits 1 when any part found something."""
+    repo = make_repo(tmp_path / "r", {"tool.py": "# Date: 2019-01-01\nX = 1\n"})
+    res = CliRunner().invoke(main, ["quality", "all", "--path", str(repo)])
+    docs = [ln for ln in res.output.splitlines() if ln.startswith("docs")]
+    assert docs and "no Markdown" in docs[0] and "100.0" not in docs[0], res.output
+    one = CliRunner().invoke(main, ["quality", "comments", "--path", str(repo)])
+    assert one.exit_code == 1 and res.exit_code == 1, (one.exit_code, res.output)
+    assert CliRunner().invoke(main, ["quality", "docs", "--path", str(repo)]).output.count("100.0") == 0

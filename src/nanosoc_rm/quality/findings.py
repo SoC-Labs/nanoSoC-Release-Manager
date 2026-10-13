@@ -10,7 +10,9 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
   with prose on one side is reported without an edit: deleting it could leave the prose pointing at nothing.
 - `restates_code`: a one-line comment whose words are all in the next code line (identifiers split on case and
   `_`, with a few verb synonyms such as increment for `+=`), and that gives no reason (no "because", "so", ...).
-- `banner`: decoration-only comment lines (`#####`, `// ------`) and titles boxed in decoration.
+- `banner`: rules (one decoration character repeated, flush with the marker: `#####`, `// ------`) and titles
+  boxed in them. Waveforms, table separators, boxes and arrows built from the same characters are comment art and
+  never match.
 - `boilerplate`: header fields that repeat what git records (File, Author, Date, Revision, `$Id$`...).
   Licence and copyright lines are never touched.
 - `stale_todo`: TODO / FIXME / XXX / HACK whose line `git blame` dates older than `stale_todo_days`.
@@ -140,12 +142,37 @@ def _c_prose(t: str) -> bool:
     """A C/HDL comment line that is a sentence even though it ends in `;` or holds `=`: three plain words in a
     row (`so a short bound suffices;`) that are not a declaration (`unsigned long long`), a dash, or a
     `Label: text` lead."""
-    if re.search(r"[–—]|\s--\s", t) or re.match(r"^\s*[A-Z][a-z]+(\s[a-z]+)*:\s+[a-z]", t):
+    if re.search(r"[–—]|\s--\s", t) or re.match(r"^\s*[A-Z][a-z]+(-[a-z]+)?(\s[a-z]+)*:\s+[a-z]", t):
         return True
     words = t.split()
     for k in range(len(words) - 2):
         w = words[k:k + 3]
         if all(re.fullmatch(r"[a-z]+", x) for x in w) and sum(x in _C_WORDS for x in w) <= 1:
+            return True
+    return False
+
+
+_SCRIPT_WORDS = _C_WORDS | set("if then else elif fi for in do done case esac while until set proc return puts "
+                               "foreach expr echo export source local include ifeq ifneq endif define".split())
+
+
+def _sentence(t: str) -> bool:
+    """Review Q-4 (sampled from tidelink 3d4748fc): a code-looking comment line that is a sentence. It ends in a
+    word and a full stop (`... raw X behaviour.`), carries an arrow, a section sign or a dash (`delta==0 =>
+    frozen`), opens a parenthesis with two plain words (`(hold until ...`), says `VAR=1 : text`, or holds three
+    plain words in a row that are not keywords (`and hclk does`). Quoted text is ignored."""
+    u = re.sub(r"\"[^\"]*\"|'[^']*'", "\"\"", t)
+    if re.search(r"[A-Za-z]{2,}\)?\.\s*$", u) or re.search(r"\s(=>|->|→|≫|<-)\s|§|[–—]|\s--\s", u):
+        return True
+    if re.match(r"^\s*[A-Za-z_]\w*=\S*\s+:\s", u):
+        return True
+    m = re.search(r"\(([a-z]{2,})\s+([a-z]{2,})\b", u)
+    if m and not any(w in _C_WORDS for w in m.groups()) or re.search(r"\((see|e\.g\.|i\.e\.|cf\.)\s", u):
+        return True
+    words = u.split()
+    for k in range(len(words) - 2):
+        w = words[k:k + 3]
+        if all(re.fullmatch(r"[A-Za-z][a-z]+", x) for x in w) and sum(x.lower() in _SCRIPT_WORDS for x in w) <= 1:
             return True
     return False
 
@@ -169,7 +196,7 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
             value = t.split("=", 1)[1].strip()
             if len(value.split()) > 3 and not re.search(r"[$/\\\"'(){}\[\]]", value):
                 return False, False                       # "ROM_RUN_DIR= still wins over both"
-    if language in ("verilog", "c") and _c_prose(t):
+    if (language in ("verilog", "c") and _c_prose(t)) or _sentence(t):
         return False, False
     if language in ("verilog", "c"):
         strong = bool(_ASSIGN_STMT.match(t) or _CALL_STMT.match(t) or
@@ -335,22 +362,51 @@ def _restates(doc: Doc, b: _Block) -> list[dict]:
 # ---------------------------------------------------------------------------------------------------------
 # Banners and boilerplate
 # ---------------------------------------------------------------------------------------------------------
-_DECOR = re.compile(r"^[\s\-=*#/_~+<>.|:\\]*$")
-_TITLED = re.compile(r"^\s*[-=*#/_~+<>]{3,}\s*(\S.*?)\s*[-=*#/_~+<>]{3,}\s*$")
+# A rule is one decoration character repeated (`-----`, `=====`, `#####`, `/* *** */`), flush with the comment
+# marker. Anything else built from the same characters is comment art and stays: a waveform (`__   ___`, an
+# indented `______`), a table separator (`|----|----|`), a box or an arrow (`+----+`, `|<---->|`). Review Q-1.
+_RULE = set("-=*#/~+.")
+_MARKS = set("#/*")
+_TITLED = re.compile(r"^\s?([-=*#/~+])\1{2,}\s*(\S.*?)\s*([-=*#/~+])\3{2,}\s*$")
 _LEGAL = re.compile(r"copyright|licen[cs]e|spdx|all rights reserved|warranty|confidential|proprietary", re.I)
 _FIELD = re.compile(r"^\s*[*#/]*\s*(file\s*name|filename|file|author\(?s?\)?|date|created(\s+on|\s+by)?|"
                     r"create\s+date|modified(\s+by|\s+on)?|last\s+modified|last\s+updated|revision|rev|"
                     r"tool\s+versions?|engineer|\$id|\$revision|\$date|\$author|\$header)\s*[:=$]", re.I)
 
 
+def _rule_body(body: str, minlen: int = 3) -> bool:
+    lead = len(body) - len(body.lstrip())
+    t = body.strip()
+    if lead > 1 or len(t) < minlen or set(t) - _RULE:          # a space is not a rule character
+        return False
+    return len(set(t) - _MARKS) <= 1
+
+
 def _decor(text: str) -> bool:
-    t = text.strip()
-    return len(t) >= 3 and bool(_DECOR.match(t))
+    """A comment line's text (marker removed, stripped) is a rule."""
+    return _rule_body(text)
+
+
+def _body(line: str) -> str:
+    """The line after its comment marker, indent kept (the lexer's comment text is stripped)."""
+    t = line.strip()
+    m = re.match(r"^(//+|#+|/\*+|\*+|;+)", t)
+    return t[m.end():] if m else t
+
+
+def _titled(line: str):
+    """`// ===== Setup =====`: the title, when the line is one, flush with its marker and holding a word."""
+    m = _TITLED.match(_body(line))
+    return m.group(2) if m and re.search(r"[A-Za-z0-9]", m.group(2)) else None
 
 
 def _raw_decor(line: str) -> bool:
-    t = line.strip()
-    return len(t) >= 6 and bool(_DECOR.match(t))
+    """A whole source line is a rule (`##########`, `//------`, ` * ------ */` inside a block comment, `# ---- #`)."""
+    t = re.sub(r"\s+(\*+/|#+|//+)$", "", line.strip())
+    body = _body(t)
+    if not body.strip():
+        return len(t) >= 6 and not (set(t) - _RULE)
+    return _rule_body(body)
 
 
 def _banner(doc: Doc, b: _Block) -> list[dict]:
@@ -360,12 +416,11 @@ def _banner(doc: Doc, b: _Block) -> list[dict]:
     deco, titled = [], []
     for i in range(b.start, b.end + 1):
         raw = lines[i - 1]
-        t = b.texts[i - b.start] if i - b.start < len(b.texts) else ""
         if _LEGAL.search(raw):
             continue
-        if (b.style == "line" and (_decor(t) or _raw_decor(raw))) or (b.style == "block" and _raw_decor(raw)):
+        if _raw_decor(raw):                                # the raw line: comment text has lost its indent
             deco.append(i)
-        elif b.style == "line" and _TITLED.match(t):
+        elif b.style == "line" and _titled(raw):
             titled.append(i)
     if not deco and not titled:
         return []
@@ -380,7 +435,7 @@ def _banner(doc: Doc, b: _Block) -> list[dict]:
             if i in titled:
                 indent = raw[:len(raw) - len(raw.lstrip())]
                 marker = _marker(raw)
-                new.append("%s%s %s" % (indent, marker, _TITLED.match(b.texts[i - b.start]).group(1)))
+                new.append("%s%s %s" % (indent, marker, _titled(raw)))
                 continue
             new.append(raw)
         if b.style == "block" and deco and set(range(b.start, b.end + 1)) <= set(deco):

@@ -189,3 +189,71 @@ def test_a_single_code_looking_line_is_reported_without_an_edit(tmp_path):
     repo = make_repo(tmp_path / "r", {"t.py": "def f(m):\n    # slot0 = 0x1\n    m.write(8, 1)\n"})
     f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
     assert [(x["line"], x["edit"]) for x in f] == [(2, None)]
+
+
+# Review Q-1 (taken from tidelink 3d4748fc): comment art made of the same characters as a banner. A patch may
+# delete only the rules around a heading, never a waveform, a table separator or a box drawing.
+ART = {
+    "wave.v": "module w;\n/*\nWrite\n\n    __    ___ ___ ___         ___ ___    __\nsda   \\__/___X___X___\\___/___X___\\__/\n"
+              "    ____   _   _   _   _   _   _   ____\nscl     \\_/ \\_/ \\_/ \\_/ \\_/ \\_/ \\_/\n*/\n"
+              "// PHY_STATE_LOCK\n//         ______\n// lock __/      \\__\nendmodule\n",
+    "tbl.v": "module t;\n// | reg   | meaning       |\n// |-------|---------------|\n// | 0x00  | prescale      |\n"
+             "endmodule\n",
+    "box.sv": "module b;\n//   +--------------+      +--------------+\n"
+              "//   |              |<------->|              |\n//   |  master      |      |  slave       |\n"
+              "//   +--------------+      +--------------+\nendmodule\n",
+    # each line below fails exactly one test of a rule: indented, gapped, a non-rule character, two characters
+    "one.v": "module o;\n// clk high\n//        ----------\n// reg  value   mask\n// ---  ------  ----\n// ||||||||||||\n"
+             "// +----------+\nendmodule\n",
+    "hash.py": "# ---------------------------------------- #\n# Build registry\n#\nX = 1\n",
+    "rule.py": "# ------------------------------------------------\n# Helpers\n"
+               "# ------------------------------------------------\nX = 1\n",
+}
+
+
+def test_banner_edit_never_deletes_comment_art(tmp_path):
+    repo = make_repo(tmp_path / "r", ART)
+    out = tmp_path / "fix.diff"
+    CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--kind", "banner", "--patch", str(out)])
+    removed = [ln[1:] for ln in out.read_text().splitlines() if ln.startswith("-") and not ln.startswith("---")]
+    assert sorted(removed) == ["# " + "-" * 40 + " #"] + ["# " + "-" * 48] * 2, \
+        "only the rules around the heading go: %s" % removed
+
+
+def test_licence_text_on_a_header_field_line_is_never_edited(tmp_path):
+    """Review Q-2: _FIELD and _LEGAL hit the same line, so only the licence guard keeps it."""
+    lic = "# Author: Jane Doe, Copyright (c) 2024 Acme Ltd. All rights reserved."
+    titled = "# ===== Copyright 2024 Acme Ltd ====="
+    repo = make_repo(tmp_path / "r", {"tool.py": "%s\n# Date: 2019-01-01\nX = 1\n\n%s\nY = 2\n" % (lic, titled)})
+    out = tmp_path / "fix.diff"
+    CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--patch", str(out)])
+    removed = [ln[1:] for ln in out.read_text().splitlines() if ln.startswith("-") and not ln.startswith("---")]
+    assert removed == ["# Date: 2019-01-01"], removed
+
+
+def test_patch_out_never_follows_a_dangling_symlink(tmp_path):
+    """Review Q-7: Path.exists() is False for a dangling link; the write must still refuse it."""
+    repo = make_repo(tmp_path / "r", CASES["banner"][0])
+    victim, link = tmp_path / "victim.txt", tmp_path / "link.diff"
+    link.symlink_to(victim)
+    res = CliRunner().invoke(main, ["quality", "comments", "--path", str(repo), "--patch", str(link)])
+    assert res.exit_code == 3 and not victim.exists(), (res.exit_code, res.output)
+
+
+# Review Q-4: prose that reads as code on its own line (sampled from tidelink 3d4748fc), one rule each.
+SENTENCES = {
+    "end.xdc": "# set_input_delay -min/-max (the 2026-05-05 hold-violation trap).\nset x 1\n",
+    "arrow.sh": "#!/bin/sh\n# SOC=kr260   -> kr260-pair-{,flip-}{ptp,nptp}, selected by PTP=1|0\necho hi\n",
+    "help.sh": "#!/bin/sh\n# SWAP=1 : deploy die_b(flip) to MASTER_IP and die_a(non-flip) to SLAVE_IP\necho hi\n",
+    "paren.sv": "module p;\n// Active-high reset for IDELAYCTRL (hold until idelay_ref_clk is stable;\nendmodule\n",
+    "see.v": "module s;\n// Wiring (see tidelink_design.tcl): clk_wiz_0/clk_out1 (25 MHz) feeds clk_in;\nendmodule\n",
+    "run.xdc": "# set_clock_groups -asynchronous between pad_clk_rx and hclk does NOT\nset x 1\n",
+    "label.sv": "module l;\n// Peer-byte captures: if capture_en pulses, latch axl_rdata_r[7:0];\nendmodule\n",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SENTENCES))
+def test_a_sentence_that_starts_like_code_is_not_commented_out_code(name, tmp_path):
+    repo = make_repo(tmp_path / "r", {name: SENTENCES[name]})
+    f = [x for x in quality.comments(None, path=repo)["fact"]["findings"] if x["kind"] == "commented_out_code"]
+    assert f == [], f

@@ -7,7 +7,7 @@
   <div class="tile"><div class="num">{{ d.outliers|length }}</div><div class="lbl"><a href="{{ qurl(target, 'density', ref=ref) }}">outlier files</a></div></div>
   <div class="tile"><div class="num">{{ c.total }}</div><div class="lbl"><a href="{{ qurl(target, 'comments', ref=ref) }}">comment findings</a></div>{{ sparkline(trends.comments|map(attribute='value')|list) }}</div>
   <div class="tile"><div class="num">{{ m.mismatch_count }}</div><div class="lbl"><a href="{{ qurl(target, 'readme', ref=ref) }}">README mismatches</a> in {{ m.readmes|length }} README(s)</div></div>
-  <div class="tile"><div class="num">{{ '%.1f'|format(s.score) }}</div><div class="lbl"><a href="{{ qurl(target, 'docs', ref=ref) }}">doc score</a> (100 = concise)</div>{{ sparkline(trends.docs|map(attribute='value')|list) }}</div>
+  <div class="tile"><div class="num">{{ '%.1f'|format(s.score) if s.words else '-' }}</div><div class="lbl"><a href="{{ qurl(target, 'docs', ref=ref) }}">doc score</a> (100 = concise)</div>{{ sparkline(trends.docs|map(attribute='value')|list) }}</div>
 </div>
 <h2>Languages</h2>
 <table>

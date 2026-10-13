@@ -208,7 +208,8 @@ def trend(kind: str, target: str, *, config=None) -> list[dict[str, Any]]:
     for d in stored(kind, target, config=config):
         f = d["fact"]
         value = {"quality_density": lambda: f["totals"]["ratio"], "quality_finding": lambda: f["total"],
-                 "readme_check": lambda: f["mismatch_count"], "doc_score": lambda: f["score"]}[d["kind"]]()
+                 "readme_check": lambda: f["mismatch_count"],
+                 "doc_score": lambda: f["score"] if f["words"] else None}[d["kind"]]()   # no words: no point
         rows.append({"commit": f["commit"], "worktree": f["worktree"], "observed_at": d["observed_at"],
                      "value": value, "subject": d["subject"]})
     return rows

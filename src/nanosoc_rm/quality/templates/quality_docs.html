@@ -1,7 +1,7 @@
 {% include "_qstyle.html" %}
 {% set here = 'docs' %}
 {% include "_qnav.html" %}
-<p>Score 0 to 100, higher is more concise: filler and hedge words, sentences over 25 words, passive voice, repeated sentences and paragraphs duplicated in another file all cost points. Repository score {{ '%.1f'|format(f.score) }} (word-weighted) over {{ f.words }} words. A shorter rewrite per section: <code>nanosoc-rm quality docs {{ target }} --rewrite --patch OUT.diff</code> (needs an Anthropic API key).</p>
+<p>Score 0 to 100, higher is more concise: filler and hedge words, sentences over 25 words, passive voice, repeated sentences and paragraphs duplicated in another file all cost points. {% if f.words %}Repository score {{ '%.1f'|format(f.score) }} (word-weighted) over {{ f.words }} words.{% else %}No Markdown words to score: nothing measured.{% endif %} A shorter rewrite per section: <code>nanosoc-rm quality docs {{ target }} --rewrite --patch OUT.diff</code> (needs an Anthropic API key).</p>
 <div class="scroll"><table class="sortable" data-quality="docs">
   <thead><tr><th>File</th><th class="num">Score</th><th class="num">Words</th><th class="num">Mean sentence</th><th class="num">Filler /100 words</th><th class="num">Passive</th><th class="num">Repeated</th><th class="num">Duplicated paras</th><th>Worst section</th></tr></thead>
   <tbody>

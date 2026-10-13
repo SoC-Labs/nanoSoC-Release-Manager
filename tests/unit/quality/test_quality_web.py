@@ -104,7 +104,7 @@ def test_mirror_namespace_ref_resolution(tmp_path):
 
 def test_cli_all_stores_every_kind(site):
     res = CliRunner().invoke(main, ["quality", "all", "demo", "--store"])
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, "findings exit 1, as each single command does (interfaces 14a): %s" % res.output
     assert [ln.split()[0] for ln in res.output.splitlines()] == ["density", "comments", "readme", "docs"]
     for kind in quality.KINDS.values():
         assert len(db.latest(kind, "%s:demo:" % kind, config=site["cfg"])) == 1

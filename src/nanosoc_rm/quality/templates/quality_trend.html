@@ -15,7 +15,7 @@
   {% set any = r.density or r.comments or r.readme or r.docs %}
   <tr data-commit="{{ any.fact.commit or '' }}"><td>{{ fact(any, any.observed_at) }}</td><td><code>{{ short(any.fact.commit) if any.fact.commit else 'no commit' }}</code>{% if any.fact.worktree %} + work tree{% endif %}</td>
     <td class="num">{{ pct(r.density.fact.totals.ratio) if r.density else '-' }}</td><td class="num">{{ r.comments.fact.total if r.comments else '-' }}</td>
-    <td class="num">{{ r.readme.fact.mismatch_count if r.readme else '-' }}</td><td class="num">{{ '%.1f'|format(r.docs.fact.score) if r.docs else '-' }}</td></tr>
+    <td class="num">{{ r.readme.fact.mismatch_count if r.readme else '-' }}</td><td class="num">{{ '%.1f'|format(r.docs.fact.score) if r.docs and r.docs.fact.words else '-' }}</td></tr>
 {% else %}<tr><td colspan="6">Nothing stored yet for {{ target }}.</td></tr>
 {% endfor %}
   </tbody>

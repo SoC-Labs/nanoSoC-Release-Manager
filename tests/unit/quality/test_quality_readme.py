@@ -143,3 +143,72 @@ def test_flow_and_script_checks_follow_cd_built_files_and_skip_prose(tmp_path):
         got
     ok = {(c["kind"], c["token"], c["detail"]) for c in f["checks"] if c["status"] == "ok"}
     assert ("flow", "make bscan-sim", "Makefile -> verif/bscan/run.sh") in ok, "the recipe's cd is followed"
+
+
+CURATED = """# Link
+
+## Repository Structure
+
+Everything below builds from the top Makefile.
+
+```
+link/
+├── src/rtl/
+│   ├── top.sv              # Top-level chiplet subsystem
+│   └── fifo/               # FIFO subsystem
+├── lint/                   # HAL (Cadence) RTL lint
+├── python/link/            # Shared Python package
+├── docs/
+│   └── SPEC.md             # Full specification (moved away)
+└── .gitlab-ci.yml          # CI pipeline
+```
+
+- `uvm/`: UVM verification (4 environments)
+
+## Licence
+
+MIT
+"""
+
+
+def test_layout_patch_keeps_the_curated_descriptions(tmp_path):
+    """Review Q-3: replacing a hand-written structure section must not drop what it says about entries that
+    still exist; only entries gone from the tree lose their line."""
+    files = {"README.md": CURATED, "src/rtl/top.sv": "module top;\nendmodule\n",
+             "src/rtl/fifo/f.sv": "module f;\nendmodule\n", "lint/run.tcl": "puts x\n", "uvm/env.sv": "\n",
+             "python/link/__init__.py": "\n", ".gitlab-ci.yml": "x: 1\n", "docs/other.md": "# Other\n"}
+    repo = make_repo(tmp_path / "r", files)
+    out = tmp_path / "layout.diff"
+    CliRunner().invoke(main, ["quality", "readme", "--path", str(repo), "--patch", str(out)])
+    git("apply", str(out), cwd=repo)
+    text = (repo / "README.md").read_text()
+    for kept in ("## Repository Structure", "Everything below builds from the top Makefile.",
+                 "- `lint/`: HAL (Cadence) RTL lint", "- `uvm/`: UVM verification (4 environments)",
+                 "`src/rtl/top.sv`: Top-level chiplet subsystem", "`src/rtl/fifo/`: FIFO subsystem",
+                 "`python/link/`: Shared Python package", "`.gitlab-ci.yml`: CI pipeline", "## Licence"):
+        assert kept in text, "%r was dropped:\n%s" % (kept, text)
+    assert "SPEC.md" not in text, "an entry gone from the tree loses its line"
+    assert layout_patch(WorktreeSource(repo)) == "", "the merged section is stable"
+
+
+def test_layout_patch_keeps_table_descriptions_and_drops_the_table(tmp_path):
+    readme = "# R\n\n## Layout\n\n| Path | Purpose |\n|------|---------|\n| `src/` | RTL sources |\n| `gone/` | old |\n"
+    repo = make_repo(tmp_path / "r", {"README.md": readme, "src/a.sv": "\n"})
+    sec = layout_section(WorktreeSource(repo))["markdown"]
+    assert "- `src/`: RTL sources" in sec and "|" not in sec and "gone" not in sec, sec
+
+
+def test_a_makefile_in_a_code_span_is_a_path_not_a_script(tmp_path):
+    """Review Q-6: `cocotb/Makefile regression` names a Makefile; it is never asked to be executable."""
+    files = {"README.md": "Run it (separate from `cocotb/Makefile regression`).\n",
+             "cocotb/Makefile": "regression:\n\t@echo ok\n"}
+    f = quality.readme(None, path=make_repo(tmp_path / "r", files))["fact"]
+    assert f["mismatches"] == [], f["mismatches"]
+    assert ("path", "cocotb/Makefile", "ok") in {(c["kind"], c["token"], c["status"]) for c in f["checks"]}, f["checks"]
+
+
+def test_layout_keeps_a_description_inside_a_submodule(tmp_path):
+    """A submodule's tree is not read, so an entry drawn inside one is kept with its description."""
+    readme = "## Layout\n\n```\n└── deps/ctl/\n    └── hw/     # Chisel source\n```\n"
+    repo = make_repo(tmp_path / "r", {"README.md": readme}, gitlinks={"deps/ctl": SUB_SHA})
+    assert "- `deps/ctl/hw/`: Chisel source" in layout_section(WorktreeSource(repo))["markdown"]

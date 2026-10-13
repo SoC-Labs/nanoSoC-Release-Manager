@@ -16,6 +16,7 @@ doc under 60), 2 could not answer, 3 usage or config error.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -56,12 +57,17 @@ def _guard(fn):
 
 def _write_patch(out: str, text: str) -> None:
     p = Path(out)
-    if p.exists():
+    if p.exists() or p.is_symlink():
         raise click.UsageError("%s exists: give a new file for the patch" % out)
     if not text.strip():
         click.echo("patch: nothing to patch (no mechanical edits); %s not written" % out, err=True)
         return
-    p.write_text(text)
+    try:                                                  # O_EXCL|O_NOFOLLOW: no race onto a link or a file
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    except FileExistsError:
+        raise click.UsageError("%s exists: give a new file for the patch" % out) from None
+    with os.fdopen(fd, "w") as fh:
+        fh.write(text)
     n = sum(1 for ln in text.splitlines() if ln.startswith("diff --git "))
     click.echo("patch: %s (%d file%s); review it, then `git apply %s`" % (out, n, "" if n == 1 else "s", out),
                err=True)
@@ -203,8 +209,12 @@ def register(main: click.Group) -> None:
             for r in f["files"]:
                 click.echo(json.dumps({k: v for k, v in r.items() if k != "sections"}, separators=(",", ":")))
         else:
-            click.echo("%s: %d Markdown files, %d words, score %.1f (word-weighted; 100 = concise)"
-                       % (_head(obs), len(f["files"]), f["words"], f["score"]))
+            if not f["words"]:
+                click.echo("%s: no Markdown words to score (%d files): nothing measured"
+                           % (_head(obs), len(f["files"])))
+            else:
+                click.echo("%s: %d Markdown files, %d words, score %.1f (word-weighted; 100 = concise)"
+                           % (_head(obs), len(f["files"]), f["words"], f["score"]))
             click.echo(table(f["files"][:top], ("path", "score", "words", "mean_sentence", "filler_per_100",
                                                 "passive_share", "repeated", "duplicated")))
             if f["duplicates"]:
@@ -239,13 +249,19 @@ def register(main: click.Group) -> None:
             if err is not None:
                 return err
             f = obs["fact"]
+            found = {"density": lambda: f["outliers"], "comments": lambda: f["total"],
+                     "readme": lambda: f["mismatch_count"],
+                     "docs": lambda: any(r["score"] < DOC_FLOOR for r in f["files"])}[kind]()
+            if found:
+                code = EXIT_FINDING                       # the exit each single command gives (interfaces 14a)
             if as_json:
                 click.echo(json.dumps(obs, separators=(",", ":")))
                 continue
             line = {"density": lambda: "comment ratio %.3f, %d outlier files" % (f["totals"]["ratio"], len(f["outliers"])),
                     "comments": lambda: "%d findings %s" % (f["total"], f["counts"]),
                     "readme": lambda: "%d mismatches in %d README(s)" % (f["mismatch_count"], len(f["readmes"])),
-                    "docs": lambda: "doc score %.1f over %d files" % (f["score"], len(f["files"]))}[kind]()
+                    "docs": lambda: ("doc score %.1f over %d files" % (f["score"], len(f["files"])) if f["words"]
+                                     else "no Markdown words to score: nothing measured")}[kind]()
             click.echo("%-9s %s: %s%s" % (kind, _head(obs), line, "  [stored]" if store else ""))
         return code
 
