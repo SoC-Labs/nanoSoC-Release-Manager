@@ -434,6 +434,11 @@ Observed 2026-09-30 with read-only calls, and re-checked the same evening. Contr
    | 4 | `bump_bot` | `/bumps`, `bump` |
    | 5 | `soc_release` | `/releases`, `/trains`, `/forks`, `lock`, `forks` |
 
+   Rule 4 also counts an automation a scheduler job REACHES under any name (`phasegates.automation_reached`:
+   the job's code imports `nanosoc_rm.matrix` or names the `matrix-cell` job kind, or `NIGHTLY.enabled` is True).
+   Negative control: a job named `matrix` that queues the matrix is caught. Limit: an automation with no code yet
+   (Phases 3 to 5) is matched by name only (interfaces.md 17.6).
+
 **Fixture**
 - Real: REQUIREMENTS.md, the tool repo's log, and the proposal's §9 entry gates. For example, Phase 2: generator deterministic, runner ephemeral with a fresh HOME, CPU-budgeted host.
 - The register exists (`test_selfcheck_phase_gate_register` checks its shape and that its capabilities are exactly the later-phase requirement IDs). No phase has met its gate, which is correct before v1 is built.

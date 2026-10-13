@@ -221,7 +221,8 @@
    "host": {
     "cpus": 16,
     "load_end": 39.98,
-    "load_start": 40.8
+    "load_start": 40.8,
+    "overloaded": false
    },
    "moved": [],
    "nonce": "fcdd5dbe635373ddeccb7e691d13631d",
@@ -626,7 +627,8 @@
    "host": {
     "cpus": 16,
     "load_end": 50.96,
-    "load_start": 39.98
+    "load_start": 39.98,
+    "overloaded": false
    },
    "moved": [],
    "nonce": "de4dbde8b576e9918a67289b1f1fead5",
@@ -1078,7 +1080,8 @@
   "host": {
    "cpus": 16,
    "load_end": 50.96,
-   "load_start": 39.98
+   "load_start": 39.98,
+   "overloaded": false
   },
   "ip_hash": null,
   "ip_hash_note": "T0 reads no IP file list, so there is no IP hash to record",

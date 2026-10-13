@@ -116,11 +116,19 @@ def _print_view(doc: dict) -> None:
     click.echo("nightly matrix: %s (%s)" % ("ENABLED" if n["enabled"] else "DISABLED", n["gate"]))
 
 
+K_GREEN = ("PASS", "WARN", "WAIVED")                      # cells.GREEN
+
+
 def _view_exit(doc: dict) -> int:
     vs = [cv["verdict"] for r in doc["fact"]["rows"] for cv in r["cells"].values()] + [doc["fact"]["pinned"]["verdict"]]
+    # section 0.2: a finding wins over could-not-answer, which wins over a clean answer. UNVERIFIED (a moved pin,
+    # D4) and INFRA (the host, D7) cells did not answer; NOT-RUN (no commit to run) is neither an answer nor a
+    # failure to answer. Green needs at least one green cell.
     if any(v in ("FAIL", "FLAKY") for v in vs):
         return EXIT_FINDING
-    return EXIT_OK if any(v for v in vs) else EXIT_UNVERIFIED
+    if any(v in ("UNVERIFIED", "INFRA") for v in vs):
+        return EXIT_UNVERIFIED
+    return EXIT_OK if any(v in K_GREEN for v in vs) else EXIT_UNVERIFIED
 
 
 def _wait(job_ids: list[int], config) -> None:
@@ -222,12 +230,21 @@ def register(main: click.Group) -> None:
             for a in f["attempts"]:
                 click.echo("  attempt %s: %s (%s .. %s, load %s -> %s on %s cpus)%s" % (
                     a["nonce"][:12], a["verdict"], a["started_at"], a["finished_at"], a["host"]["load_start"],
-                    a["host"]["load_end"], a["host"]["cpus"], ": " + a["reason"] if a["reason"] else ""))
+                    a["host"]["load_end"], a["host"]["cpus"],
+                    (", OVERLOADED" if a["host"].get("overloaded") else "") + (": " + a["reason"] if a["reason"] else "")))
             click.echo("verdict %s%s" % (f["verdict"], ": " + f["reason"] if f["reason"] else ""))
+            cap = (f["provenance"] or {}).get("captured")
+            if cap:
+                pins = cap.get("pins") or []
+                click.echo("D4 capture: %d of %d pins read, %d moved, %d not read%s" % (
+                    sum(1 for p in pins if p["commit"]), len(pins), len(f["provenance"]["moved"]),
+                    sum(1 for p in pins if not p["commit"]), "\n  %s" % cap["note"] if cap.get("note") else ""))
             if f["comparison"]:
                 b = f["baseline"]
                 click.echo("D9 baseline: %s" % ("pinned run %s (%s)" % (b["nonce"], b["verdict"]) if b
                                                 else f["comparison"]["note"]))
+                if b and f["comparison"]["note"]:
+                    click.echo("  %s" % f["comparison"]["note"])
                 for r in f["comparison"]["rows"]:
                     if r["change"] != "same":
                         click.echo("  %s: %s -> %s (%s)" % (r["gate"], r["baseline"], r["cell"], r["change"]))

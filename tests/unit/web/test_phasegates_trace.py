@@ -126,11 +126,76 @@ def test_automation_and_register_shape_are_checked():
     assert phasegates.check(nocheck, PHASE_OF, [], [], [])[1]["problems"] == ["Phase 3: criterion 'c' has no check"]
 
 
+def _jobs_module(tmp_path, name, body):
+    """A scheduler job table written as its own module (the check reads what the job's code imports)."""
+    import importlib.util
+    f = tmp_path / ("%s.py" % name)
+    f.write_text("from nanosoc_rm.schedule import Job\n" + body)
+    spec = importlib.util.spec_from_file_location(name, f)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.JOBS
+
+
+def test_a_later_phase_automation_is_found_by_what_a_job_runs_not_by_its_name(tmp_path, monkeypatch):
+    """Review item 1: a job under any name that reaches the matrix (its package, or its job kind through the job
+    runner), or the shipped NIGHTLY flag turned on, enables `nightly_matrix`. The real scheduler reaches none."""
+    import dataclasses
+
+    from nanosoc_rm import matrix as M
+    from nanosoc_rm.schedule import JOBS
+    assert phasegates.automation_reached(JOBS) == {}
+    named_other = _jobs_module(tmp_path, "jobs_named_other", (
+        'JOBS = (Job("matrix", "nightly", lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"])'
+        '.queue("eth-rc4", by="nightly", config=c)),)\n'))
+    got = phasegates.automation_reached(named_other)
+    assert set(got) == {"nightly_matrix"} and "`matrix`" in got["nightly_matrix"], got
+    via_kind = _jobs_module(tmp_path, "jobs_via_kind", (
+        "def _nightly_t0(c):\n    from nanosoc_rm import jobs\n"
+        '    jobs.submit(c, "matrix-cell", {"configuration": "x", "column": "pinned"}, "nightly")\n'
+        'JOBS = (Job("nightly_t0", "nightly", _nightly_t0),)\n'))
+    assert set(phasegates.automation_reached(via_kind)) == {"nightly_matrix"}
+    from_import = _jobs_module(tmp_path, "jobs_from_import", (
+        "def _sweep(c):\n    from nanosoc_rm.matrix import queue\n    queue('x', by='n', config=c)\n"
+        'JOBS = (Job("sweep", "nightly", _sweep),)\n'))
+    assert set(phasegates.automation_reached(from_import)) == {"nightly_matrix"}
+    # through a helper module next to the job's own (any depth), and not for a job that only uses the job runner
+    monkeypatch.syspath_prepend(str(tmp_path))
+    (tmp_path / "sweep_helper.py").write_text("def go(c):\n    from nanosoc_rm import matrix\n    matrix.queue('x', by='n')\n")
+    via_helper = _jobs_module(tmp_path, "jobs_via_helper", (
+        "import sweep_helper\nJOBS = (Job(\"poll\", \"poll\", sweep_helper.go),)\n"))
+    assert "sweep_helper" in phasegates.automation_reached(via_helper).get("nightly_matrix", ""), \
+        phasegates.automation_reached(via_helper)
+    (tmp_path / "plain_helper.py").write_text("from nanosoc_rm import jobs\ndef go(c):\n    pass\n")
+    via_plain = _jobs_module(tmp_path, "jobs_via_plain", (
+        "import plain_helper\ndef _t0(c):\n    from nanosoc_rm import jobs\n"
+        '    jobs.submit(c, "compat", {"configuration": "x"}, "nightly")\n'
+        'JOBS = (Job("nightly_t0", "nightly", _t0), Job("poll", "poll", plain_helper.go))\n'))
+    assert phasegates.automation_reached(via_plain) == {}          # the runner's kind table is not a queue call
+    res = phasegates.check(gates(), PHASE_OF, [], [], [], automation=phasegates.automation_in_use(named_other))
+    assert len(res[0]["problems"]) == 1 and "`nightly_matrix` is enabled" in res[0]["problems"][0], res[0]
+    assert "`matrix`" in res[0]["problems"][0]
+    monkeypatch.setattr(M, "NIGHTLY", dataclasses.replace(M.NIGHTLY, enabled=True))
+    assert "NIGHTLY.enabled" in phasegates.automation_reached(JOBS)["nightly_matrix"]
+
+
 def test_this_repo_meets_a7_with_the_real_app_and_cli():
     res = phasegates.check_repo(REPO)
     assert [r["phase"] for r in res] == list(LATER)
     assert all(r["problems"] == [] for r in res), res
     assert "/" in phasegates.app_routes() and "phase-gates" in phasegates.cli_commands()
+
+
+def test_check_repo_reads_what_the_scheduler_reaches_by_default(monkeypatch):
+    """Review item 1 on the path `nanosoc-rm phase-gates` takes: with no `automation` given, check_repo judges what
+    schedule.JOBS reaches, so a job under another name that queues the matrix turns Phase 2 red."""
+    from nanosoc_rm import schedule
+    sweep = schedule.Job("matrix", "nightly",
+                         lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"]).queue("x", by="n", config=c))
+    monkeypatch.setattr(schedule, "JOBS", schedule.JOBS + (sweep,))
+    res = phasegates.check_repo(REPO)
+    probs = [p for r in res for p in r["problems"]]
+    assert len(probs) == 1 and "`nightly_matrix` is enabled" in probs[0] and "`matrix`" in probs[0], probs
 
 
 def _cli(*args, cwd=None):

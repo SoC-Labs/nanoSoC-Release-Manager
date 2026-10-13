@@ -197,3 +197,86 @@ def test_a_ci_deployment_shows_the_command_and_refuses_the_post(clean, tmp_path)
         r = c.get("/matrix/top-main")
         assert r.status_code == 200 and "data-matrix-run" not in r.text and "--run --wait" in r.text
         assert c.post("/matrix/top-main/run", data={"scope": "all"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Review fixes (2026-10-13)
+# ---------------------------------------------------------------------------------------------------------
+def _view_doc(*verdicts, pinned=None):
+    return {"fact": {"pinned": {"verdict": pinned},
+                     "rows": [{"cells": {"c%d" % i: {"verdict": v} for i, v in enumerate(verdicts)}}]}}
+
+
+@pytest.mark.parametrize("verdicts,pinned,code", [
+    (("PASS", "FAIL"), "PASS", 1), (("FLAKY",), "PASS", 1), ((None,), "FAIL", 1), (("PASS", "INFRA"), "PASS", 2),
+    (("UNVERIFIED", "UNVERIFIED"), "UNVERIFIED", 2), (("INFRA",), "INFRA", 2), (("PASS", "NOT-RUN"), "PASS", 0),
+    (("UNVERIFIED", "FAIL"), "PASS", 1), ((None, None), None, 2)])
+def test_view_exit_follows_the_cli_contract(verdicts, pinned, code):
+    """interfaces section 18 and 0.2: a FAIL or FLAKY cell exits 1; else any UNVERIFIED or INFRA cell (could not
+    answer) 2; else a green result 0; no result at all 2. NOT-RUN (no commit to run) is not an answer either way."""
+    from nanosoc_rm.matrix.commands import _view_exit
+    assert _view_exit(_view_doc(*verdicts, pinned=pinned)) == code
+
+
+def test_nightly_plan_runs_head_weekly_only(clean):
+    import datetime as dt
+    with clean.env.active():
+        cfg = load_config()
+        wed = dt.datetime(2026, 10, 14, 2, 0, tzinfo=dt.timezone.utc)
+        sun = dt.datetime(2026, 10, 18, 2, 0, tzinfo=dt.timezone.utc)
+        assert wed.weekday() == 2 and sun.weekday() == 6
+        weekday = M.nightly_plan("top-main", wed, config=cfg)
+        sunday = M.nightly_plan("top-main", sun, config=cfg)
+    assert ("alpha", "head") not in weekday and ("alpha", "in-range") in weekday and (None, "pinned") in weekday
+    assert ("alpha", "head") in sunday
+
+
+def test_run_column_honours_the_component_filter(clean, tmp_path):
+    c, cfg = web_client(clean, tmp_path)
+    with clean.env.active():
+        r = c.post("/matrix/top-main/run", data={"scope": "column", "column": "head", "filter_component": "beta"},
+                   follow_redirects=False)
+        assert r.status_code == 303, r.text
+        got = [(j["params"]["component"], j["params"]["column"]) for j in jobs.jobs(load_config(cfg),
+                                                                                     kind="matrix-cell")]
+        assert got == [(None, "pinned")]                                  # beta's head is the pinned tree
+
+
+def test_cell_page_needs_a_component_except_for_pinned(clean, tmp_path):
+    c, cfgp = web_client(clean, tmp_path)
+    with clean.env.active():
+        r = c.get("/matrix/top-main/cell?column=head")
+        assert r.status_code == 400 and "component" in r.text
+        assert c.get("/matrix/top-main/cell?column=pinned&component=alpha").status_code == 400
+        assert c.get("/matrix/top-main/cell?column=pinned").status_code == 200
+        r = c.post("/matrix/top-main/run", data={"scope": "cell", "column": "head"}, follow_redirects=False)
+        assert r.status_code == 400 and "component" in r.text, (r.status_code, r.text)
+        assert jobs.jobs(load_config(cfgp), kind="matrix-cell") == []
+
+
+def test_a_run_that_queues_nothing_says_so(clean, tmp_path):
+    c, _ = web_client(clean, tmp_path)
+    with clean.env.active():
+        c.post("/matrix/top-main/run", data={"scope": "cell", "column": "pinned"}, follow_redirects=False)
+        r = c.post("/matrix/top-main/run", data={"scope": "row", "component": "beta"}, follow_redirects=False)
+        assert r.status_code == 303 and "queued=0" in r.headers["location"], r.headers["location"]
+        page = c.get(r.headers["location"])
+        assert page.status_code == 200 and "Nothing was queued" in page.text
+
+
+def test_matrix_cli_exits_2_when_every_cell_is_unverified(clean):
+    """Review item 2 (the reviewer's repro): four cells whose capture moved a pin are UNVERIFIED; the grid must
+    not exit 0 (green)."""
+    from test_matrix_cells import FakeCompat, fake_result
+
+    def moved(run_dir, root, requested, overrides, scratch):
+        pins = [{"tree_path": r["tree_path"], "commit": r["commit"]} for r in requested]
+        pins[0]["commit"] = "f" * 40
+        return {"superproject_commit": root, "pins": pins}
+    for col, comp in (("pinned", None), ("head", "alpha"), ("in-range", "alpha"), ("latest-tag", "alpha")):
+        f = clean.run_cell(col, comp, compat_fn=FakeCompat(fake_result(clean, "PASS")), capture_fn=moved,
+                           store=True)[0]["fact"]
+        assert f["verdict"] == "UNVERIFIED", f["reason"]
+    with clean.env.active():
+        r = CliRunner().invoke(main, ["matrix", "top-main"])
+    assert "UNVERIF" in r.output and r.exit_code == 2, (r.exit_code, r.output)

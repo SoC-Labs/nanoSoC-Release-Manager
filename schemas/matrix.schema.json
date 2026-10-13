@@ -85,7 +85,7 @@
       }
     },
     "tree_commits": {
-      "description": "D4: a tree as a list of commits. `requested`: what the walker resolved (overrides applied). `captured`: what the run's own fetched objects hold, read AFTER the run; null = not read (its parent was not fetched anonymously).",
+      "description": "D4: a tree as a list of commits. `requested`: what the walker resolved (overrides applied). `captured`: what the run's own pin fetches hold, read AFTER the run; null = not read (the run did not fetch that commit, or its parent was not fetched anonymously).",
       "type": "object",
       "required": [
         "superproject_commit",
@@ -115,6 +115,10 @@
               }
             }
           }
+        },
+        "note": {
+          "description": "Optional, on a capture: what this capture can and cannot show (a T0 run cannot move a pin, so its capture only confirms pins or shows them as not read).",
+          "type": "string"
         }
       }
     },
@@ -140,7 +144,7 @@
       }
     },
     "host": {
-      "description": "D4, D7: the host the attempt ran on: CPU count and the 1-minute load at start and end.",
+      "description": "D4, D7: the host the attempt ran on: CPU count, the 1-minute load at start and end, and whether that was an overloaded host.",
       "type": "object",
       "required": [
         "cpus",
@@ -166,6 +170,10 @@
             "null"
           ],
           "minimum": 0
+        },
+        "overloaded": {
+          "description": "D7: the load at start or end was above the overload threshold per CPU (provenance.OVERLOAD_PER_CPU). Optional: absent means not judged.",
+          "type": "boolean"
         }
       }
     },

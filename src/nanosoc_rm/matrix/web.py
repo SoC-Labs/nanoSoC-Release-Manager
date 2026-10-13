@@ -123,6 +123,10 @@ def router() -> APIRouter:
         component, column = q.get("component") or None, q.get("column") or ""
         if column not in M.COLUMNS:
             return _page(request, "matrix_message.html", "Matrix", status=404, message="no column %r" % column)
+        if (column == "pinned") != (component is None):              # as the CLI: exit 3, here a 400
+            return _page(request, "matrix_message.html", "Matrix", status=400,
+                         message="the pinned column takes no component; every other column needs one "
+                                 "(?component=NAME&column=%s)" % column)
         try:
             view = M.matrix(configuration, columns=[column] if column != "pinned" else ["pinned"],
                             components=[component] if component else None, config=config)
@@ -163,6 +167,8 @@ def router() -> APIRouter:
             if scope == "cell":
                 if not col:
                     raise M.MatrixUsage("a cell needs a column")
+                if col != "pinned" and not comp:
+                    raise M.MatrixUsage("a %s cell needs a component (only the pinned cell has none)" % col)
                 kw = {"cells": [(comp if col != "pinned" else None, col)],
                       "components": [comp] if comp and col != "pinned" else None, "columns": [col]}
             elif scope == "row":
@@ -187,7 +193,7 @@ def router() -> APIRouter:
                 return PlainTextResponse("404 Not Found: %s" % e, 404)
             return PlainTextResponse("503 Service Unavailable: %s" % str(e)[:300], 503)
         return RedirectResponse(_murl(configuration, component=back_comps, columns=back_cols,
-                                      queued=len(queued)), 303)
+                                      queued=str(len(queued))), 303)     # "0" kept: nothing queued is said
 
     get, post = ["GET"], ["POST"]
     r.add_api_route("/", index, methods=get, include_in_schema=False)

@@ -28,19 +28,20 @@
 {% if column == 'pinned' %}<p class="note">This is the pinned run: the baseline other cells compare with.</p>
 {% elif comparison and comparison.baseline %}
 <p>Baseline: pinned run <code data-baseline="{{ comparison.baseline.nonce }}">{{ comparison.baseline.nonce }}</code> ({{ comparison.baseline.verdict }}, finished {{ comparison.baseline.finished_at }}).</p>
+{% if comparison.note %}<p class="empty" data-not-compared>{{ comparison.note }}</p>{% else %}
 <table><thead><tr><th>Gate</th><th>Pinned run</th><th>This cell</th><th>Change</th></tr></thead><tbody>
 {% for x in comparison.rows %}<tr data-gate="{{ x.gate }}" data-change="{{ x.change }}"><td><code>{{ x.gate }}</code>{% if x.quarantined %} <span class="badge">quarantined</span>{% endif %}</td>
   <td>{% if x.baseline %}<span class="pill {{ CELL_CLASS.get(x.baseline, '') }}">{{ x.baseline }}</span>{% endif %}</td>
   <td>{% if x.cell %}<span class="pill {{ CELL_CLASS.get(x.cell, '') }}">{{ x.cell }}</span>{% endif %}</td>
   <td>{{ x.change }}</td></tr>{% endfor %}
-</tbody></table>
+</tbody></table>{% endif %}
 {% elif comparison %}<p class="empty">{{ comparison.note }}</p>{% endif %}
 
 <h3>Attempts (D8)</h3>
 {% for a in f.attempts %}
 <div class="panel" data-attempt="{{ loop.index }}">
   <p><strong>Attempt {{ loop.index }}</strong> <code>{{ a.nonce }}</code>: <span class="pill {{ CELL_CLASS.get(a.verdict, '') }}">{{ a.verdict }}</span> {{ a.started_at }} to {{ a.finished_at }}{% if a.over_budget %} <span class="warn">over the 120 s T0 budget</span>{% endif %}{% if a.reason %}<br>{{ a.reason }}{% endif %}</p>
-  <p class="note">Host: {{ a.host.cpus }} CPUs, load {{ a.host.load_start }} at start, {{ a.host.load_end }} at end.</p>
+  <p class="note">Host: {{ a.host.cpus }} CPUs, load {{ a.host.load_start }} at start, {{ a.host.load_end }} at end.{% if a.host.overloaded %} <strong class="warn">Overloaded host (D7)</strong>{% endif %}</p>
   <table><thead><tr><th>Gate</th><th>Verdict</th><th>Detail</th></tr></thead><tbody>
   {% for g in a.gates %}<tr data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}"><td><code>{{ g.id }}</code></td><td><span class="pill {{ CELL_CLASS.get(g.verdict, '') }}">{{ g.verdict }}</span></td><td>{{ g.detail }}</td></tr>{% endfor %}
   </tbody></table>
@@ -54,14 +55,14 @@
   <tr><th>Tools</th><td>{% for k, val in pv.tools|dictsort %}{{ k }} {{ val }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>
   <tr><th>Harness</th><td>{{ pv.harness }}</td></tr>
   <tr><th>IP hash</th><td>{{ pv.ip_hash or 'none' }}{% if pv.ip_hash_note %} <span class="note">({{ pv.ip_hash_note }})</span>{% endif %}</td></tr>
-  <tr><th>Moved pins</th><td>{% if pv.moved %}<span class="pill state-red">UNVERIFIED</span> {% for m in pv.moved %}<code>{{ m.tree_path or '(superproject)' }}</code> requested {{ short(m.requested) }}, read {{ short(m.captured) }}{{ '; ' if not loop.last }}{% endfor %}{% else %}none: every pin the run read is the one requested{% endif %}</td></tr>
+  <tr><th>Moved pins</th><td>{% if pv.moved %}<span class="pill state-red">UNVERIFIED</span> {% for m in pv.moved %}<code>{{ m.tree_path or '(superproject)' }}</code> requested {{ short(m.requested) }}, read {{ short(m.captured) }}{{ '; ' if not loop.last }}{% endfor %}{% else %}{% set unread = (pv.captured.pins|selectattr('commit', 'none')|list|length) if pv.captured else 0 %}none among the pins the run read{% if unread %}; <span data-unread="{{ unread }}">{{ unread }} pin(s) not read</span>{% endif %}{% endif %}{% if pv.captured and pv.captured.note %}<br><span class="note" data-capture-note>{{ pv.captured.note }}</span>{% endif %}</td></tr>
 </table>
 {% if pv.requested and pv.captured %}
 {% set cap = {} %}{% for p in pv.captured.pins %}{% set _ = cap.update({p.tree_path: p.commit}) %}{% endfor %}
 <details><summary>Requested and captured commits ({{ pv.requested.pins|length }} pins)</summary>
 <table><thead><tr><th>Tree path</th><th>Requested</th><th>Captured after the run</th></tr></thead><tbody>
 <tr><td>(superproject)</td><td><code>{{ short(pv.requested.superproject_commit, 12) }}</code></td><td><code>{{ short(pv.captured.superproject_commit, 12) or 'not read' }}</code></td></tr>
-{% for p in pv.requested.pins %}<tr><td><code>{{ p.tree_path }}</code></td><td><code>{{ short(p.commit, 12) }}</code></td><td>{% set c = cap.get(p.tree_path) %}{% if c %}<code>{{ short(c, 12) }}</code>{% else %}<span class="note">not read (parent not fetched anonymously)</span>{% endif %}</td></tr>{% endfor %}
+{% for p in pv.requested.pins %}<tr><td><code>{{ p.tree_path }}</code></td><td><code>{{ short(p.commit, 12) }}</code></td><td>{% set c = cap.get(p.tree_path) %}{% if c %}<code>{{ short(c, 12) }}</code>{% else %}<span class="note">not read (the run did not fetch it)</span>{% endif %}</td></tr>{% endfor %}
 </tbody></table></details>
 {% endif %}
 {% else %}

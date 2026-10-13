@@ -2022,6 +2022,14 @@ def _nc_A7_checker(tmp):
     probs = check_a7(gates, phase_of, [], routes=["/"], cli_commands=["walk"], automation=["poll", "nightly_matrix"])
     assert probs == ["Phase 2: automation `nightly_matrix` is enabled before its entry gate"], probs
     assert check_a7(met, phase_of, [], ["/"], ["walk"], automation=["nightly_matrix"]) == []
+    # a job under another name that queues the matrix enables nightly_matrix all the same (CR-18-matrix-r1)
+    from nanosoc_rm.phasegates import automation_reached
+    from nanosoc_rm.schedule import Job
+    sweep = Job("matrix", "nightly", lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"]).queue("x", by="n"))
+    reached = sorted(automation_reached([sweep]))
+    assert reached == ["nightly_matrix"], reached
+    assert check_a7(gates, phase_of, [], ["/"], ["walk"], automation=["matrix"] + reached) == [
+        "Phase 2: automation `nightly_matrix` is enabled before its entry gate"]
     assert "Phase 2: no entry gate written down" in check_a7({"phases": met["phases"][1:]}, phase_of, [], [], [])
     # CR-5: an exemption for the D3 commit counts only with a CHANGES.md row for its CR naming that commit
     d3 = next(c for c in git_commits(repo) if "D3" in c["message"])
@@ -2621,7 +2629,8 @@ def test_AT_A7(tmp_path, fake_github, fake_gitlab, monkeypatch):
     #   no later-phase route or command exists before its gate.
     changes = (REPO / "docs" / "CHANGES.md").read_text()                  # CR-5: recorded exemptions
     from nanosoc_rm.schedule import JOBS                                  # CR-15: what the scheduler runs
-    automation = [j.name for j in JOBS]
+    from nanosoc_rm.phasegates import automation_reached                  # and what its jobs reach, by any name
+    automation = [j.name for j in JOBS] + sorted(automation_reached(JOBS))
     assert "poll" in automation, "could not read the scheduler's jobs"
     assert check_a7(gates, phase_of, git_commits(REPO), routes, commands, changes=changes,
                     automation=automation) == []

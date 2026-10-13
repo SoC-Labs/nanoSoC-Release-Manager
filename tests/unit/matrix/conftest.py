@@ -95,3 +95,11 @@ def clean(scene):
 def _developer_env(monkeypatch):
     for k in ("CI_JOB_ID", "CI_SERVER_URL", "RM_SCAN_RULES", "RM_SCAN_TOOLKIT", "RM_PROBE_URLS", "NANOSOC_RM_JOB"):
         monkeypatch.delenv(k, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _quiet_host(monkeypatch):
+    """A quiet host for every attempt (the shared server's real load would make the D7 overload rule fire at
+    random). A test that needs an overloaded host patches `provenance.host_load` itself."""
+    from nanosoc_rm.matrix import provenance
+    monkeypatch.setattr(provenance, "host_load", lambda: {"cpus": 16, "load": 1.0})

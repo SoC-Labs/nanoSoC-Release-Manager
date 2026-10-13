@@ -11,6 +11,9 @@
    - D7: an exception that is the host's, not the tree's (out of memory, no space, a timeout, a lost process) is
      INFRA; so is a FAIL whose every failing gate's detail is an infrastructure signature (`INFRA_SIGNATURES`:
      timed out, out of memory, killed, licence denied, ...). INFRA never counts as FAIL.
+     An overloaded host (1-minute load above `provenance.OVERLOAD_PER_CPU` per CPU at an attempt's start or
+     end) is recorded per attempt; a FAIL on an overloaded host whose re-run is green is INFRA, not FLAKY (and so
+     never counts toward quarantine). Red twice stays FAIL whatever the load: the tree failed both times.
    - D4: a pin captured at a commit other than the requested one makes the cell UNVERIFIED (`moved`).
    - D8: a FAIL runs again once, alone (the job worker runs one job at a time and this is the same job). Red again
      is FAIL; green (PASS, WARN, WAIVED) is FLAKY, which blocks auto-merge; anything else is UNVERIFIED. The gates
@@ -40,16 +43,26 @@ from nanosoc_rm.matrix import provenance as P
 
 __all__ = ["run_cell", "compare", "baseline_for", "classify_infra", "cells", "latest_cells", "quarantine",
            "set_owner", "active_quarantine", "INFRA_SIGNATURES", "FLAKY_WINDOW", "QUARANTINE_FOR", "NIGHT_WINDOW",
-           "CELL_VERDICTS", "GREEN", "subject_of_cell", "exit_for", "CellUsage"]
+           "CELL_VERDICTS", "GREEN", "subject_of_cell", "exit_for", "CellUsage", "why_not_comparable"]
 
 GREEN = ("PASS", "WARN", "WAIVED")
 CELL_VERDICTS = ("PASS", "WARN", "WAIVED", "FAIL", "FLAKY", "UNVERIFIED", "INFRA", "NOT-RUN")
 FLAKY_WINDOW = dt.timedelta(days=14)
 QUARANTINE_FOR = dt.timedelta(days=30)
 NIGHT_WINDOW = dt.timedelta(hours=12)
+# Whole phrases a host prints, never a bare word: `timeout`, `oom` or `killed` alone also occur inside file names
+# (rtl/watchdog_timeout.v, bloom_filter.v), and a real finding naming such a file must stay a FAIL (D7).
 INFRA_SIGNATURES = re.compile(
-    r"timed out|timeout|out of memory|cannot allocate memory|oom|killed|no space left|resource temporarily "
-    r"unavailable|licen[cs]e (checkout )?(denied|failed|unavailable)|too many open files", re.I)
+    r"(?<![\w./-])(?:"
+    r"timed out"
+    r"|time ?out (?:after|of|expired|exceeded|reached)"
+    r"|out of memory|cannot allocate memory|memoryerror"
+    r"|oom[- ]kill(?:ed|er)?"
+    r"|killed by (?:signal|the kernel|the oom)|killed \(signal|sigkill"
+    r"|no space left on device|disk quota exceeded"
+    r"|resource temporarily unavailable|too many open files"
+    r"|licen[cs]e (?:checkout )?(?:denied|failed|unavailable|refused)"
+    r")(?![\w/-])", re.I)
 _INFRA_EXC = (MemoryError, TimeoutError)
 
 
@@ -109,7 +122,21 @@ def baseline_for(cell_fact: Mapping, stored: list[dict]) -> dict | None:
     cands = [d for d in stored if d["fact"]["column"] == C.PINNED and d["fact"]["verdict"] != "NOT-RUN"
              and d["fact"]["configuration_commit"] == cell_fact["configuration_commit"]
              and abs(clock.parse(d["fact"]["started_at"]) - t) <= NIGHT_WINDOW]
-    return min(cands, key=lambda d: abs(clock.parse(d["fact"]["started_at"]) - t)) if cands else None
+    if not cands:
+        return None
+    # prefer a run with usable gate results; an unusable one is still named (compare says why it is not compared)
+    usable = [d for d in cands if why_not_comparable(d["fact"]) is None] or cands
+    return min(usable, key=lambda d: abs(clock.parse(d["fact"]["started_at"]) - t))
+
+
+def why_not_comparable(fact: Mapping) -> str | None:
+    """Why a pinned run cannot stand as a D9 baseline, or None when it can: no gate results (an INFRA or
+    unanswered run), or a run that read moved pins (its gates are about another tree)."""
+    if not _gates(fact):
+        return "it has no gate results (verdict %s)" % fact.get("verdict")
+    if (fact.get("provenance") or {}).get("moved"):
+        return "it read moved pins (verdict %s), so its gates are not about the pinned tree" % fact.get("verdict")
+    return None
 
 
 def _gates(fact: Mapping) -> dict[str, str]:
@@ -124,6 +151,13 @@ def compare(cell_fact: Mapping, baseline: Mapping | None, quarantined: set[str] 
                 "cell: not compared (D9 compares with the same night's pinned run, never with history)"
                 % (NIGHT_WINDOW.total_seconds() // 3600)}
     bf = baseline["fact"]
+    named = {"subject": baseline["subject"], "nonce": bf["nonce"], "verdict": bf["verdict"],
+             "finished_at": bf["finished_at"]}
+    why = why_not_comparable(bf)
+    if why:
+        return {"baseline": named, "rows": [], "note": "the same night's pinned run %s cannot be compared: %s. "
+                "Not compared (D9 never falls back to older history); run the pinned cell again"
+                % (bf["nonce"][:12], why)}
     mine, theirs = _gates(cell_fact), _gates(bf)
     bad = ("FAIL", "UNVERIFIED")
     rows = []
@@ -132,8 +166,7 @@ def compare(cell_fact: Mapping, baseline: Mapping | None, quarantined: set[str] 
         change = ("same" if b == c else "new-failure" if c in bad and b not in bad else
                   "fixed" if b in bad and c not in bad else "changed")
         rows.append({"gate": gid, "baseline": b, "cell": c, "change": change, "quarantined": gid in quarantined})
-    return {"baseline": {"subject": baseline["subject"], "nonce": bf["nonce"], "verdict": bf["verdict"],
-                         "finished_at": bf["finished_at"]}, "rows": rows, "note": None}
+    return {"baseline": named, "rows": rows, "note": None}
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -272,6 +305,7 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
     finally:
         att["finished_at"] = clock.iso()
         att["host"]["load_end"] = P.host_load()["load"]
+        att["host"]["overloaded"] = P.overloaded(att["host"])
         shutil.rmtree(work, ignore_errors=True)
 
 
@@ -314,8 +348,17 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         if verdict == "FAIL":                                     # D8: once more, alone
             second = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map)
             attempts.append(second)
+            hot = [i + 1 for i, a in enumerate(attempts) if a["host"].get("overloaded")]
             if second["verdict"] == "FAIL":
                 verdict, reason = "FAIL", "red twice (the re-run, alone, failed again)"
+                if hot:                                           # red twice is the tree's, whatever the load
+                    reason += "; attempt %s ran on an overloaded host (D7), noted" % " and ".join(map(str, hot))
+            elif second["verdict"] in GREEN and first["host"].get("overloaded"):
+                verdict = "INFRA"                                 # D7: overload, not the tree; not FLAKY
+                reason = ("INFRA, not FLAKY (D7): red on an overloaded host (load %s/%s on %s CPUs, above %.1f per "
+                          "CPU), then %s on the re-run alone" % (
+                              first["host"]["load_start"], first["host"]["load_end"], first["host"]["cpus"],
+                              P.OVERLOAD_PER_CPU, second["verdict"]))
             elif second["verdict"] in GREEN:
                 verdict = "FLAKY"
                 reason = "red, then %s on the re-run alone (D8): blocks auto-merge" % second["verdict"]

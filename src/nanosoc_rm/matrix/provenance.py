@@ -1,20 +1,24 @@
 """D4 provenance of one matrix cell run: what was asked for, what the run actually read, and where it ran.
 
     host_load() -> {cpus, load_start | load_end}           os.getloadavg, the 1-minute average
+    overloaded(host) -> bool                                 load above OVERLOAD_PER_CPU per CPU at start or end (D7)
     tools() -> {git, python, nanosoc_rm}
     capture(run_dir, root_commit, requested, overrides) -> {superproject_commit, pins: [{tree_path, commit}]}
     moved(requested, captured) -> [{tree_path, requested, captured}]
 
 **Capture, after the run.** A local T0 run (`analysis.compat`) fetches every pin it can into its own work directory
-(`fetch --depth=1 <url> <sha>`, one empty repo per (repo, commit)) and never checks out a tree. After the run, the
-cell keeps that directory and re-reads the tree from the objects the run fetched, offline: the superproject commit,
-then each pin's gitlink in its parent's fetched tree (`git ls-tree <parent> -- <path>`), with the request's
-overrides applied the way the gates apply them. A pin whose parent was not fetched (an ssh URL, a private repo)
-is captured as null: not read, which the gate verdicts already report. A pin captured at a commit other than the
-one requested is MOVED, and the cell is UNVERIFIED (D4): its verdict is not about the tree that was asked for.
+(`fetch --depth=1 <url> <sha>`, one empty repo per (repo, commit): the `fetch-*` slots of `run/git`) and never
+checks out a tree. After the run, the cell keeps that directory and re-reads the tree from the PIN FETCHES only,
+offline: the superproject commit, then each pin's gitlink in its parent's fetched tree (`git ls-tree <parent> --
+<path>`), with the request's overrides applied the way the gates apply them. The reachability clones (`refs-*`,
+every commit of a repo), the negative controls and the upgrade work are not borrowed: a commit found only there
+was never read as a pin. A pin is captured only when the run fetched its commit; a pin it did not fetch (an ssh
+URL, a private repo, a failed fetch, or one below such a pin) is null: not read, which the gate verdicts report.
+A pin captured at a commit other than the one requested is MOVED, and the cell is UNVERIFIED (D4).
 
-For T0 nothing can move a submodule (there is no checkout and no setup script), so a mismatch means the run read
-something other than what the walker resolved. The same rule covers a later tier run, whose setup scripts can.
+For T0 nothing can move a submodule (there is no checkout and no setup script): the gitlinks re-read here are
+content-addressed, so on a T0 run the capture can only confirm a pin or fail to read it (`NOTE_T0`). The moved
+rule is for a later tier run, whose setup scripts can move one.
 """
 from __future__ import annotations
 
@@ -26,10 +30,15 @@ from typing import Iterable, Mapping
 from nanosoc_rm import __version__
 from nanosoc_rm.gitrun import run_git
 
-__all__ = ["host_load", "tools", "capture", "moved", "OVERLOAD_PER_CPU", "HARNESS"]
+__all__ = ["host_load", "tools", "capture", "moved", "overloaded", "OVERLOAD_PER_CPU", "HARNESS", "NOTE_T0",
+           "PIN_FETCH_PREFIX"]
 
 OVERLOAD_PER_CPU = 2.0          # 1-minute load per CPU above which a host counts as overloaded (D7)
 HARNESS = "nanosoc-rm %s compat (T0, run mode local)" % __version__
+PIN_FETCH_PREFIX = "fetch-"     # t0.gitwork: GitWork._slot("fetch", url + sha), one per pin fetch
+NOTE_T0 = ("T0 checks out nothing and runs no setup script, so a T0 run cannot move a pin: this capture can only "
+           "confirm a pin the run fetched or show it as not read (null). A moved pin (UNVERIFIED) needs a tier that "
+           "checks out the tree.")
 
 
 def host_load() -> dict:
@@ -40,17 +49,25 @@ def host_load() -> dict:
     return {"cpus": os.cpu_count() or 1, "load": None if one is None else round(one, 2)}
 
 
+def overloaded(host: Mapping) -> bool:
+    """D7: the 1-minute load at the start or the end of an attempt was above OVERLOAD_PER_CPU per CPU."""
+    cpus = host.get("cpus") or 1
+    return any(x is not None and x / cpus > OVERLOAD_PER_CPU for x in (host.get("load_start"), host.get("load_end")))
+
+
 def tools() -> dict:
     from nanosoc_rm.t0.gitwork import git_version
     return {"git": git_version(), "python": platform.python_version(), "nanosoc_rm": __version__}
 
 
 def _object_dirs(run_dir: Path) -> list[Path]:
-    """Every object directory the run's fetches and clones wrote (`<slot>/.git/objects`, `<bare>/objects`)."""
+    """The object directories of the run's PIN FETCHES only (`git/fetch-*/.git/objects`): never the reachability
+    clones (`refs-*`), the negative controls or the upgrade work, whose commits were not read as pins."""
     out = []
-    for p in sorted(Path(run_dir).rglob("objects")):
-        if p.is_dir() and (p.parent / "HEAD").is_file():
-            out.append(p.resolve())
+    for slot in sorted((Path(run_dir) / "git").glob(PIN_FETCH_PREFIX + "*")):
+        for p in (slot / ".git" / "objects", slot / "objects"):
+            if p.is_dir() and (p.parent / "HEAD").is_file():
+                out.append(p.resolve())
     return list(dict.fromkeys(out))
 
 
@@ -96,8 +113,11 @@ def capture(run_dir: str | os.PathLike, root_commit: str, requested: Iterable[Ma
         elif pc is None:
             got[tp] = None
         else:
-            got[tp] = _gitlink(repo, pc, tp[len(parent) + 1:] if parent else tp)
-    return {"superproject_commit": root, "pins": [{"tree_path": tp, "commit": got[tp]} for tp in paths]}
+            link = _gitlink(repo, pc, tp[len(parent) + 1:] if parent else tp)
+            # read only when the run fetched the commit the parent's tree names: a gitlink alone is not a read
+            got[tp] = link if link is not None and _has_commit(repo, link) else None
+    return {"superproject_commit": root, "pins": [{"tree_path": tp, "commit": got[tp]} for tp in paths],
+            "note": NOTE_T0}
 
 
 def moved(requested: Iterable[Mapping], captured: Mapping) -> list[dict]:
