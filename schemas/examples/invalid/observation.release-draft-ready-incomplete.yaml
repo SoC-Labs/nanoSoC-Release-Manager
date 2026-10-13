@@ -1,0 +1,59 @@
+# expect-error: const at /fact/lock/complete
+# CR-R1: a draft whose lock is not complete is never ready for the person steps.
+schema: 1
+kind: release_draft
+subject: release_draft:eth-rc4:1.0.0
+observed_at: '2026-10-13T09:46:30Z'
+sources:
+- kind: derived
+  command: nanosoc-rm release draft eth-rc4 1.0.0 --archive build_soc.tar.gz --gds <gds> --netlist <netlist> --waiver '*=rc4 taped out before the release scheme existed'
+- kind: git
+  command: git -C <mirrors>/nanosoc-ethernet-chiplet.git for-each-ref refs/r/github/SoC-Labs%2FNanoSoC-Ethernet-Chiplet/tags
+- kind: registry
+  command: errata records of eth-rc4 in the registry at aecb4e2a1b2c
+fact:
+  configuration: eth-rc4
+  component: nanosoc-ethernet-chiplet
+  version: 1.0.0
+  tag: v1.0.0
+  commit: ab73e40924317e45e7b3b941f52a7ed35f20832e
+  kind: tapeout
+  silicon: true
+  generated_at: '2026-10-13T09:46:37Z'
+  lock:
+    file: release.lock.draft.yaml
+    complete: false
+    pins: 44
+    unprotected: []
+    pending:
+    - 'generated_rtl: no generated-RTL archive given (--archive)'
+  errata:
+    revision: 1
+    records: 2
+    digest: 0f6a3c1d5e2b4a7980c1d2e3f4a5b6c7
+  archive:
+    md5: 80eb7ce7e81fee653b52c6821cea3942
+    bytes: 620423
+    files: 332
+    manifest_md5: 819bfff2ee8821c2675740306e1445a0
+  checks:
+  - id: lock.pins-stated
+    verdict: PASS
+    detail: 44 pin(s), each with its host and state
+    person: false
+    requirement: G3
+  - id: lock.pins-protected
+    verdict: PASS
+    detail: every pin protected on its pinned host (default-branch 23, keep-tag 20, release-tag 1)
+    person: false
+    requirement: G3
+  verdict: UNVERIFIED
+  ready: true
+  person_steps:
+  - step: 'Approve the release (G5: a SoC release is approved by David and a second reviewer)'
+    who: David and a second reviewer
+  - step: Sign GATES.md once every gate has its evidence
+    who: the approvers above
+  train: []
+  files: []
+  published: false

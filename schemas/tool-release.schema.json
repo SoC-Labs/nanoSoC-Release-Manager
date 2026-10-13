@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://soclabs.org/nanosoc-rm/schemas/tool-release.schema.json",
   "title": "Tool release draft (release.json in a G1 draft folder), plus the versioning facts and the registry versioning.yaml",
-  "description": "CR-VER (Wave B, build-vs-enable per CR-15). The top-level document is release.json, the machine-readable half of a tool release draft folder that `nanosoc-rm version draft` writes for a person (G1): version, classed changelog, submodules, defects, gates, the G5 approval record and the artefacts. Nothing in it was tagged or pushed (`pushed` is false by contract). $defs hold the facts of the versioning observation kinds (changelog_lint, version_plan, tag_check, manifest_proposal, release_draft, yank_proposal, defect_trailers) and the registry's optional versioning.yaml (yanked releases G6, grandfathered tags and the C10 scheme date). C1-C12, F6, G1, G5, G6. Additive: no existing schema number moves (README section 2 rule 4).",
+  "description": "CR-VER (Wave B, build-vs-enable per CR-15). The top-level document is release.json, the machine-readable half of a tool release draft folder that `nanosoc-rm version draft` writes for a person (G1): version, classed changelog, submodules, defects, gates, the G5 approval record and the artefacts. Nothing in it was tagged or pushed (`pushed` is false by contract). $defs hold the facts of the versioning observation kinds (changelog_lint, version_plan, tag_check, manifest_proposal, tool_release_draft ($defs/release_draft), yank_proposal, defect_trailers) and the registry's optional versioning.yaml (yanked releases G6, grandfathered tags and the C10 scheme date). C1-C12, F6, G1, G5, G6. Additive: no existing schema number moves (README section 2 rule 4).",
   "type": "object",
   "required": [
     "schema",
@@ -1224,7 +1224,7 @@
       }
     },
     "release_draft": {
-      "description": "G1, G5: a release draft folder was written for a person. Event kind, subject release_draft:<target>:<version>. Nothing pushed (`pushed` false by contract).",
+      "description": "G1, G5: a release draft folder was written for a person. Event kind `tool_release_draft` (renamed at the Wave B integration: `release_draft` is the SoC release draft of CR-R1), subject tool_release_draft:<target>:<version>. Nothing pushed (`pushed` false by contract).",
       "type": "object",
       "required": [
         "target",

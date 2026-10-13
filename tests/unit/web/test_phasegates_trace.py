@@ -77,6 +77,85 @@ def test_an_implementation_commit_before_its_gate_is_caught(tmp_path):
     assert phasegates.check(late, PHASE_OF, commits, ["/"], ["walk"])[0]["problems"], "the gate was checked after the code"
 
 
+def test_ids_are_read_only_from_the_requirements_trailer():
+    """CR-R3 (Wave A follow-up a): an id in the subject or body (a review label `G1:`, prose naming D3) is not a
+    claim; only the `Requirements:` trailer is read."""
+    base = {"sha": "e" * 40, "at": "2026-10-02T10:00:00Z", "files": ["src/x.py"]}
+    prose = [dict(base, message="feat(matrix): D3 matrix view\n\nG1: review item 3 fixed; E1 too.\n\n"
+                                "Requirements: A2\n")]
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, prose, ["/"], ["walk"])}
+    assert res["Phase 2"] == [] and res["Phase 3"] == [] and res["Phase 4"] == [], res
+    trailer = [dict(base, message="feat(matrix): matrix view\n\nRequirements: A2, D3\n")]
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, trailer, ["/"], ["walk"])}
+    assert any("['D3']" in p for p in res["Phase 2"])
+    assert phasegates.trailer_text("x D3\n\nRequirements: G2, G3\nCo-Authored-By: y\n") == "G2, G3"
+
+
+def test_build_allowed_turns_build_into_information_and_checks_enabling():
+    """CR-15: with the register's build_allowed entry AND its CHANGES.md row, a later phase may be built (commits
+    and surfaces are listed as `built`), but a scheduled job or a bot write of that phase is a problem."""
+    commits = [{"sha": "f" * 40, "at": "2026-10-02T10:00:00Z", "files": ["src/m.py"],
+                "message": "feat(matrix): x\n\nRequirements: D3, G3\n"}]
+    reg = dict(gates(), build_allowed={"cr": "CR-15", "phases": ["Phase 2", "Phase 4", "Phase 5"]})
+    row = "| CR-15 | 2026-10-12 | A7 | build and enable | why | David |\n"
+    run = lambda **kw: {r["phase"]: r for r in phasegates.check(reg, PHASE_OF, commits, ["/", "/releases/x"],
+                                                               ["walk", "release", "forks"], changes=row, **kw)}
+    res = run()
+    assert all(r["problems"] == [] for ph, r in res.items() if ph != "Phase 3"), res
+    assert res["Phase 3"]["problems"] == ["Phase 3: command `release` exists before its entry gate"], \
+        "Phase 3 is not in this register's build_allowed: the old rule holds for it"
+    assert res["Phase 2"]["built"] == ["commit fffffff names ['D3']"]
+    assert "route /releases built (CR-15)" in res["Phase 5"]["built"] and "command `forks` built (CR-15)" in res["Phase 5"]["built"]
+    res = run(scheduled=["poll", "matrix_nightly"])
+    assert res["Phase 2"]["problems"] == ["Phase 2: scheduled job matrix_nightly enables automation before its entry gate"]
+    res = run(writes=[{"effect": "write", "method": "POST", "target": "repos/:repo/pulls"},
+                      {"effect": "write", "method": "POST", "target": "projects/:id/trigger/pipeline"}])
+    assert any("POST repos/:repo/pulls" in p for p in res["Phase 4"]["problems"])
+    assert not any("trigger/pipeline" in p for r in res.values() for p in r["problems"]), "the CI trigger is v1's"
+    # without the CHANGES.md row the entry does not count: the old rules apply
+    old = {r["phase"]: r["problems"] for r in phasegates.check(reg, PHASE_OF, commits, ["/", "/releases/x"],
+                                                               ["walk"], changes="")}
+    assert any("['D3']" in p for p in old["Phase 2"]) and "Phase 5: route /releases exists before its entry gate" in old["Phase 5"]
+
+
+def test_automation_is_seen_wherever_its_word_stands_and_a_disabled_job_enables_nothing():
+    """CR-R8 (review item R3): rule 5 matched job names by prefix only, so `nightly_matrix` passed."""
+    reg = dict(gates(), build_allowed={"cr": "CR-15", "phases": list(LATER)})
+    row = "| CR-15 | 2026-10-12 | A7 | build and enable | why | David |\n"
+    probs = lambda jobs: [p for r in phasegates.check(reg, PHASE_OF, [], ["/"], ["walk"], changes=row, scheduled=jobs)
+                          for p in r["problems"]]
+    for name, ph in (("matrix_nightly", "Phase 2"), ("nightly_matrix", "Phase 2"), ("auto_bump", "Phase 4"),
+                     ("Auto-Bumps", "Phase 4"), ("weekly_release_train", "Phase 5"), ("nightly_auto_merge", "Phase 4")):
+        assert "%s: scheduled job %s enables automation before its entry gate" % (ph, name) in probs([name]), name
+    assert probs(["poll", "inventory", "nightly_t0", "fetch", "credentials", "runner", "clock_sync", "unlocked",
+                  "mergers"]) == [], "a keyword inside another word is not the keyword"
+    # a job registered disabled (built, not enabled) is not judged as enabled (tick never runs it: test_ci_schedule_cli)
+    from nanosoc_rm import schedule
+    jobs = (schedule.Job("nightly_matrix", "poll", lambda c: None, enabled=False, gate="Phase 2"),
+            schedule.Job("poll", "poll", lambda c: None))
+    import unittest.mock as um
+    with um.patch.object(schedule, "JOBS", jobs):
+        assert phasegates.scheduled_jobs() == ["poll"]
+        assert phasegates.scheduled_jobs(enabled_only=False) == ["nightly_matrix", "poll"]
+
+
+def test_soc_release_subcommands_are_phase_5_not_phase_3():
+    """CR-R8 (review item R7): the `release` group holding only the SoC release subcommands is Phase 5's."""
+    reg = dict(gates(), build_allowed={"cr": "CR-15", "phases": list(LATER)})
+    row = "| CR-15 | 2026-10-12 | A7 | build and enable | why | David |\n"
+    cmds = ["walk", "release", "release draft", "release verify", "release list", "forks"]
+    res = {r["phase"]: r for r in phasegates.check(reg, PHASE_OF, [], ["/"], cmds, changes=row)}
+    assert res["Phase 3"]["built"] == [], res["Phase 3"]
+    assert {"command `release draft` built (CR-15)", "command `release list` built (CR-15)"} <= set(res["Phase 5"]["built"])
+    # a tool-release subcommand in the same group is Phase 3's surface again
+    res = {r["phase"]: r for r in phasegates.check(reg, PHASE_OF, [], ["/"], cmds + ["release tool"], changes=row)}
+    assert res["Phase 3"]["built"] == ["command `release` built (CR-15)"]
+    # without build_allowed the Phase 5 subcommands are problems before the gate
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/"], cmds)}
+    assert "Phase 5: command `release draft` exists before its entry gate" in res["Phase 5"] and res["Phase 3"] == []
+    assert "release draft" in phasegates.cli_commands()
+
+
 def test_a_review_label_is_not_a_requirement_id():
     """Integration: `Review CI-E1 rejected` in build/ci's message was read as Phase 4's E1."""
     commits = [{"sha": "a" * 40, "at": "2026-10-02T10:00:00Z", "files": ["src/x.py"],

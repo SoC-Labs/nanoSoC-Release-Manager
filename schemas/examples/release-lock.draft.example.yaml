@@ -1,0 +1,18 @@
+# release.lock.draft.yaml (CR-R1, $defs/draft_lock): a draft of eth-main whose generated RTL was not archived yet.
+# ILLUSTRATIVE: built from the rc4 example's first two pins; eth-main's real tree has more. Every field present has
+# the release lock's own schema; `pending` names what the draft could not fill.
+schema: 1
+release: {component: nanosoc-ethernet-chiplet, configuration: eth-main, version: "1.1.0", tag: v1.1.0, commit: "ab73e40924317e45e7b3b941f52a7ed35f20832e"}
+generated_at: "2026-10-13T10:00:00Z"
+generated_by: {tool: nanosoc-release-manager, version: "0.1.0.dev0"}
+sources:
+  - {kind: git, command: "git -C <mirrors>/nanosoc-ethernet-chiplet.git cat-file -p ab73e40924317e45e7b3b941f52a7ed35f20832e:.gitmodules"}
+pins:
+  - {"parent": {"repo": {"host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet"}, "commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e"}, "path": "tidechart", "tree_paths": ["tidechart"], "depth": 1, "component": "tidechart", "repo": {"host": "gitlab", "path": "soclabs/tidechart"}, "commit": "4b4b89820ab1d87a123a1eac5c221b8527673def", "state": "PROTECTED_BY_TAG", "url_kind": "https", "tags": ["keep/eth-rc4/tidechart"], "effective": "unknown", "protection": {"by": "keep-tag", "tags": ["keep/eth-rc4/tidechart"], "hosts": {"gitlab": "keep-tag"}}}
+  - {"parent": {"repo": {"host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet"}, "commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e"}, "path": "tidelink", "tree_paths": ["tidelink"], "depth": 1, "component": "tidelink", "repo": {"host": "github", "path": "SoC-Labs/TideLink-Chiplet-Interconnect-AHB"}, "commit": "5e8bdb5a2141ff5a82103813a326a2c9df2b43ed", "state": "TAGGED", "lag": 5, "url_kind": "ssh", "tags": ["v0.90"], "effective": "unknown", "protection": {"by": "release-tag", "tags": ["v0.90"], "hosts": {"github": "release-tag"}}}
+waivers: []
+errata: {file: ERRATA.md, revision: 1}
+gate_ledger: {file: GATES.md}
+artefacts: []
+pending:
+  - {field: generated_rtl, reason: "no generated-RTL archive given (--archive): G7 needs build_soc/ archived with an md5 manifest"}

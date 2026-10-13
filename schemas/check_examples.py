@@ -138,7 +138,8 @@ DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file"),
                 "eligibility.quality": ("eligibility", "/$defs/quality_file"),       # CR-14: registry quality.yaml
                 "matrix.cell": ("matrix", "/$defs/matrix_cell"),                     # CR-18-matrix (D3, D4, D8)
                 "matrix.quarantine": ("matrix", "/$defs/matrix_quarantine"),
-                "tool-release.versioning": ("tool-release", "/$defs/versioning_file")}   # CR-VER: registry versioning.yaml
+                "tool-release.versioning": ("tool-release", "/$defs/versioning_file"),   # CR-VER: registry versioning.yaml
+                "release-lock.draft": ("release-lock", "/$defs/draft_lock")}         # CR-R1: release.lock.draft.yaml
 # rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
 # of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
 ITEMS_PREFIX = "result-bundle.items."

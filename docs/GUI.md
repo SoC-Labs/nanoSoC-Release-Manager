@@ -64,15 +64,16 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Mirrors | fetch status and age; **Sync** one component or all |
 | Alerts | open and cleared alerts; **Clear** (logged with your login) |
 | Matrix | per configuration: a row per component, columns pinned / latest tag in range / latest tag / default-branch head; each cell's verdict (text and colour), age and stale flag; **Run cell**, **Run row**, **Run column**, **Run all** queue local jobs (a T0 run each, about 3 minutes); a cell page with every attempt, the D4 provenance and the comparison with the same night's pinned run; the D8 quarantine list. The nightly matrix is disabled until the Phase 2 gate |
-| Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; run `nanosoc-rm quality all <target> --store` once first (a cold page takes about a minute) |
+| Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; a page with no stored result queues a quality job and says "analysing, refresh" (about a minute on a large repository) |
 | Versions | per component: current tag, Unreleased entries by class, change class and next version, changelog lint, manifest and API.md, tag check; **Refresh** (a job); per component the signals, findings, manifest patch and **Draft release** (a job writing a draft folder for a person; nothing is pushed) |
 | Bumps | shadow-mode bump proposals: queue with filters, one page per proposal (changelog, defects, matrix cell or Run, patch download, **Mark done** / **Decline**), the shadow ledger; **Scan now** queues `nanosoc-rm bumps --store`. Nothing is pushed; the schedule is DISABLED until the Phase 4 gate |
+| Releases | release drafts (lock, errata document, notes, checklist, gate ledger), **Draft** and **Verify** as jobs, download a draft as a zip, the errata document; forks of the example projects with **List forks now**. Input files (archive, GDS, netlist) are picked from `<data_dir>/release-inputs/`. Nothing is published |
 
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 
 ## Jobs
 
-Run, Sync and Walk queue a job; one runs at a time. A job is the CLI command shown on its card, run as a child
+Run, Sync, Walk, a quality analysis, a release draft or verify and a fork listing queue a job; one runs at a time. A job is the CLI command shown on its card, run as a child
 process: cancel stops it and everything it started. A run without pin overrides is stored (the dashboard shows
 it); a what-if with overrides is shown but never stored. If the service stops while a job runs, the job becomes
 INFRA with the reason when the service starts again.

@@ -50,16 +50,19 @@ from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
            "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS",
-           "MODULE_KINDS", "PLUGIN_KINDS", "register_kind"]
+           "MODULE_KINDS", "PLUGIN_KINDS", "KIND_MODULES", "register_kind", "all_kinds", "job_dir"]
 
 # Job kinds other packages add without editing this file's logic. Two seams, merged at integration (Wave B):
 # MODULE_KINDS (interfaces.md section 18): kind -> module with params(p) (or job_params) -> dict (ValueError =
 # usage), cli_args(p) (or job_args) -> [args], and optional outcome(docs, last_line) -> fields,
 # limit_s(config, job) -> float and ACTION (an `actions` entry logged on submit). Imported only when such a job is
-# submitted or run. EXTRA_KINDS (register_kind, below): kind -> (check, args) callables.
+# submitted or run. EXTRA_KINDS (register_kind, below): kind -> (check, args) callables, registered when one of
+# KIND_MODULES is imported; the worker imports them on first use of a kind it does not know (CR-R2).
 MODULE_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind", "bumps": "nanosoc_rm.bumps.jobkind"}
 PLUGIN_KINDS = MODULE_KINDS                   # the bumps branch's name for the same seam
 KINDS = ("compat", "mirror-sync", "walk") + tuple(MODULE_KINDS)
+KIND_MODULES = ("nanosoc_rm.quality.jobkinds", "nanosoc_rm.releases.jobkinds", "nanosoc_rm.versioning.jobkinds")
+_PLUGINS_LOADED = False
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
@@ -79,11 +82,12 @@ class JobUsage(ValueError):
     """A job request that cannot run: unknown kind, a bad id, a malformed --pin. Nothing is queued."""
 
 
-# Job kinds a module adds without editing this file (CR-VER, Wave B): name -> (check, args). `check(params)`
+# Job kinds a module adds without editing this file (CR-VER, CR-R2): name -> (check, args). `check(params)`
 # returns the checked parameters or raises ValueError (a usage error, exit 3); `args(params)` is the `nanosoc-rm`
-# argv the job runs (`--json` is added when missing). A module registers its kinds when its CLI commands are registered, so
-# `serve` (a CLI command) has them before its worker starts.
+# argv the job runs (`--json` is added when missing). The job's result is its exit code's verdict (0 PASS, 1 FAIL,
+# 2 UNVERIFIED, 3 failed) and a count of the documents it printed, as for walk and sync.
 EXTRA_KINDS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], list[str]]]] = {}
+_PLUGIN_KINDS = EXTRA_KINDS                   # the releases branch's name for the same table
 
 
 def register_kind(name: str, check: Callable[[dict], dict], args: Callable[[dict], list[str]]) -> None:
@@ -91,6 +95,26 @@ def register_kind(name: str, check: Callable[[dict], dict], args: Callable[[dict
     if name in KINDS:
         raise ValueError("job kind %r is built in" % name)
     EXTRA_KINDS[name] = (check, args)
+
+
+def _plugin(kind: str):
+    """The registered (check, args) of `kind`, importing KIND_MODULES once when it is not known yet."""
+    global _PLUGINS_LOADED
+    if kind not in EXTRA_KINDS and not _PLUGINS_LOADED:
+        import importlib
+        for mod in KIND_MODULES:
+            try:
+                importlib.import_module(mod)
+            except ModuleNotFoundError as e:
+                if e.name != mod and not mod.startswith(str(e.name) + "."):
+                    raise
+        _PLUGINS_LOADED = True
+    return EXTRA_KINDS.get(kind)
+
+
+def all_kinds() -> tuple[str, ...]:
+    _plugin("")
+    return KINDS + tuple(sorted(EXTRA_KINDS))
 
 
 def is_local_ci(config: Config) -> bool:
@@ -179,12 +203,13 @@ def _extra(kind: str):
 
 def _params(kind: str, params: dict) -> dict:
     """The job's parameters, checked; JobUsage when the CLI would exit 3 on them."""
-    if kind in MODULE_KINDS or kind in EXTRA_KINDS:
+    plug = None if kind in KINDS else _plugin(kind)
+    if kind in MODULE_KINDS or plug is not None:
         try:
             if kind in MODULE_KINDS:
                 mod = _extra(kind)
                 return (getattr(mod, "params", None) or mod.job_params)(dict(params))
-            return EXTRA_KINDS[kind][0](params)
+            return plug[0](params)
         except ValueError as e:
             raise JobUsage(str(e)) from None
     if kind == "compat":
@@ -207,7 +232,7 @@ def _params(kind: str, params: dict) -> dict:
         return {"component": _check_id(comp, "component") if comp else None}
     if kind == "walk":
         return {"configuration": _check_id(params.get("configuration"), "configuration")}
-    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS + tuple(EXTRA_KINDS))))
+    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(all_kinds())))
 
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
@@ -215,8 +240,9 @@ def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
     if kind in MODULE_KINDS:
         mod = _extra(kind)
         return list((getattr(mod, "cli_args", None) or mod.job_args)(params))
-    if kind in EXTRA_KINDS:
-        args = list(EXTRA_KINDS[kind][1](params))
+    plug = None if kind in KINDS else _plugin(kind)
+    if plug is not None:
+        args = list(plug[1](params))
         return args if "--json" in args else args + ["--json"]
     if kind == "compat":
         args = ["compat", params["configuration"]]

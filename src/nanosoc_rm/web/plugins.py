@@ -29,7 +29,8 @@ __all__ = ["PLUGINS", "load", "render_page"]
 # (module, navigation label)
 PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Matrix"),
            ("nanosoc_rm.bumps.web", "Bumps"),
-           ("nanosoc_rm.versioning.web", "Versions"))                   # CR-VER (Wave B versioning)
+           ("nanosoc_rm.versioning.web", "Versions"),                   # CR-VER (Wave B versioning)
+           ("nanosoc_rm.releases.web", "Releases"))                     # CR-R1 (Wave B releases)
 
 
 def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:

@@ -25,6 +25,8 @@ def _target(name):
         return "eligibility", "/$defs/quality_file"
     if name.startswith("tool-release.versioning"):               # CR-VER: registry versioning.yaml
         return "tool-release", "/$defs/versioning_file"
+    if name.startswith("release-lock.draft"):                    # CR-R1: release.lock.draft.yaml
+        return "release-lock", "/$defs/draft_lock"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 

@@ -8,8 +8,9 @@ import pytest
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
-from nanosoc_rm import auth, db, quality
+from nanosoc_rm import auth, db, jobs, quality
 from nanosoc_rm.cli import main
+from nanosoc_rm.config import load_config
 from nanosoc_rm.quality.source import GitSource
 from nanosoc_rm.web import create_app
 from qfix import commit, git, head, make_repo
@@ -39,10 +40,46 @@ def _rows(html: str, attr: str) -> list[str]:
     return re.findall(r'<tr[^>]*\b%s="([^"]*)"' % attr, html)
 
 
+def _settle(client, url, cfg):
+    """CR-R2: a page with no stored result queues a quality job and answers 202; the worker runs it (the real CLI,
+    as a child process), and the same page then shows the stored result."""
+    r = client.get(url)
+    if r.status_code == 202:
+        assert "Analysing, refresh" in r.text and "data-pending-job" in r.text, r.text[:500]
+        w = jobs.Worker(cfg)
+        while w.step() is not None:
+            pass
+        r = client.get(url)
+    return r
+
+
+def test_a_cold_page_queues_a_job_and_never_analyses_in_the_request(site):
+    """CR-R2 (Wave A follow-up b): no stored result -> 202 "analysing, refresh" and one queued quality job; nothing
+    is stored by the request itself; a second view reuses the queued job; the worker's run stores every kind."""
+    c, cfg = site["client"], load_config(site["cfg"])
+    first = c.get("/quality/demo/density")
+    assert first.status_code == 202 and "Analysing, refresh" in first.text
+    assert db.latest("quality_density", "quality_density:demo:", config=cfg) == [], "the request analysed inline"
+    queued = jobs.jobs(cfg, kind="quality", states=("queued",))
+    assert len(queued) == 1 and queued[0]["params"] == {"target": "demo", "ref": None}
+    assert queued[0]["command"] == "nanosoc-rm quality all demo --store"
+    assert c.get("/quality/demo/comments").status_code == 202
+    assert len(jobs.jobs(cfg, kind="quality")) == 1, "a second cold page queues no second job"
+    assert c.get("/quality/demo/comments.diff").status_code == 202
+    assert jobs.Worker(site["cfg"]).step() == queued[0]["id"]
+    assert jobs.get(cfg, queued[0]["id"])["state"] == "done"
+    for kind in quality.KINDS.values():
+        assert len(db.latest(kind, "%s:demo:" % kind, config=cfg)) == 1, kind
+    assert c.get("/quality/demo/density").status_code == 200
+    again = c.get("/quality/demo/density?analyse=1")
+    assert again.status_code == 202 and 'href="http://testserver/quality/demo/density"' in again.text
+    assert len(jobs.jobs(cfg, kind="quality", states=("queued",))) == 1
+
+
 def test_each_page_shows_the_cli_rows(site):
     c = site["client"]
     cli = lambda *a: [json.loads(x) for x in CliRunner().invoke(main, ["quality", *a, "demo", "--json"]).output.splitlines()]
-    dens = c.get("/quality/demo/density")
+    dens = _settle(c, "/quality/demo/density", site["cfg"])
     assert dens.status_code == 200 and "data-age-seconds" in dens.text and "data-source-for" in dens.text
     assert sorted(_rows(dens.text, "data-path")) == sorted(r["path"] for r in cli("density"))
     com = c.get("/quality/demo/comments")
@@ -60,6 +97,7 @@ def test_each_page_shows_the_cli_rows(site):
 
 def test_patch_downloads_apply(site, tmp_path):
     c, repo = site["client"], site["repo"]
+    _settle(c, "/quality/demo", site["cfg"])
     for page, fname in (("comments.diff", "c.diff"), ("readme.diff", "r.diff")):
         r = c.get("/quality/demo/" + page)
         assert r.status_code == 200 and r.headers["content-type"].startswith("text/x-diff") and r.text
@@ -71,10 +109,10 @@ def test_patch_downloads_apply(site, tmp_path):
 def test_results_are_stored_per_commit_and_the_trend_shows_two(site):
     c, repo = site["client"], site["repo"]
     first = head(repo)
-    c.get("/quality/demo/density")
+    _settle(c, "/quality/demo/density", site["cfg"])
     second = commit(repo, {"src/extra.py": "\n".join("# note %d" % i for i in range(25)) + "\nX = 1\n"},
                     "2026-10-02T10:00:00Z")
-    c.get("/quality/demo/density")
+    _settle(c, "/quality/demo/density", site["cfg"])
     t = c.get("/quality/demo/trend")
     assert _rows(t.text, "data-commit") == [first, second]
     pts = quality.trend("density", "demo", config=site["cfg"])
@@ -113,10 +151,12 @@ def test_cli_all_stores_every_kind(site):
 def test_worktree_pages_follow_the_disk(site):
     """Review Q-5: a stored work-tree result is reused only while the disk is unchanged."""
     c, repo = site["client"], site["repo"]
-    assert "src/b.py" not in _rows(c.get("/quality/demo/density").text, "data-path")
+    assert "src/b.py" not in _rows(_settle(c, "/quality/demo/density", site["cfg"]).text, "data-path")
     (repo / "src" / "b.py").write_text("".join("# note %d about the helper\n" % i for i in range(50)) + "X = 1\n")
     git("add", "src/b.py", cwd=repo)
-    assert "src/b.py" in _rows(c.get("/quality/demo/density").text, "data-path"), "a new tracked file shows"
+    assert c.get("/quality/demo/density").status_code == 202, "a changed disk is never served the old result"
+    assert "src/b.py" in _rows(_settle(c, "/quality/demo/density", site["cfg"]).text, "data-path"), \
+        "a new tracked file shows"
     before = c.get("/quality/demo/comments.diff?kind=banner").text
     assert c.get("/quality/demo/comments.diff?kind=banner").text == before, "an unchanged disk serves the same patch"
     stored = [d for d in quality.stored("quality_density", "demo", config=site["cfg"])]
@@ -131,6 +171,7 @@ def test_nothing_to_patch_is_a_message_not_an_empty_file(tmp_path, monkeypatch):
                    % (tmp_path / "data", repo))
     monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
     c = TestClient(create_app(cfg, auth=auth.FakeMembership(login="alice")))
+    _settle(c, "/quality/clean", cfg)
     for url in ("/quality/clean/comments.diff", "/quality/clean/readme.diff"):
         r = c.get(url)
         assert r.status_code == 404 and r.text.startswith("Nothing to patch"), (url, r.status_code, r.text)
@@ -148,7 +189,7 @@ def test_the_quality_pages_sit_in_the_gui_shell(site):
     home = c.get("/").text
     assert '<a href="/quality/"' in home and ">Quality</a>" in home
     for url in ("/quality/", "/quality/demo/density", "/quality/demo/trend"):
-        r = c.get(url)
+        r = _settle(c, url, site["cfg"])
         assert r.status_code == 200, url
         assert '<a href="/quality/" aria-current="page" class="current">Quality</a>' in r.text, url
         assert 'hx-headers=\'{"X-CSRF-Token": "' in r.text and "sign out" in r.text, url

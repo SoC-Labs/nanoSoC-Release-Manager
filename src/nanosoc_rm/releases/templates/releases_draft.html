@@ -1,0 +1,54 @@
+{% include "_rstyle.html" %}{% include "_rnav.html" %}
+<table class="kv">
+  <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}" data-verdict="{{ f.verdict }}">{{ f.verdict }}</span> {{ 'Ready for the person steps.' if f.ready else 'Not ready: clear the checks below.' }} <span class="note">Published: no (the tool never publishes).</span></td></tr>
+  <tr><th>Release</th><td>{{ f.component }} {{ f.version }}, tag <code>{{ f.tag }}</code> on <code>{{ f.commit }}</code>, kind {{ f.kind }}{{ ', silicon' if f.silicon }}</td></tr>
+  <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a></td></tr>
+  <tr><th>Lock</th><td><a href="{{ rurl(configuration, version, 'files/' ~ f.lock.file) }}">{{ f.lock.file }}</a>: {{ f.lock.pins }} pins, {{ 'complete' if f.lock.complete else 'NOT complete' }}{% if f.lock.unprotected %}; unprotected: {{ f.lock.unprotected|join(', ') }}{% endif %}{% for p in f.lock.pending %}<br><span class="note">pending: {{ p }}</span>{% endfor %}</td></tr>
+  <tr><th>Errata</th><td><a href="{{ rurl(configuration, version, 'errata') }}">document revision {{ f.errata.revision }}</a>, {{ f.errata.records }} record(s)</td></tr>
+  <tr><th>Generated RTL (G7)</th><td>{% if f.archive %}{{ f.archive.files }} file(s), archive md5 <code>{{ f.archive.md5 }}</code>, manifest md5 <code>{{ f.archive.manifest_md5 }}</code>{% else %}no archive given{% endif %}</td></tr>
+  <tr><th>Drafted</th><td>{{ fact(doc, f.generated_at) }} ({{ age_text(f.generated_at) }} ago); its inputs were observed from {{ doc.observed_at }}</td></tr>
+</table>
+{% if actions %}<form method="post" action="{{ rurl(configuration, version, 'verify') }}" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <button type="submit" class="primary">Verify against the mirrors now</button>
+  <span class="note">Same as <code>nanosoc-rm release verify {{ configuration }}/{{ version }}</code>: pins, tags, errata, archive and file md5s.</span>
+</form>{% else %}<p class="note">Re-check with <code>nanosoc-rm release verify {{ configuration }}/{{ version }}</code>.</p>{% endif %}
+{% if job_html %}{{ job_html }}{% endif %}
+<h2>Checks</h2>
+<div class="scroll"><table>
+  <thead><tr><th>Check</th><th>Verdict</th><th>Requirement</th><th>Detail</th><th>Who</th></tr></thead>
+  <tbody>
+  {% for c in f.checks %}
+    <tr data-check="{{ c.id }}" data-verdict="{{ c.verdict }}"><td><code>{{ c.id }}</code></td><td><span class="pill {{ VERDICT_CLASS.get(c.verdict, '') }}">{{ c.verdict }}</span></td><td>{{ c.requirement or '' }}</td><td>{{ c.detail }}</td><td>{{ 'a person' if c.person else 'the tool' }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<h2>Person-only steps ({{ f.person_steps|length }})</h2>
+<ol class="steps">
+{% for s in f.person_steps %}<li data-step>{{ s.step }} <span class="note">({{ s.who }})</span>{% if s.command %}<pre>{{ s.command }}</pre>{% endif %}</li>{% endfor %}
+</ol>
+{% if f.train %}
+<h2>Release train (G4): {{ f.train|length }} member(s), deepest first</h2>
+<div class="scroll"><table><thead><tr><th>Component</th><th>Commit</th><th>Depth</th><th>Tree paths</th></tr></thead><tbody>
+{% for t in f.train %}<tr data-train="{{ t.component }}"><td>{{ t.component }}</td><td><code>{{ short(t.commit, 12) }}</code></td><td class="num">{{ t.depth }}</td><td>{{ t.tree_paths|join(', ') }}</td></tr>{% endfor %}
+</tbody></table></div>
+{% endif %}
+<h2>Files</h2>
+<table><thead><tr><th>File</th><th class="num">Bytes</th><th>md5</th></tr></thead><tbody>
+{% for x in f.files %}<tr data-file="{{ x.name }}"{% if x.name in withheld %} data-withheld{% endif %}><td>{% if x.name in withheld %}{{ x.name }} <span class="pill state-red">WITHHELD</span> <span class="note">Not downloadable here: {{ withheld[x.name] }}. Private release store only (D12); never publish it.</span>{% else %}<a href="{{ rurl(configuration, version, 'files/' ~ x.name) }}">{{ x.name }}</a>{% endif %}</td><td class="num">{{ x.bytes }}</td><td><code>{{ x.md5 }}</code></td></tr>{% endfor %}
+</tbody></table>
+{% if lock.pins %}
+<details><summary>Lock pins ({{ lock.pins|length }})</summary>
+<div class="scroll"><table>
+  <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>Host</th><th>State</th><th>Protection</th><th>Tags</th></tr></thead>
+  <tbody>
+  {% for p in lock.pins %}{% set pr = p.protection or {} %}
+    <tr data-pin="{{ p.tree_paths[0] }}" data-protection="{{ pr.by or '' }}"><td><code>{{ p.tree_paths[0] }}</code></td><td>{{ p.component }}</td><td><code>{{ short(p.commit) }}</code></td><td>{{ p.repo.host }}</td>
+      <td><span class="pill {{ STATE_CLASS.get(p.state, 'state-red') }}">{{ p.state }}</span></td>
+      <td>{% if pr.by %}<span class="pill {{ PROTECTION_CLASS.get(pr.by, '') }}">{{ pr.by }}</span>{% for h, a in (pr.hosts or {}).items() %} <span class="note">{{ h }}: {{ a }}</span>{% endfor %}{% endif %}</td>
+      <td>{{ p.tags|join(', ') }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+</details>
+{% endif %}

@@ -9,9 +9,11 @@
     GET /quality/{target}/trend                 Q5 stored results per commit
 
 Query: `ref` (branch, tag or sha; default the default branch, or the work tree for a `[quality] paths` target),
-`analyse=1` to analyse again now. A page shows the stored result for the commit the ref names when there is one,
-else analyses it and stores it (results are a cache of a deterministic read of one commit). Every page shows the
-same rows as its CLI command (`nanosoc-rm quality ...`) and links each result to `/facts/<subject>` (A3).
+`analyse=1` to analyse again. A page shows the stored result for the commit the ref names when there is one.
+When there is none (or `analyse=1`), the page never analyses inside the request (CR-R2): it queues
+`nanosoc-rm quality all TARGET [--ref REF] --store` in the local job worker (job kind `quality`, one per target and
+ref at a time) and answers 202 "analysing, refresh" with the job's live card. Every page shows the same rows as
+its CLI command (`nanosoc-rm quality ...`) and links each result to `/facts/<subject>` (A3).
 """
 from __future__ import annotations
 
@@ -24,7 +26,7 @@ from fastapi import APIRouter
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, PlainTextResponse, Response
 
 from nanosoc_rm import quality as q
 from nanosoc_rm.config import load_config
@@ -126,22 +128,38 @@ def _key(fact_or_source) -> str:
     return "%s:%s%s" % (s.label, s.commit or "worktree", "+worktree" if s.worktree and s.commit else "")
 
 
-def _result(config, kind: str, target: str, ref: str | None, analyse: bool) -> tuple[dict, Any]:
-    """(observation, source) for one kind at one ref: stored when present, else analysed now and stored."""
+class Pending(Exception):
+    """No stored result: a quality job was queued (or one already runs) for this target and ref."""
+
+    def __init__(self, job: dict):
+        super().__init__("analysis job %d" % job["id"])
+        self.job = job
+
+
+def _queue(config, target: str, ref: str | None, login: str) -> dict:
+    """The queued or running quality job for (target, ref), or a new one (CR-R2: never analyse in a request)."""
+    from nanosoc_rm import jobs
+    params = {"target": target, "ref": ref}
+    with _lock("queue:%s:%s" % (target, ref)):
+        for j in jobs.jobs(config, limit=200, kind="quality", states=("queued", "running")):
+            if j["params"] == params:
+                return j
+        return jobs.submit(config, "quality", params, login or "web")
+
+
+def _result(config, kind: str, target: str, ref: str | None, analyse: bool, login: str = "") -> tuple[dict, Any]:
+    """(observation, source) for one kind at one ref when it is stored (a work-tree result only while the disk is
+    as it was). Otherwise, or with `analyse`, Pending with the quality job that will store it."""
     from nanosoc_rm import db
     source = q.open_source(target, ref=ref, config=config)
     obs_kind = q.KINDS[kind]
     subject = "%s:%s" % (obs_kind, _key(source))
-    with _lock(subject):
-        if not analyse:
-            hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
-            # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
-            if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
-                return hit[-1], source
-        fn = {"density": q.density, "comments": q.comments, "readme": q.readme, "docs": q.docs}[kind]
-        obs = fn(target, ref=ref, config=config, store=True,
-                 command="GET %s" % _qurl(target, kind, ref=ref))
-        return obs, source
+    if not analyse:
+        hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
+        # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
+        if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
+            return hit[-1], source
+    raise Pending(_queue(config, target, ref, login))
 
 
 def _targets(config) -> list[dict]:
@@ -179,6 +197,27 @@ def _error(request: Request, e: Exception) -> HTMLResponse:
     return _page(request, "quality_message.html", "Quality", status=status, message=str(e))
 
 
+def _login(request: Request) -> str:
+    return getattr(getattr(request.state, "identity", None), "login", "") or ""
+
+
+def _pending(request: Request, target: str, ref: str | None, job: dict) -> HTMLResponse:
+    """202: the analysis runs as a job; the page shows its live card and asks for a refresh."""
+    config = _config(request)
+    html = ""
+    if getattr(getattr(request.app, "state", None), "rm", None) is not None:
+        from nanosoc_rm import jobs
+        from nanosoc_rm.web.page import Page
+        p = Page()
+        ident = getattr(request.state, "identity", None)
+        html = ENV.get_template("_job.html").render(
+            job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]),
+            csrf=request.app.state.rm.csrf_for(ident, config) if ident is not None else "", fact=p.fact, page=p,
+            stored=None)
+    return _page(request, "quality_pending.html", "Quality: %s" % target, status=202, target=target, ref=ref,
+                 job=job, job_html=Markup(html), refresh_url=str(request.url.remove_query_params("analyse")))
+
+
 def router() -> APIRouter:
     r = APIRouter(prefix=PREFIX)
 
@@ -191,11 +230,11 @@ def router() -> APIRouter:
         ref = request.query_params.get("ref") or None
         analyse = request.query_params.get("analyse") == "1"
         try:
-            res = {k: _result(config, k, target, ref, analyse)[0] for k in q.KINDS}
+            res = {k: _result(config, k, target, ref, analyse, _login(request))[0] for k in q.KINDS}
+        except Pending as p:
+            return _pending(request, target, ref, p.job)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return _error(request, e)
-        if analyse:
-            return RedirectResponse(_qurl(target, ref=ref), 303)
         trends = {k: q.trend(k, target, config=config) for k in q.KINDS}
         return _page(request, "quality_summary.html", "Quality: %s" % target, target=target, ref=ref, res=res,
                      trends=trends)
@@ -206,11 +245,11 @@ def router() -> APIRouter:
             ref = request.query_params.get("ref") or None
             analyse = request.query_params.get("analyse") == "1"
             try:
-                obs, _ = _result(config, kind, target, ref, analyse)
+                obs, _ = _result(config, kind, target, ref, analyse, _login(request))
+            except Pending as p:
+                return _pending(request, target, ref, p.job)
             except (q.UsageError, q.QualityError, q.SourceError) as e:
                 return _error(request, e)
-            if analyse:
-                return RedirectResponse(_qurl(target, kind, ref=ref), 303)
             sel = request.query_params.get("kind") or ""
             return _page(request, template, "%s: %s" % (title, target), target=target, ref=ref, obs=obs, f=obs["fact"],
                          sel=sel)
@@ -221,7 +260,10 @@ def router() -> APIRouter:
         ref = request.query_params.get("ref") or None
         sel = request.query_params.get("kind") or ""
         try:
-            obs, source = _result(config, "comments", target, ref, False)   # re-analysed if the disk moved on
+            obs, source = _result(config, "comments", target, ref, False, _login(request))
+        except Pending as p:                                              # not stored, or the disk moved on
+            return PlainTextResponse("Analysing %s (job %d): download again when it has finished.\n"
+                                     % (target, p.job["id"]), 202)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
         findings = [x for x in obs["fact"]["findings"] if not sel or x["kind"] == sel]

@@ -67,10 +67,13 @@ exemptions:
     ids: [E1, E2]
     cr: CR-WB-bumps-review2
     reason: wave-b/bumps second review fixes to the shadow-mode bump proposals (CR-15 build, not enable); the required Requirements trailer names the Phase 4 ids. Remove when the A7 check implements CR-15. Exemptions are keyed by full sha, so merge this branch with a merge commit (no squash or rebase) or re-pin these entries.
-# CR-15 (David 2026-10-12): build and enable are separate. From `from` on, Phase 2-5 capabilities may be built and
-# used locally (implementation commits may name their ids; their commands and routes may exist). Each phase's
-# entry gate above still governs ENABLING automation: no scheduled job of a later phase may be enabled before its
-# gate (interfaces.md section 17.6). Counts only while docs/CHANGES.md has a CR-15 row.
+# CR-15 (David 2026-10-12): build and enable are separate. The phases listed may be BUILT and used locally before
+# their gate, by implementation commits made from `from` on: such commits may name their ids and their commands and
+# routes may exist (reported as `built`). Each phase's entry gate above still governs ENABLING automation (nightly
+# CI matrix, bot pull requests, published releases): rule 5 fails on an enabled later-phase scheduler job (by
+# declared phase, by name, or by what its code reaches) or a bot write (phasegates.py; interfaces.md section 17.6).
+# Counts only while docs/CHANGES.md has a CR-15 row. Merged at the Wave B integration (CR-15c).
 build_allowed:
   cr: CR-15
   from: "2026-10-12T00:00:00Z"
+  phases: [Phase 2, Phase 3, Phase 4, Phase 5]

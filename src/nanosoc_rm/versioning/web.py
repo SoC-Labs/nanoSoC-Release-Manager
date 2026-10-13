@@ -133,7 +133,7 @@ def router(app=None) -> APIRouter:
             return _page(request, "message.html", "Not found", status=404,
                          message="%s is not a catalogue component." % component)
         hist = versioning.stored("version_plan", component, config=config)
-        drafts_obs = versioning.stored("release_draft", component, config=config)
+        drafts_obs = versioning.stored("tool_release_draft", component, config=config)
         ident = getattr(request.state, "identity", None)
         cur = row.get("plan") or {}
         earlier = [h for h in hist if (h.get("subject"), h.get("observed_at")) != (cur.get("subject"),

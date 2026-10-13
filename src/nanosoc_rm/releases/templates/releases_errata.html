@@ -1,0 +1,3 @@
+{% include "_rstyle.html" %}{% include "_rnav.html" %}
+<p class="note">Rendered from the registry's errata records when the draft was made{% if doc %} ({{ doc.fact.generated_at }}){% endif %}. Raw files: <a href="{{ rurl(configuration, version, 'files/ERRATA.md') }}">ERRATA.md</a>, <a href="{{ rurl(configuration, version, 'files/ERRATA.html') }}">ERRATA.html</a>.</p>
+<div class="errata-doc">{{ errata }}</div>

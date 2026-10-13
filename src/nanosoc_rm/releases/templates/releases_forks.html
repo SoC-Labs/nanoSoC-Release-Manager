@@ -1,0 +1,27 @@
+{% include "_rstyle.html" %}{% include "_rnav.html" %}
+<p class="note">Public forks of the example projects (I1), found through each host's fork API without a token, and their divergence from the upstream (I2 user paths when the upstream declares a fork contract). Read-only: nothing is written to any fork. Same as <code>nanosoc-rm forks</code>.</p>
+{% if actions %}<form class="panel" method="post" action="/releases/forks/jobs">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row"><label>Component <input name="component" placeholder="every example project"></label>
+  <button type="submit" class="primary">List forks now</button><span class="note">One anonymous fetch per fork; GitHub allows 60 anonymous API calls an hour.</span></div>
+</form>{% endif %}
+{% if job_html %}{{ job_html }}{% endif %}
+{% if last %}<p class="note">From job {{ last.id }}, finished {{ age_text(last.finished_at) }} ago.</p>{% endif %}
+{% if docs %}
+<div class="scroll"><table>
+  <thead><tr><th>Fork</th><th>Upstream</th><th>Verdict</th><th class="num">Ahead</th><th class="num">Behind</th><th>Based on</th><th class="num">Releases behind</th><th>Errata</th><th>User paths</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for d in docs %}{% set f = d.fact %}
+    <tr data-fork="{{ f.fork.host }}:{{ f.fork.path }}" data-verdict="{{ f.verdict }}">
+      <td>{{ fact(d, f.fork.host ~ ':' ~ f.fork.path) }}</td><td>{{ f.component }} ({{ f.upstream.host }})</td>
+      <td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td>
+      <td class="num">{{ '' if f.ahead is none else f.ahead }}</td><td class="num">{{ '' if f.behind is none else f.behind }}</td>
+      <td>{{ f.based_on or '' }}</td><td class="num">{{ '' if f.releases_behind is none else f.releases_behind }}</td>
+      <td>{{ f.errata|join(', ') }}</td>
+      <td><span class="pill {{ VERDICT_CLASS.get(f.user_paths.verdict, '') }}">{{ f.user_paths.verdict }}</span> <span class="note">{{ f.user_paths.reason }}</span></td>
+      <td>{{ f.reason }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No fork listing yet{% if actions %}: press List forks now{% else %}: run <code>nanosoc-rm forks</code>{% endif %}.</p>{% endif %}

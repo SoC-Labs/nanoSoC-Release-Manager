@@ -22,7 +22,7 @@ from nanosoc_rm.versioning.repo import RepoView, VersioningUsage, baseline, open
 __all__ = ["KINDS", "observe", "changelog_lint", "plan", "tag_check", "manifest_init", "overview", "stored",
            "subject_key", "verdict_of_plan", "yanked_versions"]
 
-KINDS = ("changelog_lint", "version_plan", "tag_check", "manifest_proposal", "release_draft", "yank_proposal",
+KINDS = ("changelog_lint", "version_plan", "tag_check", "manifest_proposal", "tool_release_draft", "yank_proposal",
          "defect_trailers")
 
 

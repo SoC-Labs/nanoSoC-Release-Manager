@@ -1,6 +1,6 @@
 """Tool releases (G1), their approvals (G5) and yanks (G6): files and patches for a person, never a write.
 
-    draft(target, out_dir, *, config, date, regenerator) -> release_draft observation
+    draft(target, out_dir, *, config, date, regenerator) -> tool_release_draft observation
         writes a draft FOLDER (only under out_dir): README.md, release.json (tool-release schema), version.patch,
         CHANGELOG.release.md, commands.txt. Nothing is tagged, pushed or opened: the README and commands.txt say so.
     approve(draft_dir, step, login, *, config) -> the updated approval record (G5, roles from the service config)
@@ -160,7 +160,7 @@ def _diff(path: str, old: str, new: str) -> str:
 
 def draft(target: str, out_dir=None, *, config=None, date: str | None = None, regenerator=None) -> dict:
     """G1: write the release draft folder for `target`'s next version (from `version next`). Returns the
-    release_draft observation. VersioningUsage when there is nothing to release or out_dir is not empty; VersioningRefused (exit 1) while
+    tool_release_draft observation. VersioningUsage when there is nothing to release or out_dir is not empty; VersioningRefused (exit 1) while
     the plan has findings (C9 refusing 1.0.0, a version already tagged or yanked, a changelog that fails lint)."""
     from nanosoc_rm.versioning import core
     view = open_repo(target, config=config)
@@ -246,8 +246,8 @@ def draft(target: str, out_dir=None, *, config=None, date: str | None = None, re
     fact = {"target": view.target, "commit": view.commit, "ref": view.ref, "worktree": view.worktree,
             "version": nxt, "class": klass, "class_status": release["class_status"], "dir": str(out),
             "files": list(DRAFT_FILES), "approvals": release["approvals"], "gates": gates, "pushed": False}
-    return core.observe("release_draft", fact, view.sources + psrc, "nanosoc-rm version draft %s" % target,
-                        subject="release_draft:%s:%s" % (view.target, nxt))
+    return core.observe("tool_release_draft", fact, view.sources + psrc, "nanosoc-rm version draft %s" % target,
+                        subject="tool_release_draft:%s:%s" % (view.target, nxt))
 
 
 def _section_text(text: str, version: str) -> str:

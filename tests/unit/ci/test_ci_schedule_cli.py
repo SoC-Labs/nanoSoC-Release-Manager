@@ -42,6 +42,15 @@ def test_first_tick_after_the_nightly_time_runs_everything_in_order(ci_config, r
     assert calls == [j.name for j in jobs]
 
 
+def test_a_disabled_job_never_runs(ci_config):
+    """CR-15 / CR-R8: a later phase's job may be registered built but disabled; tick never runs it."""
+    ran = []
+    jobs = (Job("nightly_matrix", "poll", lambda cfg: ran.append("matrix"), enabled=False, gate="Phase 2"),
+            Job("poll", "poll", lambda cfg: ran.append("poll")))
+    assert tick(utc("2026-10-01T02:00:10Z"), jobs=jobs) == ["poll"] and ran == ["poll"]
+    assert all(j.enabled for j in schedule.JOBS), "every v1 job is enabled"
+
+
 def test_cadence_poll_fetch_and_nightly(ci_config, recorder):
     calls, jobs = recorder
     assert tick(utc("2026-10-01T01:00:00Z"), jobs=jobs) == ["poll", "inventory", "fetch", "runner"]  # before 02:00

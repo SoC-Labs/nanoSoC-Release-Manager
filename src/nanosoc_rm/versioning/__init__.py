@@ -7,7 +7,7 @@ a host or the registry. Every write a person makes is handed over as a file, a p
     plan(target, ...)            -> version_plan observation              `nanosoc-rm version next`     (C1, C3, C6-C9, C12)
     tag_check(target, ...)       -> tag_check observation                 `nanosoc-rm version tags`     (C10)
     manifest_init(target, ...)   -> (manifest_proposal observation, patch) `nanosoc-rm manifest init`   (C11)
-    draft(target, out_dir, ...)  -> release_draft observation + folder    `nanosoc-rm version draft`    (G1, G5)
+    draft(target, out_dir, ...)  -> tool_release_draft observation + folder    `nanosoc-rm version draft`    (G1, G5)
     approve(draft_dir, step, login)                                       `nanosoc-rm version approve`  (G5)
     yank(target, version, ...)   -> (yank_proposal observation, patch)    `nanosoc-rm version yank`     (G6)
     defect_trailers(target, ...) -> (defect_trailers observation, patch)  `nanosoc-rm version fixed-in` (F6)
