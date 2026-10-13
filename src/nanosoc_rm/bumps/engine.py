@@ -636,8 +636,16 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
             continue
         # 3. the declared range
         rng, rng_src, rng_problem = mirrors.manifest_range(consumer, tip, f["path"], dep)
-        allowed, range_allows = newer, None
-        if rng is not None:
+        allowed, range_allows, assumed = newer, None, None
+        if rng is None and frm_tag is not None:
+            # BUMPS-R4: no declared range allows nothing in particular, so the engine assumes the pin's major
+            # version (0.x stays below 1.0.0) and holds a declared-breaking change (below)
+            assumed = "same major as %s (%d.x): no range declared (C11)" % (frm_tag.name, frm_tag.version.major)
+            allowed = [t for t in newer if t.version.major == frm_tag.version.major]
+            if not allowed:
+                rng_problem = ("no range declared (C11), and %s crosses a major version from %s: a person declares "
+                               "a range in %s's manifest to allow it" % (newer[0].name, frm_tag.name, consumer))
+        elif rng is not None:
             try:
                 allowed = [t for t in newer if allows(rng, t.version)]
                 range_allows = bool(allowed)
@@ -657,6 +665,9 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
             state, reason = "blocked", ("%s (%s) is not on %s:%s, the repo %s's .gitmodules names: a person moves "
                                         "the URL or pushes the tag there first" % (to.name, to.commit[:12],
                                         child["repo"]["host"], child["repo"]["path"], consumer))
+        elif rng is None and change["class"] == "breaking":
+            state, reason = "blocked", ("%s declares a breaking change and %s declares no range for %s (C11): a "
+                                        "person decides" % (to.name, consumer, f["path"]))
         pid = proposal_id(parent["repo"], branch, f["path"], frm, to.commit)
         seen[okey] = (f["tree_paths"][0], pid)
         props[pid] = {
@@ -668,7 +679,8 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
             "from": _tagref(frm_tag, frm),
             "to": _tagref(to, to.commit, repo=True),
             "newest": _tagref(newer[0], newer[0].commit, repo=True) if newer[0] is not to else None,
-            "range": {"declared": rng, "source": rng_src, "allows": range_allows, "problem": rng_problem},
+            "range": {"declared": rng, "source": rng_src, "allows": range_allows, "problem": rng_problem,
+                      "assumed": assumed},
             "change": change, "defects": defects, "matrix": None, "patch": None, "decision": None,
             "waits_for": [], "state": state, "reason": reason,
             "_frm_tag": frm_tag, "_sources": git.take() + extra,

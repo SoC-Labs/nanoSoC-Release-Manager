@@ -44,7 +44,7 @@ _WEB_TEMPLATES = HERE.parent / "web" / "templates"
 # README section 6 colours; every pill also carries its text.
 STATE_CLASS = {"proposed": "state-info", "blocked": "state-amber"}
 OUTCOME_CLASS = {"agreed": "state-green", "disagreed": "state-red", "pending": "state-grey",
-                 "superseded": "state-grey", "unknown": "state-amber"}
+                 "superseded": "state-grey", "unknown": "state-amber", "held": "state-grey"}
 CLASS_CLASS = {"breaking": "state-red", "feature": "state-info", "fix": "state-green", "none": "state-grey",
                "unknown": "state-amber"}
 STATUS_CLASS = {"proposal": "state-info", "blocked": "state-amber", "up-to-date": "state-green",
@@ -152,6 +152,33 @@ def _queue_data(config, q) -> dict:
             "configs": sorted({s["fact"]["configuration"] for s in scans})}
 
 
+def _later_jobs(config, f: dict, since: str) -> dict[str, dict]:
+    """BUMPS-R8: compat what-ifs for exactly this move's pins that the kept cell does not show (queued, running, or
+    finished after the scan), newest per tier. Reads jobs.sqlite only (no git). The page then names them, asks for a
+    rescan and offers no second Run for that tier."""
+    from nanosoc_rm import clock, jobs
+    pins = sorted(f["matrix"].get("pins") or [])
+    shown = {c["job"] for c in (f["matrix"].get("tiers") or {}).values() if c}
+    out: dict[str, dict] = {}
+    try:
+        records = jobs.jobs(config, limit=500, kind="compat")
+    except Exception:                                     # noqa: BLE001 - no job store: nothing to name
+        return out
+    for j in records:                                     # newest first
+        if (j["params"].get("configuration") != f["configuration"] or j["id"] in shown
+                or sorted(j["params"].get("pins") or []) != pins or j["state"] in ("failed", "cancelled", "infra")):
+            continue
+        done_at = j.get("finished_at")
+        try:
+            if done_at and clock.parse(done_at) <= clock.parse(since):
+                continue                                  # the scan already judged it (used, or another tree)
+        except ValueError:
+            pass
+        out.setdefault(j["params"].get("tier") or "t0", {"id": j["id"], "state": j["state"],
+                                                          "verdict": j.get("verdict")})
+    return out
+
+
 def router() -> APIRouter:
     r = APIRouter(prefix=PREFIX)
 
@@ -179,6 +206,7 @@ def router() -> APIRouter:
                      problems=problems, obs=d, f=f, entry=entry, ledger_at=led_at,
                      job=int(job) if job.isdigit() else None,
                      missing_tiers=[t for t in ("t1", "t2") if not (f["matrix"].get("tiers") or {}).get(t)],
+                     later_jobs=await run_in_threadpool(_later_jobs, config, f, d["observed_at"]),
                      marks=bumps.marks(pid, config=config), patch=bumps.patch_text(f),
                      commands=bumps.person_commands(f), message=bumps.commit_message(f))
 
@@ -226,6 +254,15 @@ def router() -> APIRouter:
         if not _local(request):
             return refused("nanosoc-rm bumps %s--store" % ((cid + " ") if cid else ""))
         config = _config(request)
+        if cid is not None:
+            # BUMPS-R8: an unknown configuration is refused here, not queued as a job that can only fail
+            from nanosoc_rm.bumps.engine import CannotAnswer, _load
+            try:
+                known = await run_in_threadpool(lambda: {c["id"] for c in _load(config).configurations()})
+            except CannotAnswer as e:
+                return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
+            if cid not in known:
+                return PlainTextResponse("400 Bad Request: %r is not a registered configuration\n" % cid[:60], 400)
         try:
             for j in jobs.jobs(config, kind="bumps", states=("queued", "running")):
                 if (j["params"].get("configuration") or None) == cid:

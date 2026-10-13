@@ -2,17 +2,22 @@
 
     ledger(*, config=None, now=None) -> bump_ledger observation
 
-Every proposal the engine stored (bumps.sqlite) is compared with its consumer branch as the mirror holds it now
-(`git ls-tree <branch tip> -- <path>`), so the evidence is the repos themselves, not what anyone typed:
+Every proposal the engine stored (bumps.sqlite) is compared with its consumer branch's HISTORY in the mirror, so
+the evidence is the repos themselves, not what anyone typed. Proposals for the same gitlink opportunity (consumer
+repo, branch, path and the pin they move from) are judged together, by the first commit on the branch since the
+proposal's base that moved the gitlink (`git log --first-parent --reverse base..tip -- path`). That first move is
+one person decision, and it stays decided when the branch moves on later (review findings BUMPS-R1, BUMPS-R2):
 
-- **agreed**: the branch pins exactly the proposed commit.
-- **disagreed**: the branch pins some other commit that is not a newer release containing the proposal, or a
-  person marked the proposal "declined".
-- **pending**: the branch still pins the old commit (a "done" mark the mirror does not show yet stays pending,
-  with a note: sync the mirror).
-- **superseded**: a newer proposal for the same gitlink replaced this one, or a person moved to a newer release
-  tag that contains the proposed commit. Neither counts for or against the bot.
-- **unknown**: the mirror cannot answer (branch or commit missing).
+- **agreed**: the first move pinned exactly this proposal's commit.
+- **disagreed**: the first move pinned some other commit that is not a newer release containing the bot's latest
+  proposal, or (no move yet) a person marked the latest proposal "declined".
+- **pending**: no move yet (a "done" mark the mirror does not show yet stays pending, with a note: sync the mirror).
+- **superseded**: a newer proposal for the same gitlink replaced this one, the move is decided by another proposal
+  of the group, or the first move went to a newer release tag that contains the proposed commit. Neither counts
+  for or against the bot.
+- **held**: the bot would hold this proposal (decision.would == hold, for example a tag not on the repo the
+  .gitmodules names), so whatever a person did is not scored (BUMPS-R3).
+- **unknown**: the mirror cannot answer (branch, history or commit missing).
 
 E2's threshold: at least 4 weeks since the first proposal AND at least 20 decided bumps (agreed + disagreed),
 whichever is later. Auto-merge may then be proposed per change class only for a class with zero disagreements;
@@ -41,54 +46,103 @@ def threshold_met(weeks: float, decided: int) -> bool:
     return weeks >= THRESHOLD_WEEKS and decided >= THRESHOLD_BUMPS
 
 
-def _person_commit(mirrors: _Mirrors, comp: str, tip: str, base: str, path: str) -> tuple[str | None, str | None]:
-    """The newest commit on the branch since `base` that changed the gitlink at `path`, and its committer time."""
-    r = mirrors.git.run(mirrors.mirror(comp), "log", "-1", "--format=%H%x1f%cI", "%s..%s" % (base, tip), "--", path)
-    if not r.ok or not r.stdout.strip():
-        return None, None
-    sha, _, at = r.stdout.strip().partition("\x1f")
-    try:
-        at = clock.iso(clock.parse(at))
-    except ValueError:
-        pass
-    return sha, at
+def _first_move(mirrors: _Mirrors, comp: str, tip: str, base: str, path: str,
+                frm: str) -> tuple[str, dict | None, str | None]:
+    """The person's decision on one gitlink: the FIRST commit on the branch (first-parent history, oldest first)
+    since `base` whose gitlink at `path` is not `frm`. Later moves never change it (BUMPS-R1: an agreement lasts
+    when the branch moves on). ("none", None, None) when the branch still pins `frm` in every commit since `base`,
+    ("move", {pin, commit, at}, None) for a move, ("unknown", None, why) when the mirror cannot answer."""
+    r = mirrors.git.run(mirrors.mirror(comp), "log", "--first-parent", "--reverse", "--format=%H%x1f%cI",
+                        "%s..%s" % (base, tip), "--", path)
+    if not r.ok:
+        return "unknown", None, "the history of %s since %s is not in the mirror" % (path, base[:12])
+    for line in r.stdout.splitlines():
+        sha, _, at = line.strip().partition("\x1f")
+        if not sha:
+            continue
+        pin = mirrors.gitlink(comp, sha, path)
+        if pin == frm:
+            continue
+        if pin is None:
+            return "unknown", None, "%s removed the gitlink at %s" % (sha[:12], path)
+        try:
+            at = clock.iso(clock.parse(at))
+        except ValueError:
+            pass
+        return "move", {"pin": pin, "commit": sha, "at": at}, None
+    return "none", None, None
 
 
-def _judge(f: dict, latest: bool, marks: list[dict], mirrors: _Mirrors) -> tuple[str, dict | None, str]:
-    c, dep = f["consumer"], f["dependency"]["component"]
-    declined = [m for m in marks if m["decision"] == "declined"]
-    done = [m for m in marks if m["decision"] == "done"]
+def _judge_group(group: list[dict], marks: dict[str, list[dict]], mirrors: _Mirrors) -> dict[str, tuple]:
+    """Every kept proposal for one gitlink opportunity (consumer repo, branch, path, from), oldest first, judged
+    together: the person's first move after `from` is ONE decision (BUMPS-R2). It agrees with the proposal whose
+    `to` it pins exactly (the others are superseded); otherwise it is judged against the bot's latest word. A
+    proposal the bot would hold (decision.would == hold) is never scored: `held` (BUMPS-R3)."""
+    out: dict[str, tuple] = {}
+    latest = group[-1]["doc"]["fact"]
+    c, dep = latest["consumer"], latest["dependency"]["component"]
+    held = {r["id"] for r in group if (r["doc"]["fact"].get("decision") or {}).get("would") == "hold"}
+
+    def put(rid, outcome, person, note):
+        if rid in held and outcome != "unknown":
+            note = "the bot would hold this proposal (%s), so it is not scored; %s" % (
+                next(r for r in group if r["id"] == rid)["doc"]["fact"].get("reason") or "blocked", note)
+            outcome = "held"
+        out[rid] = (outcome, person, note)
+
     tip = mirrors.tip(c["component"], c["repo"], c["branch"]) if mirrors.has(c["component"]) else None
     if tip is None:
-        return "unknown", None, "branch %s of %s:%s is not in the mirror" % (c["branch"], c["repo"]["host"], c["repo"]["path"])
-    pin = mirrors.gitlink(c["component"], tip, f["path"])
-    if pin is None:
-        return "unknown", None, "the branch tip %s has no gitlink at %s any more" % (tip[:12], f["path"])
-    person = None
-    if pin != f["from"]["commit"]:
-        sha, at = _person_commit(mirrors, c["component"], tip, c["base"], f["path"])
-        person = {"pin": pin, "commit": sha, "at": at}
-    if pin == f["to"]["commit"]:
-        return "agreed", person, "the branch pins the proposed commit"
-    if not latest:
-        return "superseded", person, "a newer proposal for the same gitlink replaced this one"
-    if pin == f["from"]["commit"]:
+        for r in group:
+            put(r["id"], "unknown", None, "branch %s of %s:%s is not in the mirror"
+                % (c["branch"], c["repo"]["host"], c["repo"]["path"]))
+        return out
+    base = group[0]["doc"]["fact"]["consumer"]["base"]
+    what, person, why = _first_move(mirrors, c["component"], tip, base, latest["path"], latest["from"]["commit"])
+    if what == "unknown":
+        for r in group:
+            put(r["id"], "unknown", None, why)
+        return out
+    if what == "none":
+        for r in group[:-1]:
+            put(r["id"], "superseded", None, "a newer proposal for the same gitlink replaced this one")
+        ms = marks.get(group[-1]["id"], [])
+        declined = [m for m in ms if m["decision"] == "declined"]
+        done = [m for m in ms if m["decision"] == "done"]
         if declined:
             m = declined[-1]
-            return "disagreed", None, "declined by %s at %s%s" % (m["login"], m["at"], (": " + m["note"]) if m.get("note") else "")
-        if done:
-            return "pending", None, ("marked done by %s at %s, but the mirror still shows the old pin: sync the "
-                                     "mirror" % (done[-1]["login"], done[-1]["at"]))
-        return "pending", None, "the branch still pins %s" % f["from"]["commit"][:12]
-    contains = mirrors.is_ancestor(dep, f["to"]["commit"], pin)
+            put(group[-1]["id"], "disagreed", None, "declined by %s at %s%s"
+                % (m["login"], m["at"], (": " + m["note"]) if m.get("note") else ""))
+        elif done:
+            put(group[-1]["id"], "pending", None, "marked done by %s at %s, but the mirror still shows the old pin: "
+                "sync the mirror" % (done[-1]["login"], done[-1]["at"]))
+        else:
+            put(group[-1]["id"], "pending", None, "the branch still pins %s" % latest["from"]["commit"][:12])
+        return out
+    pin = person["pin"]
+    exact = [r for r in group if r["doc"]["fact"]["to"]["commit"] == pin]
+    if exact:
+        hit = exact[-1]
+        for r in group:
+            if r is hit:
+                put(r["id"], "agreed", person, "%s pinned the proposed commit" % person["commit"][:12])
+            else:
+                put(r["id"], "superseded", person, "the same move (%s) is decided by %s" % (pin[:12], hit["id"]))
+        return out
+    for r in group[:-1]:
+        put(r["id"], "superseded", person, "a newer proposal for the same gitlink replaced this one")
+    to = latest["to"]
+    contains = mirrors.is_ancestor(dep, to["commit"], pin)
     newer_tag = next((t for t in mirrors.tags(dep) if t.commit == pin), None)
-    to_v = parse_tag(f["to"]["tag"] or "")
-    if contains and newer_tag is not None and to_v is not None and newer_tag.version.key() > to_v.key():
-        return "superseded", person, "a person moved to %s, a newer release that contains the proposal" % newer_tag.name
+    to_v = parse_tag(to["tag"] or "")
     if contains is None:
-        return "unknown", person, "the new pin %s is not in the %s mirror" % (pin[:12], dep)
-    return "disagreed", person, "a person pinned %s%s instead of %s" % (
-        pin[:12], (" (%s)" % newer_tag.name) if newer_tag else " (no release tag)", f["to"]["tag"] or f["to"]["commit"][:12])
+        put(group[-1]["id"], "unknown", person, "the new pin %s is not in the %s mirror" % (pin[:12], dep))
+    elif contains and newer_tag is not None and to_v is not None and newer_tag.version.key() > to_v.key():
+        put(group[-1]["id"], "superseded", person,
+            "a person moved to %s, a newer release that contains the proposal" % newer_tag.name)
+    else:
+        put(group[-1]["id"], "disagreed", person, "a person pinned %s%s instead of %s" % (
+            pin[:12], (" (%s)" % newer_tag.name) if newer_tag else " (no release tag)", to["tag"] or to["commit"][:12]))
+    return out
 
 
 def ledger(*, config: Config | str | Path | None = None, now: str | None = None) -> dict:
@@ -102,20 +156,22 @@ def ledger(*, config: Config | str | Path | None = None, now: str | None = None)
     all_marks: dict[str, list[dict]] = {}
     for m in store.marks(cfg):
         all_marks.setdefault(m["proposal"], []).append(m)
-    # the bot's latest word per gitlink opportunity (consumer repo, branch, path, from); rows are oldest first
-    latest_of: dict[tuple, str] = {}
+    # one group per gitlink opportunity (consumer repo, branch, path, from); rows are oldest first
+    groups: dict[tuple, list[dict]] = {}
     for r in rows:
         f = r["doc"]["fact"]
         key = (f["consumer"]["repo"]["host"], f["consumer"]["repo"]["path"], f["consumer"]["branch"], f["path"],
                f["from"]["commit"])
-        latest_of[key] = r["id"]
-    entries, counts, by_class = [], dict.fromkeys(("agreed", "disagreed", "pending", "superseded", "unknown"), 0), {}
+        groups.setdefault(key, []).append(r)
+    judged: dict[str, tuple] = {}
+    for group in groups.values():
+        judged.update(_judge_group(group, all_marks, mirrors))
+    entries, by_class = [], {}
+    counts = dict.fromkeys(("agreed", "disagreed", "pending", "superseded", "unknown", "held"), 0)
     for r in rows:
         f = r["doc"]["fact"]
-        key = (f["consumer"]["repo"]["host"], f["consumer"]["repo"]["path"], f["consumer"]["branch"], f["path"],
-               f["from"]["commit"])
         marks = all_marks.get(r["id"], [])
-        outcome, person, note = _judge(f, latest_of[key] == r["id"], marks, mirrors)
+        outcome, person, note = judged[r["id"]]
         counts[outcome] += 1
         cls = f["change"]["class"]
         if outcome in ("agreed", "disagreed"):

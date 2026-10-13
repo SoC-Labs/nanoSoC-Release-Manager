@@ -1174,7 +1174,9 @@ Inputs, all read: the configuration's latest stored walk (section 4; never re-wa
 4. **Range (C11).** When the consumer's `nanosoc-component.yaml` at the branch tip declares a `requires[].range`
    for that path (or that component), the proposal is the newest release the range allows; the newest overall is
    `newest`. Ranges are Cargo style (`^`, `~`, `=`, `>`, `>=`, `<`, `<=`, `X.Y.*`, `*`, bare = caret); a range that
-   does not parse holds the pin with the problem named, never a guess. No manifest: no range, every release counts.
+   does not parse holds the pin with the problem named, never a guess. No manifest or no range (CR-WB-bumps-review2):
+   the engine assumes the pin's major version (`range.assumed`, optional), so a release across a major version is
+   held (status `held-by-range`), and a change that declares itself `breaking` is `blocked` (would `hold`).
 5. **Change.** The changelog (CHANGELOG.md, CHANGELOG, CHANGES.md, HISTORY.md at the tag) sections in
    (from version, to version]; the class each declares (`Class: fix` line, else `### Breaking|Added|Fixed`
    headings), the most severe of them, `unknown` when any section declares nothing (C2: never from the version
@@ -1231,11 +1233,15 @@ bump_scan per configuration) and `ledger` (the latest bump_ledger and when it wa
 
 ### 18.5 The shadow ledger (E2)
 
-Each kept proposal against its consumer branch in the mirror now: **agreed** (the branch pins exactly the proposed
-commit; `person.commit` is the commit that moved it), **disagreed** (another commit that is not a newer release
-containing the proposal, or a `declined` mark), **pending** (still the old pin; a `done` mark the mirror does not
-show yet stays pending with a note), **superseded** (a newer proposal for the same gitlink, or a newer release
-containing it), **unknown** (the mirror cannot answer). Threshold: 4 weeks since the first proposal AND 20 decided
+Kept proposals are grouped per gitlink opportunity (consumer repo, branch, path, `from`) and judged on the consumer
+branch's HISTORY (CR-WB-bumps-review2): the first commit since the proposal's base (`git log --first-parent
+--reverse base..tip -- path`) whose gitlink is not `from` is ONE person decision, and later moves never change it.
+**agreed** (that move pinned exactly this proposal's commit; `person.commit` is the commit), **disagreed** (it pinned
+something else that is not a newer release containing the bot's latest proposal, or, with no move yet, the latest
+proposal was `declined`), **pending** (no move yet; a `done` mark the mirror does not show yet stays pending with a
+note), **superseded** (a newer proposal for the same gitlink, another proposal of the group decides the move, or the
+move went to a newer release containing it), **held** (optional value: the bot would hold this proposal, so it is
+never scored), **unknown** (the mirror cannot answer). Threshold: 4 weeks since the first proposal AND 20 decided
 (agreed + disagreed), whichever is later; then auto-merge may be PROPOSED for a class (fix, feature) with zero
 disagreements. Switching it on is a registry change a person makes after the Phase 4 gate; `auto_merge.enabled`
 is always false here and a non-empty `eligibility.yaml auto_merge` is a problem. `observed_at` is the oldest
@@ -1285,17 +1291,17 @@ Enabling needs the Phase 4 gate checked by a person and a CR that adds the job.
 | Route | Shows or does |
 |---|---|
 | `GET /bumps/?configuration=&state=&cls=&outcome=&component=&job=` | the queue (kept proposals with filters), per-configuration scans with pins by status, the ledger summary, the schedule banner (DISABLED, gate named), Scan now |
-| `GET /bumps/p/{id}?configuration=&job=` | one proposal (that configuration's document when named): move, range, class, changelog, commits, defects, matrix cell with its tiers or one Run per missing tier, waits-for, blockers, patch, commands for a person, marks |
+| `GET /bumps/p/{id}?configuration=&job=` | one proposal (that configuration's document when named): move, range, class, changelog, commits, defects, matrix cell with its tiers or one Run per missing tier (a compat what-if for exactly this move that is queued, running or finished after the scan is named with a rescan note instead of a second Run), waits-for, blockers, patch, commands for a person, marks |
 | `GET /bumps/p/{id}/patch.diff` | the patch (`text/x-diff`, attachment `<id>.diff`) |
 | `GET /bumps/ledger` | E2 ledger: outcomes, agreement, threshold, by class, auto-merge OFF |
 | `GET /bumps/facts/{subject}` | one bump observation with its sources verbatim |
-| `POST /bumps/scan` | queue the `bumps` job (field `configuration`, optional); an identical queued or running job is reused |
+| `POST /bumps/scan` | queue the `bumps` job (field `configuration`, optional; an id that is not a registered configuration answers 400); an identical queued or running job is reused |
 | `POST /bumps/p/{id}/mark` | "mark as done by a person" (`decision` done or declined, `note`, `configuration`), with the signed-in login; then queues one ledger refresh job |
 
 The POSTs act only in a local deployment (the app's `local_routes`, CR-16/CR-17); elsewhere they answer 403 with the
 CLI command, and the pages show the command instead of the buttons. Both are behind the section 14 guard and its
 CSRF check. Colours: README section 6 and `web.page` classes, always with the text (`proposed` info, `blocked`
-amber; outcomes agreed green, disagreed red, pending and superseded grey, unknown amber; class breaking red,
+amber; outcomes agreed green, disagreed red, pending, superseded and held grey, unknown amber; class breaking red,
 feature info, fix green, none grey, unknown amber). Row hooks: `data-proposal`, `data-state`, `data-outcome`,
 `data-configuration`; page hooks `data-shadow`, `data-schedule`.
 

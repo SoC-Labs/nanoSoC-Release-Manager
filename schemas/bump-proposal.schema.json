@@ -99,7 +99,8 @@
             "declared": { "type": ["string", "null"], "description": "The consumer manifest's requires[].range for this path (C11), or null when none is declared." },
             "source": { "type": ["string", "null"] },
             "allows": { "type": ["boolean", "null"], "description": "null when no range is declared." },
-            "problem": { "type": ["string", "null"] }
+            "problem": { "type": ["string", "null"] },
+            "assumed": { "type": ["string", "null"], "description": "Optional (review BUMPS-R4): with no declared range, the bound the engine assumed instead: the pin's major version, and a declared-breaking change is held." }
           }
         },
         "change": {
@@ -281,8 +282,8 @@
         "class": { "enum": ["breaking", "feature", "fix", "none", "unknown"] },
         "first_proposed": { "$ref": "defs.schema.json#/$defs/utc" },
         "outcome": {
-          "enum": ["agreed", "disagreed", "pending", "superseded", "unknown"],
-          "description": "agreed: the branch now pins exactly the proposed commit. disagreed: a person pinned something else, or declined it. pending: the branch still pins `from`. superseded: a newer proposal for the same pin replaced it, or a person moved to a newer release that contains it. unknown: the mirror cannot answer."
+          "enum": ["agreed", "disagreed", "pending", "superseded", "unknown", "held"],
+          "description": "Judged on the consumer branch's history (review BUMPS-R1, R2): the first commit since the proposal's base that moved the gitlink is one decision and stays decided. agreed: that move pinned exactly the proposed commit. disagreed: it pinned something else that is not a newer release containing the bot's latest proposal, or (no move yet) the latest proposal was declined. pending: no move yet. superseded: a newer proposal for the same pin replaced it, another proposal for the same gitlink decides the move, or the move went to a newer release that contains it. held (added by review BUMPS-R3): the bot would hold this proposal, so it is never scored. unknown: the mirror cannot answer."
         },
         "person": {
           "type": ["object", "null"],
@@ -321,7 +322,8 @@
           "properties": {
             "agreed": { "type": "integer", "minimum": 0 }, "disagreed": { "type": "integer", "minimum": 0 },
             "pending": { "type": "integer", "minimum": 0 }, "superseded": { "type": "integer", "minimum": 0 },
-            "unknown": { "type": "integer", "minimum": 0 }, "decided": { "type": "integer", "minimum": 0 }
+            "unknown": { "type": "integer", "minimum": 0 }, "decided": { "type": "integer", "minimum": 0 },
+            "held": { "type": "integer", "minimum": 0, "description": "Optional (review BUMPS-R3): proposals the bot would hold; never decided." }
           }
         },
         "agreement_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },

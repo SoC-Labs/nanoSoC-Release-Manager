@@ -241,7 +241,21 @@ def test_a_person_moving_to_a_newer_tag_without_the_proposal_disagrees(tmp_path,
     a4 = w["arch"].commit(a3, links={"nanosoc_gen": g7}, msg="person pins v0.4.0")
     w["arch"].set(GL_ARCH, "heads", "main", a4)
     out = {e["id"]: e for e in bumps.ledger()["fact"]["entries"]}
-    assert out[gen["id"]]["outcome"] == "superseded"
+    # review BUMPS-R1: the first move (a3) is the decision; a later move does not rewrite it
+    assert out[gen["id"]]["outcome"] == "disagreed" and out[gen["id"]]["person"]["commit"] == a3
+
+
+def test_a_first_move_to_a_newer_release_that_contains_the_proposal_is_superseded(tmp_path, monkeypatch):
+    from nanosoc_rm import bumps
+    w = world(tmp_path, monkeypatch)
+    gen = _gen(store=True)
+    g7 = w["gen"].commit(w["g"][3], msg="v0.4.0 contains v0.2.0")
+    w["gen"].set(GL_GEN, "tags", "v0.4.0", g7)
+    a3 = w["arch"].commit(w["a"][0], links={"nanosoc_gen": g7}, msg="person pins v0.4.0")
+    w["arch"].set(GL_ARCH, "heads", "main", a3)
+    led = bumps.ledger()["fact"]
+    out = {e["id"]: e for e in led["entries"]}
+    assert out[gen["id"]]["outcome"] == "superseded" and led["counts"]["decided"] == 0
 
 
 @pytest.mark.parametrize("weeks,decided,met", [(4, 20, True), (10, 19, False), (3.9, 100, False), (0, 0, False)])

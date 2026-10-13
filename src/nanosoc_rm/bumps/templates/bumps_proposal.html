@@ -5,8 +5,8 @@
   <tr><th>Consumer</th><td>{{ f.consumer.component }}: {{ f.consumer.repo.host }}:{{ f.consumer.repo.path }}, branch <strong>{{ f.consumer.branch }}</strong> at <code>{{ short(f.consumer.base) }}</code>{% if not f.consumer.at_configured %} <span class="warn">the configuration pins <code>{{ short(f.consumer.configured) }}</code>, not the branch tip</span>{% endif %}</td></tr>
   <tr><th>Gitlink</th><td><code>{{ f.path }}</code> (tree paths: {% for t in f.tree_paths %}<code>{{ t }}</code> {% endfor %})</td></tr>
   <tr><th>Move</th><td><code>{{ short(f['from'].commit) }}</code> ({% if not f['from'].tag %}no release{% elif not f['from'].exact %}contains {{ f['from'].tag }}{% else %}{{ f['from'].tag }}{% endif %}) to <code>{{ short(f.to.commit) }}</code> (<strong>{{ f.to.tag }}</strong>{% if f.to.grandfathered %}, grandfathered two-part tag{% endif %}) of {{ f.dependency.component }}</td></tr>
-  {% if f.newest %}<tr><th>Newest release</th><td>{{ f.newest.tag }}: outside the declared range</td></tr>{% endif %}
-  <tr><th>Range</th><td>{{ f.range.declared or 'none declared' }}{% if f.range.source %} <span class="note">({{ f.range.source }})</span>{% endif %}{% if f.range.problem %} <span class="warn">{{ f.range.problem }}</span>{% endif %}</td></tr>
+  {% if f.newest %}<tr><th>Newest release</th><td>{{ f.newest.tag }}: outside the {{ 'declared' if f.range.declared else 'assumed' }} range</td></tr>{% endif %}
+  <tr><th>Range</th><td>{{ f.range.declared or 'none declared' }}{% if f.range.assumed %}; assumed: {{ f.range.assumed }}{% endif %}{% if f.range.source %} <span class="note">({{ f.range.source }})</span>{% endif %}{% if f.range.problem %} <span class="warn">{{ f.range.problem }}</span>{% endif %}</td></tr>
   <tr><th>Change class</th><td>{{ pill(f.change['class'], CLASS_CLASS) }} <span class="note">{{ f.change.class_source }}: {{ f.change.class_detail }}</span></td></tr>
   <tr><th>Commits</th><td>{{ f.change.commits.count }}{% if f.change.diverged %} <span class="pill state-red">diverged</span> the old pin is not an ancestor of the tag{% endif %}</td></tr>
   <tr><th>Defects fixed</th><td>{% for d in f.defects.fixed %}{{ pill('fixes', {'fixes': 'state-green'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}{% if d.forms %} (forms {{ d.forms|join(', ') }}){% endif %}<br>{% else %}none in the registry{% endfor %}</td></tr>
@@ -17,8 +17,10 @@
     {% else %}<span class="note">no T0-T2 result for this move</span>{% endif %}
     {% for t, c in (f.matrix.tiers or {})|dictsort %}{% if c %}<br>{{ t }}: {{ pill(c.verdict, VERDICT_CLASS) }} <a href="{{ c.href }}">job {{ c.job }}</a>{% endif %}{% endfor %}
     {% if f.matrix.note %}<br><span class="note">{{ f.matrix.note }}</span>{% endif %}
+    {% if later_jobs %}<br><span class="warn" data-bumps="rescan">{% for t, j in later_jobs|dictsort %}{{ t }}: <a href="/compat?job={{ j.id }}">job {{ j.id }}</a> {{ j.state }}{% if j.verdict %} {{ pill(j.verdict, VERDICT_CLASS) }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}. The cell above is from the scan; Scan again ({% if local %}Scan now on <a href="/bumps/">Bumps</a>{% else %}<code>nanosoc-rm bumps {{ f.configuration }} --store</code>{% endif %}) to take {{ 'them' if later_jobs|length > 1 else 'it' }} in.</span>{% endif %}
     {% if f.matrix.verdict != 'PASS' and f.matrix.source != 'matrix' %}{% for t in missing_tiers %}
-      {% if local %}<br><form method="post" action="/compat/jobs" style="display:inline">
+      {% if t in later_jobs %}
+      {% elif local %}<br><form method="post" action="/compat/jobs" style="display:inline">
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="configuration" value="{{ f.configuration }}">
         <input type="hidden" name="pins_extra" value="{{ f.matrix.pins|join('\n') }}"><input type="hidden" name="tier" value="{{ t }}">
         <button type="submit" title="queue the compat what-if with exactly this pin moved, T0 then {{ t }}">Run T0 + {{ t }}</button></form>
