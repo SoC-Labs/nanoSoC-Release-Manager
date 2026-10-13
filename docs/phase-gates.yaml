@@ -48,3 +48,11 @@ exemptions:
     ids: [D7]
     cr: CR-5
     reason: build/ci's trailer copied the section 9/10 "Requirements:" lines, which named D7 (Phase 2) before CR-5.
+  - commit: 2fc356ec8192c5393646973c0a63d2d851de7d38
+    ids: [E1, E2, E3, E5, E7]
+    cr: CR-WB-bumps-review
+    reason: wave-b/bumps builds Phase 4 bump proposals in shadow mode (CR-15 build, not enable); the required Requirements trailer names the Phase 4 ids. Remove when the A7 check implements CR-15.
+  - commit: 666e4445861097384d3d328275561db32aff824c
+    ids: [E1, E2, E3, E5, E7]
+    cr: CR-WB-bumps-review
+    reason: wave-b/bumps builds Phase 4 bump proposals in shadow mode (CR-15 build, not enable); the required Requirements trailer names the Phase 4 ids. Remove when the A7 check implements CR-15.
