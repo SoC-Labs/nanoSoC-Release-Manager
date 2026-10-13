@@ -311,6 +311,20 @@ def test_check_repo_reads_what_the_scheduler_reaches_by_default(monkeypatch):
     assert all(p.startswith("Phase 2: ") for p in probs), probs
 
 
+def test_check_repo_judges_a_declared_later_phase_under_a_neutral_name(monkeypatch):
+    """Integration (CR-15c): `nanosoc-rm phase-gates` reads a job's declared phase, not only its name or reach;
+    the same job registered disabled enables nothing."""
+    from nanosoc_rm import schedule
+    job = schedule.Job("nightly_thing", "nightly", schedule._credentials, phase="Phase 3")   # code reaching no later phase
+    monkeypatch.setattr(schedule, "JOBS", schedule.JOBS + (job,))
+    probs = [p for r in phasegates.check_repo(REPO) for p in r["problems"]]
+    assert probs == ["Phase 3: automation `nightly_thing` is enabled before its entry gate (CR-15: build, do not "
+                     "enable)"], probs
+    monkeypatch.setattr(schedule, "JOBS", schedule.JOBS[:-1] + (
+        schedule.Job("nightly_thing", "nightly", schedule._credentials, phase="Phase 3", enabled=False, gate="Phase 3"),))
+    assert all(r["problems"] == [] for r in phasegates.check_repo(REPO))
+
+
 def _cli(*args, cwd=None):
     exe = shutil.which("nanosoc-rm")
     assert exe

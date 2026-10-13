@@ -92,6 +92,33 @@ If your SSH config multiplexes connections (`ControlMaster`), the forward is add
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
 | Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
 
+## Wave B pages (built per CR-15; their automation stays off)
+
+The same service also serves Matrix (`/matrix/`), Bumps (`/bumps/`), Versions (`/versions/`) and Releases
+(`/releases/`) in the one navigation. Every long action on them (a matrix cell, a bump scan, a version refresh or
+draft, a release draft or verify, a fork listing, a cold quality page) is a job in the local runner, never work
+inside a request. They write only on the host's own disk, under the data directory:
+
+| What | Where |
+|---|---|
+| Matrix cells and quarantine | `rm.sqlite` (observations `matrix_cell`, `matrix_quarantine`) |
+| Bump proposals, marks, ledger | `bumps.sqlite` |
+| Tool release drafts | `drafts/<component>/<version>/` |
+| SoC release drafts | `releases/<configuration>/<version>/` |
+
+Nothing is scheduled for them: the nightly matrix, bump pull requests and published releases wait for their phase
+entry gates (`docs/phase-gates.yaml`), and `nanosoc-rm phase-gates` exits 1 if one is switched on. Every page that
+would write to a forge (a bump, a tag, a release) gives a person a patch, a folder or a command instead.
+
+A quick check after an update (each from the GUI, or with the CLI on the host):
+```
+nanosoc-rm matrix <configuration> --component <c1> --component <c2> --component <c3> --run --wait
+nanosoc-rm bumps <configuration> --store
+nanosoc-rm release draft <configuration> <version>      # a folder under releases/; nothing tagged or pushed
+nanosoc-rm version refresh
+nanosoc-rm phase-gates --repo ~/nanosoc-rm/app           # exit 0: no later-phase automation enabled
+```
+
 ## What this host can and cannot run
 
 T0 (resolve, pins, URLs, vendor scan) needs only git. T1 and T2 tiers call EDA tools (Verilator, VCS); on a host
