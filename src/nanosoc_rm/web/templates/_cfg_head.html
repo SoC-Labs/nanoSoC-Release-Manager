@@ -1,0 +1,24 @@
+{# The configuration workspace header (spec 3.1): chips, the deciding sentence, one primary action, stat tiles,
+   then the tabs. Data from cfgspace.header; this file only prints. #}
+{% import "_ui.html" as ui %}
+<section class="panel" aria-labelledby="cfg-sentence">
+  <p class="row" style="align-items:center">
+    {% for text, tone in head.chips %}{{ ui.chip(text, tone) }} {% endfor %}
+    {% if c.record %}<span class="note">{{ fact(c.record, 'registry record') }}</span>{% endif %}
+  </p>
+  <p id="cfg-sentence" class="disp" style="font-size:1.2em;margin:.5rem 0">{{ head.sentence }}</p>
+  <div class="row" style="align-items:center">
+    {% set a = head.action %}
+    {% if a and a.method == 'get' %}<a class="prim" href="{{ a.href }}">{{ a.label }}</a>{% endif %}
+    {% with cid = c.cid %}{% include "_run_form.html" %}{% endwith %}
+    {% if actions %}
+    <form method="post" action="{{ base }}/walk"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="ghost" title="nanosoc-rm walk {{ c.cid }}">Walk now</button></form>
+    {% endif %}
+  </div>
+  <div class="tiles" style="margin-top:.75rem">
+    {% for t in head.tiles %}
+    <div class="tile"><div class="lbl">{{ t.label }}</div><div class="disp" style="font-size:1.25em">{{ t.value }}</div><div class="note">{{ t.sub }}</div></div>
+    {% endfor %}
+  </div>
+</section>
+{{ ui.tabs(tabs_, tab) }}

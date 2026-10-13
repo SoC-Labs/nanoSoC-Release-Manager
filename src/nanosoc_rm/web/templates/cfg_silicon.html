@@ -1,0 +1,59 @@
+{# Configuration workspace, Silicon tab (spec 3.6). Data from cfgspace.silicon_page. #}
+{% import "_ui.html" as ui %}
+{% include "_cfg_head.html" %}
+{% if c.frozen %}
+<section class="panel" aria-labelledby="h-sil">
+  <h2 id="h-sil">{{ covered }} of {{ rows|length }} silicon commits are covered by keep/{{ c.cid }}/* tags. {{ uncovered|length }} {{ 'is' if uncovered|length == 1 else 'are' }} not.</h2>
+  {% if uncovered %}
+  <p>An untagged commit is lost if its branch is deleted. Tag it, then push the tag:</p>
+  {{ ui.copybox('keep-tags', cmds, 'Keep tags for the uncovered rows') }}
+  {% if unreadable %}<p class="note">UNREADABLE: run these from a checkout that can read that repo.</p>{% endif %}
+  {% elif rows %}<p>Every silicon commit has a keep tag.</p>
+  {% else %}<p class="empty">No silicon-protection rows are stored: run <code>nanosoc-rm silicon-protection {{ c.cid }}</code>.</p>{% endif %}
+</section>
+{% if rows %}
+<div class="scroll"><table>
+  <thead><tr><th scope="col">Host</th><th scope="col">Component</th><th scope="col">Commit</th><th scope="col">State</th><th scope="col">Covered by</th><th scope="col">Tree paths</th></tr></thead>
+  <tbody>
+  {% for row in rows %}{% set r = row.doc %}{% set f = r.fact %}
+    <tr data-covered="{{ 'yes' if f.covered else 'no' }}">
+      <td>{{ f.repo.host }}{% if f.pinned %} (pinned){% endif %}{% if f.canonical %} (canonical){% endif %}</td>
+      <td>{{ fact(r, f.component) }}</td><td><code>{{ short(f.commit) }}</code></td>
+      <td>{{ ui.chip(f.state, row.tone) }}</td>
+      <td>{% for t in f.covering_tags %}{{ ui.chip(t, 'c-pass') }} {% else %}{{ ui.chip('UNCOVERED', 'c-fail') }}{% endfor %}</td>
+      <td>{{ f.tree_paths|join(', ') }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% endif %}
+{% else %}
+<section class="panel" aria-labelledby="h-sil">
+  <h2 id="h-sil">{{ c.cid }} is not silicon. Nothing to protect yet.</h2>
+  <p>Only a frozen or silicon configuration has a protection list. Its open errata are below.</p>
+</section>
+{% endif %}
+
+<section aria-labelledby="h-err">
+  <h2 id="h-err">Errata against this configuration</h2>
+  {% set errata = c.errata if c.frozen else open_errata %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Erratum</th><th scope="col">Defect</th><th scope="col">Configuration</th><th scope="col">Status</th><th scope="col">Exposure</th><th scope="col">Workaround</th></tr></thead>
+    <tbody>
+    {% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6">no {{ '' if c.frozen else 'open ' }}errata</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+{% if c.frozen %}
+<section aria-labelledby="h-waivers" id="waivers">
+  <h2 id="h-waivers">T0 waivers ({{ waivers|length }})</h2>
+  {% if waivers %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Gate</th><th scope="col">Tree path</th><th scope="col">Result</th><th scope="col">Approved</th><th scope="col">Used</th><th scope="col">Reason</th></tr></thead>
+    <tbody>{% for w in waivers %}<tr data-unused="{{ 'yes' if w.unused else 'no' }}"><td><code>{{ w.gate }}</code></td><td><code>{{ w.tree_path }}</code></td><td>{{ w.result }}</td><td>{{ w.approved_by }}, {{ w.approved_on }}</td>
+      <td>{% if c.doc %}{{ ui.chip('covers nothing' if w.unused else 'in use', 'c-warn' if w.unused else 'c-pass') }}{% else %}{{ ui.chip('not checked', 'c-notrun') }}{% endif %}</td><td>{{ w.reason }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="note">No waivers.</p>{% endif %}
+</section>
+{% endif %}

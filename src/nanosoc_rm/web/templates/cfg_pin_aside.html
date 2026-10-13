@@ -1,0 +1,25 @@
+{# The selected pin (spec 3.3), from cfgspace.pin_aside. Included by cfg_tree.html and returned alone by
+   GET /configurations/{id}/tree/node (the htmx target #pin-aside). #}
+{% import "_ui.html" as ui %}
+<aside id="pin-aside" class="panel" aria-label="Selected pin" aria-live="polite" style="flex:1 1 320px;min-width:0">
+{% if aside %}
+  {% set v = aside.v %}
+  <p class="note">Selected pin</p>
+  <h2 style="margin:.2rem 0"><code>{{ v.path }}</code></h2>
+  <p><code>{{ v.component or '?' }} @ {{ fact(v.pin, v.commit) }}</code></p>
+  <p class="disp" style="font-size:1.1em">{{ aside.headline }}</p>
+  <table class="kv">
+    <tr><th scope="row">Hosts</th><td>{% for text, tone in aside.hosts %}{{ ui.chip(text, tone) }} {% else %}none stored{% endfor %}</td></tr>
+    <tr><th scope="row">Lag</th><td>{{ aside.lag }}</td></tr>
+    <tr><th scope="row">Silicon</th><td>{{ ui.chip(aside.cover, aside.cover_tone) }}</td></tr>
+    {% if v.flags %}<tr><th scope="row">Flags</th><td>{% for text, tone in v.flags %}{{ ui.chip(text, tone) }} {% endfor %}</td></tr>{% endif %}
+    {% if aside.twins %}<tr><th scope="row">Split</th><td>{% for tw in aside.twins %}<a href="{{ tw.href }}"><code>{{ tw.path }}</code></a> @ {{ fact(tw.doc, tw.commit, tag='code') }}<br>{% endfor %}</td></tr>{% endif %}
+  </table>
+  {% for n in aside.notes %}<p class="note">{{ n }}</p>{% endfor %}
+  <p><strong>Next:</strong> {{ aside.next }}</p>
+  {% if aside.code %}{{ ui.copybox('pin-code', aside.code, 'Commands') }}{% endif %}
+  {% if aside.action %}<p><a class="prim" href="{{ aside.action.href }}">{{ aside.action.label }}</a></p>{% endif %}
+{% else %}
+  <p class="empty">No pin is selected. Pick a row of the tree.</p>
+{% endif %}
+</aside>

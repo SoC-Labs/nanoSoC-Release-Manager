@@ -1,0 +1,87 @@
+{# Configuration workspace, Overview tab (spec 3.2). Data from cfgspace.configuration. #}
+{% import "_ui.html" as ui %}
+{% include "_cfg_head.html" %}
+{% if job %}<section aria-labelledby="h-job"><h2 id="h-job">Job {{ job.id }}</h2>{% include "_job.html" %}</section>{% endif %}
+
+{% if c.doc %}
+{% set d = c.decision %}
+{% if d.gate %}
+<section class="panel" aria-labelledby="h-decide">
+  <h2 id="h-decide">The deciding gate</h2>
+  <p>{{ ui.chip(d.verdict, head.chips[0][1]) }} <code>{{ d.same_cause_gates|join(' + ') }}</code></p>
+  <p><strong>{{ d.label }}</strong>{% if d.not_reached %}: it hides {{ d.not_reached }} tree{{ '' if d.not_reached == 1 else 's' }} below it from the other gates{% endif %}.</p>
+  {% if gate_detail %}<p class="note">{{ gate_detail }}</p>{% endif %}
+  {% if head.action and head.action.method == 'get' %}<p><strong>Next:</strong> <a href="{{ head.action.href }}">{{ head.action.label }}</a></p>{% endif %}
+  {% if head.action and head.action.code %}{{ ui.copybox('decide-code', head.action.code, 'The fix, as commands') }}{% endif %}
+  {% if separate %}<p>Separate causes: {% for s in separate %}{{ s.label }} (<code>{{ s.gates|join(', ') }}</code>){{ '; ' if not loop.last }}{% endfor %}.</p>{% endif %}
+</section>
+{% else %}
+<section class="panel" aria-labelledby="h-decide">
+  <h2 id="h-decide">No red gate</h2>
+  <p>{{ c.cid }} is {{ ui.chip(d.verdict, head.chips[0][1]) }} in its newest stored result.</p>
+</section>
+{% endif %}
+{% if waived_line %}<p class="note">{{ waived_line }}</p>{% endif %}
+{% if head.infra %}<p class="banner info" role="note"><strong>INFRA.</strong> {{ head.infra }}</p>{% endif %}
+
+<section aria-labelledby="h-gates">
+  <h2 id="h-gates">Gates, red first <span class="note">result {{ fact(c.doc, short(c.doc.fact.nonce, 12)) }} · {{ age_text(c.doc.fact.finished_at) }} ago</span></h2>
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Gate</th><th scope="col">Verdict</th><th scope="col">Raw</th><th scope="col">Detail</th></tr></thead>
+    <tbody>
+    {% for g in gates %}
+      <tr id="gate-{{ g.id }}" data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}" data-raw-verdict="{{ g.raw_verdict or '' }}"{% if g.deciding %} class="is-deciding"{% endif %}>
+        <td><code>{{ g.id }}</code>{% if g.deciding %} <span class="sr">(the deciding gate)</span>{% endif %}</td>
+        <td>{{ ui.chip(g.verdict, g.tone) }}</td>
+        <td>{{ g.raw_verdict or '' }}</td>
+        <td>{{ g.detail }}{% for w in g.waived or [] %}<br><span class="note">waived {{ w.tree_path }} ({{ w.result }}), approved by {{ w.approved_by }}</span>{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% else %}
+<section class="panel" aria-labelledby="h-never">
+  <h2 id="h-never">{{ c.cid }} has never been checked</h2>
+  <p>No gates and no stored result, so there is no baseline for a what-if yet. Press {{ 'Run' if local_ci else 'Run T0' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
+</section>
+{% endif %}
+
+<details id="pins" class="panel">
+  <summary>All {{ c.pins|length }} pins as a table{% if c.pins %} (the Submodule tree tab nests them){% endif %}</summary>
+  {% if c.pins %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Tree path</th><th scope="col">Component</th><th scope="col">Commit</th><th scope="col">State per host</th><th scope="col">Lag</th></tr></thead>
+    <tbody>
+    {% for row in pin_rows %}{% set p = row.doc %}{% set f = p.fact %}
+      <tr id="pin-{{ quote(f.tree_paths[0]) }}">
+        <td>{{ fact(p, f.tree_paths|join(', ')) }}</td>
+        <td>{% if f.child.component %}<a href="/components/{{ f.child.component }}">{{ f.child.component }}</a>{% else %}{{ f.child.catalogued_as }}{% endif %}</td>
+        <td><code>{{ short(f.child.commit) }}</code>{% if f.url_kind == 'ssh' %} {{ ui.chip('ssh URL', 'c-warn') }}{% endif %}{% if f.split %} {{ ui.chip('SPLIT', 'c-split') }}{% endif %}</td>
+        <td>{% for text, tone in row.hosts %}{{ ui.chip(text, tone) }} {% endfor %}</td>
+        <td>{% for host, h in f.hosts|dictsort %}{% if h.lag is not none %}{{ host }} {{ h.lag }} {% endif %}{% endfor %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty">No walk of {{ c.cid }} is stored. {% if actions %}Press Walk now, or run{% else %}Run{% endif %} <code>nanosoc-rm walk {{ c.cid }}</code>.</p>{% endif %}
+</details>
+
+{% if runs %}
+<section aria-labelledby="h-ci">
+  <h2 id="h-ci">CI T0 runs</h2>
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Run</th><th scope="col">Verdict</th><th scope="col">Acceptance</th><th scope="col">Triggered</th><th scope="col">By</th></tr></thead>
+    <tbody>
+    {% for r in runs[:5] %}
+      <tr data-verdict="{{ r.fact.verdict or '' }}">
+        <td><a href="/runs/{{ r.fact.run.nonce }}">{{ short(r.fact.run.nonce, 12) }}</a></td>
+        <td>{{ fact(r, r.fact.verdict or 'pending') }}</td><td>{{ r.fact.acceptance }}</td>
+        <td>{{ r.fact.run.triggered_at }}</td><td>{{ r.fact.run.triggered_by }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% if runs|length > 5 %}<p class="note"><a href="{{ base }}/history">All {{ runs|length }} runs in History</a></p>{% endif %}
+</section>
+{% endif %}
