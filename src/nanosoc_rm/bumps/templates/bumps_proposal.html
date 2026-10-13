@@ -1,0 +1,58 @@
+<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }}</p>
+{% if f.state == 'blocked' %}<p class="banner problem"><strong>Blocked:</strong> {{ f.reason }}</p>{% endif %}
+<table class="kv" data-proposal="{{ f.id }}" data-state="{{ f.state }}">
+  <tr><th>Proposal</th><td>{{ bfact(page, obs, f.id) }} {{ pill(f.state, STATE_CLASS_B) }} (order {{ f.order }} in {{ f.configuration }}, deepest first)</td></tr>
+  <tr><th>Consumer</th><td>{{ f.consumer.component }}: {{ f.consumer.repo.host }}:{{ f.consumer.repo.path }}, branch <strong>{{ f.consumer.branch }}</strong> at <code>{{ short(f.consumer.base) }}</code>{% if not f.consumer.at_configured %} <span class="warn">the configuration pins <code>{{ short(f.consumer.configured) }}</code>, not the branch tip</span>{% endif %}</td></tr>
+  <tr><th>Gitlink</th><td><code>{{ f.path }}</code> (tree paths: {% for t in f.tree_paths %}<code>{{ t }}</code> {% endfor %})</td></tr>
+  <tr><th>Move</th><td><code>{{ short(f['from'].commit) }}</code> ({% if not f['from'].tag %}no release{% elif not f['from'].exact %}contains {{ f['from'].tag }}{% else %}{{ f['from'].tag }}{% endif %}) to <code>{{ short(f.to.commit) }}</code> (<strong>{{ f.to.tag }}</strong>{% if f.to.grandfathered %}, grandfathered two-part tag{% endif %}) of {{ f.dependency.component }}</td></tr>
+  {% if f.newest %}<tr><th>Newest release</th><td>{{ f.newest.tag }}: outside the declared range</td></tr>{% endif %}
+  <tr><th>Range</th><td>{{ f.range.declared or 'none declared' }}{% if f.range.source %} <span class="note">({{ f.range.source }})</span>{% endif %}{% if f.range.problem %} <span class="warn">{{ f.range.problem }}</span>{% endif %}</td></tr>
+  <tr><th>Change class</th><td>{{ pill(f.change['class'], CLASS_CLASS) }} <span class="note">{{ f.change.class_source }}: {{ f.change.class_detail }}</span></td></tr>
+  <tr><th>Commits</th><td>{{ f.change.commits.count }}{% if f.change.diverged %} <span class="pill state-red">diverged</span> the old pin is not an ancestor of the tag{% endif %}</td></tr>
+  <tr><th>Defects fixed</th><td>{% for d in f.defects.fixed %}{{ pill('fixes', {'fixes': 'state-green'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}{% if d.forms %} (forms {{ d.forms|join(', ') }}){% endif %}<br>{% else %}none in the registry{% endfor %}</td></tr>
+  <tr><th>Defects introduced</th><td>{% for d in f.defects.introduced %}{{ pill('introduces', {'introduces': 'state-red'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}<br>{% else %}none in the registry{% endfor %}{% if f.defects.unjudged %}<br><span class="warn">not judged: {{ f.defects.unjudged|join('; ') }}</span>{% endif %}</td></tr>
+  <tr><th>Matrix</th><td>
+    {% if f.matrix.verdict %}{{ pill(f.matrix.verdict, VERDICT_CLASS) }} ({{ f.matrix.source }}{% if f.matrix.observed_at %}, {{ f.matrix.observed_at }}{% endif %}){% if f.matrix.href %} <a href="{{ f.matrix.href }}">result</a>{% endif %}
+    {% else %}<span class="note">no stored result for this move</span>
+      {% if local %}<form method="post" action="/compat/jobs" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="configuration" value="{{ f.configuration }}">
+        <input type="hidden" name="pins_extra" value="{{ f.matrix.pins|join('\n') }}">
+        <button type="submit" title="queue the compat what-if (T0) with exactly this pin moved">Run</button></form>
+      {% else %}<code>nanosoc-rm compat {{ f.configuration }}{% for p in f.matrix.pins %} --pin {{ p }}{% endfor %}</code>{% endif %}
+    {% endif %}</td></tr>
+  <tr><th>Waits for</th><td>{% for w in f.waits_for %}<a href="/bumps/p/{{ w }}">{{ w }}</a> {% else %}nothing{% endfor %}</td></tr>
+  <tr><th>The bot would</th><td>{{ f.decision.would }} <span class="pill state-grey">auto-merge OFF</span> goes to a {{ f.decision.goes_to }}</td></tr>
+  <tr><th>Ledger</th><td>{% if entry %}{{ pill(entry.outcome, OUTCOME_CLASS) }} {{ entry.note }}{% else %}<span class="note">not computed</span>{% endif %}</td></tr>
+</table>
+
+<h2>Why it cannot auto-merge (E3)</h2>
+<ul data-bumps="blockers">{% for b in f.decision.blockers %}<li>{{ b }}</li>{% endfor %}</ul>
+
+<h2>Patch</h2>
+<p><a href="/bumps/p/{{ f.id }}/patch.diff" download="{{ f.patch.file }}">Download {{ f.patch.file }}</a> (or <code>nanosoc-rm bumps patch {{ f.id }} --out {{ f.patch.file }}</code>). {{ f.patch.note }}</p>
+<p>Commands for a person, in a checkout of {{ f.consumer.component }} (the tool runs none of them):</p>
+<pre>{% for c in commands %}{{ c }}
+{% endfor %}</pre>
+<details><summary>The patch file</summary><pre>{{ patch }}</pre></details>
+
+<h2>Mark as done by a person</h2>
+{% if local %}
+<form class="panel" method="post" action="/bumps/p/{{ f.id }}/mark">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row">
+    <label>Note <input name="note" size="50" placeholder="optional: the PR or commit"></label>
+    <button type="submit" name="decision" value="done">Mark done by me</button>
+    <button type="submit" name="decision" value="declined">Decline</button>
+  </div>
+  <p class="note">Logged with your login. The ledger still judges by what the branch holds in the mirror.</p>
+</form>
+{% else %}<p class="note"><code>nanosoc-rm bumps mark {{ f.id }} done --by &lt;login&gt;</code></p>{% endif %}
+{% if marks %}<ul data-bumps="marks">{% for m in marks %}<li>{{ m.decision }} by {{ m.login }} at {{ m.at }}{% if m.note %}: {{ m.note }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+
+{% if f.change.changelog.excerpt %}<h2>Changelog ({{ f.change.changelog.file }})</h2>
+<pre>{{ f.change.changelog.excerpt }}{% if f.change.changelog.truncated %}
+[truncated]{% endif %}</pre>{% endif %}
+{% if f.change.commits.shown %}<h2>Commits</h2>
+<ul>{% for c in f.change.commits.shown %}<li><code>{{ short(c.commit) }}</code> {{ c.subject }}</li>{% endfor %}</ul>{% endif %}
+<h2>Suggested commit message</h2>
+<pre>{{ message }}</pre>

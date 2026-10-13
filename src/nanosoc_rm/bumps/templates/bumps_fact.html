@@ -1,0 +1,11 @@
+<p>{{ bfact(page, obs, obs.subject) }}</p>
+<table class="kv">
+  <tr><th>Kind</th><td>{{ obs.kind }}</td></tr>
+  <tr><th>Observed at</th><td>{{ obs.observed_at }}</td></tr>
+</table>
+<h2>How it was found</h2>
+<ul class="sources">
+{% for s in obs.sources %}<li>{{ s.kind }}: <code>{{ shown_command(s) }}</code></li>{% endfor %}
+</ul>
+<h2>The observation</h2>
+<pre>{{ verbatim(to_json(page_doc(obs))) }}</pre>

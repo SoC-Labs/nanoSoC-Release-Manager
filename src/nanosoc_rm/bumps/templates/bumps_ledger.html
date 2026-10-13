@@ -1,0 +1,33 @@
+<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }} The ledger compares each proposal with the consumer branch in the mirror now: agreed when a person pinned exactly the proposed commit. Same rows as <code>nanosoc-rm bumps ledger</code>.</p>
+{% if ledger %}{% set L = ledger.fact %}
+<table class="kv" data-bumps="ledger-summary">
+  <tr><th>Ledger</th><td>{{ bfact(page, ledger, 'bump_ledger:all') }}</td></tr>
+  <tr><th>Since</th><td>{{ L.started_at or 'no proposal kept yet' }} ({{ L.weeks }} weeks)</td></tr>
+  <tr><th>Outcomes</th><td>{% for k in ('agreed', 'disagreed', 'pending', 'superseded', 'unknown') %}{{ pill(k, OUTCOME_CLASS) }} {{ L.counts[k] }} {% endfor %}</td></tr>
+  <tr><th>Agreement</th><td>{% if L.agreement_rate is not none %}{{ '%.1f'|format(100 * L.agreement_rate) }}% of {{ L.counts.decided }} decided{% else %}n/a: nothing decided yet{% endif %}</td></tr>
+  <tr><th>Threshold</th><td>{{ pill('met' if L.threshold.met else 'not met', {'met': 'state-green', 'not met': 'state-amber'}) }} {{ L.threshold.reason }}</td></tr>
+  <tr><th>By class</th><td>{% for c, n in L.by_class|dictsort %}{{ pill(c, CLASS_CLASS) }} {{ n.agreed }} agreed / {{ n.disagreed }} disagreed {% else %}none decided{% endfor %}</td></tr>
+  <tr><th>Auto-merge</th><td><span class="pill state-grey">OFF</span> {{ L.auto_merge.gate }}; eligibility auto_merge = {{ L.auto_merge.configured or '{}' }}</td></tr>
+</table>
+{% for p in L.problems %}<p class="banner problem">{{ p }}</p>{% endfor %}
+{% if L.entries %}
+<div class="scroll"><table data-bumps="ledger">
+  <thead><tr><th>Proposal</th><th>Consumer</th><th>Gitlink</th><th>Proposed</th><th>Class</th><th>First proposed</th><th>Outcome</th><th>What the branch holds</th><th>Marks</th></tr></thead>
+  <tbody>
+  {% for e in L.entries %}
+    <tr data-proposal="{{ e.id }}" data-outcome="{{ e.outcome }}">
+      <td><a href="/bumps/p/{{ e.id }}">{{ e.id }}</a></td>
+      <td>{{ e.consumer.host }}:{{ e.consumer.path }} ({{ e.branch }})</td>
+      <td><code>{{ e.path }}</code></td>
+      <td>{{ e.tag or short(e.to) }}</td>
+      <td>{{ pill(e['class'], CLASS_CLASS) }}</td>
+      <td>{{ e.first_proposed }}</td>
+      <td>{{ pill(e.outcome, OUTCOME_CLASS) }}</td>
+      <td>{{ e.note }}{% if e.person and e.person.commit %} (<code>{{ short(e.person.commit) }}</code> {{ e.person.at or '' }}){% endif %}</td>
+      <td>{% for m in e.marks %}{{ m.decision }} by {{ m.login }} {{ m.at }}<br>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No proposal is kept yet, so there is nothing to compare.</p>{% endif %}
+{% endif %}

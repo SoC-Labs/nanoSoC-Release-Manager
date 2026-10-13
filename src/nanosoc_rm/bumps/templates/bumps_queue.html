@@ -1,0 +1,80 @@
+<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }} Same rows as <code>nanosoc-rm bumps queue</code>; scan with <code>nanosoc-rm bumps [CONFIG] --store</code>.</p>
+<p class="banner problem" data-schedule="disabled"><strong>Schedule: DISABLED.</strong> Gate: {{ schedule.gate }} entry gate ({{ schedule.gate_status }}). {{ schedule.reason }}</p>
+
+{% if local %}
+<form class="panel" method="post" action="/bumps/scan">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <div class="row">
+    <label>Configuration <input name="configuration" value="{{ sel.configuration }}" placeholder="every registered one"></label>
+    <button type="submit" title="queue `nanosoc-rm bumps CONFIG --store` as a local job; it reads the stored walk and the mirrors">Scan now</button>
+  </div>
+  <p class="note">Reads the latest stored walk and the mirrors (walk and sync them first on the configuration and <a href="/mirrors">Mirrors</a> pages). Frozen and silicon configurations are never proposed (E3, E5).</p>
+</form>
+{% else %}<p class="note">To scan: <code>nanosoc-rm bumps --store</code> on a login server.</p>{% endif %}
+{% if job %}<div hx-get="/jobs/{{ job }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p class="note">Job {{ job }}: <a href="/jobs/{{ job }}/log">log</a></p></div>{% endif %}
+
+<h2>Configurations</h2>
+{% if scans %}
+<div class="scroll"><table data-bumps="scans">
+  <thead><tr><th>Configuration</th><th>Scan</th><th>Proposals</th><th>Pins by status</th><th>Problems</th></tr></thead>
+  <tbody>
+  {% for s in scans %}{% set f = s.fact %}
+    <tr data-configuration="{{ f.configuration }}">
+      <td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a></td>
+      <td>{{ bfact(page, s, s.observed_at) }}</td>
+      {% if f.eligible %}
+      <td class="num">{{ f.proposals|length }}</td>
+      <td>{% for k, n in f.counts|dictsort %}{{ pill(k, STATUS_CLASS) }} {{ n }} {% endfor %}</td>
+      {% else %}
+      <td>{{ pill('refused', {'refused': 'state-grey'}) }}</td><td>{{ f.refused }}</td>
+      {% endif %}
+      <td>{% for p in f.problems %}<span class="warn">{{ p }}</span><br>{% endfor %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No scan is kept yet. Press Scan now (or run <code>nanosoc-rm bumps --store</code>).</p>{% endif %}
+
+<h2>Queue</h2>
+<form class="panel" method="get" action="/bumps/">
+  <div class="row">
+    <label>Configuration <select name="configuration"><option value="">all</option>{% for c in configs %}<option{% if c == sel.configuration %} selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+    <label>State <select name="state"><option value="">all</option>{% for s in ('proposed', 'blocked') %}<option{% if s == sel.state %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label>Class <select name="cls"><option value="">all</option>{% for s in ('breaking', 'feature', 'fix', 'none', 'unknown') %}<option{% if s == sel.cls %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label>Outcome <select name="outcome"><option value="">all</option>{% for s in ('pending', 'agreed', 'disagreed', 'superseded', 'unknown') %}<option{% if s == sel.outcome %} selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label>Component <input name="component" value="{{ sel.component }}" placeholder="consumer or dependency"></label>
+    <button type="submit">Filter</button>
+  </div>
+</form>
+{% if rows %}
+<div class="scroll"><table data-bumps="queue">
+  <thead><tr><th class="num">Depth</th><th>Proposal</th><th>Configurations</th><th>Consumer (branch)</th><th>Gitlink</th><th>From</th><th>To</th><th>Class</th><th>Fixes</th><th>Introduces</th><th>Matrix</th><th>State</th><th>Outcome</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set f = r.f %}
+    <tr data-proposal="{{ f.id }}" data-state="{{ f.state }}" data-outcome="{{ r.outcome }}">
+      <td class="num">{{ f.depth }}</td>
+      <td><a href="/bumps/p/{{ f.id }}">{{ f.id }}</a> {{ bfact(page, r.obs, '') }}</td>
+      <td>{{ r.configurations|join(', ') }}</td>
+      <td>{{ f.consumer.component }} <span class="note">{{ f.consumer.repo.host }}:{{ f.consumer.repo.path }}</span> ({{ f.consumer.branch }})</td>
+      <td><code>{{ f.path }}</code></td>
+      <td><code>{{ short(f['from'].commit) }}</code> {% if f['from'].tag %}({{ '' if f['from'].exact else 'contains ' }}{{ f['from'].tag }}){% endif %}</td>
+      <td><strong>{{ f.to.tag }}</strong></td>
+      <td>{{ pill(f.change['class'], CLASS_CLASS) }}</td>
+      <td>{% for d in f.defects.fixed %}<a href="/defects/{{ d.id }}">{{ d.id }}</a> {% endfor %}</td>
+      <td>{% for d in f.defects.introduced %}<span class="pill state-red">{{ d.id }}</span> {% endfor %}</td>
+      <td>{% if f.matrix.verdict %}{{ pill(f.matrix.verdict, VERDICT_CLASS) }}{% else %}<span class="note">not run</span>{% endif %}</td>
+      <td>{{ pill(f.state, STATE_CLASS_B) }}</td>
+      <td>{% if r.outcome %}{{ pill(r.outcome, OUTCOME_CLASS) }}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">{% if total %}No kept proposal matches the filter ({{ total }} kept).{% else %}No proposals are kept. A proposal appears when a catalogue component has a release tag (vX.Y.Z) newer than a consumer's pin; see each configuration's pins by status above.{% endif %}</p>{% endif %}
+
+<h2>Shadow ledger (E2)</h2>
+{% if ledger %}{% set L = ledger.fact %}
+<p>{{ bfact(page, ledger, 'ledger') }}: {{ L.counts.agreed }} agreed, {{ L.counts.disagreed }} disagreed, {{ L.counts.pending }} pending, {{ L.counts.superseded }} superseded.
+  Agreement {% if L.agreement_rate is not none %}<strong>{{ '%.0f'|format(100 * L.agreement_rate) }}%</strong>{% else %}n/a (nothing decided yet){% endif %}.
+  Threshold: {{ L.threshold.reason }}. Auto-merge: <span class="pill state-grey">OFF</span> ({{ L.auto_merge.gate }}). <a href="/bumps/ledger">Ledger</a></p>
+{% else %}<p class="note">The ledger could not be computed (see the problem above).</p>{% endif %}
+{% if recent %}<h2>Recent scan jobs</h2><ul>{% for j in recent %}<li><a href="/bumps/?job={{ j.id }}">job {{ j.id }}</a> {{ pill(j.state, JOB_CLASS) }} <code>{{ j.command }}</code> by {{ j.by }} {{ j.created_at }}</li>{% endfor %}</ul>{% endif %}

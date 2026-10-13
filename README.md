@@ -57,6 +57,21 @@ generated layout section, docs ranking, trend). `docs --rewrite` asks Claude for
 `ANTHROPIC_API_KEY` or `[quality] api_key_file` is set (it sends those sections to the Anthropic API); without a
 key it makes no network call. Details: `docs/contracts/interfaces.md` section 14a.
 
+## Bump proposals, shadow mode (Phase 4 E1-E7, built per CR-15, not enabled)
+
+What the bump bot WOULD do, for a person to do: the tool never pushes, writes a branch or opens a pull request.
+
+```
+nanosoc-rm walk eth-main && nanosoc-rm bumps eth-main --store   # releases newer than each pin, deepest first
+nanosoc-rm bumps show <id>                                       # changelog, class, defects, matrix cell, blockers
+nanosoc-rm bumps patch <id> --out <id>.diff                      # then, in the consumer: git apply --index <id>.diff
+nanosoc-rm bumps mark <id> done --by <login>                     # a person applied it
+nanosoc-rm bumps ledger                                          # E2: agreement with what people pinned
+```
+
+Frozen and silicon configurations are never proposed; generated RTL is not regenerated; the schedule ships
+disabled until the Phase 4 gate. Pages under `/bumps/`. Details: `docs/contracts/interfaces.md` section 18.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

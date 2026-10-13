@@ -64,6 +64,7 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Mirrors | fetch status and age; **Sync** one component or all |
 | Alerts | open and cleared alerts; **Clear** (logged with your login) |
 | Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; run `nanosoc-rm quality all <target> --store` once first (a cold page takes about a minute) |
+| Bumps | shadow-mode bump proposals: queue with filters, one page per proposal (changelog, defects, matrix cell or Run, patch download, **Mark done** / **Decline**), the shadow ledger; **Scan now** queues `nanosoc-rm bumps --store`. Nothing is pushed; the schedule is DISABLED until the Phase 4 gate |
 
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 

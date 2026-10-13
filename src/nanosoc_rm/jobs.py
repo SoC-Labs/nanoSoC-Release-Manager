@@ -48,10 +48,13 @@ from typing import Any, Callable, Iterator, Sequence
 from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
-__all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
+__all__ = ["KINDS", "PLUGIN_KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
            "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci"]
 
 KINDS = ("compat", "mirror-sync", "walk")
+# Plug-in job kinds: kind -> a module defining `job_params(params) -> dict` (ValueError when the CLI would exit 3)
+# and `job_args(params) -> [nanosoc-rm arguments]`. Imported only when such a job is submitted or run.
+PLUGIN_KINDS = {"bumps": "nanosoc_rm.bumps.jobkind"}
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
@@ -172,7 +175,17 @@ def _params(kind: str, params: dict) -> dict:
         return {"component": _check_id(comp, "component") if comp else None}
     if kind == "walk":
         return {"configuration": _check_id(params.get("configuration"), "configuration")}
-    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS)))
+    if kind in PLUGIN_KINDS:
+        try:
+            return _plugin_kind(kind).job_params(dict(params))
+        except ValueError as e:
+            raise JobUsage(str(e)) from None
+    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS + tuple(PLUGIN_KINDS))))
+
+
+def _plugin_kind(kind: str):
+    import importlib
+    return importlib.import_module(PLUGIN_KINDS[kind])
 
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
@@ -192,6 +205,8 @@ def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
         return ["mirror", "sync"] + (["--component", params["component"]] if params.get("component") else []) + ["--json"]
     if kind == "walk":
         return ["walk", params["configuration"], "--json"]
+    if kind in PLUGIN_KINDS:
+        return list(_plugin_kind(kind).job_args(params))
     raise JobUsage("unknown job kind %r" % kind)
 
 
