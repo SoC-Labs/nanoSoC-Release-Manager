@@ -5,6 +5,8 @@
     queue(configuration, *, columns, components, by, config) -> [job]     the cells as local jobs, pinned first
     nightly_plan(configuration, now, ...) -> [(component, column)]        what the nightly schedule WOULD queue
     NIGHTLY                                                                that schedule: shipped DISABLED
+    bump_cell(configuration, overrides, *, config) -> {verdict, ...} | None  the stored cell of exactly one pin
+                                                                           move, for the bump engine (section 19.6)
 
 A row per component of the configuration's stored tree; columns pinned | in-range | latest-tag | head
 (`columns`). Each cell is a local compat T0 run with that component moved (`cells`), queued through the local
@@ -28,7 +30,7 @@ from nanosoc_rm.matrix import columns as C
 from nanosoc_rm.matrix.cells import run_cell, set_owner          # noqa: F401 - the package's public functions
 
 __all__ = ["matrix", "run_cell", "set_owner", "queue", "nightly_plan", "NIGHTLY", "COLUMNS", "parse_columns",
-           "MatrixUsage", "JOB_KIND"]
+           "MatrixUsage", "JOB_KIND", "bump_cell"]
 
 COLUMNS = C.COLUMNS
 JOB_KIND = "matrix-cell"
@@ -212,3 +214,32 @@ def nightly_plan(configuration: str, now: dt.datetime, *, config=None, weekly_da
             if cv["status"] != "result" or cv["stale"] or c == C.HEAD:
                 out.append((r["component"], c))
     return out
+
+
+def bump_cell(configuration: str, overrides: dict[str, str], *, config=None) -> dict | None:
+    """The newest stored matrix cell of `configuration` whose pin overrides are exactly `overrides`
+    ({tree_path: commit}), as the bump engine reads it (interfaces.md section 19.6): {verdict, observed_at, href,
+    detail}, or None when no such cell is stored. A cell of the pinned column, or one NOT-RUN, is never a move's
+    result. FLAKY (red, then green alone, D8) reads as UNVERIFIED: a bump never rests on a flaky green."""
+    from nanosoc_rm.analysis import _inputs as I
+    from urllib.parse import urlencode
+    cfg = I.config_of(config)
+    want = {str(k): str(v) for k, v in (overrides or {}).items()}
+    if not want:
+        return None
+    for d in reversed(K.cells(configuration, cfg)):                 # newest first
+        f = d["fact"]
+        if f["column"] == C.PINNED or f["verdict"] == "NOT-RUN":
+            continue
+        if {o["tree_path"]: o["commit"] for o in f["overrides"]} != want:
+            continue
+        verdict = "UNVERIFIED" if f["verdict"] == "FLAKY" else f["verdict"]
+        detail = "matrix cell %s (column %s, configuration commit %s)%s" % (
+            d["subject"], f["column"], f["configuration_commit"][:12],
+            ": FLAKY (D8), read as UNVERIFIED" if f["verdict"] == "FLAKY" else
+            (": %s" % f["reason"] if f.get("reason") else ""))
+        return {"verdict": verdict, "observed_at": d["observed_at"],
+                "href": "/matrix/%s/cell?%s" % (configuration, urlencode({"component": f["component"],
+                                                                          "column": f["column"]})),
+                "detail": detail[:500]}
+    return None

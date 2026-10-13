@@ -195,3 +195,19 @@ def test_the_quality_pages_sit_in_the_gui_shell(site):
         assert 'hx-headers=\'{"X-CSRF-Token": "' in r.text and "sign out" in r.text, url
         assert r.text.count("<html") == 1, url
     assert c.get("/quality", follow_redirects=False).status_code in (307, 308)   # the bare prefix redirects
+
+
+def test_one_navigation_holds_every_wave_b_page_once(site):
+    """Wave B integration: one top navigation, in the shared layout, with each plug-in once, on every page; each
+    plug-in's landing page answers inside that shell (503 "could not answer" where this site has no registry)."""
+    import re as _re
+    c = site["client"]
+    labels = ["Quality", "Matrix", "Bumps", "Versions", "Releases"]
+    for url in ["/"] + ["/%s/" % p for p in ("quality", "matrix", "bumps", "versions", "releases")]:
+        r = _settle(c, url, site["cfg"]) if url.startswith("/quality") else c.get(url)
+        assert r.status_code in (200, 503), (url, r.status_code, r.text[:300])
+        assert r.text.count("<html") == 1, url
+        nav = _re.findall(r'<nav aria-label="main">(.*?)</nav>', r.text, _re.S)
+        assert len(nav) == 1, url
+        for label in labels:
+            assert nav[0].count(">%s</a>" % label) == 1, (url, label)

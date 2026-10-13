@@ -13,12 +13,15 @@ a host or the registry. Every write a person makes is handed over as a file, a p
     defect_trailers(target, ...) -> (defect_trailers observation, patch)  `nanosoc-rm version fixed-in` (F6)
     is_yanked / allowed          the interface the bump engine (Wave B bumps, E1) codes against (G6)
     Regenerator / NoGenerator    the pluggable regeneration step of the C3 classifier (classify.py)
+    changelog_entries            the classed entries between two commits, for release notes (releases, CR-R1)
+    classify_bump                the C3 class of one pin move, for the bump engine (interfaces.md section 19.6)
 
 Contract: docs/contracts/interfaces.md section 14b; schemas/tool-release.schema.json.
 """
 from __future__ import annotations
 
 from nanosoc_rm.versioning.classify import NoGenerator, RegenerationResult, Regenerator
+from nanosoc_rm.versioning.consumers import changelog_entries, classify_bump
 from nanosoc_rm.versioning.core import (KINDS, changelog_lint, manifest_init, observe, overview, plan, stored,
                                         tag_check, verdict_of_plan, yanked_versions)
 from nanosoc_rm.versioning.release import APPROVAL_MATRIX, allowed, approve, draft, is_yanked, yank
@@ -28,4 +31,4 @@ from nanosoc_rm.versioning.trailers import defect_trailers
 __all__ = ["KINDS", "changelog_lint", "plan", "tag_check", "manifest_init", "draft", "approve", "yank", "is_yanked",
            "allowed", "defect_trailers", "overview", "stored", "observe", "verdict_of_plan", "yanked_versions",
            "Regenerator", "NoGenerator", "RegenerationResult", "APPROVAL_MATRIX", "VersioningError", "VersioningUsage",
-           "VersioningRefused"]
+           "VersioningRefused", "changelog_entries", "classify_bump"]

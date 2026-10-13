@@ -1050,7 +1050,8 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
 6. **Notes.** Classed changes of the SoC since the previous release tag (`--since`, default the newest older
    vX.Y.Z), and of each pin that moved since the newest earlier draft. Interface for the versioning module (C2):
    `nanosoc_rm.versioning.changelog_entries(component, old, new, *, config) -> [{class, summary, commit}]` is used
-   when it exists; otherwise the mirror's `git log old..new` classed by `Change-Class:` trailer, then breaking
+   when it exists (it does since CR-WB-int: the CHANGELOG.md entries the range brings, LookupError when the
+   component has no changelog at `new`); otherwise the mirror's `git log old..new` classed by `Change-Class:` trailer, then breaking
    marker, then conventional-commit type, else `unclassed`.
 7. **Person steps.** Keep-tag commands for each untagged, unwaived pin on its component's canonical host
    (`keep/<configuration>/<component>`, or the tree path's last part when the component is split; "push the
@@ -1571,7 +1572,9 @@ time it was computed: no git and no ledger computation inside a request (review 
 ### 19.6 Interfaces this module needs from other Wave B modules
 
 Looked up at run time (`nanosoc_rm.bumps.interfaces`); a module not built here is not an error and the fallback
-is named in the fact (`class_source`, `matrix.source`):
+is named in the fact (`class_source`, `matrix.source`). Both providers exist since the Wave B integration (CR-WB-int):
+`matrix.bump_cell` answers only the newest stored cell whose overrides are exactly the move (FLAKY reads as
+UNVERIFIED), and `versioning.classify_bump` returns None when no C3 signal gives a class:
 
 | Provider | Function | Fallback |
 |---|---|---|
