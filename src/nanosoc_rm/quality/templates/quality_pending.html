@@ -1,0 +1,3 @@
+{% include "_qstyle.html" %}
+<p class="banner info" data-pending-job="{{ job.id }}"><strong>Analysing, refresh.</strong> {{ target }}{% if ref %} at <code>{{ ref }}</code>{% endif %} has no stored result for this page yet, so job {{ job.id }} is analysing it (<code>{{ job.command }}</code>). It takes about a minute on a large repository; this page shows the result once the job has stored it. <a href="{{ refresh_url }}" data-refresh>Refresh</a>.</p>
+{% if job_html %}{{ job_html }}{% endif %}

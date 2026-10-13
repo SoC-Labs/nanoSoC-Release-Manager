@@ -49,9 +49,15 @@ from nanosoc_rm import clock
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
-           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci"]
+           "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "register_kind",
+           "KIND_MODULES", "all_kinds", "job_dir"]
 
 KINDS = ("compat", "mirror-sync", "walk")
+# Kinds other modules add (CR-R2): each module in KIND_MODULES calls register_kind(...) when imported. The worker
+# imports them on first use of a kind it does not know, so the service process and a test both see them.
+KIND_MODULES = ("nanosoc_rm.quality.jobkinds", "nanosoc_rm.releases.jobkinds")
+_PLUGIN_KINDS: dict[str, tuple[Callable[[dict], dict], Callable[[dict], list[str]]]] = {}
+_PLUGINS_LOADED = False
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
@@ -69,6 +75,34 @@ CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state);
 
 class JobUsage(ValueError):
     """A job request that cannot run: unknown kind, a bad id, a malformed --pin. Nothing is queued."""
+
+
+def register_kind(name: str, params: Callable[[dict], dict], args: Callable[[dict], list[str]]) -> None:
+    """Add a job kind (CR-R2): `params(raw) -> checked params` (JobUsage for a request the CLI would refuse) and
+    `args(params) -> the nanosoc-rm arguments` (ending in --json). The job's result is its exit code's verdict
+    (0 PASS, 1 FAIL, 2 UNVERIFIED, 3 failed) and a count of the documents it printed, as for walk and sync."""
+    if name in KINDS:
+        raise ValueError("job kind %r is built in" % name)
+    _PLUGIN_KINDS[name] = (params, args)
+
+
+def _plugin(kind: str):
+    global _PLUGINS_LOADED
+    if kind not in _PLUGIN_KINDS and not _PLUGINS_LOADED:
+        import importlib
+        for mod in KIND_MODULES:
+            try:
+                importlib.import_module(mod)
+            except ModuleNotFoundError as e:
+                if e.name != mod and not mod.startswith(str(e.name) + "."):
+                    raise
+        _PLUGINS_LOADED = True
+    return _PLUGIN_KINDS.get(kind)
+
+
+def all_kinds() -> tuple[str, ...]:
+    _plugin("")
+    return KINDS + tuple(sorted(_PLUGIN_KINDS))
 
 
 def is_local_ci(config: Config) -> bool:
@@ -172,7 +206,10 @@ def _params(kind: str, params: dict) -> dict:
         return {"component": _check_id(comp, "component") if comp else None}
     if kind == "walk":
         return {"configuration": _check_id(params.get("configuration"), "configuration")}
-    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(KINDS)))
+    plug = _plugin(kind)
+    if plug is not None:
+        return plug[0](params)
+    raise JobUsage("unknown job kind %r (known: %s)" % (kind, ", ".join(all_kinds())))
 
 
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
@@ -192,6 +229,9 @@ def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
         return ["mirror", "sync"] + (["--component", params["component"]] if params.get("component") else []) + ["--json"]
     if kind == "walk":
         return ["walk", params["configuration"], "--json"]
+    plug = _plugin(kind)
+    if plug is not None:
+        return plug[1](params)
     raise JobUsage("unknown job kind %r" % kind)
 
 
