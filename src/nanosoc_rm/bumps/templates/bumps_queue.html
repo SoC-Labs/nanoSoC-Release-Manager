@@ -53,8 +53,8 @@
   {% for r in rows %}{% set f = r.f %}
     <tr data-proposal="{{ f.id }}" data-state="{{ f.state }}" data-outcome="{{ r.outcome }}">
       <td class="num">{{ f.depth }}</td>
-      <td><a href="/bumps/p/{{ f.id }}">{{ f.id }}</a> {{ bfact(page, r.obs, '') }}</td>
-      <td>{{ r.configurations|join(', ') }}</td>
+      <td><a href="/bumps/p/{{ f.id }}{{ qs(configuration=r.configuration) }}">{{ f.id }}</a> {{ bfact(page, r.obs, '') }}</td>
+      <td data-configuration-row="{{ r.configuration }}">{{ r.configuration }}{% if r.configurations|length > 1 %} <span class="note">(also {{ r.configurations|reject('equalto', r.configuration)|join(', ') }})</span>{% endif %}</td>
       <td>{{ f.consumer.component }} <span class="note">{{ f.consumer.repo.host }}:{{ f.consumer.repo.path }}</span> ({{ f.consumer.branch }})</td>
       <td><code>{{ f.path }}</code></td>
       <td><code>{{ short(f['from'].commit) }}</code> {% if f['from'].tag %}({{ '' if f['from'].exact else 'contains ' }}{{ f['from'].tag }}){% endif %}</td>
@@ -62,7 +62,7 @@
       <td>{{ pill(f.change['class'], CLASS_CLASS) }}</td>
       <td>{% for d in f.defects.fixed %}<a href="/defects/{{ d.id }}">{{ d.id }}</a> {% endfor %}</td>
       <td>{% for d in f.defects.introduced %}<span class="pill state-red">{{ d.id }}</span> {% endfor %}</td>
-      <td>{% if f.matrix.verdict %}{{ pill(f.matrix.verdict, VERDICT_CLASS) }}{% else %}<span class="note">not run</span>{% endif %}</td>
+      <td>{% if f.matrix.verdict %}{{ pill(f.matrix.verdict, VERDICT_CLASS) }}{% elif f.matrix.source %}<span class="note">incomplete</span>{% else %}<span class="note">not run</span>{% endif %}</td>
       <td>{{ pill(f.state, STATE_CLASS_B) }}</td>
       <td>{% if r.outcome %}{{ pill(r.outcome, OUTCOME_CLASS) }}{% endif %}</td>
     </tr>
@@ -75,6 +75,7 @@
 {% if ledger %}{% set L = ledger.fact %}
 <p>{{ bfact(page, ledger, 'ledger') }}: {{ L.counts.agreed }} agreed, {{ L.counts.disagreed }} disagreed, {{ L.counts.pending }} pending, {{ L.counts.superseded }} superseded.
   Agreement {% if L.agreement_rate is not none %}<strong>{{ '%.0f'|format(100 * L.agreement_rate) }}%</strong>{% else %}n/a (nothing decided yet){% endif %}.
-  Threshold: {{ L.threshold.reason }}. Auto-merge: <span class="pill state-grey">OFF</span> ({{ L.auto_merge.gate }}). <a href="/bumps/ledger">Ledger</a></p>
-{% else %}<p class="note">The ledger could not be computed (see the problem above).</p>{% endif %}
+  Threshold: {{ L.threshold.reason }}. Auto-merge: <span class="pill state-grey">OFF</span> ({{ L.auto_merge.gate }}). <a href="/bumps/ledger">Ledger</a>
+  <span class="note">Computed {{ ledger_at }} by the last scan or ledger job; marks made since then count at the next one.</span></p>
+{% else %}<p class="note">No ledger is kept yet: a scan with <code>--store</code> (Scan now) or <code>nanosoc-rm bumps ledger --store</code> computes it. Pages never read the mirrors.</p>{% endif %}
 {% if recent %}<h2>Recent scan jobs</h2><ul>{% for j in recent %}<li><a href="/bumps/?job={{ j.id }}">job {{ j.id }}</a> {{ pill(j.state, JOB_CLASS) }} <code>{{ j.command }}</code> by {{ j.by }} {{ j.created_at }}</li>{% endfor %}</ul>{% endif %}

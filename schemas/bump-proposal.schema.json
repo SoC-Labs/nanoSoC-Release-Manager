@@ -13,6 +13,17 @@
     "verdict": {
       "enum": ["PASS", "WARN", "WAIVED", "FAIL", "UNVERIFIED", "INFRA", "NOT-RUN"]
     },
+    "tier_cell": {
+      "type": "object",
+      "required": ["verdict", "job", "href", "finished_at"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "job": { "type": "integer", "minimum": 1 },
+        "href": { "type": "string" },
+        "finished_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] }
+      }
+    },
     "tagref": {
       "type": "object",
       "required": ["commit", "tag", "version"],
@@ -137,7 +148,8 @@
           "properties": {
             "fixed": { "type": "array", "items": { "$ref": "#/$defs/defect_ref" } },
             "introduced": { "type": "array", "items": { "$ref": "#/$defs/defect_ref" } },
-            "unjudged": { "type": "array", "items": { "type": "string" }, "description": "Defect commits the dependency's mirror does not hold, so the move cannot be judged against them." }
+            "unjudged": { "type": "array", "items": { "type": "string" }, "description": "Defect commits the dependency's mirror does not hold, so the move cannot be judged against them." },
+            "within_range": { "type": "array", "items": { "$ref": "#/$defs/defect_ref" }, "description": "Added by review item 7: defects whose origin AND every form's fix lie between the pin and the tag. The pin never had them and the tag has the fix, so they are neither fixed nor introduced." }
           }
         },
         "matrix": {
@@ -149,7 +161,18 @@
             "source": { "enum": ["matrix", "compat-job", null] },
             "observed_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
             "href": { "type": ["string", "null"] },
-            "pins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^.+=[0-9a-f]{40}$" }, "description": "The `--pin TREE_PATH=SHA` overrides that test this move." }
+            "pins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^.+=[0-9a-f]{40}$" }, "description": "The `--pin TREE_PATH=SHA` overrides that test this move." },
+            "tiers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "t0": { "anyOf": [{ "$ref": "#/$defs/tier_cell" }, { "type": "null" }] },
+                "t1": { "anyOf": [{ "$ref": "#/$defs/tier_cell" }, { "type": "null" }] },
+                "t2": { "anyOf": [{ "$ref": "#/$defs/tier_cell" }, { "type": "null" }] }
+              },
+              "description": "Added by review item 1 (CR-WB-bumps): the newest finished compat what-if per tier with exactly these pins, run on the walked tree (its result's root commit is the walk's). A t1 or t2 what-if runs T0 first. The cell is PASS only when t1 and t2 both PASS; a T0-only what-if is never the E3 cell."
+            },
+            "note": { "type": ["string", "null"], "description": "Why the cell is what it is (stale what-ifs not used, tiers still missing)." }
           }
         },
         "patch": {

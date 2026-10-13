@@ -1,7 +1,7 @@
 <p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }} The ledger compares each proposal with the consumer branch in the mirror now: agreed when a person pinned exactly the proposed commit. Same rows as <code>nanosoc-rm bumps ledger</code>.</p>
 {% if ledger %}{% set L = ledger.fact %}
 <table class="kv" data-bumps="ledger-summary">
-  <tr><th>Ledger</th><td>{{ bfact(page, ledger, 'bump_ledger:all') }}</td></tr>
+  <tr><th>Ledger</th><td>{{ bfact(page, ledger, 'bump_ledger:all') }} <span class="note">computed {{ ledger_at }} by the last scan or ledger job (<code>nanosoc-rm bumps ledger --store</code>); this page never reads the mirrors</span></td></tr>
   <tr><th>Since</th><td>{{ L.started_at or 'no proposal kept yet' }} ({{ L.weeks }} weeks)</td></tr>
   <tr><th>Outcomes</th><td>{% for k in ('agreed', 'disagreed', 'pending', 'superseded', 'unknown') %}{{ pill(k, OUTCOME_CLASS) }} {{ L.counts[k] }} {% endfor %}</td></tr>
   <tr><th>Agreement</th><td>{% if L.agreement_rate is not none %}{{ '%.1f'|format(100 * L.agreement_rate) }}% of {{ L.counts.decided }} decided{% else %}n/a: nothing decided yet{% endif %}</td></tr>

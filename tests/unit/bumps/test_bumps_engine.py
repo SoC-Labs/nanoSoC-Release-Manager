@@ -87,9 +87,10 @@ def test_eth_main_proposals_deepest_first_with_changelog_defects_and_waits_for(t
     assert "## [0.2.0]" in gen["change"]["changelog"]["excerpt"] and "## [0.1.1]" in gen["change"]["changelog"]["excerpt"]
     assert "## [0.1.0]" not in gen["change"]["changelog"]["excerpt"]
     assert gen["change"]["commits"]["count"] == 3 and not gen["change"]["diverged"]
-    assert [d["id"] for d in gen["defects"]["fixed"]] == ["SL-DEF-0042"]
-    assert gen["defects"]["fixed"][0]["commits"] == [w["g"][2]] and gen["defects"]["fixed"][0]["forms"] == ["A"]
-    assert [d["id"] for d in gen["defects"]["introduced"]] == ["SL-DEF-0042"]
+    # review item 7: SL-DEF-0042's origin (g2) and its fix (g3) both lie between g1 and v0.2.0: neither
+    assert gen["defects"]["fixed"] == [] and gen["defects"]["introduced"] == []
+    assert gen["defects"]["within_range"] == [{"id": "SL-DEF-0042", "title": gen["defects"]["within_range"][0]["title"],
+                                              "commits": sorted([w["g"][1], w["g"][2]])}]
     assert gen["matrix"]["verdict"] is None and gen["matrix"]["pins"] == [
         "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=%s" % w["g"][3]]
     assert arch["from"]["tag"] is None and arch["to"]["tag"] == "v0.5.0" and arch["consumer"]["repo"] == GL_MC
@@ -99,7 +100,7 @@ def test_eth_main_proposals_deepest_first_with_changelog_defects_and_waits_for(t
         assert (d["mode"], d["auto_merge"], d["goes_to"], d["would"]) == ("shadow", False, "person", "open-pull-request")
         assert d["blockers"][0].startswith("shadow mode")
         assert p["patch"]["regenerated"] is False and "generator" in p["patch"]["note"]
-    assert any("introduces SL-DEF-0042" in b for b in gen["decision"]["blockers"])
+    assert not any("introduces SL-DEF-0042" in b for b in gen["decision"]["blockers"])
 
 
 def test_a_defect_already_in_the_pin_is_not_introduced_and_a_fix_already_in_it_is_not_claimed(tmp_path, monkeypatch):
@@ -109,7 +110,7 @@ def test_a_defect_already_in_the_pin_is_not_introduced_and_a_fix_already_in_it_i
     gen = _by_dep(_scan()[1])["nanosoc_gen"]
     assert gen["from"]["commit"] == w["g"][2] and gen["from"]["tag"] == "v0.1.1" and not gen["from"]["exact"]
     assert gen["to"]["tag"] == "v0.2.0"
-    assert gen["defects"] == {"fixed": [], "introduced": [], "unjudged": []}
+    assert gen["defects"] == {"fixed": [], "introduced": [], "unjudged": [], "within_range": []}
 
 
 def test_one_gitlink_reached_through_two_tree_paths_is_one_proposal(tmp_path, monkeypatch):
@@ -217,10 +218,11 @@ def test_a_stored_compat_what_if_is_the_matrix_cell(tmp_path, monkeypatch):
     w = world(tmp_path, monkeypatch)
     cfg = load_config()
     pin = "nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=%s" % w["g"][3]
-    job = jobs.submit(cfg, "compat", {"configuration": "eth-main", "pins": [pin]}, "alice")
-    jobs._update(cfg, job["id"], state="done", verdict="FAIL", finished_at="2026-10-02T10:00:00Z")
+    ran = {"schema": 1, "kind": "compat_result", "fact": {"configuration": "eth-main", "commit": w["r1"]}}
+    job = jobs.submit(cfg, "compat", {"configuration": "eth-main", "pins": [pin], "tier": "t1"}, "alice")
+    jobs._update(cfg, job["id"], state="done", verdict="FAIL", finished_at="2026-10-02T10:00:00Z", result=ran)
     other = jobs.submit(cfg, "compat", {"configuration": "eth-main", "pins": [pin.replace(w["g"][3], w["g"][1])]}, "alice")
-    jobs._update(cfg, other["id"], state="done", verdict="PASS", finished_at="2026-10-02T10:00:00Z")
+    jobs._update(cfg, other["id"], state="done", verdict="PASS", finished_at="2026-10-02T10:00:00Z", result=ran)
     gen = _by_dep(_scan()[1])["nanosoc_gen"]
     assert (gen["matrix"]["verdict"], gen["matrix"]["source"]) == ("FAIL", "compat-job")
     assert gen["matrix"]["href"] == "/compat?job=%d" % job["id"]

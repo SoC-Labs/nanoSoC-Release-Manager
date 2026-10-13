@@ -149,11 +149,13 @@ def register(main: click.Group) -> None:
 
     @grp.command("show")
     @click.argument("proposal_id")
+    @click.option("--configuration", "configuration", default=None,
+                  help="That configuration's document of a proposal kept for several (default: the latest computed).")
     @json_option
-    def show_cmd(proposal_id, as_json):
+    def show_cmd(proposal_id, configuration, as_json):
         """One kept proposal: the move, changelog, defects, matrix, blockers."""
         from nanosoc_rm import bumps
-        d, err = _guard(lambda: bumps.get(proposal_id))
+        d, err = _guard(lambda: bumps.get(proposal_id, configuration=configuration))
         if err is not None:
             return err
         if as_json:
@@ -174,8 +176,18 @@ def register(main: click.Group) -> None:
             click.echo("fixes      %s %s" % (x["id"], x["title"]))
         for x in f["defects"]["introduced"]:
             click.echo("INTRODUCES %s %s" % (x["id"], x["title"]))
-        click.echo("matrix     %s" % (f["matrix"]["verdict"] or "not run: nanosoc-rm compat %s %s"
-                                      % (f["configuration"], " ".join("--pin " + p for p in f["matrix"]["pins"]))))
+        for x in f["defects"].get("within_range") or []:
+            click.echo("in range   %s %s (introduced and fixed between the pin and the tag)" % (x["id"], x["title"]))
+        m = f["matrix"]
+        tiers = ", ".join("%s %s" % (t, c["verdict"]) for t, c in (m.get("tiers") or {}).items() if c)
+        click.echo("matrix     %s%s" % (m["verdict"] or "no T0-T2 result", (" (%s)" % tiers) if tiers else ""))
+        if m["verdict"] != "PASS" and m["source"] != "matrix":
+            for t in ("t1", "t2"):
+                if not (m.get("tiers") or {}).get(t):
+                    click.echo("           run: nanosoc-rm compat %s %s --tier %s"
+                               % (f["configuration"], " ".join("--pin " + p for p in m["pins"]), t))
+        if m.get("note"):
+            click.echo("           %s" % m["note"])
         click.echo("waits for  %s" % (", ".join(f["waits_for"]) or "-"))
         click.echo("would      %s (auto-merge never in shadow mode); blockers:" % f["decision"]["would"])
         for b in f["decision"]["blockers"]:
@@ -226,11 +238,12 @@ def register(main: click.Group) -> None:
         return EXIT_OK
 
     @grp.command("ledger")
+    @click.option("--store", is_flag=True, help="Keep it for the /bumps pages (which never read the mirrors).")
     @json_option
-    def ledger_cmd(as_json):
+    def ledger_cmd(store, as_json):
         """E2: what the bot would have done against what people did, read from the mirrors."""
         from nanosoc_rm import bumps
-        obs, err = _guard(lambda: bumps.ledger())
+        obs, err = _guard(lambda: bumps.store_ledger() if store else bumps.ledger())
         if err is not None:
             return err
         f = obs["fact"]

@@ -4,8 +4,11 @@ interfaces.md section 18. Every function returns contract documents (observation
 nanosoc_rm.contracts); the CLI (`nanosoc-rm bumps`) and the `/bumps` pages are front ends over them.
 
     proposals(configuration=None, *, config=None, store=False) -> Answer of bump_scan + bump_proposal observations
-    stored(configuration=None, *, config=None) -> [bump_proposal]      the queue as last computed and kept
-    get(proposal_id, *, config=None) -> bump_proposal                   BumpUsage when unknown
+                                                                        (store=True also keeps the ledger)
+    stored(configuration=None, *, config=None) -> [bump_proposal]      the queue as last computed and kept, one
+                                                                        document per proposal and configuration
+    get(proposal_id, *, configuration=None, config=None) -> bump_proposal   BumpUsage when unknown
+    stored_ledger(*, config=None) -> (bump_ledger | None, computed_at)  what the pages show (no git in a request)
     patch_text(proposal_fact) -> str                                    the patch a person applies
     mark(proposal_id, login, decision, note=None, *, config=None)       "done" | "declined", logged with the login
     ledger(*, config=None) -> bump_ledger                               E2 agreement against what people did
@@ -26,7 +29,7 @@ from nanosoc_rm.bumps.ledger import ledger
 from nanosoc_rm.bumps.patchfile import commit_message, patch_text, person_commands
 from nanosoc_rm.config import Config
 
-__all__ = ["proposals", "stored", "scans", "get", "patch_text", "commit_message", "person_commands", "mark", "marks",
+__all__ = ["proposals", "stored", "stored_ledger", "store_ledger", "scans", "get", "patch_text", "commit_message", "person_commands", "mark", "marks",
            "ledger", "schedule_status", "writer_problems", "proposal_id", "BumpUsage", "CannotAnswer", "DECISIONS"]
 
 DECISIONS = _store.DECISIONS
@@ -39,25 +42,55 @@ def proposals(configuration: str | None = None, *, config: Config | str | Path |
     cfg = config_of(config)
     if configuration:
         s, p = scan(configuration, config=cfg, store_result=store)
-        return Answer([s] + p)
-    scans_, props, unanswered = scan_all(config=cfg, store_result=store)
-    return Answer(scans_ + props, unanswered)
+        ans = Answer([s] + p)
+    else:
+        scans_, props, unanswered = scan_all(config=cfg, store_result=store)
+        ans = Answer(scans_ + props, unanswered)
+    if store:
+        store_ledger(config=cfg)
+    return ans
+
+
+def store_ledger(*, config: Config | str | Path | None = None) -> dict:
+    """Compute the shadow ledger (mirror reads) and keep it for the pages. Runs in the CLI or a job only."""
+    cfg = config_of(config)
+    obs = ledger(config=cfg)
+    _store.record_ledger(cfg, obs)
+    return obs
+
+
+def stored_ledger(*, config: Config | str | Path | None = None) -> tuple[dict | None, str | None]:
+    """(the kept bump_ledger, when it was computed): what the pages show; never reads a mirror."""
+    return _store.ledger(config_of(config))
 
 
 def stored(configuration: str | None = None, *, config: Config | str | Path | None = None) -> list[dict]:
-    """The kept proposals (latest observation of each), oldest first; one configuration's when named."""
+    """The kept proposals, oldest first: one document per proposal and configuration it was computed for (that
+    configuration's tree paths, order and matrix pins); only that configuration's when named."""
     cfg = config_of(config)
-    return [r["doc"] for r in _store.proposals(cfg) if not configuration or configuration in r["configurations"]]
+    out = []
+    for r in _store.proposals(cfg):
+        for cid, d in sorted(r["docs"].items()):
+            if not configuration or cid == configuration:
+                out.append(d)
+    return out
 
 
 def scans(*, config: Config | str | Path | None = None) -> list[dict]:
     return _store.scans(config_of(config))
 
 
-def get(pid: str, *, config: Config | str | Path | None = None) -> dict:
+def get(pid: str, *, configuration: str | None = None, config: Config | str | Path | None = None) -> dict:
+    """One kept proposal: that configuration's document when named (BumpUsage when it was never computed for it),
+    else the latest computed."""
     r = _store.proposal(config_of(config), pid)
     if r is None:
         raise BumpUsage("no proposal %r is kept: run `nanosoc-rm bumps CONFIG --store` first" % pid)
+    if configuration:
+        if configuration not in r["docs"]:
+            raise BumpUsage("proposal %r was not computed for %s (it was for %s)"
+                            % (pid, configuration, ", ".join(sorted(r["docs"]))))
+        return r["docs"][configuration]
     return r["doc"]
 
 

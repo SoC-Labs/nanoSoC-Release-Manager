@@ -12,7 +12,9 @@
 
 Every page says it: the tool never pushes, writes a branch or opens a pull request. The POST routes act only in a
 local deployment (the app's local routes, CR-16/CR-17); elsewhere they answer 403 with the CLI command. Pages read
-stored records and the mirrors; the scan itself always runs as a job (nanosoc_rm.jobs), never in a request.
+only bumps.sqlite (the kept proposals, scans, marks and the kept ledger): no git and no ledger computation inside a
+request. The scan and the ledger always run as jobs (nanosoc_rm.jobs): Scan now queues `bumps scan --store`, which
+also keeps the ledger, and a mark queues `bumps ledger --store`.
 """
 from __future__ import annotations
 
@@ -107,12 +109,14 @@ def _page(request: Request, template: str, title: str, status: int = 200, **ctx:
     return plugins.render_page(request, template, title, status=status, environment=ENV, local=_local(request), **ctx)
 
 
-def _ledger_safe(config) -> tuple[dict | None, str | None]:
+def _ledger_kept(config) -> tuple[dict | None, str | None, list[str]]:
+    """(the kept ledger, when it was computed, problems). Never computes it: that reads the mirrors (a job does)."""
     from nanosoc_rm import bumps
     try:
-        return bumps.ledger(config=config), None
+        led, at = bumps.stored_ledger(config=config)
     except Exception as e:                                # noqa: BLE001 - the page still shows the queue
-        return None, "the shadow ledger could not be computed: %s" % str(e)[:300]
+        return None, None, ["the kept shadow ledger could not be read: %s" % str(e)[:300]]
+    return led, at, []
 
 
 def _queue_data(config, q) -> dict:
@@ -120,14 +124,14 @@ def _queue_data(config, q) -> dict:
     from nanosoc_rm.bumps import store
     scans = bumps.scans(config=config)
     kept = store.proposals(config)
-    led, problem = _ledger_safe(config)
+    led, led_at, problems = _ledger_kept(config)
     outcome = {e["id"]: e for e in (led or {}).get("fact", {}).get("entries", [])}
     sel = {k: (q.get(k) or "") for k in ("configuration", "state", "cls", "outcome", "component")}
     rows = []
-    for k in kept:
-        d, f = k["doc"], k["doc"]["fact"]
+    for k, cid, d in [(k, cid, d) for k in kept for cid, d in sorted(k["docs"].items())]:
+        f = d["fact"]
         o = outcome.get(f["id"], {}).get("outcome", "")
-        if sel["configuration"] and sel["configuration"] not in k["configurations"]:
+        if sel["configuration"] and sel["configuration"] != cid:
             continue
         if sel["state"] and sel["state"] != f["state"]:
             continue
@@ -137,14 +141,14 @@ def _queue_data(config, q) -> dict:
             continue
         if sel["component"] and sel["component"] not in (f["dependency"]["component"], f["consumer"]["component"]):
             continue
-        rows.append({"obs": d, "f": f, "outcome": o, "configurations": k["configurations"]})
+        rows.append({"obs": d, "f": f, "outcome": o, "configurations": k["configurations"], "configuration": cid})
     rows.sort(key=lambda r: (-r["f"]["depth"], r["f"]["order"], r["f"]["id"]))
     try:
         recent = jobs.jobs(config, limit=5, kind="bumps")
     except Exception:                                     # noqa: BLE001
         recent = []
-    return {"scans": scans, "rows": rows, "total": len(kept), "ledger": led, "sel": sel,
-            "problems": [problem] if problem else [], "recent": recent, "schedule": bumps.schedule_status(),
+    return {"scans": scans, "rows": rows, "total": len(kept), "ledger": led, "ledger_at": led_at, "sel": sel,
+            "problems": problems, "recent": recent, "schedule": bumps.schedule_status(),
             "configs": sorted({s["fact"]["configuration"] for s in scans})}
 
 
@@ -162,15 +166,19 @@ def router() -> APIRouter:
     async def proposal(request: Request, pid: str) -> Response:
         from nanosoc_rm import bumps
         config = _config(request)
+        cid = request.query_params.get("configuration") or None
         try:
-            d = bumps.get(pid, config=config)
+            d = await run_in_threadpool(lambda: bumps.get(pid, configuration=cid, config=config))
         except bumps.BumpUsage as e:
             return _page(request, "bumps_message.html", "Bump proposal", status=404, message=str(e))
-        led, problem = await run_in_threadpool(_ledger_safe, config)
+        led, led_at, problems = await run_in_threadpool(_ledger_kept, config)
         entry = next((e for e in (led or {}).get("fact", {}).get("entries", []) if e["id"] == pid), None)
         f = d["fact"]
+        job = request.query_params.get("job") or ""
         return _page(request, "bumps_proposal.html", "Bump %s to %s" % (f["dependency"]["component"], f["to"]["tag"]),
-                     problems=[problem] if problem else [], obs=d, f=f, entry=entry,
+                     problems=problems, obs=d, f=f, entry=entry, ledger_at=led_at,
+                     job=int(job) if job.isdigit() else None,
+                     missing_tiers=[t for t in ("t1", "t2") if not (f["matrix"].get("tiers") or {}).get(t)],
                      marks=bumps.marks(pid, config=config), patch=bumps.patch_text(f),
                      commands=bumps.person_commands(f), message=bumps.commit_message(f))
 
@@ -184,9 +192,9 @@ def router() -> APIRouter:
                         headers={"content-disposition": 'attachment; filename="%s"' % d["fact"]["patch"]["file"]})
 
     async def ledger_page(request: Request) -> HTMLResponse:
-        led, problem = await run_in_threadpool(_ledger_safe, _config(request))
-        return _page(request, "bumps_ledger.html", "Shadow ledger (E2)", problems=[problem] if problem else [],
-                     ledger=led)
+        led, led_at, problems = await run_in_threadpool(_ledger_kept, _config(request))
+        return _page(request, "bumps_ledger.html", "Shadow ledger (E2)", problems=problems, ledger=led,
+                     ledger_at=led_at)
 
     def facts(request: Request, subject: str) -> Response:
         from nanosoc_rm import bumps
@@ -194,14 +202,15 @@ def router() -> APIRouter:
         kind, _, rest = subject.partition(":")
         obs = None
         if kind == "bump_proposal":
+            cid, _, pid = rest.rpartition(":")
             try:
-                obs = bumps.get(rest.split(":")[-1], config=config)
+                obs = bumps.get(pid, configuration=cid or None, config=config)
             except bumps.BumpUsage:
                 obs = None
         elif kind == "bump_scan":
             obs = next((s for s in bumps.scans(config=config) if s["subject"] == subject), None)
         elif kind == "bump_ledger":
-            obs, _ = _ledger_safe(config)
+            obs, _, _ = _ledger_kept(config)
         if obs is None or obs["subject"] != subject:
             return _page(request, "bumps_message.html", "Fact", status=404, message="No bump fact %s is kept." % subject)
         return _page(request, "bumps_fact.html", "Fact", obs=obs, doc=json.dumps(obs, indent=1, sort_keys=True))
@@ -227,17 +236,28 @@ def router() -> APIRouter:
         return RedirectResponse("%s/?job=%d" % (PREFIX, job["id"]), 303)
 
     async def post_mark(request: Request, pid: str) -> Response:
-        from nanosoc_rm import bumps
+        from nanosoc_rm import bumps, jobs
         form = await request.form()
         decision = str(form.get("decision") or "")
         if not _local(request):
             return refused("nanosoc-rm bumps mark %s %s --by <login>" % (pid, decision or "done"))
+        config = _config(request)
         try:
             await run_in_threadpool(lambda: bumps.mark(pid, _login(request), decision, str(form.get("note") or "") or None,
-                                                       config=_config(request)))
+                                                       config=config))
         except bumps.BumpUsage as e:
             return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
-        return RedirectResponse("%s/p/%s" % (PREFIX, urllib.parse.quote(pid, safe="")), 303)
+
+        def refresh() -> int:
+            """The ledger counts the mark once it is recomputed: queue that (once), never run it here."""
+            for j in jobs.jobs(config, kind="bumps", states=("queued",)):
+                if j["params"].get("ledger"):
+                    return j["id"]
+            return jobs.submit(config, "bumps", {"ledger": True}, _login(request))["id"]
+        job = await run_in_threadpool(refresh)
+        cid = str(form.get("configuration") or "")
+        return RedirectResponse("%s/p/%s?%s" % (PREFIX, urllib.parse.quote(pid, safe=""), urllib.parse.urlencode(
+            {k: v for k, v in (("configuration", cid), ("job", job)) if v})), 303)
 
     get = ["GET"]
     r.add_api_route("/", queue, methods=get, include_in_schema=False)

@@ -1180,18 +1180,32 @@ Inputs, all read: the configuration's latest stored walk (section 4; never re-wa
    headings), the most severe of them, `unknown` when any section declares nothing (C2: never from the version
    number). The versioning module's classifier replaces it when built (18.6). The commits `from..to` (count and
    20 subjects); `diverged` when the pin is not an ancestor of the tag.
-6. **Defects (registry).** `fixed`: a `fixed_in` commit of the dependency that the tag contains and the pin does
-   not, with its forms; `introduced`: an `origin` commit likewise. A commit the mirror lacks is `unjudged`.
-7. **Matrix cell.** The matrix module's stored cell for exactly this move (18.6), else a finished local compat
-   what-if job whose `--pin` list is exactly `<tree path>=<to sha>` for every tree path of the move. None: the
-   page offers Run (a POST that queues that compat job).
+6. **Defects (registry).** `introduced`: an `origin` commit of the dependency that the tag contains and the pin
+   does not; `fixed`: a `fixed_in` commit likewise, with its forms. A defect whose origin AND every form's fix
+   both arrive with the move is `within_range` (optional field, review item 7): the pin never had it and the tag
+   has the fix, so it is neither fixed nor introduced. A commit the mirror lacks is `unjudged`.
+7. **Matrix cell (T0-T2).** The matrix module's stored cell for exactly this move (18.6), else the finished local
+   compat what-if jobs whose `--pin` list is exactly `<tree path>=<to sha>` for every tree path of the move AND
+   whose result ran on the walked tree (`compat_result.fact.commit` is the walk's root commit; another tree, or
+   no result, is stale and named in `matrix.note`). The newest such job per tier fills `matrix.tiers` (optional
+   field, review item 1: `t0` = no `--tier`, `t1`, `t2`). A `--tier` what-if runs T0 first and its verdict is the
+   ladder over both, so the cell is PASS only when a t1 and a t2 what-if both PASS; any non-PASS tier makes the
+   cell that verdict; otherwise it is null (incomplete). A T0-only PASS is never the cell. The page offers one
+   Run per missing tier (a POST that queues that compat job with `tier`).
 8. **Reachability.** The tag's commit must be reachable on the repo the consumer's .gitmodules names; else the
    proposal is `blocked` (the bot would hold; a person moves the URL or pushes the tag first).
 9. **Order (E1).** Deepest first: `order` 1 is applied first; `waits_for` lists proposals inside the dependency
    itself (they land and are tagged before this one).
 10. **Decision.** Always `mode: shadow`, `would: open-pull-request` (or `hold` when blocked), `auto_merge: false`,
-    `goes_to: person`, with `blockers`: every E3 condition known to fail, shadow mode first (class not fix or
-    feature, no PASS matrix cell, diverged, a defect introduced, build-affecting unknown until C7 exists).
+    `goes_to: person`, with `blockers`: shadow mode first, then every E3 condition the tool cannot show holds
+    (review item 2): no T0-T2 PASS cell; the configuration does not pin the consumer at the branch tip (not the
+    exact commits); controls fired and no test green to red (not checked yet: always listed); class not fix or
+    feature; the source not a release tag; the target not the consumer repo's default branch (or its default
+    unknown); E5: a GitHub consumer whose repo_inventory visibility is not `public` (or no inventory); diverged;
+    the pin is `split` in the walk; a workaround in the consumer manifest whose `retires_when` commit arrives
+    with the move; part of a train (`waits_for`, or another proposal waits for it); a defect introduced; and
+    build-affecting unknown until C7 exists. Frozen and silicon configurations and release/* branches never get
+    this far (refused).
 11. **Patch.** Gitlink move only (`regenerated: false`): E1's regenerated RTL needs the generator, which this tool
     never runs; the note says so.
 
@@ -1208,9 +1222,11 @@ changes nothing when the submodule is not checked out). It does not apply to a b
 ### 18.4 Records: `<data_dir>/bumps.sqlite`
 
 Not rebuildable, not facts, so apart from `rm.sqlite` (as `jobs.sqlite` is): `proposals` (id, first and last time
-computed, the configurations, the latest bump_proposal observation), `marks` (proposal, at, login, decision `done`
-or `declined`, note: every mark is a write action logged with its login, H2) and `scans` (the latest bump_scan per
-configuration). The bump kinds are not in `db.EVENT_KINDS`, so `/facts/<subject>` does not serve them;
+computed, the configurations, the latest bump_proposal observation), `proposal_docs` (the latest bump_proposal
+per proposal AND configuration, review item 6: one move proposed for two configurations keeps both documents, so
+each configuration's tree paths, order, waits_for and matrix pins stay its own), `marks` (proposal, at, login,
+decision `done` or `declined`, note: every mark is a write action logged with its login, H2), `scans` (the latest
+bump_scan per configuration) and `ledger` (the latest bump_ledger and when it was computed, review item 4). The bump kinds are not in `db.EVENT_KINDS`, so `/facts/<subject>` does not serve them;
 `/bumps/facts/<subject>` does, with the same hooks.
 
 ### 18.5 The shadow ledger (E2)
@@ -1223,7 +1239,9 @@ containing it), **unknown** (the mirror cannot answer). Threshold: 4 weeks since
 (agreed + disagreed), whichever is later; then auto-merge may be PROPOSED for a class (fix, feature) with zero
 disagreements. Switching it on is a registry change a person makes after the Phase 4 gate; `auto_merge.enabled`
 is always false here and a non-empty `eligibility.yaml auto_merge` is a problem. `observed_at` is the oldest
-consumer mirror sync it read.
+consumer mirror sync it read. The ledger reads the mirrors, so it is computed only by the CLI or a job (`bumps
+scan --store` keeps it after the scan, `bumps ledger --store` alone) and the pages show the kept one with the
+time it was computed: no git and no ledger computation inside a request (review item 4).
 
 ### 18.6 Interfaces this module needs from other Wave B modules
 
@@ -1240,10 +1258,10 @@ is named in the fact (`class_source`, `matrix.source`):
 ```
 nanosoc-rm bumps [CONFIG] [--store] [--json]      # = bumps scan; every registered configuration without CONFIG
 nanosoc-rm bumps queue [CONFIG] [--json]          # the kept proposals
-nanosoc-rm bumps show ID [--json]
+nanosoc-rm bumps show ID [--configuration CONFIG] [--json]
 nanosoc-rm bumps patch ID [--out FILE]            # stdout, or a NEW file (never overwritten: exit 3)
 nanosoc-rm bumps mark ID done|declined --by LOGIN [--note TEXT]
-nanosoc-rm bumps ledger [--json]
+nanosoc-rm bumps ledger [--store] [--json]       # --store keeps it for the pages
 nanosoc-rm bumps schedule [--json]
 ```
 
@@ -1253,8 +1271,10 @@ not empty), 2 could not answer (no stored walk, a registry that does not load), 
 proposal, an existing `--out`, a bad mark decision).
 
 **Job kind `bumps`** (`nanosoc_rm.jobs.PLUGIN_KINDS`, a new seam: kind -> module with `job_params(params)` and
-`job_args(params)`): `nanosoc-rm bumps scan [CONFIG] --store --json` in the local worker, so the mirror reads
-(which may fetch blobs anonymously from a partial mirror's promisor remote) never run inside a request.
+`job_args(params)`): `nanosoc-rm bumps scan [CONFIG] --store --json` (params `{"configuration"}`), or `nanosoc-rm
+bumps ledger --store --json` (params `{"ledger": true}`, queued once after a mark), in the local worker, so the
+mirror reads (which may fetch blobs anonymously from a partial mirror's promisor remote) never run inside a
+request.
 
 **Schedule:** ships DISABLED. `schedule_status()` is always `{"enabled": false, "gate": "Phase 4", "gate_status":
 <docs/phase-gates.yaml status>}` (schema: `enabled` const false); `nanosoc_rm.schedule.JOBS` has no bump job.
@@ -1265,12 +1285,12 @@ Enabling needs the Phase 4 gate checked by a person and a CR that adds the job.
 | Route | Shows or does |
 |---|---|
 | `GET /bumps/?configuration=&state=&cls=&outcome=&component=&job=` | the queue (kept proposals with filters), per-configuration scans with pins by status, the ledger summary, the schedule banner (DISABLED, gate named), Scan now |
-| `GET /bumps/p/{id}` | one proposal: move, range, class, changelog, commits, defects, matrix cell or Run, waits-for, blockers, patch, commands for a person, marks |
+| `GET /bumps/p/{id}?configuration=&job=` | one proposal (that configuration's document when named): move, range, class, changelog, commits, defects, matrix cell with its tiers or one Run per missing tier, waits-for, blockers, patch, commands for a person, marks |
 | `GET /bumps/p/{id}/patch.diff` | the patch (`text/x-diff`, attachment `<id>.diff`) |
 | `GET /bumps/ledger` | E2 ledger: outcomes, agreement, threshold, by class, auto-merge OFF |
 | `GET /bumps/facts/{subject}` | one bump observation with its sources verbatim |
 | `POST /bumps/scan` | queue the `bumps` job (field `configuration`, optional); an identical queued or running job is reused |
-| `POST /bumps/p/{id}/mark` | "mark as done by a person" (`decision` done or declined, `note`), with the signed-in login |
+| `POST /bumps/p/{id}/mark` | "mark as done by a person" (`decision` done or declined, `note`, `configuration`), with the signed-in login; then queues one ledger refresh job |
 
 The POSTs act only in a local deployment (the app's `local_routes`, CR-16/CR-17); elsewhere they answer 403 with the
 CLI command, and the pages show the command instead of the buttons. Both are behind the section 14 guard and its

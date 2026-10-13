@@ -30,10 +30,15 @@ from nanosoc_rm.bumps.engine import _Git, _load, _Mirrors, schedule_status
 from nanosoc_rm.bumps.versions import parse_tag
 from nanosoc_rm.config import Config
 
-__all__ = ["ledger", "THRESHOLD_WEEKS", "THRESHOLD_BUMPS"]
+__all__ = ["ledger", "threshold_met", "THRESHOLD_WEEKS", "THRESHOLD_BUMPS"]
 
 THRESHOLD_WEEKS = 4
 THRESHOLD_BUMPS = 20
+
+
+def threshold_met(weeks: float, decided: int) -> bool:
+    """E2: "at least 4 weeks or 20 bumps, whichever is later" = both must hold."""
+    return weeks >= THRESHOLD_WEEKS and decided >= THRESHOLD_BUMPS
 
 
 def _person_commit(mirrors: _Mirrors, comp: str, tip: str, base: str, path: str) -> tuple[str | None, str | None]:
@@ -94,21 +99,22 @@ def ledger(*, config: Config | str | Path | None = None, now: str | None = None)
     rows = store.proposals(cfg)
     git = _Git(cfg)
     mirrors = _Mirrors(cfg, reg, git)
-    # the bot's latest word per gitlink opportunity (consumer repo, branch, path, from)
+    all_marks: dict[str, list[dict]] = {}
+    for m in store.marks(cfg):
+        all_marks.setdefault(m["proposal"], []).append(m)
+    # the bot's latest word per gitlink opportunity (consumer repo, branch, path, from); rows are oldest first
     latest_of: dict[tuple, str] = {}
     for r in rows:
         f = r["doc"]["fact"]
         key = (f["consumer"]["repo"]["host"], f["consumer"]["repo"]["path"], f["consumer"]["branch"], f["path"],
                f["from"]["commit"])
-        prev = latest_of.get(key)
-        if prev is None or r["first_seen"] >= next(x["first_seen"] for x in rows if x["id"] == prev):
-            latest_of[key] = r["id"]
+        latest_of[key] = r["id"]
     entries, counts, by_class = [], dict.fromkeys(("agreed", "disagreed", "pending", "superseded", "unknown"), 0), {}
     for r in rows:
         f = r["doc"]["fact"]
         key = (f["consumer"]["repo"]["host"], f["consumer"]["repo"]["path"], f["consumer"]["branch"], f["path"],
                f["from"]["commit"])
-        marks = store.marks(cfg, r["id"])
+        marks = all_marks.get(r["id"], [])
         outcome, person, note = _judge(f, latest_of[key] == r["id"], marks, mirrors)
         counts[outcome] += 1
         cls = f["change"]["class"]
@@ -123,7 +129,7 @@ def ledger(*, config: Config | str | Path | None = None, now: str | None = None)
     started = min((r["first_seen"] for r in rows), default=None)
     at = now or clock.iso()
     weeks = round(max(0.0, (clock.parse(at) - clock.parse(started)).total_seconds() / (7 * 86400)), 2) if started else 0.0
-    met = weeks >= THRESHOLD_WEEKS and counts["decided"] >= THRESHOLD_BUMPS
+    met = threshold_met(weeks, counts["decided"])
     clean = sorted(c for c in ("fix", "feature") if c in by_class and by_class[c]["disagreed"] == 0
                    and by_class[c]["agreed"] > 0) if met else []
     reason = ("%.1f of %d weeks, %d of %d decided bumps, %d disagreement%s"

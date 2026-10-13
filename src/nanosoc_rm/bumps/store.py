@@ -7,7 +7,12 @@ Not rebuildable, not facts, so they are kept apart from `rm.sqlite` (as jobs.sql
   with what people later did; a proposal computed once stays here even when a later scan no longer makes it.
 - `marks`: a person's word on a proposal ("done": I applied it; "declined": I will not), with the login, the time
   and a note. Every mark is a write action and is logged here with its login (H2).
+- `proposal_docs`: the latest bump_proposal observation of each proposal per configuration. One move (same consumer
+  branch, path, from and to) can be proposed for two configurations; each keeps its own document (its tree paths,
+  order, waits_for and matrix pins are that configuration's), so the last scan never overwrites the other.
 - `scans`: the latest bump_scan observation per configuration (what the queue page shows).
+- `ledger`: the latest bump_ledger observation, computed by the scan job or `bumps ledger --store` (never inside a
+  web request: it reads the mirrors).
 
 Writes go only to this file on the service's own disk (interfaces.md section 0.4).
 """
@@ -22,8 +27,8 @@ from typing import Iterator
 from nanosoc_rm import clock
 from nanosoc_rm.config import Config
 
-__all__ = ["path", "connect", "record", "record_scan", "proposals", "proposal", "scans", "scan", "mark", "marks",
-           "DECISIONS"]
+__all__ = ["path", "connect", "record", "record_scan", "record_ledger", "ledger", "proposals", "proposal", "scans",
+           "scan", "mark", "marks", "DECISIONS"]
 
 DECISIONS = ("done", "declined")
 _DDL = """
@@ -35,6 +40,9 @@ CREATE TABLE IF NOT EXISTS marks (
     decision TEXT NOT NULL, note TEXT);
 CREATE INDEX IF NOT EXISTS marks_proposal ON marks (proposal);
 CREATE TABLE IF NOT EXISTS scans (configuration TEXT PRIMARY KEY, at TEXT NOT NULL, doc TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS proposal_docs (
+    id TEXT NOT NULL, configuration TEXT NOT NULL, doc TEXT NOT NULL, PRIMARY KEY (id, configuration));
+CREATE TABLE IF NOT EXISTS ledger (one INTEGER PRIMARY KEY CHECK (one = 1), at TEXT NOT NULL, doc TEXT NOT NULL);
 """
 
 
@@ -71,7 +79,24 @@ def record(config: Config, docs: list[dict], configuration: str, at: str | None 
                 confs = sorted(set(json.loads(r["configurations"])) | {configuration})
                 con.execute("UPDATE proposals SET last_seen = ?, configurations = ?, doc = ? WHERE id = ?",
                             (at, json.dumps(confs), json.dumps(d, separators=(",", ":")), pid))
+            con.execute("INSERT OR REPLACE INTO proposal_docs (id, configuration, doc) VALUES (?, ?, ?)",
+                        (pid, configuration, json.dumps(d, separators=(",", ":"))))
         con.execute("COMMIT")
+
+
+def record_ledger(config: Config, doc: dict, at: str | None = None) -> None:
+    with connect(config) as con:
+        con.execute("INSERT OR REPLACE INTO ledger (one, at, doc) VALUES (1, ?, ?)",
+                    (at or clock.iso(), json.dumps(doc, separators=(",", ":"))))
+
+
+def ledger(config: Config) -> tuple[dict | None, str | None]:
+    """(the stored bump_ledger observation, when it was computed), or (None, None)."""
+    if not path(config).is_file():
+        return None, None
+    with connect(config) as con:
+        r = con.execute("SELECT at, doc FROM ledger WHERE one = 1").fetchone()
+    return (json.loads(r["doc"]), r["at"]) if r is not None else (None, None)
 
 
 def record_scan(config: Config, doc: dict) -> None:
@@ -80,17 +105,30 @@ def record_scan(config: Config, doc: dict) -> None:
                     (doc["fact"]["configuration"], doc["observed_at"], json.dumps(doc, separators=(",", ":"))))
 
 
-def _proposal_row(r: sqlite3.Row) -> dict:
+def _proposal_row(r: sqlite3.Row, docs: dict[str, dict]) -> dict:
+    doc = json.loads(r["doc"])
     return {"id": r["id"], "first_seen": r["first_seen"], "last_seen": r["last_seen"],
-            "configurations": json.loads(r["configurations"]), "doc": json.loads(r["doc"])}
+            "configurations": json.loads(r["configurations"]), "doc": doc,
+            "docs": docs or {doc["fact"]["configuration"]: doc}}
+
+
+def _docs(con: sqlite3.Connection, pid: str | None = None) -> dict[str, dict[str, dict]]:
+    out: dict[str, dict[str, dict]] = {}
+    rows = con.execute("SELECT id, configuration, doc FROM proposal_docs %s ORDER BY configuration"
+                       % ("WHERE id = ?" if pid else ""), (pid,) if pid else ())
+    for r in rows:
+        out.setdefault(r["id"], {})[r["configuration"]] = json.loads(r["doc"])
+    return out
 
 
 def proposals(config: Config) -> list[dict]:
-    """Every stored proposal, oldest first."""
+    """Every stored proposal, oldest first: `doc` is the latest computed, `docs` each configuration's."""
     if not path(config).is_file():
         return []
     with connect(config) as con:
-        return [_proposal_row(r) for r in con.execute("SELECT * FROM proposals ORDER BY first_seen, id")]
+        docs = _docs(con)
+        return [_proposal_row(r, docs.get(r["id"], {}))
+                for r in con.execute("SELECT * FROM proposals ORDER BY first_seen, id")]
 
 
 def proposal(config: Config, pid: str) -> dict | None:
@@ -98,7 +136,7 @@ def proposal(config: Config, pid: str) -> dict | None:
         return None
     with connect(config) as con:
         r = con.execute("SELECT * FROM proposals WHERE id = ?", (pid,)).fetchone()
-    return _proposal_row(r) if r is not None else None
+        return _proposal_row(r, _docs(con, pid).get(pid, {})) if r is not None else None
 
 
 def scans(config: Config) -> list[dict]:

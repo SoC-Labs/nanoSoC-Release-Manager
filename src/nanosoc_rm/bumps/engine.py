@@ -19,10 +19,16 @@ Per pin of the walk (a gitlink at `path` in a consumer repo):
 4. The change: the changelog sections between the two versions with their declared class (C2), or the class the
    versioning module computes when it is built (interfaces.py); the commits between the two; whether the pin is
    an ancestor of the tag (else `diverged`).
-5. Defects (registry): fixed = a `fixed_in` commit of the dependency that the tag contains and the pin does not;
-   introduced = an `origin` commit likewise.
-6. The matrix cell for exactly this move when one is stored (matrix module, or a finished compat what-if job).
+5. Defects (registry): introduced = an `origin` commit of the dependency that the tag contains and the pin does
+   not, unless every form's `fixed_in` is in the tag too (then it is `within_range`: neither introduced nor fixed
+   from the pin's point of view); fixed = a `fixed_in` commit the tag contains and the pin does not, of a defect
+   not introduced inside the range.
+6. The matrix cell for exactly this move when one is stored: the matrix module's T0-T2 cell, else finished compat
+   what-ifs with exactly these pins, run on the walked tree (the result's root commit is the walk's), one per tier:
+   PASS only when a t1 and a t2 what-if (each runs T0 first) both PASS. A T0-only what-if is shown, never PASS.
 7. Order: deepest first (E1); `waits_for` names proposals inside the dependency itself.
+8. The E3 conditions, each one that the tool cannot show holds is a blocker (`_blockers`), and E5's private
+   GitHub repos (repo_inventory visibility; unknown blocks too).
 
 Frozen and silicon configurations are refused before any of this (E3, E5): their scan has no rows. The decision
 is always shadow: `would` open a pull request, `auto_merge` false, `goes_to` person. The engine never writes a
@@ -45,7 +51,7 @@ from nanosoc_rm.mirror import layout
 from nanosoc_rm.registry import RegistryError, load_registry
 
 __all__ = ["scan", "scan_all", "proposal_id", "BumpUsage", "CannotAnswer", "SHADOW_BLOCKER", "REGEN_NOTE",
-           "MANIFEST", "schedule_status", "writer_problems"]
+           "MANIFEST", "schedule_status", "writer_problems", "E3_TIERS"]
 
 MANIFEST = "nanosoc-component.yaml"
 SHADOW_BLOCKER = "shadow mode (E2): the bot only records what it would do; a person applies the patch and merges"
@@ -53,6 +59,13 @@ REGEN_NOTE = ("Gitlink move only. E1 asks a bump to regenerate generated RTL: th
               "(NANOSOC_GEN_OK=1), which this tool never runs. After applying, a person regenerates build_soc "
               "if the consumer commits generated output, and runs the configuration's T1/T2.")
 CannotAnswer = inp.CannotAnswer
+# E3 "T0-T2 pass on the exact commits": a compat what-if with --tier t1 (or t2) runs T0 first and its verdict is the
+# ladder over both (CR-12), so PASS from a t1 and a t2 what-if covers T0, T1 and T2. A T0-only what-if never does.
+E3_TIERS = ("t1", "t2")
+NOT_CHECKED_CONTROLS = ("controls fired: not checked (no control result is recorded per move until the tiers report "
+                        "their controls; E3 needs every control to fire)")
+NOT_CHECKED_GREEN_RED = ("no test went from green to red: not checked (no per-test comparison against the consumer's "
+                         "base exists yet; E3)")
 
 
 class BumpUsage(inp.UsageProblem):
@@ -204,6 +217,11 @@ class _Mirrors:
         r = self.git.run(m, "cat-file", "-p", "%s:%s" % (commit, path), timeout=120)
         return r.stdout if r.ok else None
 
+    def manifest_doc(self, component: str, commit: str) -> dict | None:
+        """The consumer's manifest at `commit` as far as it parses (None when absent or unparseable)."""
+        self.manifest_range(component, commit, "", "")
+        return self._manifest[(component, commit)][1]
+
     def manifest_range(self, component: str, commit: str, path: str, dep: str) -> tuple[str | None, str | None, str | None]:
         """(declared range, source, problem) from the consumer's manifest at `commit`."""
         key = (component, commit)
@@ -328,21 +346,23 @@ def _defects(reg, dep: str, frm: str, to: str, mirrors: _Mirrors) -> dict:
             return None
         return a and not b
 
+    within: list[dict] = []
     for d in reg.defects():
-        forms, commits = [], []
+        forms, commits, all_fixed_at_to = [], [], bool(d.get("forms"))
         for form in d.get("forms") or []:
+            form_fixed_at_to = False
             for fx in form.get("fixed_in") or []:
                 if fx.get("component") != dep:
                     continue
+                if mirrors.is_ancestor(dep, fx["commit"], to):
+                    form_fixed_at_to = True
                 hit = moved_in(fx["commit"])
                 if hit is None:
                     unjudged.append("%s form %s fixed_in %s" % (d["id"], form.get("id"), fx["commit"][:12]))
                 elif hit:
                     forms.append(str(form.get("id")))
                     commits.append(fx["commit"])
-        if commits:
-            fixed.append({"id": d["id"], "title": d.get("title", ""), "forms": sorted(set(forms)),
-                          "commits": sorted(set(commits))})
+            all_fixed_at_to = all_fixed_at_to and form_fixed_at_to
         origins = []
         for o in d.get("origin") or []:
             if o.get("component") != dep:
@@ -352,52 +372,158 @@ def _defects(reg, dep: str, frm: str, to: str, mirrors: _Mirrors) -> dict:
                 unjudged.append("%s origin %s" % (d["id"], o["commit"][:12]))
             elif hit:
                 origins.append(o["commit"])
+        if origins and all_fixed_at_to:
+            # introduced and fixed between the pin and the tag: the pin never had it and the tag has the fix
+            within.append({"id": d["id"], "title": d.get("title", ""), "commits": sorted(set(origins + commits))})
+            continue
         if origins:
             introduced.append({"id": d["id"], "title": d.get("title", ""), "commits": sorted(set(origins))})
-    return {"fixed": fixed, "introduced": introduced, "unjudged": unjudged}
+        if commits:
+            fixed.append({"id": d["id"], "title": d.get("title", ""), "forms": sorted(set(forms)),
+                          "commits": sorted(set(commits))})
+    return {"fixed": fixed, "introduced": introduced, "unjudged": unjudged, "within_range": within}
 
 
-def _matrix(cid: str, tree_paths: list[str], to: str, cfg: Config) -> dict:
+def _matrix(cid: str, tree_paths: list[str], to: str, cfg: Config, root_commit: str | None) -> dict:
+    """The T0-T2 cell for exactly this move (module docstring, step 6)."""
     pins = ["%s=%s" % (tp, to) for tp in tree_paths]
-    out = {"verdict": None, "source": None, "observed_at": None, "href": None, "pins": pins}
+    out = {"verdict": None, "source": None, "observed_at": None, "href": None, "pins": pins,
+           "tiers": {"t0": None, "t1": None, "t2": None}, "note": None}
     cell = interfaces.provider(interfaces.MATRIX)
     if cell is not None:
         got = cell(cid, {tp: to for tp in tree_paths}, config=cfg)
         if got and got.get("verdict"):
             return dict(out, verdict=got["verdict"], source="matrix", observed_at=got.get("observed_at"),
-                        href=got.get("href"))
+                        href=got.get("href"), note=got.get("detail"))
     try:
         from nanosoc_rm import jobs
         records = jobs.jobs(cfg, limit=500, kind="compat", configuration=cid, states=("done",))
     except Exception:                                   # noqa: BLE001 - no job store yet: no stored result
         records = []
-    for j in records:                                   # newest first
-        if sorted(j["params"].get("pins") or []) == sorted(pins) and j.get("verdict"):
+    stale = 0
+    for j in records:                                   # newest first: the newest what-if per tier counts
+        if sorted(j["params"].get("pins") or []) != sorted(pins) or not j.get("verdict"):
+            continue
+        ran_on = ((j.get("result") or {}).get("fact") or {}).get("commit")
+        if root_commit is None or ran_on != root_commit:
+            stale += 1                                  # another tree (or no result to say which): not this move
+            continue
+        tier = j["params"].get("tier") or "t0"
+        if tier in out["tiers"] and out["tiers"][tier] is None:
             at = j.get("finished_at")
-            return dict(out, verdict=j["verdict"], source="compat-job",
-                        observed_at=at if at and at.endswith("Z") else None, href="/compat?job=%d" % j["id"])
+            out["tiers"][tier] = {"verdict": j["verdict"], "job": j["id"], "href": "/compat?job=%d" % j["id"],
+                                  "finished_at": at if at and at.endswith("Z") else None}
+    have = {t: c for t, c in out["tiers"].items() if c}
+    notes = []
+    if stale:
+        notes.append("%d what-if%s with these pins ran on another tree than the walked %s (or kept no result): not "
+                     "used" % (stale, "" if stale == 1 else "s", (root_commit or "?")[:12]))
+    if not have:
+        return dict(out, note="; ".join(notes) or None)
+    from nanosoc_rm.analysis.compat import ladder
+    bad = [c["verdict"] for c in have.values() if c["verdict"] != "PASS"]
+    missing = [t for t in E3_TIERS if t not in have]
+    verdict = ladder(*bad) if bad else (None if missing else "PASS")
+    if missing and not bad:
+        notes.append("T0-T2 needs a PASS from a %s what-if (each runs T0 first); %s has none yet"
+                     % (" and a ".join(E3_TIERS), ", ".join(missing)))
+    newest = max(have.values(), key=lambda c: c["job"])
+    return dict(out, verdict=verdict, source="compat-job", observed_at=newest["finished_at"], href=newest["href"],
+                note="; ".join(notes) or None)
+
+
+def _matrix_summary(m: dict) -> str:
+    if m["verdict"]:
+        return m["verdict"]
+    have = ["%s %s" % (t, c["verdict"]) for t, c in (m.get("tiers") or {}).items() if c]
+    return ("incomplete: %s, t1 and t2 needed" % ", ".join(have)) if have else "no result stored"
+
+
+def _blockers(p: dict, ctx: dict, auto_merge: dict) -> list[str]:
+    """Every E3 condition (and E5's private GitHub repos) the tool cannot show holds, one sentence each. In shadow
+    mode the list is advice for a person; E3's done-when is that each condition blocks when broken."""
+    change, matrix, defects, consumer = p["change"], p["matrix"], p["defects"], p["consumer"]
+    b = [SHADOW_BLOCKER]
+    b.append("auto_merge in eligibility.yaml is empty (E2: switched on per class only after zero disagreements)"
+             if not auto_merge.get(consumer["component"]) else
+             "auto_merge names %s for %s, but shadow mode ignores it until the Phase 4 gate"
+             % (", ".join(auto_merge[consumer["component"]]), consumer["component"]))
+    # T0-T2 pass on the exact commits
+    if matrix["verdict"] != "PASS":
+        b.append("T0-T2 on the exact commits: %s (E3 needs PASS from T0, T1 and T2)" % _matrix_summary(matrix))
+    if not consumer["at_configured"]:
+        b.append("not the exact commits: the configuration pins %s at %s, but the patch applies to the branch tip "
+                 "%s, so a what-if of the configuration does not test it (E3; walk again after the branch settles)"
+                 % (consumer["component"], consumer["configured"][:12], consumer["base"][:12]))
+    b.append(NOT_CHECKED_CONTROLS)
+    b.append(NOT_CHECKED_GREEN_RED)
+    # the class is fix or feature
+    if change["class"] not in ("fix", "feature"):
+        b.append("change class %s: only fix or feature may auto-merge (E3)" % change["class"])
+    # the source is tagged
+    if not (p["to"]["tag"] and p["to"]["exact"]):
+        b.append("the source is not a release tag (E3)")
+    # an eligible, non-silicon default branch (frozen and silicon configurations never reach here)
+    if ctx["default"] is None:
+        b.append("the default branch of %s:%s is not known, so the target %s cannot be shown to be it (E3)"
+                 % (consumer["repo"]["host"], consumer["repo"]["path"], consumer["branch"]))
+    elif ctx["default"] != consumer["branch"]:
+        b.append("the target %s is not the default branch (%s) of %s:%s (E3)"
+                 % (consumer["branch"], ctx["default"], consumer["repo"]["host"], consumer["repo"]["path"]))
+    # E5: never a private GitHub repo
+    if consumer["repo"]["host"] == "github":
+        vis = ctx["visibility"]
+        if vis is None:
+            b.append("the visibility of github:%s is not known (no repo_inventory: run `nanosoc-rm mirror "
+                     "inventory`), so it cannot be shown not to be private (E5)" % consumer["repo"]["path"])
+        elif vis != "public":
+            b.append("github:%s is %s, not public: never auto-merged into a private GitHub repo, which cannot "
+                     "enforce required checks (E5)" % (consumer["repo"]["path"], vis))
+    # nothing diverged or split
+    if change["diverged"]:
+        b.append("diverged: the pin is not an ancestor of the tag, so the move drops commits (E3)")
+    if ctx["split"]:
+        b.append("split: %s is pinned at more than one commit in this tree (E3)" % p["dependency"]["component"])
+    # no workaround retires
+    for w in ctx["workarounds"]:
+        b.append("retires the workaround %s (its upstream fix %s arrives with this move; E3: a person removes it)"
+                 % (w["path"], w["commit"][:12]))
+    # not part of a train
+    if p["waits_for"] or ctx["waited_on_by"]:
+        b.append("part of a train: waits for %s; waited on by %s (E3: trains go to a person)"
+                 % (", ".join(p["waits_for"]) or "nothing", ", ".join(ctx["waited_on_by"]) or "nothing"))
+    # no defect detector newly fires
+    for d in defects["introduced"]:
+        b.append("introduces %s (E3: no defect detector may newly fire)" % d["id"])
+    if p["reason"]:
+        b.append(p["reason"])
+    b.append("build-affecting unknown until the C7 file-list diff exists: T3 may be needed first (E3)")
+    return b
+
+
+def _visibility(cfg: Config) -> dict[tuple[str, str], str]:
+    """(host, lower-case path) -> visibility, from the stored repo inventory (A1)."""
+    from nanosoc_rm import db
+    out = {}
+    try:
+        for d in db.latest("repo_inventory", config=cfg):
+            r = d["fact"]["repo"]
+            out[(r["host"], r["path"].lower())] = d["fact"]["visibility"]
+    except Exception:                                   # noqa: BLE001 - no store: unknown, which blocks
+        pass
     return out
 
 
-def _blockers(change: dict, matrix: dict, defects: dict, state_reason: str | None, auto_merge: dict,
-              consumer_component: str) -> list[str]:
-    b = [SHADOW_BLOCKER]
-    b.append("auto_merge in eligibility.yaml is empty (E2: switched on per class only after zero disagreements)"
-             if not auto_merge.get(consumer_component) else
-             "auto_merge names %s for %s, but shadow mode ignores it until the Phase 4 gate"
-             % (", ".join(auto_merge[consumer_component]), consumer_component))
-    if change["class"] not in ("fix", "feature"):
-        b.append("change class %s: only fix or feature may auto-merge (E3)" % change["class"])
-    if matrix["verdict"] != "PASS":
-        b.append("T0-T2 on the exact commits: %s (E3 needs PASS)" % (matrix["verdict"] or "no result stored"))
-    if change["diverged"]:
-        b.append("diverged: the pin is not an ancestor of the tag, so the move drops commits (E3)")
-    for d in defects["introduced"]:
-        b.append("introduces %s (E3: no defect detector may newly fire)" % d["id"])
-    if state_reason:
-        b.append(state_reason)
-    b.append("build-affecting unknown until the C7 file-list diff exists: T3 may be needed first (E3)")
-    return b
+def _retiring(mirrors: "_Mirrors", consumer: str, tip: str, dep: str, frm: str, to: str) -> list[dict]:
+    """The consumer manifest's workarounds whose `retires_when` commit of `dep` arrives with this move."""
+    out = []
+    for w in (mirrors.manifest_doc(consumer, tip) or {}).get("workarounds") or []:
+        rw = (w or {}).get("retires_when") or {}
+        if not isinstance(w, dict) or rw.get("component") != dep or not rw.get("commit"):
+            continue
+        if mirrors.is_ancestor(dep, rw["commit"], to) and not mirrors.is_ancestor(dep, rw["commit"], frm):
+            out.append({"path": str(w.get("path")), "commit": rw["commit"]})
+    return out
 
 
 def _row(fact: dict, status: str, note: str, consumer: str | None = None, tag: str | None = None,
@@ -437,6 +563,8 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
     git = _Git(cfg)
     mirrors = _Mirrors(cfg, reg, git)
     root_comp = conf["component"]
+    root_commit = next((d["fact"]["parent"]["commit"] for d in tree if d["fact"]["depth"] == 1), None)
+    visibility = _visibility(cfg)
     rows, props, seen = [], {}, {}
     for doc in sorted(tree, key=lambda d: (-d["fact"]["depth"], d["fact"]["tree_paths"][0])):
         f = doc["fact"]
@@ -459,8 +587,10 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
                 rows.append(_row(f, "consumer-not-a-branch", "the configuration follows a tag (%s): no branch to bump"
                                  % (conf.get("ref") or {}).get("tag"), consumer))
                 continue
+            default, _ = inp.default_branch(cfg, mirrors.mirror(consumer), parent["repo"])
         else:
             branch, _ = inp.default_branch(cfg, mirrors.mirror(consumer), parent["repo"])
+            default = branch
             if not branch:
                 rows.append(_row(f, "consumer-not-mirrored", "the default branch of %s:%s is not known (sync its mirror)"
                                  % (parent["repo"]["host"], parent["repo"]["path"]), consumer))
@@ -542,13 +672,16 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
             "change": change, "defects": defects, "matrix": None, "patch": None, "decision": None,
             "waits_for": [], "state": state, "reason": reason,
             "_frm_tag": frm_tag, "_sources": git.take() + extra,
+            "_ctx": {"default": default, "split": bool(f.get("split")),
+                     "visibility": visibility.get((parent["repo"]["host"], parent["repo"]["path"].lower())),
+                     "workarounds": _retiring(mirrors, consumer, tip, dep, frm, to.commit), "waited_on_by": []},
         }
         rows.append(_row(f, "proposal" if state == "proposed" else "blocked",
                          "%s -> %s%s" % (frm_tag.name if frm_tag else frm[:12], to.name,
                                          "" if state == "proposed" else ": " + reason), consumer, tag=to.name,
                          proposal=pid))
 
-    docs = _finish(configuration, props, rows, cfg, auto_merge, walk_at, [walk_src, reg_src])
+    docs = _finish(configuration, props, rows, cfg, auto_merge, walk_at, [walk_src, reg_src], root_commit)
     obs = _scan_doc(configuration, True, None, {"snapshot": snap, "observed_at": walk_at, "pins": len(tree)}, rows,
                     [d["fact"]["id"] for d in docs], problems, auto_merge, sched, walk_at,
                     [walk_src, reg_src] + git.take())
@@ -559,26 +692,32 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
 
 
 def _finish(cid: str, props: dict, rows: list[dict], cfg: Config, auto_merge: dict, walk_at: str,
-            base_sources: list[dict]) -> list[dict]:
+            base_sources: list[dict], root_commit: str | None = None) -> list[dict]:
     """Order deepest first, link waits_for, add matrix, patch and decision; build the observations."""
     order = sorted(props.values(), key=lambda p: (-p["depth"], p["tree_paths"][0]))
-    docs = []
     for n, p in enumerate(order, 1):
         p["order"] = n
         p["waits_for"] = [q["id"] for q in order if q["consumer"]["component"] == p["dependency"]["component"]
                           and q["id"] != p["id"]]
+    for p in order:
+        for w in p["waits_for"]:
+            props[w]["_ctx"]["waited_on_by"].append(p["id"])
+    docs = []
+    for p in order:
         p["tree_paths"] = sorted(set(p["tree_paths"]))
-        p["matrix"] = _matrix(cid, p["tree_paths"], p["to"]["commit"], cfg)
+        p["matrix"] = _matrix(cid, p["tree_paths"], p["to"]["commit"], cfg, root_commit)
         p["patch"] = {"file": "%s.diff" % p["id"], "regenerated": False, "note": REGEN_NOTE}
         p["decision"] = {"mode": "shadow", "would": "open-pull-request" if p["state"] == "proposed" else "hold",
                          "auto_merge": False, "goes_to": "person",
-                         "blockers": _blockers(p["change"], p["matrix"], p["defects"], p["reason"], auto_merge,
-                                               p["consumer"]["component"])}
+                         "blockers": _blockers(p, p.pop("_ctx"), auto_merge)}
         sources = list(base_sources) + p.pop("_sources")
         p.pop("_frm_tag", None)
         if p["matrix"]["source"] == "compat-job":
-            sources.append({"kind": "derived", "command": "nanosoc-rm compat %s %s (local job record)"
-                            % (cid, " ".join("--pin " + x for x in p["matrix"]["pins"]))})
+            for t, c in p["matrix"]["tiers"].items():
+                if c:
+                    sources.append({"kind": "derived", "command": "nanosoc-rm compat %s %s%s (local job %d)"
+                                    % (cid, " ".join("--pin " + x for x in p["matrix"]["pins"]),
+                                       "" if t == "t0" else " --tier " + t, c["job"])})
         obs = {"schema": 1, "kind": "bump_proposal", "subject": "bump_proposal:%s:%s" % (cid, p["id"]),
                "observed_at": walk_at, "sources": sources, "fact": p}
         contracts.require_valid("observation", obs)

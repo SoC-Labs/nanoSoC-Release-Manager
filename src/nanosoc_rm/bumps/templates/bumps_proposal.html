@@ -10,19 +10,23 @@
   <tr><th>Change class</th><td>{{ pill(f.change['class'], CLASS_CLASS) }} <span class="note">{{ f.change.class_source }}: {{ f.change.class_detail }}</span></td></tr>
   <tr><th>Commits</th><td>{{ f.change.commits.count }}{% if f.change.diverged %} <span class="pill state-red">diverged</span> the old pin is not an ancestor of the tag{% endif %}</td></tr>
   <tr><th>Defects fixed</th><td>{% for d in f.defects.fixed %}{{ pill('fixes', {'fixes': 'state-green'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}{% if d.forms %} (forms {{ d.forms|join(', ') }}){% endif %}<br>{% else %}none in the registry{% endfor %}</td></tr>
+  {% if f.defects.within_range %}<tr><th>Introduced and fixed in the range</th><td>{% for d in f.defects.within_range %}<a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }} <span class="note">(the pin never had it; the tag has the fix)</span><br>{% endfor %}</td></tr>{% endif %}
   <tr><th>Defects introduced</th><td>{% for d in f.defects.introduced %}{{ pill('introduces', {'introduces': 'state-red'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}<br>{% else %}none in the registry{% endfor %}{% if f.defects.unjudged %}<br><span class="warn">not judged: {{ f.defects.unjudged|join('; ') }}</span>{% endif %}</td></tr>
-  <tr><th>Matrix</th><td>
+  <tr><th>Matrix (T0-T2)</th><td data-bumps="matrix">
     {% if f.matrix.verdict %}{{ pill(f.matrix.verdict, VERDICT_CLASS) }} ({{ f.matrix.source }}{% if f.matrix.observed_at %}, {{ f.matrix.observed_at }}{% endif %}){% if f.matrix.href %} <a href="{{ f.matrix.href }}">result</a>{% endif %}
-    {% else %}<span class="note">no stored result for this move</span>
-      {% if local %}<form method="post" action="/compat/jobs" style="display:inline">
+    {% else %}<span class="note">no T0-T2 result for this move</span>{% endif %}
+    {% for t, c in (f.matrix.tiers or {})|dictsort %}{% if c %}<br>{{ t }}: {{ pill(c.verdict, VERDICT_CLASS) }} <a href="{{ c.href }}">job {{ c.job }}</a>{% endif %}{% endfor %}
+    {% if f.matrix.note %}<br><span class="note">{{ f.matrix.note }}</span>{% endif %}
+    {% if f.matrix.verdict != 'PASS' and f.matrix.source != 'matrix' %}{% for t in missing_tiers %}
+      {% if local %}<br><form method="post" action="/compat/jobs" style="display:inline">
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="configuration" value="{{ f.configuration }}">
-        <input type="hidden" name="pins_extra" value="{{ f.matrix.pins|join('\n') }}">
-        <button type="submit" title="queue the compat what-if (T0) with exactly this pin moved">Run</button></form>
-      {% else %}<code>nanosoc-rm compat {{ f.configuration }}{% for p in f.matrix.pins %} --pin {{ p }}{% endfor %}</code>{% endif %}
-    {% endif %}</td></tr>
+        <input type="hidden" name="pins_extra" value="{{ f.matrix.pins|join('\n') }}"><input type="hidden" name="tier" value="{{ t }}">
+        <button type="submit" title="queue the compat what-if with exactly this pin moved, T0 then {{ t }}">Run T0 + {{ t }}</button></form>
+      {% else %}<br><code>nanosoc-rm compat {{ f.configuration }}{% for p in f.matrix.pins %} --pin {{ p }}{% endfor %} --tier {{ t }}</code>{% endif %}
+    {% endfor %}<br><span class="note">E3 needs PASS from a t1 and a t2 what-if of the walked tree (each runs T0 first); a T0-only what-if is never the cell.</span>{% endif %}</td></tr>
   <tr><th>Waits for</th><td>{% for w in f.waits_for %}<a href="/bumps/p/{{ w }}">{{ w }}</a> {% else %}nothing{% endfor %}</td></tr>
   <tr><th>The bot would</th><td>{{ f.decision.would }} <span class="pill state-grey">auto-merge OFF</span> goes to a {{ f.decision.goes_to }}</td></tr>
-  <tr><th>Ledger</th><td>{% if entry %}{{ pill(entry.outcome, OUTCOME_CLASS) }} {{ entry.note }}{% else %}<span class="note">not computed</span>{% endif %}</td></tr>
+  <tr><th>Ledger</th><td>{% if entry %}{{ pill(entry.outcome, OUTCOME_CLASS) }} {{ entry.note }} <span class="note">(computed {{ ledger_at }})</span>{% else %}<span class="note">not in the kept ledger yet (the next scan or ledger job computes it)</span>{% endif %}</td></tr>
 </table>
 
 <h2>Why it cannot auto-merge (E3)</h2>
@@ -38,14 +42,15 @@
 <h2>Mark as done by a person</h2>
 {% if local %}
 <form class="panel" method="post" action="/bumps/p/{{ f.id }}/mark">
-  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="configuration" value="{{ f.configuration }}">
   <div class="row">
     <label>Note <input name="note" size="50" placeholder="optional: the PR or commit"></label>
     <button type="submit" name="decision" value="done">Mark done by me</button>
     <button type="submit" name="decision" value="declined">Decline</button>
   </div>
-  <p class="note">Logged with your login. The ledger still judges by what the branch holds in the mirror.</p>
+  <p class="note">Logged with your login, then a ledger refresh job is queued. The ledger still judges by what the branch holds in the mirror.</p>
 </form>
+{% if job %}<div hx-get="/jobs/{{ job }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p class="note">Job {{ job }}: <a href="/jobs/{{ job }}/log">log</a></p></div>{% endif %}
 {% else %}<p class="note"><code>nanosoc-rm bumps mark {{ f.id }} done --by &lt;login&gt;</code></p>{% endif %}
 {% if marks %}<ul data-bumps="marks">{% for m in marks %}<li>{{ m.decision }} by {{ m.login }} at {{ m.at }}{% if m.note %}: {{ m.note }}{% endif %}</li>{% endfor %}</ul>{% endif %}
 
