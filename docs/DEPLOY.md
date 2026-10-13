@@ -75,6 +75,9 @@ ssh -N -L <port>:127.0.0.1:<port> <host>
 Then open http://127.0.0.1:<port>/ and sign in as `<login>` with the password in
 `~/.config/nanosoc-rm/initial-password` on the host.
 
+If your SSH config multiplexes connections (`ControlMaster`), the forward is added to the master connection and
+`ssh -N` returns at once; the tunnel stays up until `ssh -O cancel -L <port>:127.0.0.1:<port> <host>`.
+
 ## Operate
 
 | Task | Command (on the host) |
