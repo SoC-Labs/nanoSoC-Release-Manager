@@ -104,6 +104,10 @@ def register(main: click.Group) -> None:
         if not _LOGIN.match(login):
             click.echo("nanosoc-rm: %r is not a login (letters, digits, _ . -; at most 64)" % login, err=True)
             return EXIT_USAGE
+        bad = [r for r in roles if not _LOGIN.match(r)]
+        if bad:                                  # printed into TOML: a quote would add config keys
+            click.echo("nanosoc-rm: %r is not a role name (letters, digits, _ . -; at most 64)" % bad[0], err=True)
+            return EXIT_USAGE
         if generate:
             password = secrets.token_urlsafe(15)
         else:

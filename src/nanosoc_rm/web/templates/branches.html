@@ -8,9 +8,13 @@
       </select></label>
     <label class="check"><input type="checkbox" name="all" value="1"{% if all_repos %} checked{% endif %}> every copy (--all)</label>
     <button type="submit">Show</button>
-    {% if component %}<button type="submit" name="refresh" value="1" title="re-read the mirror now">Re-read mirror</button>{% endif %}
   </div>
 </form>
+{% if component and actions %}<form class="panel" method="post" action="/branches/refresh">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ component }}">
+  {% if all_repos %}<input type="hidden" name="all" value="1">{% endif %}
+  <button type="submit" title="re-read the mirror now and store the result">Re-read mirror</button>
+</form>{% elif component %}<p class="note">To re-read the mirror: <code>nanosoc-rm branches {{ component }}{{ ' --all' if all_repos }}</code>.</p>{% endif %}
 
 {% if component %}
   {% if total %}

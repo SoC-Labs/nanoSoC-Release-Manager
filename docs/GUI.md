@@ -41,6 +41,15 @@ sections 13, 13a and 14.
    Add `--no-schedule` to skip the 15-minute poll (it syncs every mirror and walks every configuration).
 5. From your laptop: `ssh -N -L 8000:127.0.0.1:8000 <host>`, then open http://127.0.0.1:8000/ and sign in.
 
+**What protects it.** Loopback keeps the service off the network, but every user with a login on the host can
+reach 127.0.0.1:8000. The password and the session cookie are the boundary:
+- Sign out with **Sign out**: it revokes the session, so a copy of the cookie stops working. Changing a user's
+  hash in the config ends that user's sessions on their next request.
+- After 5 wrong passwords for one login in 5 minutes, that login is refused for the rest of the 5 minutes, even
+  with the right password. Anyone who can reach the port can trigger this for a login they name. Restarting the
+  service clears it (the counter is in memory). Use a generated password (`--generate`): the limit is there for
+  chosen ones.
+
 ## Pages
 
 | Page | What it is for |
@@ -48,8 +57,8 @@ sections 13, 13a and 14.
 | Dashboard | per configuration: last local compat verdict and age, CI T0 (if any), red pins, errata, host drift; **Run** |
 | Configuration | pins with states per host, B7 splits, silicon protection, T0 waivers, compat and CI history; **Walk now** |
 | Compat | move pins to any tag or branch in the mirror, choose T1/T2, run; live log; per-gate and per-pin table |
-| Branches | branch verdicts with filters; the delete list to copy (the tool never deletes) |
-| Hosts | canonical vs copy relation; **Compare now** |
+| Branches | branch verdicts with filters; the delete list to copy (the tool never deletes); **Re-read mirror** |
+| Hosts | canonical vs copy relation; **Compare now** (a POST: a link can never start one) |
 | Contains, Silicon | containment of a commit; silicon-protection rows |
 | Registry | components, defects, errata |
 | Mirrors | fetch status and age; **Sync** one component or all |

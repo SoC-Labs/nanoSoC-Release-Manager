@@ -3,9 +3,12 @@
   <div class="row">
     <label>Component <input name="component" value="{{ component or '' }}" placeholder="all with copies"></label>
     <button type="submit">Show</button>
-    <button type="submit" name="refresh" value="1" title="compare now, from the mirrors">Compare now</button>
   </div>
 </form>
+{% if actions %}<form class="panel" method="post" action="/hosts/refresh">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ component or '' }}">
+  <button type="submit" title="compare now, from the mirrors, and store the result">Compare now{{ ' ' ~ component if component }}</button>
+</form>{% else %}<p class="note">To compare now: <code>nanosoc-rm hosts{{ ' ' ~ component if component }}</code>.</p>{% endif %}
 {% if rows %}
 <div class="scroll"><table>
   <thead><tr><th>Component</th><th>Canonical</th><th>Copy</th><th>Relation</th><th class="num">Canonical only</th><th class="num">Copy only</th><th>Default branches</th></tr></thead>

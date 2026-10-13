@@ -238,7 +238,8 @@ def _set_session(resp: Response, sessions: authmod.Sessions | None, d: dict, *, 
     iat = d.get("iat") or clock.iso()
     left = authmod.session_seconds_left({"iat": iat})
     resp.set_cookie(authmod.SESSION_COOKIE, sessions.dump_session(d["login"], d["status"], d.get("sid"),
-                                                                  d.get("checked_at"), iat, d.get("attempt_at")),
+                                                                  d.get("checked_at"), iat, d.get("attempt_at"),
+                                                                  d.get("hash_tag")),
                     max_age=max(1, left if left is not None else 0), httponly=True, samesite=same_site, secure=secure,
                     path="/")
 
@@ -442,10 +443,22 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                 return j
         return None
 
+    def _registered_ids(config: Config) -> set[str]:
+        """The registry's configuration ids; empty when the registry cannot be read (the CLI then says why)."""
+        try:
+            return {d["fact"]["id"] for d in views.configurations(config)}
+        except Exception:                                         # noqa: BLE001 - the job's own error explains
+            return set()
+
     async def _queue(request: Request, kind: str, params: dict, *, api: bool = False,
                      active_for: str | None = None) -> Response:
         config, ident = _ctx(request)
         status = 202
+        cid = params.get("configuration")
+        if cid and views.is_valid_id(cid):
+            known = await run_in_threadpool(_registered_ids, config)
+            if known and cid not in known:           # a job the CLI would refuse: never queued, never logged
+                return PlainTextResponse("404 Not Found: no registered configuration %r" % cid, 404)
         try:
             job = _duplicate(config, kind, params, run_button=active_for is not None)
             if job is not None:
@@ -536,17 +549,18 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         return await _queue(request, "mirror-sync", {"component": str(form.get("component") or "") or None})
 
     def branches_page(request: Request) -> HTMLResponse:
+        q = request.query_params
+        return _branches(request, q.get("component") or "", q.get("all") in ("1", "on", "true"), q.get("verdict") or "")
+
+    def _branches(request: Request, comp: str, all_repos: bool, verdict: str, refresh: bool = False) -> HTMLResponse:
+        # A GET never re-reads on request (section 13a): Re-read mirror is the local POST /branches/refresh.
         config, _ = _ctx(request)
         problems = registry_problems(config)
-        q = request.query_params
-        comp = q.get("component") or ""
-        all_repos = q.get("all") in ("1", "on", "true")
-        rows, more, computed = (views.branch_rows(config, comp, all_repos=all_repos, refresh=q.get("refresh") == "1")
+        rows, more, computed = (views.branch_rows(config, comp, all_repos=all_repos, refresh=refresh)
                                 if comp else ([], [], False))
         counts: dict[str, int] = {}
         for d in rows:
             counts[d["fact"]["verdict"]] = counts.get(d["fact"]["verdict"], 0) + 1
-        verdict = q.get("verdict") or ""
         shown = [d for d in rows if not verdict or d["fact"]["verdict"] == verdict
                  or (verdict == "deletable" and d["fact"]["deletable"])]
         mirrored = {d["fact"].get("component") for d in views.mirrors(config)}
@@ -557,15 +571,32 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                     choices=sorted(mirrored - {None}))
 
     def hosts_page(request: Request) -> HTMLResponse:
+        return _hosts(request, request.query_params.get("component") or None)
+
+    def _hosts(request: Request, comp: str | None, problems: list[str] | None = None) -> HTMLResponse:
         config, _ = _ctx(request)
-        problems = registry_problems(config)
-        comp = request.query_params.get("component") or None
         if comp and not views.is_valid_id(comp):
             comp = None
-        if request.query_params.get("refresh") == "1":
-            problems = problems + views.compare_now(config, comp)
         rows = views.host_compares(config, comp)
-        return page(request, "hosts.html", "Host copies", problems=problems, rows=rows, component=comp)
+        return page(request, "hosts.html", "Host copies", problems=registry_problems(config) + (problems or []),
+                    rows=rows, component=comp)
+
+    async def post_branches_refresh(request: Request) -> Response:
+        """Local deployment: re-read one component's mirror now, store the branch inventory, show it."""
+        form = await request.form()
+        comp, all_repos = str(form.get("component") or ""), bool(form.get("all"))
+        if not views.is_valid_id(comp):
+            return PlainTextResponse("400 Bad Request: not a component id", 400)
+        return await run_in_threadpool(_branches, request, comp, all_repos, "", True)
+
+    async def post_hosts_refresh(request: Request) -> Response:
+        """Local deployment: compare the host copies now (one component, or all), store and show them."""
+        config, _ = _ctx(request)
+        comp = str((await request.form()).get("component") or "") or None
+        if comp and not views.is_valid_id(comp):
+            return PlainTextResponse("400 Bad Request: not a component id", 400)
+        problems = await run_in_threadpool(views.compare_now, config, comp)
+        return _hosts(request, comp, problems)
 
     def mirrors_page(request: Request) -> HTMLResponse:
         config, _ = _ctx(request)
@@ -707,7 +738,9 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         state.throttle.clear(login)
         sessions = state.sessions(config)
         resp = RedirectResponse(_safe_next(str(form.get("next") or "")), 303)
-        _set_session(resp, sessions, {"login": login, "status": "member", "checked_at": clock.iso()},
+        user = authmod.local_users(config)[login]
+        _set_session(resp, sessions, {"login": login, "status": "member", "checked_at": clock.iso(),
+                                      "hash_tag": authmod.hash_tag(user["hash"])},
                      secure=_cookie_secure(request), same_site="strict")
         resp.delete_cookie(authmod.LOGIN_CSRF_COOKIE, path=authmod.AUTH_PREFIX)
         return resp
@@ -753,9 +786,15 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
 
     def logout(request: Request) -> Response:
         try:
-            local = state.config().auth_mode == "local"
+            config = state.config()
+            local = config.auth_mode == "local"
         except ConfigError:
             local = False
+        if local:                                    # revoke, so a copy of the cookie stops working too
+            sessions = state.sessions(config)
+            d = sessions.load_session(request.cookies.get(authmod.SESSION_COOKIE, "")) if sessions else None
+            if d:
+                authmod.revoke_session(config, d.get("sid", ""), authmod.session_seconds_left(d) or 0)
         resp: Response = RedirectResponse(authmod.LOGIN_PATH + "?signed_out=1", 303) if local \
             else PlainTextResponse("Signed out.", 200)
         resp.delete_cookie(authmod.SESSION_COOKIE, path="/")
@@ -782,7 +821,8 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
     app.add_api_route("/api/v1/configurations/{id}/runs", post_run_api, methods=["POST"], include_in_schema=False)
     local_posts = (("/compat/jobs", post_compat), ("/jobs/{id}/cancel", post_cancel),
                    ("/configurations/{id}/walk", post_walk), ("/mirrors/sync", post_mirror_sync),
-                   ("/alerts/clear", post_clear_alert), (authmod.LOGIN_PATH, login_post), (authmod.LOGOUT_PATH, logout))
+                   ("/alerts/clear", post_clear_alert), ("/branches/refresh", post_branches_refresh),
+                   ("/hosts/refresh", post_hosts_refresh), (authmod.LOGIN_PATH, login_post), (authmod.LOGOUT_PATH, logout))
     for path, fn in local_posts if state.local_routes else ():
         app.add_api_route(path, fn, methods=["POST"], include_in_schema=False)
     state.nav = NAV + tuple(plugins.load(app))

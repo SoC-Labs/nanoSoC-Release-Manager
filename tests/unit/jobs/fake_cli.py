@@ -2,7 +2,8 @@
 
 FAKE_MODE (environment): ok (print the contract's example compat_result, exit 0), slow (print a line, then
 sleep; also start a grandchild in its own session that sleeps, writing its pid to FAKE_PIDFILE), usage (exit 3
-with a message), crash (exit 9), docs (print two mirror_status-like lines, exit 2).
+with a message), crash (exit 9), docs (print two mirror_status-like lines, exit 2), tierfail (the example's tier line with T0 PASS
+and run_verdict FAIL, exit 1), silent (exit 0, prints nothing), fail (exit 1 with a message).
 """
 import json
 import os
@@ -23,6 +24,17 @@ if mode == "ok":
     line = next(ln for ln in EXAMPLE.read_text().splitlines() if ln.strip().startswith("{"))
     print(json.dumps(json.loads(line)))
     sys.exit(0)
+if mode == "tierfail":
+    line = [ln for ln in EXAMPLE.read_text().splitlines() if ln.strip().startswith("{")][1]
+    doc = json.loads(line)
+    doc["fact"]["verdict"], doc["fact"]["run_verdict"] = "PASS", "FAIL"
+    print(json.dumps(doc))
+    sys.exit(1)
+if mode == "silent":
+    sys.exit(0)
+if mode == "fail":
+    print("nanosoc-rm: 2 steps failed", file=sys.stderr)
+    sys.exit(1)
 if mode == "slow":
     kid = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"], start_new_session=True)
     Path(os.environ["FAKE_PIDFILE"]).write_text(str(kid.pid))

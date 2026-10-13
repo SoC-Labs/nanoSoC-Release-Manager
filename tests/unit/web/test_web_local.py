@@ -404,7 +404,8 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               if m not in ("GET", "HEAD")}
     assert writes == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs"),
                       ("POST", "/compat/jobs"), ("POST", "/jobs/{id}/cancel"), ("POST", "/configurations/{id}/walk"),
-                      ("POST", "/mirrors/sync"), ("POST", "/alerts/clear"), ("POST", "/auth/login"),
+                      ("POST", "/mirrors/sync"), ("POST", "/alerts/clear"), ("POST", "/branches/refresh"),
+                      ("POST", "/hosts/refresh"), ("POST", "/auth/login"),
                       ("POST", "/auth/logout")}
 
 
@@ -412,8 +413,135 @@ def test_a_github_ci_deployment_shows_no_local_actions(service, registry_spy, tm
     reg = make_registry(tmp_path / "registry")
     cfg = write_config(service["cfg"], data=tmp_path / "data", github_url=service["github"].url, registry=reg)
     c = TestClient(create_app(cfg, auth=auth.FakeMembership(login="alice")))
-    for path in ("/compat?configuration=eth-main", "/mirrors", "/alerts", "/configurations/eth-rc4"):
+    for path in ("/compat?configuration=eth-main", "/mirrors", "/alerts", "/configurations/eth-rc4", "/hosts"):
         body = c.get(path).text
-        for action in ("/compat/jobs", "/mirrors/sync", "/alerts/clear", "/walk"):
+        for action in ("/compat/jobs", "/mirrors/sync", "/alerts/clear", "/walk", "/hosts/refresh"):
             assert 'action="%s' % action not in body and action + '"' not in body, (path, action)
     assert "nanosoc-rm compat eth-main" in c.get("/compat?configuration=eth-main").text
+
+
+# ----- review findings G2, G3 (each shown red under its mutation) --------------------------------------------------
+def _compat_doc(cid, nonce, verdict, finished_at):
+    from pathlib import Path
+    ex = Path(__file__).resolve().parents[3] / "schemas" / "examples" / "observation.compat-result.example.jsonl"
+    doc = json.loads(next(ln for ln in ex.read_text().splitlines() if ln.strip().startswith("{")))
+    doc["subject"] = "compat_result:%s:%s" % (cid, nonce)
+    doc["fact"].update(configuration=cid, nonce=nonce, verdict=verdict, finished_at=finished_at, overrides=[],
+                       unjudged_overrides=[])
+    if verdict == "PASS":
+        for g in doc["fact"]["gates"]:
+            if g["verdict"] not in ("PASS", "NOT-RUN"):
+                g["verdict"] = "PASS"
+                g.pop("raw_verdict", None)
+                g.pop("waived", None)
+    return doc
+
+
+def test_the_dashboard_shows_each_configurations_own_compat_result(local):
+    cfg = load_config(local["cfg"])
+    db.put(_compat_doc("eth-main", "a" * 32, "FAIL", "2026-10-11T10:00:00Z"), config=cfg)
+    db.put(_compat_doc("eth-rc4", "b" * 32, "PASS", "2026-10-11T12:00:00Z"), config=cfg)    # newer, other config
+    c = TestClient(local["app"])
+    sign_in(c)
+    body = c.get("/").text
+    cells = {}
+    for m in re.finditer(r'<tr data-configuration="([^"]+)".*?data-item="compat-result"[^>]*>(.*?)</td>', body, re.S):
+        cells[m.group(1)] = m.group(2)
+    assert ">FAIL<" in cells["eth-main"] and "PASS" not in cells["eth-main"], cells.get("eth-main")
+    assert ">PASS<" in cells["eth-rc4"], cells.get("eth-rc4")
+    others = [k for k in cells if k not in ("eth-main", "eth-rc4")]
+    assert others and all("not run here yet" in cells[k] for k in others), cells
+
+
+def test_a_refused_session_is_not_a_local_sign_in(local):
+    c = TestClient(local["app"])
+    sign_in(c)                                     # creates the session secret
+    sessions = auth.Sessions.from_config(load_config(local["cfg"]))
+    for status, code in (("member", 200), ("refused", 303)):
+        c2 = TestClient(local["app"])
+        c2.cookies.set(auth.SESSION_COOKIE, sessions.dump_session("alice", status,
+                                                                  hash_tag=auth.hash_tag(HASHES["alice"])))
+        assert c2.get("/", follow_redirects=False).status_code == code, status
+
+
+def test_a_what_if_job_never_shows_a_stored_result(local, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    seed(local["cfg"], "observation.compat-result.example.jsonl")     # the example's subject is stored
+    c = TestClient(local["app"])
+    sign_in(c)
+    token = page_csrf(c)
+    sha = "036d3811e630c89b2344b56aa617b40a99cd652b"
+    c.post("/compat/jobs", data={"csrf_token": token, "configuration": "eth-rc4", "pin": "a/b=%s" % sha})
+    from pathlib import Path
+    fake = [sys.executable, str(Path(__file__).resolve().parents[1] / "jobs" / "fake_cli.py")]
+    assert jobs.Worker(local["cfg"], argv_prefix=fake).step() == 1
+    body = c.get("/jobs/1/fragment").text
+    assert 'data-job-state="done"' in body and "Stored result:" not in body
+    assert "never stored as a fact" in body
+
+
+@pytest.mark.parametrize("params", [{"n": 2 ** 9}, {"n": 2 ** 10, "r": 33}, {"n": 2 ** 10, "r": 1, "p": 17}])
+def test_a_hash_with_out_of_range_scrypt_parameters_never_verifies(params):
+    # a config hash with huge parameters would make every sign-in a CPU or memory burn: refused unread
+    h = auth.hash_password("pw-1", **params)
+    assert not auth.verify_password("pw-1", h)
+    assert auth.verify_password("pw-1", auth.hash_password("pw-1", n=2 ** 10, r=1, p=1))
+
+
+# ----- review findings S1, S2, U1, U2 ------------------------------------------------------------------------------
+def test_a_get_never_refreshes_branches_or_hosts_and_the_post_does(local, monkeypatch):
+    from nanosoc_rm.web import views
+    calls = []
+    monkeypatch.setattr(views, "branch_rows", lambda config, comp, all_repos=False, refresh=False:
+                        (calls.append(("branches", comp, refresh)) or ([], [], refresh)))
+    monkeypatch.setattr(views, "compare_now", lambda config, comp: calls.append(("hosts", comp)) or [])
+    c = TestClient(local["app"])
+    sign_in(c)
+    assert c.get("/branches?component=tidelink&refresh=1").status_code == 200
+    assert c.get("/hosts?component=tidelink&refresh=1").status_code == 200
+    assert calls == [("branches", "tidelink", False)]                   # a cross-site link computes nothing new
+    token = page_csrf(c)
+    r = c.post("/branches/refresh", data={"csrf_token": token, "component": "tidelink", "all": "1"})
+    assert r.status_code == 200 and "Branches" in r.text
+    r = c.post("/hosts/refresh", data={"csrf_token": token, "component": "tidelink"})
+    assert r.status_code == 200 and "Host copies" in r.text
+    assert 'action="/hosts/refresh"' in r.text and 'name="refresh"' not in r.text
+    assert calls[1:] == [("branches", "tidelink", True), ("hosts", "tidelink")]
+    assert c.post("/hosts/refresh", data={"component": "tidelink"}).status_code == 403
+    assert c.post("/branches/refresh", data={"csrf_token": token, "component": "../x"}).status_code == 400
+
+
+def test_logout_revokes_the_session_and_a_password_change_ends_it(local):
+    c = TestClient(local["app"])
+    sign_in(c)
+    copied = c.cookies.get(auth.SESSION_COOKIE)
+    assert c.post("/auth/logout", data={"csrf_token": page_csrf(c)}, follow_redirects=False).status_code == 303
+    thief = TestClient(local["app"])
+    thief.cookies.set(auth.SESSION_COOKIE, copied)
+    assert thief.get("/", follow_redirects=False).status_code == 303          # revoked, not just deleted
+    c2 = TestClient(local["app"])
+    sign_in(c2, login="carol")
+    assert c2.get("/", follow_redirects=False).status_code == 200
+    text = local["cfg"].read_text().replace(HASHES["carol"], auth.hash_password("a new long secret"))
+    local["cfg"].write_text(text)
+    assert c2.get("/", follow_redirects=False).status_code == 303           # the old password's session ends
+
+
+def test_user_add_refuses_a_role_that_is_not_a_plain_name():
+    from nanosoc_rm.cli import main
+    r = CliRunner().invoke(main, ["user", "add", "bob", "--generate", "--role", 'a"]\nevil = "1'])
+    assert r.exit_code == 3 and "evil" not in r.stdout, r.output
+    r = CliRunner().invoke(main, ["user", "add", "bob", "--generate", "--role", "member", "--role", "ops-1"])
+    assert r.exit_code == 0 and 'roles = ["member", "ops-1"]' in r.stdout
+
+
+def test_a_job_for_an_unregistered_configuration_is_refused(local):
+    c = TestClient(local["app"])
+    sign_in(c)
+    token = page_csrf(c)
+    r = c.post("/compat/jobs", data={"csrf_token": token, "configuration": "nope-cfg"})
+    assert r.status_code == 404 and "no registered configuration 'nope-cfg'" in r.text
+    assert c.post("/configurations/nope-cfg/walk", data={"csrf_token": token}).status_code == 404
+    assert c.post("/configurations/nope-cfg/runs", data={"csrf_token": token}).status_code == 404
+    cfg = load_config(local["cfg"])
+    assert jobs.jobs(cfg) == [] and not [a for a in db.actions(config=cfg) if a["target"] == "nope-cfg"]

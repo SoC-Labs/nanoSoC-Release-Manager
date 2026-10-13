@@ -788,17 +788,18 @@ it is; this section adds what a single-host deployment (no GitHub OAuth app, no 
 | Route | Shows or does | Function |
 |---|---|---|
 | `GET /compat?configuration=&job=` | pick a configuration; move pins from the component's mirror tags and branches; choose a tier; queue; the job's live log and result table (per gate and per pin, README section 6 colours with text) | `analysis.compat` via `jobs` |
-| `GET /branches?component=&all=1&verdict=&refresh=1` | the branch inventory with verdict filters and the delete list as copyable text | `analysis.branches.branches` |
-| `GET /hosts?component=&refresh=1` | host comparisons (`refresh` compares now from the mirrors) | `analysis.hosts.compare_hosts` |
+| `GET /branches?component=&all=1&verdict=` | the branch inventory with verdict filters and the delete list as copyable text (computed and stored only when none is stored yet, as `contains` does) | `analysis.branches.branches` |
+| `GET /hosts?component=` | stored host comparisons | `db` |
 | `GET /mirrors?job=` | mirror_status rows; Sync | `mirror.sync_component` via `jobs` |
 | `GET /alerts` | open and cleared alerts; Clear (logged `clear_alert`) | `db.alerts`, `db.clear_alert` |
 | `GET /components`, `GET /errata` | the catalogue; every erratum | registry records |
 | `GET /jobs/{id}/fragment`, `GET /jobs/{id}/log` | one job as an HTML fragment (htmx polls it every 2 s while it runs) / its log as text | `jobs.get`, `jobs.log_text` |
 | `POST /compat/jobs` | queue `compat CONFIG [--pin ...] [--tier t1|t2 [--force-tier]]` | `jobs.submit` |
-| `POST /configurations/{id}/walk`, `POST /mirrors/sync` | queue `walk CONFIG` / `mirror sync [--component C]` | `jobs.submit` |
+| `POST /configurations/{id}/walk`, `POST /mirrors/sync` | queue `walk CONFIG` / `mirror sync [--component C]`; a configuration the registry does not list is 404, never queued | `jobs.submit` |
 | `POST /jobs/{id}/cancel` | cancel a queued job, stop a running one (its whole process tree) | `jobs.cancel` |
 | `POST /alerts/clear` | clear one alert (field `subject`) | `db.clear_alert` |
-| `POST /auth/login`, `POST /auth/logout` | local sign-in form and sign-out (local mode only for login) | section 14 |
+| `POST /branches/refresh`, `POST /hosts/refresh` | re-read one component's mirror now / compare the host copies now (fields `component`, `all`); store and show the result | `analysis.branches.branches`, `analysis.hosts.compare_hosts` |
+| `POST /auth/login`, `POST /auth/logout` | local sign-in form and sign-out (local mode only for login; local logout revokes the session id in `<data_dir>/sessions.sqlite` until it would have expired) | section 14 |
 
 The POST routes above are registered only when the app is built for a local deployment (`[auth] mode = "local"`
 or no `[ci] project`); a GitHub + CI deployment keeps section 13's two Run routes as its only writes, and its pages

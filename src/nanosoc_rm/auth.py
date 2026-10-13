@@ -28,7 +28,8 @@ the service config. Everything else is refused.
 in `[[auth.users]]` (login, `hash` from `nanosoc-rm user add`: scrypt via hashlib, salted), a login form at
 `/auth/login` (POST, with a double-submit CSRF cookie so nobody can sign a browser in as someone else), the same
 signed session cookie (HttpOnly, SameSite=Strict, 8 h) and the same CSRF token on every POST. A user removed from
-the config is signed out on the next request. Roles: `roles.default`, `roles."<login>"` and the user's own
+the config is signed out on the next request, and so is every session of a user whose hash changes. Logout
+revokes the session (`<data_dir>/sessions.sqlite`), so a copied cookie stops working too. Roles: `roles.default`, `roles."<login>"` and the user's own
 `roles` (default `["member"]`). Without `[session] secret_file`, the secret is generated once in
 `<data_dir>/session.secret` (mode 0600). Failed sign-ins are throttled per login.
 
@@ -42,6 +43,7 @@ import hashlib
 import hmac
 import os
 import secrets
+import sqlite3
 import threading
 import time
 import urllib.parse
@@ -183,6 +185,41 @@ def check_local_password(config: Mapping[str, Any], login: str, password: str) -
     user = local_users(config).get(login)
     ok = verify_password(password, user["hash"] if user else _dummy_hash())
     return bool(user) and ok
+
+
+def hash_tag(encoded: str) -> str:
+    """A short digest of a user's configured hash, carried in the session: a new password ends old sessions."""
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+
+def _revoked_db(config: Config) -> sqlite3.Connection:
+    con = sqlite3.connect(config.data_dir / "sessions.sqlite", timeout=10)
+    con.execute("CREATE TABLE IF NOT EXISTS revoked (sid TEXT PRIMARY KEY, until REAL NOT NULL)")
+    return con
+
+
+def revoke_session(config: Config, sid: str, seconds_left: int) -> None:
+    """Logout: refuse session `sid` from now until it would have ended anyway."""
+    if not sid:
+        return
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    con = _revoked_db(config)
+    try:
+        with con:
+            con.execute("DELETE FROM revoked WHERE until < ?", (time.time(),))
+            con.execute("INSERT OR REPLACE INTO revoked VALUES (?, ?)", (sid, time.time() + max(0, seconds_left) + 60))
+    finally:
+        con.close()
+
+
+def session_revoked(config: Config, sid: str) -> bool:
+    if not (config.data_dir / "sessions.sqlite").exists():
+        return False
+    con = _revoked_db(config)
+    try:
+        return con.execute("SELECT 1 FROM revoked WHERE sid = ?", (sid,)).fetchone() is not None
+    finally:
+        con.close()
 
 
 class Throttle:
@@ -373,13 +410,16 @@ class Sessions:
         return cls(config.read_secret("session"))
 
     def dump_session(self, login: str, status: str, sid: str | None = None, checked_at: str | None = None,
-                     iat: str | None = None, attempt_at: str | None = None) -> str:
-        """The signed session. `iat` (default now) is the sign-in time: pass it through on every re-sign."""
+                     iat: str | None = None, attempt_at: str | None = None, hash_tag: str | None = None) -> str:
+        """The signed session. `iat` (default now) is the sign-in time: pass it through on every re-sign.
+        `hash_tag` (local mode): hash_tag() of the user's configured hash at sign-in."""
         now = clock.iso()
         d = {"login": login, "status": status, "sid": sid or secrets.token_hex(16),
              "checked_at": checked_at or now, "iat": iat or now}
         if attempt_at:
             d["attempt_at"] = attempt_at
+        if hash_tag:
+            d["hash_tag"] = hash_tag
         return self._session.dumps(d)
 
     def load_session(self, value: str) -> dict | None:
@@ -460,8 +500,13 @@ class LocalAuth:
         if sessions is None or SESSION_COOKIE not in cookies:
             return None
         d = sessions.load_session(cookies[SESSION_COOKIE])
-        if d is None or d.get("status") != "member" or d["login"] not in local_users(config):
+        if d is None or d.get("status") != "member":
             return None
+        user = local_users(config).get(d["login"])
+        if user is None or not hmac.compare_digest(str(d.get("hash_tag") or ""), hash_tag(user["hash"])):
+            return None                                   # removed, or the password changed since sign-in
+        if session_revoked(config, d.get("sid", "")):
+            return None                                   # signed out: a copied cookie is refused too
         return Identity(login=d["login"], status="member", via="local", sid=d.get("sid", ""),
                         checked_at=d.get("checked_at", ""), iat=d.get("iat", ""))
 

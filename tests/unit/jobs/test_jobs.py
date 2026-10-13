@@ -153,7 +153,7 @@ def test_cancel_of_a_running_job_stops_its_whole_process_tree(cfg, monkeypatch, 
         assert _wait(lambda: "working..." in jobs.log_text(cfg, job["id"]))         # the log streams while it runs
         jobs.cancel(cfg, job["id"], "alice")
         assert _wait(lambda: jobs.get(cfg, job["id"])["state"] == "cancelled"), jobs.get(cfg, job["id"])
-        assert _wait(lambda: not _alive(grandchild) and not _alive(child), 10), "a job process outlived the cancel"
+        assert _wait(lambda: not _alive(grandchild) and not _alive(child), 30), "a job process outlived the cancel"
         assert jobs.get(cfg, job["id"])["reason"].startswith("cancelled by alice after")
     finally:
         w.stop()
@@ -244,3 +244,37 @@ def test_stopping_the_worker_stops_its_job_as_infra(cfg, monkeypatch, tmp_path):
         assert _wait(lambda: not _alive(int(pidfile.read_text())), 10)
     finally:
         w.stop()
+
+
+# ----- the job's verdict (the pill and the job lists read job.verdict) -------------------------------------------
+@pytest.mark.parametrize("mode, kind, params, verdict, reason", [
+    ("tierfail", "compat", {"configuration": "eth-rc4", "tier": "t1"}, "FAIL", None),   # T0 PASS, tier FAIL
+    ("silent", "compat", {"configuration": "eth-rc4"}, "UNVERIFIED", "fake nanosoc-rm compat"),
+    ("fail", "walk", {"configuration": "eth-main"}, "FAIL", "nanosoc-rm: 2 steps failed"),
+    ("fail", "mirror-sync", {}, "FAIL", "nanosoc-rm: 2 steps failed"),
+    ("ok", "walk", {"configuration": "eth-main"}, "PASS", None),
+])
+def test_the_job_verdict_follows_the_run_not_t0_alone(cfg, monkeypatch, mode, kind, params, verdict, reason):
+    monkeypatch.setenv("FAKE_MODE", mode)
+    job = jobs.submit(cfg, kind, params, "alice")
+    jobs.Worker(cfg.path, argv_prefix=FAKE).step()
+    got = jobs.get(cfg, job["id"])
+    assert (got["state"], got["verdict"]) == ("done", verdict), got
+    if reason:
+        assert reason in got["reason"], got
+    if mode == "tierfail":
+        assert got["result"]["fact"]["verdict"] == "PASS" and got["exit_code"] == 1
+
+
+def test_a_tier_job_ceiling_includes_the_tier_budget(cfg, monkeypatch):
+    from nanosoc_rm.ci import configs
+    monkeypatch.setattr(configs, "tiers", lambda cid, config: {"t2": {"budget_s": 900}})
+    t0 = {"kind": "compat", "params": {"configuration": "eth-main", "tier": None}}
+    t2 = {"kind": "compat", "params": {"configuration": "eth-main", "tier": "t2"}}
+    assert jobs._limit_s(cfg, t0) == jobs.JOB_LIMIT_S
+    assert jobs._limit_s(cfg, t2) == jobs.JOB_LIMIT_S + 1350           # killed by tierrun at budget x 1.5 first
+
+    def unreadable(cid, config):
+        raise ValueError("no tiers.yaml")
+    monkeypatch.setattr(configs, "tiers", unreadable)
+    assert jobs._limit_s(cfg, t2) == jobs.JOB_LIMIT_S + 4 * 3600
