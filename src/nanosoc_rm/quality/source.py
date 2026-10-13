@@ -177,6 +177,27 @@ def _blame(cwd: str | os.PathLike, rev: str | None, path: str, lines: list[int],
     return out
 
 
+def _prefetch_blobs(repo: Path, commit: str, sources: list[dict]) -> None:
+    """A partial-clone mirror (`--filter=blob:none`) lacks the commit's blobs; `ls-tree -l` and `cat-file` would
+    then fetch them one round trip each (minutes for a large tree). Fetch the missing ones in one anonymous batch
+    from the mirror's promisor remote(s), as git's own lazy fetch does. A full repository fetches nothing."""
+    r = _git(repo, "rev-list", "--objects", "--no-walk", "--missing=print", commit, sources=sources)
+    missing = "".join(line[1:].split()[0] + "\n" for line in r.stdout.splitlines() if line.startswith("?")) \
+        if r.ok else ""
+    if not missing:
+        return
+    remotes = _git(repo, "config", "--get-regexp", r"^remote\..*\.promisor$", sources=sources)
+    for line in (remotes.stdout.splitlines() if remotes.ok else []):
+        key, _, val = line.partition(" ")
+        if val.strip().lower() not in ("true", "1", "yes", "on"):
+            continue
+        name = key[len("remote."):-len(".promisor")]
+        f = _git(repo, "-c", "fetch.negotiationAlgorithm=noop", "fetch", name, "--no-tags", "--no-write-fetch-head",
+                 "--recurse-submodules=no", "--filter=blob:none", "--stdin", sources=sources, input=missing)
+        if f.ok:
+            return
+
+
 class GitSource(Source):
     """One commit of a git repository (`repo` is a bare mirror or a work tree's repository)."""
 
@@ -184,6 +205,7 @@ class GitSource(Source):
                  sources: list[dict] | None = None):
         super().__init__(label=label, commit=commit, ref=ref, worktree=False, sources=list(sources or []))
         self.repo = Path(repo)
+        _prefetch_blobs(self.repo, commit, self.sources)
         r = _git(self.repo, "ls-tree", "-r", "-l", "-z", "--full-tree", commit, sources=self.sources)
         if not r.ok:
             raise SourceError("cannot list %s at %s: %s" % (label, commit, (r.stderr or "").strip()[-200:]))

@@ -82,8 +82,9 @@ Then open http://127.0.0.1:<port>/ and sign in as `<login>` with the password in
 | Status | `systemctl --user status nanosoc-rm` |
 | Logs | `journalctl --user -u nanosoc-rm -f` (job logs: `~/nanosoc-rm/data/jobs/`) |
 | Restart | `systemctl --user restart nanosoc-rm` (also clears sign-in lockouts) |
-| Update (GitHub) | `git -C ~/nanosoc-rm/app pull`, reinstall (install step 2), restart |
+| Update (GitHub) | `git -C ~/nanosoc-rm/app pull`, reinstall, restart |
 | Update (bundle) | `git -C ~/nanosoc-rm/app pull <new bundle> master`, reinstall, restart |
+| Reinstall | `VIRTUAL_ENV=~/nanosoc-rm/venv uv pip install --reinstall-package nanosoc-rm ~/nanosoc-rm/app` (the version string does not change, so a plain install would skip it) |
 | Update the registry | `git -C ~/nanosoc-rm/registry pull` (the next poll reads it) |
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
 | Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
