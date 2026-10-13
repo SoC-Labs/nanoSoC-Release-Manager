@@ -39,6 +39,7 @@ Dev dependencies are pinned in [`requirements-dev.txt`](../../requirements-dev.t
 | [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert, branch state (CR8) | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
 | [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv`; pipeline variable `RM_REQUEST` | What a CI job was asked, ran and found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci trigger/fetch/verify | A4, D2, D4, D5, D6, D7, D10, D11, PR9 | v1 (host, ip_hash, cpu_seconds: 2) |
 | [component-manifest](../../schemas/component-manifest.schema.json) | `nanosoc-component.yaml` in each repo | ID, class, version, canonical URL, provides, requires, re-exports, variants, tests with controls | registry (reads), T0 (validates) | C1, C6, C7, C11, D1, D6, E1, E3, I2 | 3 (validated by T0 from v1) |
+| [matrix](../../schemas/matrix.schema.json) | none ($defs of the observation kinds `matrix_cell`, `matrix_quarantine`, `matrix_view`) | One matrix cell run with its D4 capture, D8 attempts and D9 baseline; a D8 quarantine entry; the derived matrix view (interfaces.md section 18) | matrix | B7, D3, D4, D7, D8, D9 | 2 (built per CR-15) |
 | [release-lock](../../schemas/release-lock.schema.json) | release artefact `release.lock.yaml` | Every nested pin with host and state; generated-RTL archive; GDS and netlist hashes; errata and ledger refs | lock writer | A3, B7, C10, G2, G3, G7 | 5 |
 
 Two process artefacts sit beside the schemas: [`../phase-gates.yaml`](../phase-gates.yaml) (A7, the entry gate of
@@ -143,6 +144,9 @@ Keys:
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
+| matrix_cell | `matrix_cell:<configuration>:<component or ->:<column>:<nonce>` | event (D3; interfaces.md section 18) | none |
+| matrix_quarantine | `matrix_quarantine:<configuration>:<test>` | event (D8; latest per subject is the current entry) | none |
+| matrix_view | `matrix_view:<configuration>` | derived, never stored | none |
 | quality_density, quality_finding, readme_check, doc_score | `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read; `worktree` outside git) | event (CR-14; one per target and commit, so they form a trend) | none |
 
 **Current value (A3).**

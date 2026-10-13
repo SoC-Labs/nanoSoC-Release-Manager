@@ -126,8 +126,9 @@ def test_plugin_seam(tmp_path, monkeypatch):
 
 
 def test_real_main_registers_no_later_phase_command():
-    # AT-A7: no Phase 2-5 command before its entry gate.
-    assert not {"matrix", "release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
+    # AT-A7: no Phase 2-5 command before its entry gate. CR-15 (build, do not enable): `matrix` is built; its
+    # nightly automation is what the Phase 2 gate governs (phasegates.LATER_AUTOMATION).
+    assert not {"release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
     assert "lock" not in cli.PLUGIN_MODULES
     # In a fresh interpreter: in the merged suite other tests import the runner into this process (AT-A4).
     probe = subprocess.run([sys.executable, "-c", "import sys, nanosoc_rm.cli, nanosoc_rm.web; "

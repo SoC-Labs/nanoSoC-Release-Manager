@@ -57,6 +57,20 @@ generated layout section, docs ranking, trend). `docs --rewrite` asks Claude for
 `ANTHROPIC_API_KEY` or `[quality] api_key_file` is set (it sends those sections to the Anthropic API); without a
 key it makes no network call. Details: `docs/contracts/interfaces.md` section 14a.
 
+## Compatibility matrix (D3; built per CR-15, Phase 2 automation not enabled)
+
+```
+nanosoc-rm matrix eth-rc4 --component tidelink --component nanosoc_gen     # the grid from stored results
+nanosoc-rm matrix eth-rc4 --component tidelink --run --wait                # queue its cells as local jobs, run them
+nanosoc-rm matrix cell eth-rc4 --column head --component nanosoc_gen       # one cell in the foreground
+nanosoc-rm matrix quarantine eth-rc4                                       # D8: FLAKY twice in 14 days
+```
+
+Each cell is a local T0 compat run with one component moved to that column's commit: a FAIL re-runs once (FLAKY when
+green the second time), host failures are INFRA, a run that read other commits than it asked for is UNVERIFIED,
+and every cell is compared with the same night's pinned run. The nightly matrix is not scheduled: it waits for the
+Phase 2 entry gate. Contract: `docs/contracts/interfaces.md` section 18; pages under `/matrix/`.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

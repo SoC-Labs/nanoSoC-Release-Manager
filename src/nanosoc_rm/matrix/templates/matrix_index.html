@@ -1,0 +1,13 @@
+{% include '_mstyle.html' %}
+<p class="note">For each configuration: one row per component of its stored tree, one column per version of that component (pinned, latest tag in range, latest tag, default-branch head). Each cell is a local T0 compat run with that one component moved. Same as <code>nanosoc-rm matrix CONFIG</code>.</p>
+<p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is automation and waits for the {{ nightly.gate }}. Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers }}.</p>
+<table>
+  <thead><tr><th>Configuration</th><th>Component</th><th>Commit</th><th>Frozen</th></tr></thead>
+  <tbody>
+  {% for c in confs %}
+    <tr data-configuration="{{ c.id }}"><td><a href="{{ murl(c.id) }}">{{ c.id }}</a></td><td>{{ c.component }}</td><td><code>{{ short(c.commit) }}</code></td><td>{{ 'yes' if c.frozen else 'no' }}</td></tr>
+  {% else %}
+    <tr><td colspan="4" class="empty">The registry lists no configuration.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

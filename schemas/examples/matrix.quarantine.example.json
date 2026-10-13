@@ -1,0 +1,13 @@
+{
+ "configuration": "eth-rc4",
+ "test": "t0.pins.reachable",
+ "since": "2026-10-13T10:05:07Z",
+ "expires_at": "2026-11-12T10:04:07Z",
+ "owner": "member-a",
+ "set_by": "matrix (automatic)",
+ "flaky_cells": [
+  "matrix_cell:eth-rc4:tidelink:head:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "matrix_cell:eth-rc4:tidelink:head:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+ ],
+ "reason": "two FLAKY results within 14 days (D8)"
+}

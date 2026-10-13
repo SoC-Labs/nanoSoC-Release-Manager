@@ -36,7 +36,10 @@
         "quality_density",
         "quality_finding",
         "readme_check",
-        "doc_score"
+        "doc_score",
+        "matrix_cell",
+        "matrix_quarantine",
+        "matrix_view"
       ]
     },
     "subject": {
@@ -439,6 +442,36 @@
         "properties": {
           "fact": { "$ref": "#/$defs/doc_score" },
           "subject": { "pattern": "^doc_score:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "matrix_cell" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "matrix.schema.json#/$defs/matrix_cell" },
+          "subject": { "pattern": "^matrix_cell:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "matrix_quarantine" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "matrix.schema.json#/$defs/matrix_quarantine" },
+          "subject": { "pattern": "^matrix_quarantine:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "matrix_view" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "matrix.schema.json#/$defs/matrix_view" },
+          "subject": { "pattern": "^matrix_view:" }
         },
         "not": { "required": ["snapshot"] }
       }
