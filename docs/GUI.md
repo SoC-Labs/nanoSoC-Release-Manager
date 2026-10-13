@@ -1,7 +1,7 @@
 # The web GUI on one host (local mode)
 
 The same pages as the service VM will serve, run from a login server with no GitHub OAuth app and no CI
-project: local sign-in (CR-16) and a local job worker (CR-17). Contracts: `docs/contracts/interfaces.md`
+project: local sign-in (CR-16) and a local job worker (CR-17). As a service: `docs/DEPLOY.md`. Contracts: `docs/contracts/interfaces.md`
 sections 13, 13a and 14.
 
 ## Set up (about 10 minutes)
@@ -63,7 +63,7 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Registry | components, defects, errata |
 | Mirrors | fetch status and age; **Sync** one component or all |
 | Alerts | open and cleared alerts; **Clear** (logged with your login) |
-| Quality | appears when the quality module is installed |
+| Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; run `nanosoc-rm quality all <target> --store` once first (a cold page takes about a minute) |
 
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 

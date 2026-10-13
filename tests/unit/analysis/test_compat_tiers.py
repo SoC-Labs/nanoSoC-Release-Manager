@@ -185,6 +185,19 @@ def test_vcs_seat_held_elsewhere_is_infra_without_running(tmp_path, tree):
     assert run(tmp_path, tree, spec("touch ran", needs=["vcs-seat"]), lock_dir=lock)["verdict"] == "PASS"
 
 
+def test_a_tool_this_host_lacks_is_infra_without_running(tmp_path, tree):
+    """A tier whose env names a tool path this host does not have (VCS_HOME, VERILATOR) is INFRA with the path
+    named, not a FAIL of the code and not a crash; paths that exist, and paths inside the sandbox, pass."""
+    gone = "/nonexistent-%s/eda/vcs" % tmp_path.name                  # outside the sandbox (work = tmp_path)
+    t = run(tmp_path, tree, spec("touch ran", env={"VCS_HOME": gone, "PATH": "${VCS_HOME}/bin:${PATH}"}))
+    assert t["verdict"] == "INFRA" and not (tree / "ran").exists(), t
+    assert t["reason"].startswith("tool not on this host: VCS_HOME=%s does not exist" % gone), t["reason"]
+    assert "PATH=%s/bin does not exist" % gone in t["reason"]
+    t = run(tmp_path, tree, spec("touch ran", env={"VERILATOR": "/bin/sh", "OUT": str(tree / "out" / "x"),
+                                                 "LIC": "27020@lm1:27006@lm2"}))
+    assert t["verdict"] == "PASS" and (tree / "ran").exists(), t
+
+
 def test_check_spec_refuses_set_env_sourcing_and_reserved_env():
     for cmd in ("source set_env.sh && make lint", "cd x; . ../set_env.sh; make", ["bash", "-c", "source ./set_env.sh"]):
         with pytest.raises(T.TierUsage, match="set_env"):

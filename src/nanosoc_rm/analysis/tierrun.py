@@ -18,7 +18,8 @@
    NANOSOC_RM_VERDICTS, then `env`; nothing inherited, so no ARM_IP_LIBRARY_PATH unless declared), its own
    process group, stdin closed, output to a log. Over `budget_s` is `over_budget` (a warning); at budget x 1.5
    the whole process group is killed and the tier is FAIL. `needs: [vcs-seat]` holds a host-local lock for the
-   run (busy: INFRA, not run).
+   run (busy: INFRA, not run). An absolute path in the tier's own `env` that does not exist on this host (outside
+   the sandbox) is a missing tool: INFRA "tool not on this host: VAR=path does not exist", not run.
 4. **Rows.** `tier.<tier>`: PASS on exit 0, else FAIL. A declared verdicts file adds `tier.<tier>.<gate>` per row
    (status kept); a declared file that is missing or unreadable adds one UNVERIFIED row. Tier verdict: FAIL >
    UNVERIFIED > INFRA > WARN > PASS over the rows.
@@ -44,7 +45,7 @@ from nanosoc_rm.t0 import gates as G
 from nanosoc_rm.t0.gitwork import Pin, iter_pins, repo_key, url_kind
 
 __all__ = ["TierUsage", "RUNNABLE", "KILL_FACTOR", "check_spec", "materialise", "Layout", "run_tier", "skipped",
-           "tier_verdict", "parse_verdicts", "command_text"]
+           "tier_verdict", "parse_verdicts", "command_text", "missing_tools"]
 
 RUNNABLE = ("t1", "t2")
 KILL_FACTOR = 1.5
@@ -262,6 +263,22 @@ def _env(spec: Mapping, tier: str, tree: Path, work: Path) -> dict[str, str]:
     return env
 
 
+def missing_tools(spec: Mapping, env: Mapping[str, str], tree: Path, work: Path) -> list[str]:
+    """Absolute paths the tier's own `env` names (each `:`-separated part) that do not exist on this host,
+    outside the sandbox: a tool or tool directory this host does not have. `VAR=path` per missing path."""
+    out = []
+    inside = (Path(tree).resolve(), Path(work).resolve())
+    for k in (spec.get("env") or {}):
+        for part in str(env.get(k, "")).split(":"):
+            if not part.startswith("/"):
+                continue
+            p = Path(part)
+            if any(p == d or d in p.parents for d in inside) or p.exists():
+                continue
+            out.append("%s=%s does not exist" % (k, part))
+    return out
+
+
 def _seat(needs, lock_dir: Path):
     """An exclusive non-blocking lock per seat-like need, or None when one is held elsewhere."""
     held = []
@@ -311,6 +328,10 @@ def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, la
     vfile = tree / spec["verdicts"] if spec.get("verdicts") else None
     if vfile is not None and vfile.exists():
         vfile.unlink()                     # a committed or stale file is never read as this run's evidence
+    absent = missing_tools(spec, env, tree, work)
+    if absent:
+        return _doc(spec, tier, verdict="INFRA", reason="tool not on this host: %s; the tier was not run"
+                    % "; ".join(absent), **base)
     held = _seat(spec.get("needs") or (), Path(lock_dir) if lock_dir else Path(tempfile.gettempdir()))
     if held is None:
         return _doc(spec, tier, verdict="INFRA", reason="the vcs-seat lock is held by another local tier run",

@@ -34,7 +34,7 @@ environment plus the `env` its tiers.yaml entry declares.
 ## Web GUI on one host (local sign-in, local jobs)
 
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
-`nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`.
+`nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`; as a systemd service: `docs/DEPLOY.md`.
 
 ## Code and documentation quality (CR-14, Q1-Q6)
 
