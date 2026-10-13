@@ -187,11 +187,15 @@ def declared_signal(classes: dict[str, list] | None, changelog_present: bool) ->
     if not changelog_present:
         return signal("declared", None, "undeclared", "no CHANGELOG.md: nothing declared (C2)")
     known = [c for c in (classes or {}) if c in semver.CLASS_RANK and classes[c]]
+    unclassed = len((classes or {}).get("unclassed") or [])
+    loose = ("; %d unclassed entr%s: the declared class is unknown until each is classed (C2)"
+             % (unclassed, "y" if unclassed == 1 else "ies")) if unclassed else ""
     if not known:
-        return signal("declared", None, "undeclared", "no classed entry in [Unreleased]")
+        return signal("declared", None, "undeclared", "no classed entry in [Unreleased]" + loose)
     top = semver.max_class(known)
     counts = ", ".join("%d %s" % (len(classes[c]), c) for c in reversed(semver.CLASSES) if classes.get(c))
-    return signal("declared", top, "measured", "Unreleased: %s" % counts)
+    # an unclassed entry could be of any class, so the declared signal is not measured (review item 3)
+    return signal("declared", top, "unmeasured" if unclassed else "measured", "Unreleased: %s%s" % (counts, loose))
 
 
 def api_signal(before: str | None, after: str | None) -> dict:

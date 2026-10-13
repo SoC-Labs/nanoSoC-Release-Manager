@@ -8,6 +8,7 @@
     GET  /versions/{component}/drafts/{version}/{file}  one file of a release draft folder (G1)
     POST /versions/refresh                            queue `nanosoc-rm version refresh [COMPONENT]` (a job)
     POST /versions/{component}/draft                  queue `nanosoc-rm version draft COMPONENT` (a job)
+    POST /versions/{component}/drafts/{version}/approve   record the SIGNED-IN login's approval of one step (G5)
 
 Pages show STORED results (`version refresh` stores them); long work runs as a job through nanosoc_rm.jobs, never
 inside a request. The POST routes exist only in a local deployment (interfaces.md section 13a). Every page says
@@ -15,6 +16,7 @@ that nothing is pushed: drafts and patches are for a person. Verdict colours wit
 """
 from __future__ import annotations
 
+import json
 import re
 import urllib.parse
 from pathlib import Path
@@ -78,8 +80,23 @@ def _drafts(config, component: str) -> list[dict]:
     if root.is_dir():
         for d in sorted(root.iterdir(), reverse=True):
             if d.is_dir() and _VER.match(d.name):
-                out.append({"version": d.name, "files": [f.name for f in sorted(d.iterdir()) if f.is_file()]})
+                try:
+                    approvals = json.loads((d / "release.json").read_text()).get("approvals") or []
+                except (OSError, ValueError):
+                    approvals = []
+                out.append({"version": d.name, "files": [f.name for f in sorted(d.iterdir()) if f.is_file()],
+                            "approvals": approvals})
     return out
+
+
+def _known(config, component: str) -> bool:
+    """Is `component` a catalogue component the pages show (review item 8: never queue a job for another)?"""
+    from nanosoc_rm import versioning
+    try:
+        return _ID.match(component) is not None and any(r["component"] == component
+                                                         for r in versioning.overview(config))
+    except Exception:                                              # noqa: BLE001 - registry unreadable: not known
+        return False
 
 
 def router(app=None) -> APIRouter:
@@ -117,9 +134,13 @@ def router(app=None) -> APIRouter:
                          message="%s is not a catalogue component." % component)
         hist = versioning.stored("version_plan", component, config=config)
         drafts_obs = versioning.stored("release_draft", component, config=config)
-        return _page(request, "versions_component.html", "Versions: %s" % component, row=row, history=hist[-10:],
+        ident = getattr(request.state, "identity", None)
+        cur = row.get("plan") or {}
+        earlier = [h for h in hist if (h.get("subject"), h.get("observed_at")) != (cur.get("subject"),
+                                                                                    cur.get("observed_at"))]
+        return _page(request, "versions_component.html", "Versions: %s" % component, row=row, history=earlier[-10:],
                      drafts=_drafts(config, component), draft_obs=drafts_obs[-5:], job=_job(config, request.query_params),
-                     local=local)
+                     local=local, me=getattr(ident, "login", ""))
 
     @r.get("/{component}/manifest.diff")
     def manifest_diff(request: Request, component: str):
@@ -154,6 +175,8 @@ def router(app=None) -> APIRouter:
             config = _config(request)
             form = await request.form()
             comp = str(form.get("component") or "").strip()
+            if comp and not await run_in_threadpool(_known, config, comp):
+                return PlainTextResponse("404 Not Found: %r is not a catalogue component" % comp[:80], 404)
             try:
                 job = await run_in_threadpool(jobs.submit, config, "versions-refresh",
                                               {"components": [comp] if comp else []}, request.state.identity.login)
@@ -164,6 +187,8 @@ def router(app=None) -> APIRouter:
         async def make_draft(request: Request, component: str) -> Response:
             from nanosoc_rm import jobs
             config = _config(request)
+            if not await run_in_threadpool(_known, config, component):
+                return PlainTextResponse("404 Not Found: %r is not a catalogue component" % component[:80], 404)
             try:
                 job = await run_in_threadpool(jobs.submit, config, "version-draft", {"component": component},
                                               request.state.identity.login)
@@ -171,8 +196,29 @@ def router(app=None) -> APIRouter:
                 return PlainTextResponse("400 Bad Request: %s" % e, 400)
             return RedirectResponse(_vurl(component) + "?job=%d" % job["id"], 303)
 
+        async def approve_step(request: Request, component: str, version: str) -> Response:
+            """G5 from the GUI: the SIGNED-IN login approves (review item 6); a typed login is ignored."""
+            config = _config(request)
+            if not _ID.match(component) or not _VER.match(version):
+                return PlainTextResponse("404 Not Found", 404)
+            d = config.data_dir / "drafts" / component / version
+            if not (d / "release.json").is_file():
+                return PlainTextResponse("404 Not Found: no draft %s %s" % (component, version), 404)
+            form = await request.form()
+            step = str(form.get("step") or "").strip()
+            login = request.state.identity.login
+            try:
+                await run_in_threadpool(lambda: versioning.approve(d, step, login, config=config,
+                                                                         session_login=login))
+            except versioning.VersioningUsage as e:
+                return PlainTextResponse("400 Bad Request: %s" % e, 400)
+            except versioning.VersioningError as e:
+                return PlainTextResponse("could not answer: %s" % e, 503)
+            return RedirectResponse(_vurl(component) + "?approved=%s" % urllib.parse.quote(step), 303)
+
         # local deployment only (interfaces.md section 13a); registered as the app registers its own local POSTs
         r.add_api_route("/refresh", refresh, methods=["POST"], include_in_schema=False)
         r.add_api_route("/{component}/draft", make_draft, methods=["POST"], include_in_schema=False)
+        r.add_api_route("/{component}/drafts/{version}/approve", approve_step, methods=["POST"], include_in_schema=False)
 
     return r

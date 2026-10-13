@@ -89,7 +89,8 @@ def test_no_changelog_is_unverified_and_never_guessed_from_messages(tmp_path, mo
     f = fact(versioning.plan("nanosoc_arch_tech"))
     assert f["hint"]["class"] == "breaking", "the hint sees the message"
     assert f["classification"]["class"] == "fix", "only C6's re-export signal is measured: nanosoc_gen's fix"
-    assert f["verdict"] == "WARN"
+    assert f["next"]["version"] == "0.1.1" and f["verdict"] == "FAIL", "no CHANGELOG.md: never released (review item 3)"
+    assert any("changelog lint FAIL" in x for x in f["findings"])
     # without the re-export the class is unmeasured: UNVERIFIED, no next version, exit 2
     commit(s["arch"], {"nanosoc-component.yaml": vfix.MANIFEST.replace("reexports: [nanosoc_gen]", "reexports: []")},
            "2026-09-21T10:00:00Z", "no reexport")
@@ -189,13 +190,13 @@ def test_g1_draft_folder_and_g5_approvals(tmp_path, monkeypatch):
     assert 'version: "0.2.0"' in (clone / "nanosoc-component.yaml").read_text()
     # G5: roles from the service config, enforced; the bot's step cannot be approved by a person
     with pytest.raises(versioning.VersioningUsage, match="holds none"):
-        versioning.approve(out, "tool-final-breaking", "mallory")
+        versioning.approve(out, "tool-final-breaking", "mallory", session_login="mallory")
     with pytest.raises(versioning.VersioningUsage, match="bot"):
-        versioning.approve(out, "tool-candidate", "david")
-    assert versioning.approve(out, "tool-final-breaking", "alice")["state"] == "pending"
+        versioning.approve(out, "tool-candidate", "david", session_login="david")
+    assert versioning.approve(out, "tool-final-breaking", "alice", session_login="alice")["state"] == "pending"
     with pytest.raises(versioning.VersioningUsage):
-        versioning.approve(out, "tool-final-breaking", "alice")                       # the owner role is done
-    assert versioning.approve(out, "tool-final-breaking", "david")["state"] == "approved"
+        versioning.approve(out, "tool-final-breaking", "alice", session_login="alice")                       # the owner role is done
+    assert versioning.approve(out, "tool-final-breaking", "david", session_login="david")["state"] == "approved"
     assert contracts.validate("tool-release", json.loads((out / "release.json").read_text())) == []
     with pytest.raises(versioning.VersioningUsage, match="not empty"):
         versioning.draft("nanosoc_arch_tech", out)

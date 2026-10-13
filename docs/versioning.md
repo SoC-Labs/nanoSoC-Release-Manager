@@ -11,7 +11,7 @@ nanosoc-rm version tags tidelink                   # C10: every tag by kind; mov
 nanosoc-rm manifest init tidelink --patch m.diff   # C11: a proposed nanosoc-component.yaml, as a patch
 nanosoc-rm version refresh                         # lint + next + tags for every component, stored for /versions
 nanosoc-rm version draft nanosoc_gen               # G1: a release draft folder (nothing tagged or pushed)
-nanosoc-rm version approve <draft> --step tool-final-breaking --login <login>      # G5
+nanosoc-rm version approve <draft> --step tool-final-breaking --login <login>      # G5 (asks the login's password)
 nanosoc-rm version yank nanosoc_gen 0.2.0 --reason "..." --by <login> --patch y.diff   # G6: registry patch
 nanosoc-rm version fixed-in nanosoc_gen --patch f.diff                             # F6: registry patch
 ```
@@ -21,7 +21,11 @@ Exit 0 answered (PASS, or WARN with its reason), 1 finding or FAIL, 2 could not 
 
 ## The changelog format (C2)
 
-`CHANGELOG.md` at the repository root. Every entry is a list item under a class subsection.
+`CHANGELOG.md` at the repository root. Every entry is a list item under a class subsection. List items are read
+as CommonMark reads them: a bullet (`-`, `*`, `+`) or a numbered item, indented up to 3 spaces, is an entry; a
+line indented to the item's text continues it. A paragraph inside a version section is not a list item, so it has
+no class and is a CL8 error; prose under `# Changelog` before the first version section and HTML comments are
+allowed. An unclassed entry makes `version next` FAIL: no class or draft rests on a changelog that fails lint.
 
 ```markdown
 # Changelog
@@ -53,12 +57,15 @@ Exit 0 answered (PASS, or WARN with its reason), 1 finding or FAIL, 2 could not 
 | CL10 | a release's classes match its bump under C1 |
 | CL11 | link definitions for each heading, https, inside the canonical repo (warning) |
 | CL12 | each release section has its tag and each non-grandfathered release tag has a section |
-| CL13 | C5: an entry that adds a failing check or turns a warning into a failure is `breaking` |
+| CL13 | C5: an entry that adds a failing check or turns a warning into a failure is `breaking` (a phrase match: "fails by default", "is now fatal", "now errors", "warnings as errors", "exits 1", "check ... by default"; a heuristic, so the decision table still governs) |
 
 ## Next version (C1, C3)
 
 - **Baseline:** the highest `vX.Y.Z` tag on the canonical host. Without one, the highest grandfathered
-  version-like tag (`v1.0`, `v0.90`), with a note when it is not the newest by date (a person confirms).
+  version-like tag (`v1.0`, `v0.90`). When the highest one is not the newest by date (tidelink: `v1.0` in May,
+  `v0.90` in August) the baseline is ambiguous: `current.ambiguous` is set, there is no next version and the plan
+  is UNVERIFIED, because the choice decides the bump and whether C9's 1.0.0 gate applies. A person confirms one
+  with `baseline: true` on its `grandfathered` entry in the registry's `versioning.yaml`.
 - **Bump (C1):** at 1.0.0 and above, breaking bumps the major, feature the minor, fix the patch. Below 1.0.0,
   breaking bumps the middle number, feature and fix the last (the Cargo pre-1.0 rule). `none` makes no release.
   With no baseline, the first release is the version the repo declares (manifest or `pyproject.toml`), else 0.1.0.
@@ -102,7 +109,11 @@ Releases `vX.Y.Z` (annotated, canonical host only, never moved), candidates `vX.
 `release/X.Y`, silicon `silicon/<chip>-rNpM`, keep tags `keep/<config>/<component>`. Existing tags are
 grandfathered: the registry's optional `versioning.yaml` sets `tag_scheme_from`; before it is set (Phase 3's gate
 is not met) every existing tag is grandfathered and the check is advisory (WARN). A moved release tag (two
-commits in the mirror's reflog) is always a finding and, with `--alerts`, raises `tag_moved`. The walker's
+commits in the mirror's reflog) is always a finding and, with `--alerts`, raises `tag_moved`. Mirror sync prunes
+deleted tags (and their reflogs), so the check also compares with every stored tag check of the component
+(`version refresh` stores one): a release tag once seen on the canonical host and now gone is DELETED, one now at
+another commit was re-created (MOVED); both are findings. A tag created and deleted between two stored checks is
+not seen. The walker's
 `tag_moved` alert for a frozen configuration's tag is unchanged (interfaces.md section 4).
 
 ## Tool releases (G1, G5, G6)
@@ -111,6 +122,8 @@ commits in the mirror's reflog) is always a finding and, with `--alerts`, raises
 gates, approvals, submodules, defects), `release.json` (schema `tool-release`), `version.patch` (CHANGELOG
 Unreleased to the version, manifest and pyproject versions), `CHANGELOG.release.md`, `commands.txt` (tag and gate
 commands, never run). Gates: T0, T1, T2 on a SoC that uses the tool, T3 while build-affecting is unmeasured.
+No draft is written while `version next` has a finding (a 1.0.0 that C9 refuses, a version already tagged or
+yanked, a changelog that fails lint): `version draft` exits 1 and the GUI shows no Draft button.
 
 | Step (G5) | Approved by |
 |---|---|
@@ -120,7 +133,11 @@ commands, never run). Gates: T0, T1, T2 on a SoC that uses the tool, T3 while bu
 | SoC release or train | David |
 | tapeout SoC release or errata revision | David and a second reviewer (`reviewer`) |
 
-Roles come from the service config `[roles]` and are enforced by `version approve`. The bot is automation: its
+Roles come from the service config `[roles]` and are enforced by `version approve`. A step that needs two roles
+needs two people: a login that already approved a step cannot fill its other role, even when it holds both. The approver's login is
+proven, never just typed: on the command line by its local password (local sign-in, `[[auth.users]]`; a prompt or
+`--password-stdin`), in the GUI by the signed-in session (the Approve button on `/versions/<component>` records
+your login). With GitHub sign-in, approve in the GUI. The bot is automation: its
 steps stay `automation-disabled` until the Phase 3 gate (CR-15), and a person cannot approve in its place.
 
 A yank (G6) is a patch to the registry's `versioning.yaml`; the tag is kept; `version next` and the bump engine

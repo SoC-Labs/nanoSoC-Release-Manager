@@ -540,6 +540,10 @@
               },
               "reason": {
                 "type": "string"
+              },
+              "baseline": {
+                "description": "A person confirms this grandfathered tag as the version baseline (C1, C10) while the component has no vX.Y.Z release tag.",
+                "type": "boolean"
               }
             }
           }
@@ -808,6 +812,10 @@
                 "string",
                 "null"
               ]
+            },
+            "ambiguous": {
+              "description": "No vX.Y.Z release tag and the grandfathered tags disagree: the highest version is not the newest by date. No next version until a person confirms one (versioning.yaml grandfathered[].baseline).",
+              "type": "boolean"
             }
           }
         },
@@ -1093,6 +1101,10 @@
                 ]
               },
               "moved": {
+                "type": "boolean"
+              },
+              "deleted": {
+                "description": "A release tag a stored tag check saw on the canonical host that the mirror no longer holds (mirror sync prunes deleted tags, and their reflogs with them).",
                 "type": "boolean"
               },
               "problems": {

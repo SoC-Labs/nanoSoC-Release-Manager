@@ -17,7 +17,7 @@ from nanosoc_rm.versioning import classify as cf
 from nanosoc_rm.versioning import manifest as mf
 from nanosoc_rm.versioning import semver
 from nanosoc_rm.versioning import tags as tagmod
-from nanosoc_rm.versioning.repo import RepoView, baseline, open_repo, registry_policy
+from nanosoc_rm.versioning.repo import RepoView, VersioningUsage, baseline, open_repo, registry_policy
 
 __all__ = ["KINDS", "observe", "changelog_lint", "plan", "tag_check", "manifest_init", "overview", "stored",
            "subject_key", "verdict_of_plan", "yanked_versions"]
@@ -62,6 +62,12 @@ def yanked_versions(policy: dict, component: str) -> set[str]:
     return {str(y["version"]) for y in policy.get("yanked") or [] if y.get("component") == component}
 
 
+def _confirmed_baselines(policy: dict, component: str) -> set[str]:
+    """Grandfathered tags a person confirmed as `component`'s version baseline (versioning.yaml, review item 4)."""
+    return {g["tag"] for g in policy.get("grandfathered") or [] if g.get("component") == component
+            and g.get("baseline")}
+
+
 def _grandfathered(policy: dict, component: str) -> set[str]:
     return {g["tag"] for g in policy.get("grandfathered") or [] if g.get("component") == component}
 
@@ -96,8 +102,17 @@ def _all_gf(tags: dict | None, policy: dict) -> set[str]:
     return {t for t, i in tags.items() if i.get("created_at") and clock.parse(i["created_at"]) < clock.parse(frm)}
 
 
+def _local_never_stored(path, store: bool, alerts: bool = False) -> None:
+    """Review item 5: a read of a local checkout (`--path`) is never stored as, or alerted for, the component's
+    answer; only a read of its mirror is."""
+    if path is not None and (store or alerts):
+        raise VersioningUsage("--store and --alerts take a read of the component's mirror, not of a local checkout "
+                              "(--path): a local work tree or commit is never stored as the component's answer")
+
+
 def changelog_lint(target: str | None, *, ref: str | None = None, path=None, config=None, store: bool = False) -> dict:
     """C2: the changelog_lint observation of `target` at `ref` (or the checkout `path`)."""
+    _local_never_stored(path, store)
     view = open_repo(target, ref=ref, path=path, config=config)
     policy, psrc = registry_policy(view.config)
     fact = dict(_base_fact(view), **_lint(view, policy))
@@ -164,7 +179,7 @@ def verdict_of_plan(fact: dict) -> str:
     if fact["findings"]:
         return "FAIL"
     c = fact["classification"]
-    if c["class"] is None:
+    if c["class"] is None or (fact.get("current") or {}).get("ambiguous"):
         return "UNVERIFIED"
     return "PASS" if c["status"] == "complete" else "WARN"
 
@@ -172,7 +187,7 @@ def verdict_of_plan(fact: dict) -> str:
 def _plan(view: RepoView, policy: dict, regenerator=None) -> dict:
     yanked = yanked_versions(policy, view.target)
     tags = view.canonical_tags() if view.git_dir is not None else {}
-    base = baseline(tags, yanked)
+    base = baseline(tags, yanked, _confirmed_baselines(policy, view.target))
     text = view.head_text(cl.FILE)
     parsed = cl.parse(text) if text is not None else None
     unrel = cl.unreleased_classes(parsed) if parsed else {}
@@ -194,6 +209,9 @@ def _plan(view: RepoView, policy: dict, regenerator=None) -> dict:
     nxt, reason = None, None
     if count == 0 and base["commit"]:
         reason = "no commit since %s: nothing to release" % base["tag"]
+    elif base.get("ambiguous"):
+        reason = ("baseline ambiguous: %s is the highest grandfathered version but not the newest tag; a person "
+                  "confirms the baseline (versioning.yaml grandfathered[].baseline: true)" % base["tag"])
     elif klass["class"] is None:
         reason = "class unmeasured: no changelog class declared and no signal measured"
     elif klass["class"] == "none":
@@ -207,6 +225,12 @@ def _plan(view: RepoView, policy: dict, regenerator=None) -> dict:
         nxt = str(nv) if nv else None
         reason = "%s change after %s (C1%s)" % (klass["class"], base["version"],
                                                  ", Cargo pre-1.0 rule" if current.major == 0 else "")
+    if nxt and lint["verdict"] == "FAIL":                       # review item 3: no class rests on an unlinted changelog
+        findings.append("changelog lint FAIL (%d error(s)%s): a release needs a classed changelog that lints clean "
+                        "(C2); see `nanosoc-rm changelog lint`" % (
+                            lint["counts"]["error"], ", %d unclassed entr%s" % (
+                                len(unrel["unclassed"]), "y" if len(unrel["unclassed"]) == 1 else "ies")
+                            if unrel.get("unclassed") else ""))
     if nxt and ("v" + nxt) in tags:
         findings.append("v%s already exists on the canonical host" % nxt)
     if nxt and nxt in yanked:
@@ -219,7 +243,8 @@ def _plan(view: RepoView, policy: dict, regenerator=None) -> dict:
             findings.append("C9 refuses 1.0.0: %s" % "; ".join(i["item"] for i in ready["items"] if i["ok"] is not True))
     fact = dict(_base_fact(view), **{
         "repo_class": view.comp_class,
-        "current": {k: base[k] for k in ("tag", "version", "kind", "commit", "created_at")},
+        "current": dict({k: base[k] for k in ("tag", "version", "kind", "commit", "created_at")},
+                        **({"ambiguous": True} if base.get("ambiguous") else {})),
         "grandfathered": base["grandfathered"][:20],
         "commits_since": count,
         "unreleased": {k: [e["text"] for e in v][:50] for k, v in unrel.items()},
@@ -263,6 +288,7 @@ def plan(target: str | None, *, ref: str | None = None, path=None, config=None, 
          regenerator=None) -> dict:
     """`nanosoc-rm version next`: the version_plan observation (current tag, unreleased entries by class, the
     class and its signals, the next version, manifest and API.md presence, 1.0.0 readiness)."""
+    _local_never_stored(path, store)
     view = open_repo(target, ref=ref, path=path, config=config)
     policy, psrc = registry_policy(view.config)
     fact = _plan(view, policy, regenerator)
@@ -278,10 +304,18 @@ def plan(target: str | None, *, ref: str | None = None, path=None, config=None, 
 # ---------------------------------------------------------------------------------------------------------
 def tag_check(target: str | None, *, path=None, config=None, store: bool = False, alerts: bool = False) -> dict:
     """C10: every tag of the component on every host, its kind, conformity, grandfathering and moves."""
+    _local_never_stored(path, store, alerts)
     view = open_repo(target, path=path, config=config)
     policy, psrc = registry_policy(view.config)
     rows = tagmod.check(view.tags(), view.canonical_key, scheme_from=policy.get("tag_scheme_from"),
                         grandfathered=_grandfathered(policy, view.target))
+    if view.config is not None:                       # review item 4: deletions and re-creations need the history
+        from nanosoc_rm import db
+        hist = db.history("tag_check:%s" % view.target, config=view.config)
+        rows = tagmod.against_history(rows, hist, view.canonical_key)
+        if hist:
+            view.sources.append({"kind": "derived", "command": "compare with %d stored tag check(s) of %s"
+                                 % (len(hist), view.target)})
     branches = _backport_branches(view)
     findings = sum(1 for r in rows if r["finding"]) + sum(1 for b in branches if not b["ok"])
     kinds: dict[str, int] = {}
@@ -296,10 +330,11 @@ def tag_check(target: str | None, *, path=None, config=None, store: bool = False
     if view.config is not None and alerts:
         from nanosoc_rm.mirror.layout import alert_once
         for r in rows:
-            if r["moved"] and r["kind"] == "release":
+            if (r["moved"] or r.get("deleted")) and r["kind"] == "release":
                 alert_once("tag_moved", "tag_check:%s:%s" % (view.target, r["tag"]),
-                           "component %s: release tag %s moved (C10: release tags are never moved)"
-                           % (view.target, r["tag"]), obs["sources"][:3], config=view.config)
+                           "component %s: release tag %s %s (C10: release tags are never moved or deleted)"
+                           % (view.target, r["tag"], "deleted" if r.get("deleted") else "moved"),
+                           obs["sources"][:3], config=view.config)
     if store and view.config is not None:
         _store(obs, view.config)
     return obs
@@ -326,7 +361,8 @@ def manifest_init(target: str | None, *, ref: str | None = None, path=None, conf
     """(manifest_proposal observation, unified diff) for a person to review and apply. Writes nothing."""
     view = open_repo(target, ref=ref, path=path, config=config)
     policy, psrc = registry_policy(view.config)
-    base = baseline(view.canonical_tags() if view.git_dir is not None else {}, yanked_versions(policy, view.target))
+    base = baseline(view.canonical_tags() if view.git_dir is not None else {}, yanked_versions(policy, view.target),
+                    _confirmed_baselines(policy, view.target))
     existing = view.head_text(mf.FILE)
     version = base["version"] if base["kind"] == "release" else (_pyproject_version(view) or None)
     doc, text, placeholders = mf.propose(view, version=version)
@@ -359,7 +395,10 @@ def overview(config) -> list[dict]:
     for c in reg.catalogue["components"]:
         if c.get("class") == "legacy":
             continue
-        latest = lambda k: (stored(k, c["id"], config=config) or [None])[-1]
+        # a plan of a local checkout (`--path ... --store`, fact.worktree) is never the component's current answer:
+        # only one read from the mirror is (review item 5); worktree results stay in the page's history, marked
+        latest = lambda k: ([d for d in stored(k, c["id"], config=config)
+                             if not (d.get("fact") or {}).get("worktree")] or [None])[-1]
         rows.append({"component": c["id"], "class": c.get("class"), "plan": latest("version_plan"),
                      "lint": latest("changelog_lint"), "tags": latest("tag_check")})
     return rows

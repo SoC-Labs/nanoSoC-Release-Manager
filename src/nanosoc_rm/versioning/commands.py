@@ -33,9 +33,12 @@ _ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
 
 def _guard(fn):
     from nanosoc_rm.analysis._inputs import CannotAnswer, UsageProblem
-    from nanosoc_rm.versioning import VersioningError, VersioningUsage
+    from nanosoc_rm.versioning import VersioningError, VersioningRefused, VersioningUsage
     try:
         return fn(), None
+    except VersioningRefused as e:
+        click.echo("nanosoc-rm: REFUSED: %s" % e, err=True)
+        return None, EXIT_FINDING
     except (VersioningUsage, UsageProblem) as e:
         click.echo("nanosoc-rm: %s" % e, err=True)
         return None, EXIT_USAGE
@@ -102,7 +105,8 @@ def _print_plan(obs: dict) -> None:
     f = obs["fact"]
     c, n = f["current"], f["next"]
     click.echo("%s  %s" % (_where(f), f["verdict"]))
-    click.echo("current: %s" % ("%s (%s, %s)" % (c["tag"], c["version"], c["kind"]) if c["tag"] else "no release tag"))
+    click.echo("current: %s%s" % ("%s (%s, %s)" % (c["tag"], c["version"], c["kind"]) if c["tag"] else "no release tag",
+                                  "; AMBIGUOUS baseline: a person confirms it" if c.get("ambiguous") else ""))
     click.echo("commits since: %s" % (f["commits_since"] if f["commits_since"] is not None else "?"))
     for cls in ("breaking", "feature", "fix", "none", "unclassed"):
         if f["unreleased"].get(cls):
@@ -285,11 +289,31 @@ def register(main: click.Group) -> None:
     @click.argument("draft_dir", type=click.Path(file_okay=False, exists=True))
     @click.option("--step", required=True, help="tool-candidate, tool-final or tool-final-breaking.")
     @click.option("--login", required=True, help="The approving person's login (roles from the service config).")
+    @click.option("--password-stdin", "pw_stdin", is_flag=True,
+                  help="Read the login's local password from stdin instead of prompting.")
     @json_option
-    def approve_cmd(draft_dir, step, login, as_json):
-        """G5: record a person's approval of one step in the draft's release.json (roles enforced)."""
+    def approve_cmd(draft_dir, step, login, pw_stdin, as_json):
+        """G5: record a person's approval of one step in the draft's release.json (roles enforced). The login is
+        proven by its local password (local sign-in, `[[auth.users]]`); with GitHub sign-in, approve in the GUI
+        (/versions/<component>), where the signed-in login is recorded."""
+        import sys
         from nanosoc_rm import versioning
-        st, rc = _guard(lambda: versioning.approve(draft_dir, step, login))
+        from nanosoc_rm.auth import local_users
+        from nanosoc_rm.config import ConfigError, load_config
+        try:
+            cfg = load_config()
+        except ConfigError as e:
+            click.echo("nanosoc-rm: %s" % e, err=True)
+            return EXIT_USAGE
+        if (cfg.get("auth") or {}).get("mode") != "local" or not local_users(cfg):
+            click.echo("nanosoc-rm: the CLI proves an approver by a local password, and this service has no local "
+                       "users: approve in the GUI (/versions/<component>, signed in), which records your login", err=True)
+            return EXIT_USAGE
+        if pw_stdin:
+            password = sys.stdin.readline().rstrip("\n")
+        else:
+            password = click.prompt("password for %s" % login, hide_input=True, default="", show_default=False)
+        st, rc = _guard(lambda: versioning.approve(draft_dir, step, login, config=cfg, password=password))
         if rc is not None:
             return rc
         if as_json:

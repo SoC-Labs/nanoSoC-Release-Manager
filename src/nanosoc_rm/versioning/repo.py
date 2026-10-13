@@ -32,6 +32,11 @@ class VersioningUsage(VersioningError):
     exit_code = 3
 
 
+class VersioningRefused(VersioningUsage):
+    """The request is refused because of a finding (a release draft of a plan that FAILs): CLI exit 1."""
+    exit_code = 1
+
+
 def _git(cwd, *args: str, sources: list[dict], input: bytes | None = None, text: bool = True,
          timeout: float = GIT_TIMEOUT_S) -> GitResult:
     r = run_git("--no-optional-locks", *args, cwd=cwd, input=input, text=text, timeout=timeout)
@@ -298,7 +303,8 @@ def _attach_registry(view: RepoView, cfg: Config, target: str, strict: bool) -> 
         view.canonical_key = inp.repo_key(comp.canonical) if comp.canonical else next(iter(view.prefixes))
 
 
-def baseline(canonical_tags: dict[str, dict], yanked: set[str] | frozenset = frozenset()) -> dict:
+def baseline(canonical_tags: dict[str, dict], yanked: set[str] | frozenset = frozenset(),
+             confirmed: set[str] | frozenset = frozenset()) -> dict:
     """The last release on the canonical host: the highest `vX.Y.Z` tag (C10). Without one, the highest
     grandfathered version-like tag (`vX.Y`, `vX.Y.Z`), marked as such, with a note when it is not the newest by
     date. {tag, version, kind: release|grandfathered|none, commit, created_at, notes, grandfathered}."""
@@ -322,12 +328,24 @@ def baseline(canonical_tags: dict[str, dict], yanked: set[str] | frozenset = fro
             notes.append("the latest release %s is yanked (G6); it is still the baseline for the next number" % t)
         return out
     if gf:
+        mine = [x for x in gf if x[1] in confirmed]
+        if mine:                                                   # a person confirmed it (versioning.yaml)
+            v, t, i = max(mine, key=lambda x: x[0].key())
+            out.update(tag=t, version=str(v), kind="grandfathered", commit=i["commit"], created_at=i.get("created_at"))
+            notes.append("no vX.Y.Z release tag: the baseline is the grandfathered tag %s, read as %s, confirmed in "
+                         "the registry's versioning.yaml" % (t, v))
+            return out
         v, t, i = max(gf, key=lambda x: x[0].key())
         out.update(tag=t, version=str(v), kind="grandfathered", commit=i["commit"], created_at=i.get("created_at"))
         notes.append("no vX.Y.Z release tag: the baseline is the grandfathered tag %s, read as %s (C10 keeps "
                      "existing tags as they are)" % (t, v))
         newest = max(gf, key=lambda x: x[2].get("created_at") or "")
         if newest[1] != t:
-            notes.append("the newest version-like tag by date is %s (%s), not %s: a person confirms the baseline"
-                         % (newest[1], (newest[2].get("created_at") or "")[:10], t))
+            # review item 4: the highest version is not the newest tag (tidelink: v1.0 in May, v0.90 in August).
+            # Which one is the release line decides the bump and whether C9's 1.0.0 gate applies, so no next
+            # version is computed until a person confirms the baseline.
+            out["ambiguous"] = True
+            notes.append("the newest version-like tag by date is %s (%s), not %s: the baseline is ambiguous, so "
+                         "there is no next version until a person confirms one (versioning.yaml "
+                         "grandfathered[].baseline: true)" % (newest[1], (newest[2].get("created_at") or "")[:10], t))
     return out

@@ -19,7 +19,7 @@
     <tr data-component="{{ r.component }}" data-verdict="{{ f.verdict }}">
       <td><a href="{{ vurl(r.component) }}">{{ r.component }}</a></td>
       <td>{{ r['class'] or '' }}</td>
-      <td>{% if f.current.tag %}<code>{{ f.current.tag }}</code>{% if f.current.kind == 'grandfathered' %} <span class="note">grandfathered</span>{% endif %}{% else %}<span class="note">none</span>{% endif %}</td>
+      <td>{% if f.current.tag %}<code>{{ f.current.tag }}</code>{% if f.current.kind == 'grandfathered' %} <span class="note">grandfathered{% if f.current.ambiguous %}, AMBIGUOUS{% endif %}</span>{% endif %}{% else %}<span class="note">none</span>{% endif %}</td>
       <td>{% for c in ('breaking', 'feature', 'fix', 'none', 'unclassed') %}{% if f.unreleased.get(c) %}<span class="pill {{ CLASS_CLASS.get(c, 'state-red') }}">{{ f.unreleased[c]|length }} {{ c }}</span> {% endif %}{% endfor %}{% if not f.unreleased %}<span class="note">none</span>{% endif %}</td>
       <td>{% set k = f.classification %}{% if k['class'] %}<span class="pill {{ CLASS_CLASS[k['class']] }}">{{ k['class'] }}</span>{% else %}<span class="note">unmeasured</span>{% endif %} <span class="note">{{ k.status }}</span></td>
       <td>{{ fact(p, f.next.version or 'none') }}</td>

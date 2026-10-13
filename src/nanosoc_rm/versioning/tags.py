@@ -12,6 +12,13 @@ adopted yet: Phase 3's gate is not met) every existing tag is grandfathered and 
 
 Moves. The mirror keeps a reflog on every ref, never expired (interfaces.md section 3). A tag whose reflog peels to
 more than one commit has MOVED; for a release tag that is always a finding (C10: never moved), grandfathered or not.
+
+Deletions. `mirror sync` fetches with --prune, so a tag deleted on its host leaves the mirror and git removes its
+reflog with it; a tag deleted and re-created has a one-entry reflog. Neither is visible in the mirror alone, so
+`against_history` compares the rows with every STORED tag check of the component (`version refresh` stores one):
+a release tag once seen on the canonical host and now absent is DELETED, and one now at another commit was
+re-created (MOVED). Both are findings, grandfathered or not. A tag created and deleted between two stored checks
+is not seen.
 """
 from __future__ import annotations
 
@@ -22,7 +29,7 @@ from nanosoc_rm import clock
 from nanosoc_rm.gitrun import run_git
 from nanosoc_rm.versioning import semver
 
-__all__ = ["KINDS", "kind_of", "branch_ok", "read_tags", "check", "SILICON_RX", "KEEP_RX", "BACKPORT_RX"]
+__all__ = ["KINDS", "kind_of", "branch_ok", "read_tags", "check", "against_history", "SILICON_RX", "KEEP_RX", "BACKPORT_RX"]
 
 KINDS = ("release", "candidate", "silicon", "keep")
 SILICON_RX = re.compile(r"^silicon/[a-z0-9][a-z0-9-]*-r[0-9]+p[0-9]+$")
@@ -143,3 +150,42 @@ def check(tags_by_repo: dict[str, dict[str, dict]], canonical_key: str, *, schem
                      "hosts": {k: t["commit"] for k, t in sorted(per.items())}, "annotated": first["annotated"],
                      "created_at": created, "moved": moved, "problems": problems, "finding": finding})
     return rows
+
+
+def against_history(rows: list[dict], history: list[dict], canonical_key: str) -> list[dict]:
+    """`rows` (check's) compared with stored tag_check observations `history` (oldest first): release tags once
+    seen on the canonical host that are gone now get a DELETED row; a release tag now at a different commit than
+    a stored check saw is MOVED (re-created). Returns the rows, sorted by tag name."""
+    seen: dict[str, dict] = {}
+    for doc in history:
+        for r in (doc.get("fact") or {}).get("rows") or []:
+            commit = (r.get("hosts") or {}).get(canonical_key)
+            if kind_of(r.get("tag", "")) != "release" or not commit:
+                continue
+            first = seen.setdefault(r["tag"], {"commits": [], "at": doc.get("observed_at"), "row": r})
+            if commit not in first["commits"]:
+                first["commits"].append(commit)
+            first["last_at"], first["row"] = doc.get("observed_at"), r
+    by_name = {r["tag"]: r for r in rows}
+    out = list(rows)
+    for name, s in sorted(seen.items()):
+        now = by_name.get(name)
+        if now is None:
+            old = s["row"]
+            out.append({"tag": name, "kind": "release", "conforms": True, "grandfathered": bool(old.get("grandfathered")),
+                        "hosts": {}, "created_at": old.get("created_at"), "moved": False, "deleted": True,
+                        "problems": ["release tag DELETED: last seen at %s on %s in the stored tag check of %s "
+                                     "(C10: release tags are never deleted)"
+                                     % (s["commits"][-1][:12], canonical_key, s.get("last_at"))],
+                        "finding": True})
+            continue
+        commit = (now.get("hosts") or {}).get(canonical_key)
+        if commit and any(c != commit for c in s["commits"]):
+            chain = [c for c in s["commits"] if c != commit] + [commit]
+            already = any("MOVED" in p for p in now["problems"])
+            now["moved"] = True
+            if not already:
+                now["problems"].append("release tag MOVED (re-created): %s, by the stored tag checks since %s"
+                                       % (" -> ".join(c[:12] for c in chain), s["at"]))
+            now["finding"] = True
+    return sorted(out, key=lambda r: r["tag"])

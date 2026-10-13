@@ -22,9 +22,10 @@ from nanosoc_rm.versioning.classify import NoGenerator, RegenerationResult, Rege
 from nanosoc_rm.versioning.core import (KINDS, changelog_lint, manifest_init, observe, overview, plan, stored,
                                         tag_check, verdict_of_plan, yanked_versions)
 from nanosoc_rm.versioning.release import APPROVAL_MATRIX, allowed, approve, draft, is_yanked, yank
-from nanosoc_rm.versioning.repo import VersioningError, VersioningUsage
+from nanosoc_rm.versioning.repo import VersioningError, VersioningRefused, VersioningUsage
 from nanosoc_rm.versioning.trailers import defect_trailers
 
 __all__ = ["KINDS", "changelog_lint", "plan", "tag_check", "manifest_init", "draft", "approve", "yank", "is_yanked",
            "allowed", "defect_trailers", "overview", "stored", "observe", "verdict_of_plan", "yanked_versions",
-           "Regenerator", "NoGenerator", "RegenerationResult", "APPROVAL_MATRIX", "VersioningError", "VersioningUsage"]
+           "Regenerator", "NoGenerator", "RegenerationResult", "APPROVAL_MATRIX", "VersioningError", "VersioningUsage",
+           "VersioningRefused"]

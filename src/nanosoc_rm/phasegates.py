@@ -37,13 +37,13 @@ from nanosoc_rm.gitrun import run_git
 
 __all__ = ["LATER_PHASES", "LATER_SURFACES", "IMPLEMENTATION_PREFIXES", "REGISTER", "REQUIREMENTS",
            "requirement_phases", "requirement_index", "git_commits", "check", "exemptions", "build_allowed", "gather",
-           "check_repo", "app_routes", "cli_commands", "enabled_automation", "find_repo"]
+           "check_repo", "app_routes", "cli_commands", "enabled_automation", "automation_phase", "find_repo"]
 
 LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
 # The surfaces each later phase brings (scope_web.md AT-A7, Then 4). None may exist before its gate.
 LATER_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
     "Phase 2": {"routes": ("/matrix",), "cli": ("matrix",)},
-    "Phase 3": {"routes": (), "cli": ("release", "changelog")},
+    "Phase 3": {"routes": (), "cli": ("release", "changelog", "version")},
     "Phase 4": {"routes": ("/bumps",), "cli": ("bump",)},
     "Phase 5": {"routes": ("/releases", "/trains", "/forks"), "cli": ("lock", "forks")},
 }
@@ -193,14 +193,28 @@ def cli_commands() -> list[str]:
     return sorted(main.commands)
 
 
+def automation_phase(name: str, declared: str | None) -> str | None:
+    """The later phase a scheduled job automates: its declared `phase` when that is a later one, else the phase
+    whose CLI surface its name names (`bump_prs` -> Phase 4, `nightly_matrix` -> Phase 2), else None. A job that
+    forgets to declare its phase is still caught by its name (review item 5)."""
+    if declared in LATER_PHASES:
+        return declared
+    words = {w[:-1] if w.endswith("s") else w for w in re.split(r"[^a-z0-9]+", name.lower()) if w}
+    for phase in LATER_PHASES:
+        if words & set(LATER_SURFACES.get(phase, {}).get("cli", ())):
+            return phase
+    return None
+
+
 def enabled_automation() -> list[tuple[str, str]]:
-    """(name, phase) of every scheduled job that declares a later `phase` and is enabled (CR-15 rule 5). A job
-    that ships disabled (`enabled = False`) names its gate and is not counted."""
+    """(name, phase) of every job in the real scheduler (schedule.JOBS) that automates a later phase and is
+    enabled (CR-15 rule 5). A job that ships disabled (`Job(..., phase=..., enabled=False)`) names its gate and is
+    not counted; a job is a later-phase job by its declared phase or by its name (automation_phase)."""
     from nanosoc_rm import schedule
     out = []
     for j in getattr(schedule, "JOBS", ()):
-        phase = getattr(j, "phase", None)
-        if phase in LATER_PHASES and getattr(j, "enabled", True):
+        phase = automation_phase(j.name, getattr(j, "phase", None))
+        if phase and getattr(j, "enabled", True):
             out.append((j.name, phase))
     return out
 

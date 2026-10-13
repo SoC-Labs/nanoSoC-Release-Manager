@@ -37,13 +37,22 @@ _H1 = re.compile(r"^#\s+(.+?)\s*$")
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
 _H3 = re.compile(r"^###\s+(.+?)\s*$")
 _RELEASE = re.compile(r"^\[(?P<v>[^\]]+)\](?:\s+-\s+(?P<date>\S+))?(?P<rest>.*)$")
-_ITEM = re.compile(r"^[-*+]\s+(.*)$")
+# A CommonMark list item: a bullet or an ordered marker indented 0-3 spaces (review item 2: an indented or a
+# numbered item is an entry too). Group 1 is the indent and marker, so the item's content offset is its length.
+_ITEM = re.compile(r"^( {0,3}(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)(\S.*)$")
 _LINKDEF = re.compile(r"^\[(?P<label>[^\]]+)\]:\s*(?P<url>\S+)\s*$")
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # C5: a new check that fails by default, or a warning turned into a failure, is breaking.
 C5_RX = re.compile(r"(fails? by default|fail-by-default|now fails|now an? (error|failure)|warning[s]? (is |are )?now "
                    r"(an? )?(errors?|failures?|fatal)|warning\S* (to|into|->|→) (an? )?(errors?|failures?)|"
-                   r"(promote|turn|make)s? .*warning\S* (to|into) (an? )?(errors?|failures?))", re.I)
+                   r"(promote|turn|make)s? .*warning\S* (to|into) (an? )?(errors?|failures?)|"
+                   # review item 8: the other common phrasings of "a warning became a failure"
+                   r"\b(is|are) now (fatal|failing|an? (hard )?error)|\bnow (fatal|errors?|exits? (1|non-?zero))\b|"
+                   r"\b(treat|treats|treated|treating)\b.*\bwarnings?\b.*\bas (an? )?(errors?|failures?|fatal)|"
+                   r"-Werror|\bexits? (with )?(1|non-?zero|an error)\b|"
+                   r"\b(check|lint|gate|rule)s?\b[^.;]*\b(on|enabled) by default|"
+                   r"\b(enable|enables|enabled|turn on|turns on)\b[^.;]*\b(check|lint|gate|rule)s?\b[^.;]*\bby default)",
+                   re.I)
 # Familiar headings that are not classes, and the class each most often means (a suggestion, never applied).
 _NEAR = {"added": "feature", "changed": "breaking or feature", "deprecated": "feature", "removed": "breaking",
          "fixed": "fix", "security": "fix", "features": "feature", "fixes": "fix", "bug fixes": "fix",
@@ -72,6 +81,8 @@ class Entry:
     text: str
     line: int
     sub: str | None = None                 # the subsection heading it sits under (None: under none)
+    kind: str = "item"                     # "item" (a list item) or "text" (a paragraph: never a classed entry)
+    offset: int = 2                        # its content offset: a line indented this far continues it
 
 
 @dataclass
@@ -118,10 +129,16 @@ def parse(text: str) -> Changelog:
     cur: Section | None = None
     cls: str | None = None
     sub_open: list | None = None
-    in_code = False
+    in_code = in_comment = blank = False
     last: Entry | None = None
     for n, raw in enumerate(text.splitlines(), 1):
         line = raw.rstrip()
+        if in_comment:
+            in_comment = "-->" not in line
+            continue
+        if line.lstrip().startswith("<!--"):                          # an HTML comment is never an entry
+            in_comment = "-->" not in line.lstrip()[4:]
+            continue
         if line.lstrip().startswith("```"):
             in_code = not in_code
             continue
@@ -166,21 +183,35 @@ def parse(text: str) -> Changelog:
                 loose.append(Entry(None, "### " + name, n))
             last = None
             continue
-        m = _ITEM.match(line)
-        if m and not raw.startswith((" ", "\t")):
-            e = Entry(cls if sub_open is not None else None, m.group(1).strip(), n,
-                      sub_open[0] if sub_open is not None else None)
+        expanded = raw.expandtabs(4).rstrip()
+        indent = len(expanded) - len(expanded.lstrip(" "))
+        if line.strip() == "":
+            blank = True
+            continue
+        if last is not None and last.kind == "item" and indent >= last.offset:
+            last.text += " " + line.strip()                            # continues the item (a nested item too)
+            blank = False
+            continue
+        m = _ITEM.match(expanded)
+        if m:
+            e = Entry(cls if sub_open is not None else None, m.group(2).strip(), n,
+                      sub_open[0] if sub_open is not None else None, "item", len(m.group(1)))
             if sub_open is not None:
                 sub_open[2] += 1
             (cur.entries if cur is not None else loose).append(e)
-            last = e
+            last, blank = e, False
             continue
-        if last is not None and raw.startswith((" ", "\t")) and line.strip():
-            last.text += " " + line.strip()                            # a continuation line of the entry above
+        if last is not None and not blank:
+            last.text += " " + line.strip()                            # a lazy continuation of the paragraph above
             continue
-        if line.strip() == "":
+        if cur is not None:
+            # a paragraph inside a version section is not a list item, so it has no class (C2): it is kept as an
+            # unclassed "text" entry for the linter, never dropped (review item 2)
+            e = Entry(None, line.strip(), n, None, "text", 0)
+            cur.entries.append(e)
+            last, blank = e, False
             continue
-        last = None
+        last, blank = None, False                                      # prose under the title: not an entry
     for s in sections:
         s.subsections = [tuple(x) for x in s.subsections]              # type: ignore[misc]
     return Changelog(title, title_line, sections, links, loose)
@@ -247,7 +278,11 @@ def lint(text: str | None, *, tags: dict[str, dict] | None = None, grandfathered
             elif count == 0:
                 out.append(_finding("CL9", "warning", line, "subsection %r has no entries" % name))
         for e in s.entries:
-            if e.cls is None and e.sub is None:                    # under a non-class heading: CL7 reports it
+            if e.kind == "text":
+                out.append(_finding("CL8", "error", e.line, "text that is not a list item, so it has no class: %r"
+                                    % e.text[:80], "make it a `- ` entry under ### breaking, ### feature, ### fix "
+                                    "or ### none, or move prose above the first version section"))
+            elif e.cls is None and e.sub is None:                  # under a non-class heading: CL7 reports it
                 out.append(_finding("CL8", "error", e.line, "entry without a class: %r" % e.text[:80],
                                     "move it under ### breaking, ### feature, ### fix or ### none"))
             elif e.cls in ("feature", "fix", "none") and C5_RX.search(e.text):

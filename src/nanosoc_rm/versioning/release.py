@@ -24,7 +24,8 @@ from nanosoc_rm import clock, contracts
 from nanosoc_rm.versioning import changelog as cl
 from nanosoc_rm.versioning import manifest as mf
 from nanosoc_rm.versioning import semver
-from nanosoc_rm.versioning.repo import VersioningError, VersioningUsage, open_repo, registry_policy
+from nanosoc_rm.versioning.repo import (VersioningError, VersioningRefused, VersioningUsage, open_repo,
+                                        registry_policy)
 
 __all__ = ["APPROVAL_MATRIX", "BOT", "draft", "approve", "yank", "is_yanked", "allowed", "approvals_for",
            "DRAFT_FILES", "NOT_PUSHED"]
@@ -159,7 +160,8 @@ def _diff(path: str, old: str, new: str) -> str:
 
 def draft(target: str, out_dir=None, *, config=None, date: str | None = None, regenerator=None) -> dict:
     """G1: write the release draft folder for `target`'s next version (from `version next`). Returns the
-    release_draft observation. VersioningUsage when there is nothing to release or out_dir is not empty."""
+    release_draft observation. VersioningUsage when there is nothing to release or out_dir is not empty; VersioningRefused (exit 1) while
+    the plan has findings (C9 refusing 1.0.0, a version already tagged or yanked, a changelog that fails lint)."""
     from nanosoc_rm.versioning import core
     view = open_repo(target, config=config)
     policy, psrc = registry_policy(view.config)
@@ -167,6 +169,9 @@ def draft(target: str, out_dir=None, *, config=None, date: str | None = None, re
     nxt = fact_plan["next"]["version"]
     if not nxt:
         raise VersioningUsage("no release to draft for %s: %s" % (target, fact_plan["next"]["reason"]))
+    if fact_plan["findings"]:                                       # review item 1: a FAIL plan is never drafted
+        raise VersioningRefused("no release draft of %s %s while `version next` has findings (FAIL): %s"
+                                % (view.target, nxt, "; ".join(fact_plan["findings"])))
     klass = fact_plan["classification"]["class"]
     date = date or clock.now().date().isoformat()
     if out_dir is None:
@@ -351,12 +356,27 @@ login's roles come from the service config `[roles]`.
 # ---------------------------------------------------------------------------------------------------------
 # G5: recording an approval
 # ---------------------------------------------------------------------------------------------------------
-def approve(draft_dir, step: str, login: str, *, config=None) -> dict:
+def approve(draft_dir, step: str, login: str, *, config=None, password: str | None = None,
+            session_login: str | None = None) -> dict:
     """Record `login`'s approval of `step` in the draft's release.json, if the login holds a role the step still
-    needs (service config `[roles]`). The bot's steps cannot be approved by a person. Returns the step record."""
-    from nanosoc_rm.auth import roles_for
+    needs (service config `[roles]`). The bot's steps cannot be approved by a person. Returns the step record.
+
+    The login must be PROVEN, never just typed (review item 6): `password` checked against the service's local
+    users (`[[auth.users]]`, local mode: the CLI), or `session_login`, the GUI's signed-in identity, equal to
+    `login`. Without either the approval is refused."""
+    from nanosoc_rm.auth import check_local_password, local_users, roles_for
     from nanosoc_rm.config import load_config
     cfg = config if config is not None and not isinstance(config, (str, os.PathLike)) else load_config(config)
+    if session_login is not None:
+        proven = session_login == login
+    elif password is not None:
+        local = (cfg.get("auth") or {}).get("mode") == "local" and bool(local_users(cfg))
+        proven = local and check_local_password(cfg, login, password)
+    else:
+        proven = False
+    if not proven:
+        raise VersioningUsage("the approver's identity is not proven: %s's local password (CLI, local sign-in) or "
+                              "the signed-in session (GUI) is needed, never a typed login alone (G5)" % login)
     path = Path(draft_dir) / "release.json"
     if not path.is_file():
         raise VersioningUsage("%s has no release.json: not a release draft" % draft_dir)
@@ -369,6 +389,13 @@ def approve(draft_dir, step: str, login: str, *, config=None) -> dict:
     if BOT in st["roles"]:
         raise VersioningUsage("step %s is the bot's (G5); the bot is automation and stays disabled until the Phase 3 "
                               "gate (CR-15). A person cannot approve it in the bot's place." % step)
+    prior = [a for a in st["approvals"] if a.get("by") == login]
+    if prior:
+        # review item 6: a step that needs several roles needs that many PEOPLE (G5 matches the approvers to the
+        # risk); one login holding owner:<c> and release-manager fills one role of the step, never both
+        raise VersioningUsage("%s already approved step %s as %s; its other roles (%s) need another person (G5)" % (
+            login, step, prior[0]["role"], ", ".join(r for r in st["roles"]
+                                                     if r not in {a["role"] for a in st["approvals"]}) or "none"))
     have = roles_for(cfg, login)
     done = {a["role"] for a in st["approvals"]}
     can = [r for r in st["roles"] if r in have and r not in done]
@@ -471,7 +498,8 @@ def _yank_patch(config, policy: dict, entry: dict) -> str:
             old = f.read_text() if f.is_file() else None
         except Exception:                                          # noqa: BLE001
             old = None
-    item = "  - %s\n" % yaml.safe_dump(entry, default_flow_style=True, width=1000, sort_keys=False).strip()
+    flow = yaml.safe_dump(entry, default_flow_style=True, width=1000, sort_keys=False).strip()
+    item = "  - %s\n" % flow
     if old is None:
         new = ("# Registry versioning policy (tool-release#/$defs/versioning_file): yanked releases (G6),\n"
                "# grandfathered tags and the date the C10 tag scheme applies from.\nschema: 1\nyanked:\n" + item)
@@ -484,12 +512,22 @@ def _yank_patch(config, policy: dict, entry: dict) -> str:
     elif lines[idx].rstrip() == "yanked: []":
         new_lines = lines[:idx] + ["yanked:\n", item] + lines[idx + 1:]
     else:
+        # the existing list's own indent (YAML allows `- ` at column 0 under `yanked:`): the new item matches it,
+        # so the result never mixes indentations (review item 7)
         j = idx + 1
-        while j < len(lines) and (lines[j].startswith(("  ", "\t")) or not lines[j].strip()):
+        first = next((l for l in lines[j:] if l.strip() and not l.lstrip().startswith("#")), "")
+        indent = first[:len(first) - len(first.lstrip())] if first.lstrip().startswith("- ") else "  "
+        item = "%s- %s\n" % (indent, flow)
+        while j < len(lines) and (not lines[j].strip() or lines[j].startswith(("  ", "\t"))
+                                  or (indent == "" and lines[j].startswith("- "))):
             j += 1
         new_lines = lines[:j] + [item] + lines[j:]
     new = "".join(new_lines)
-    doc = contracts.load_yaml(new)
+    try:
+        doc = contracts.load_yaml(new)
+    except Exception as e:                                         # noqa: BLE001 - never a traceback (exit 2)
+        raise VersioningError("the yank patch would not parse as YAML (%s): edit versioning.yaml by hand"
+                              % str(e).splitlines()[0]) from None
     if contracts.validate("tool-release", doc, "/$defs/versioning_file"):
         raise VersioningError("the yank patch would break versioning.yaml's contract")
     return _diff(path, old, new)

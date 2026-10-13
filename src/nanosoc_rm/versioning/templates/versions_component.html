@@ -3,7 +3,7 @@
 <p class="note">{{ NOT_PUSHED }} <a href="{{ vurl('') }}">All components</a></p>
 {% if local %}<div class="row">
   <form method="post" action="/versions/refresh"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ row.component }}"><button type="submit">Refresh</button></form>
-  {% if p and p.fact.next.version %}<form method="post" action="{{ vurl(row.component, 'draft') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" title="writes a draft folder under the service's data directory">Draft release {{ p.fact.next.version }}</button></form>{% endif %}
+  {% if p and p.fact.next.version and not p.fact.findings %}<form method="post" action="{{ vurl(row.component, 'draft') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" title="writes a draft folder under the service's data directory">Draft release {{ p.fact.next.version }}</button></form>{% elif p and p.fact.next.version %}<p class="note">FAIL: no draft while the plan has findings (listed below).</p>{% endif %}
 </div>{% else %}<p class="note">CLI: <code>nanosoc-rm version refresh {{ row.component }}</code>, <code>nanosoc-rm version draft {{ row.component }}</code>.</p>{% endif %}
 {% if job %}<div hx-get="/jobs/{{ job.id }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p>Job {{ job.id }}: {{ job.state }} <code>{{ job.command }}</code> (<a href="/jobs/{{ job.id }}/log">log</a>)</p></div>{% endif %}
 
@@ -12,7 +12,7 @@
 <table class="kv" data-component="{{ row.component }}" data-verdict="{{ f.verdict }}">
   <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td></tr>
   <tr><th>Read at</th><td>{{ fact(p, (f.commit or '')[:12] ~ (' (' ~ f.ref ~ ')' if f.ref else '')) }}</td></tr>
-  <tr><th>Current</th><td>{% if f.current.tag %}<code>{{ f.current.tag }}</code> = {{ f.current.version }} ({{ f.current.kind }}){% else %}no release tag{% endif %}; {{ f.commits_since if f.commits_since is not none else '?' }} commit(s) since</td></tr>
+  <tr><th>Current</th><td>{% if f.current.tag %}<code>{{ f.current.tag }}</code> = {{ f.current.version }} ({{ f.current.kind }}){% if f.current.ambiguous %} <span class="pill state-amber">AMBIGUOUS baseline</span> a person confirms it (versioning.yaml){% endif %}{% else %}no release tag{% endif %}; {{ f.commits_since if f.commits_since is not none else '?' }} commit(s) since</td></tr>
   <tr><th>Change class</th><td>{% set k = f.classification %}{% if k['class'] %}<span class="pill {{ CLASS_CLASS[k['class']] }}">{{ k['class'] }}</span>{% else %}unmeasured{% endif %} ({{ k.status }}){% if k.reason %} <span class="note">{{ k.reason }}</span>{% endif %}</td></tr>
   <tr><th>Next</th><td><strong>{{ f.next.version or 'none' }}</strong> <span class="note">{{ f.next.reason }}</span></td></tr>
   <tr><th>Commit-message hint</th><td>{{ f.hint['class'] or 'none' }} over {{ f.hint.commits }} commit(s) <span class="note">{{ f.hint.note }}</span></td></tr>
@@ -36,7 +36,7 @@
 <p><span class="pill {{ CLASS_CLASS.get(c, 'state-red') }}">{{ c }}</span></p><ul>{% for e in f.unreleased[c] %}<li data-class="{{ c }}">{{ e }}</li>{% endfor %}</ul>
 {% endif %}{% endfor %}
 {% if not f.unreleased %}<p class="note">No Unreleased entries.</p>{% endif %}
-{% if history|length > 1 %}<details><summary>Earlier plans ({{ history|length - 1 }})</summary><ul>{% for h in history[:-1]|reverse %}<li>{{ fact(h, h.fact.commit[:12] if h.fact.commit else 'work tree') }}: next {{ h.fact.next.version or 'none' }} ({{ h.fact.verdict }})</li>{% endfor %}</ul></details>{% endif %}
+{% set earlier = history %}{% if earlier %}<details><summary>Earlier and local plans ({{ earlier|length }})</summary><ul>{% for h in earlier|reverse %}<li{% if h.fact.worktree %} data-worktree="1"{% endif %}>{{ fact(h, h.fact.commit[:12] if h.fact.commit else 'work tree') }}{% if h.fact.worktree %} (LOCAL WORK TREE, not the component's plan){% endif %}: next {{ h.fact.next.version or 'none' }} ({{ h.fact.verdict }})</li>{% endfor %}</ul></details>{% endif %}
 {% else %}<p class="empty">No stored plan. Refresh (or run <code>nanosoc-rm version refresh {{ row.component }}</code>).</p>{% endif %}
 
 <h2>Changelog lint (C2)</h2>
@@ -59,6 +59,11 @@
 {% else %}<p class="note">Not read yet.</p>{% endif %}
 
 <h2>Release drafts (G1, G5)</h2>
-{% if drafts %}<ul>{% for d in drafts %}<li>{{ d.version }}: {% for n in d.files %}<a href="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/' ~ n) }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
-<p class="note">Approvals are recorded by a person with <code>nanosoc-rm version approve &lt;draft folder&gt; --step &lt;step&gt; --login &lt;login&gt;</code> (roles from the service config). The bot's steps stay disabled until the Phase 3 gate.</p>
+{% if drafts %}<ul>{% for d in drafts %}<li>{{ d.version }}: {% for n in d.files %}<a href="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/' ~ n) }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}
+  {% if d.approvals %}<table><thead><tr><th>Step</th><th>Roles (all needed)</th><th>State</th><th>Approved by</th><th></th></tr></thead><tbody>{% for a in d.approvals %}
+    <tr data-step="{{ a.step }}"><td>{{ a.step }}</td><td>{{ a.roles|join(', ') }}</td><td><span class="pill {{ 'state-green' if a.state == 'approved' else ('state-grey' if a.state == 'automation-disabled' else 'state-amber') }}">{{ a.state }}</span></td>
+      <td>{% for x in a.approvals %}{{ x.role }} by {{ x.by }}{{ ', ' if not loop.last }}{% endfor %}</td>
+      <td>{% if local and a.state == 'pending' %}<form method="post" action="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/approve') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="step" value="{{ a.step }}"><button type="submit" title="records your signed-in login">Approve as {{ me }}</button></form>{% endif %}</td></tr>
+  {% endfor %}</tbody></table>{% endif %}</li>{% endfor %}</ul>
+<p class="note">An approval records the approver's PROVEN login: here, the signed-in one; on the command line, <code>nanosoc-rm version approve &lt;draft folder&gt; --step &lt;step&gt; --login &lt;login&gt;</code> with that login's local password. Roles come from the service config. The bot's steps stay disabled until the Phase 3 gate.</p>
 {% else %}<p class="note">No draft yet.</p>{% endif %}

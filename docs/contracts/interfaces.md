@@ -724,6 +724,9 @@ def tick(now: datetime) -> list[str]             # nanosoc_rm.schedule: runs eve
 
 `serve` calls `tick(utcnow())` every 30 s. Tests call it with an injected time, so a schedule test never waits
 on the wall clock. Job names: `poll`, `nightly_t0`, `fetch`, `inventory`, `credentials`, `runner`.
+A `Job` carries optional `phase` (default `"v1"`) and `enabled` (default true; CR-VER-a). A later-phase job ships
+`enabled=False` and names its gate; `tick` never runs a disabled job, and the phase-gate check (section 17.6, rule
+5) counts every enabled job of a later phase, by its declared `phase` or by its name.
 
 ## 13. Web views and JSON API
 
@@ -932,7 +935,7 @@ plan(target, *, ref=None, path=None, config=None, store=False, regenerator=None)
 tag_check(target, *, path=None, config=None, store=False, alerts=False) -> dict       # tag_check        (C10)
 manifest_init(target, *, ref=None, path=None, config=None) -> (dict, patch)          # manifest_proposal (C11)
 draft(target, out_dir=None, *, config=None, date=None, regenerator=None) -> dict     # release_draft    (G1, G5)
-approve(draft_dir, step, login, *, config=None) -> step record                       # G5 (roles from [roles])
+approve(draft_dir, step, login, *, config=None, password=None, session_login=None) -> step record  # G5 (CR-VER-a)
 yank(target, version, reason, by, *, config=None) -> (dict, patch)                   # yank_proposal    (G6)
 defect_trailers(target, *, ref=None, config=None) -> (dict, patch)                   # defect_trailers  (F6)
 is_yanked(component, version, *, config=None) -> bool; allowed(component, versions, *, config=None) -> list
@@ -946,17 +949,29 @@ class Regenerator(Protocol): name; available(); consumers(component); regenerate
    `build` need a `Regenerator`; the default `NoGenerator` reports them `unmeasured` with the reason. A class is
    `complete` only when the three C3 signals are measured, else `partial` (some measured) or `unmeasured`.
    Verdict PASS / WARN / UNVERIFIED / FAIL as in docs/versioning.md; the schema enforces PASS = complete.
+   An unclassed Unreleased entry makes `declared` unmeasured, and a next version over a changelog that fails
+   lint is a finding (FAIL). `draft` refuses (`VersioningRefused`, exit 1) while the plan has any finding
+   (CR-VER-a). With no `vX.Y.Z` tag and grandfathered tags whose highest version is not the newest, the plan's
+   `current.ambiguous` is true, `next.version` is null and the verdict UNVERIFIED until a `grandfathered` entry
+   of `versioning.yaml` carries `baseline: true` (optional, CR-VER-a).
 3. **Writes.** None outside the service's disk. Patches go to stdout or a new file (`--patch`, never overwritten);
    `draft` writes only into a new or empty directory (default `<data_dir>/drafts/<component>/<version>`);
-   `approve` rewrites only the draft's `release.json`. `--alerts` raises `tag_moved` (about
-   `tag_check:<component>:<tag>`) for a moved release tag; `--store` stores the observation.
+   `approve` rewrites only the draft's `release.json`, and only for a PROVEN login: its local password (CLI,
+   `--password-stdin` or a prompt; local sign-in only) or the GUI's signed-in session; one login fills at most
+   one role of a step. `--store` and `--alerts` take a mirror read only: with `--path` they are a usage error
+   (exit 3), and the pages never show a stored work-tree plan as the component's plan. `--alerts` raises
+   `tag_moved` (about `tag_check:<component>:<tag>`) for a moved or deleted release tag; `--store` stores the
+   observation. `tag_check` compares the mirror with every stored `tag_check` of the component: a release tag
+   once seen on the canonical host and now gone is a row with `deleted: true`; one at another commit is moved.
 4. **Jobs.** `jobs.register_kind(name, check, args)` (new, additive) adds `versions-refresh`
    (`version refresh [COMPONENT]...`) and `version-draft` (`version draft COMPONENT`).
 5. **Pages** (plug-in `nanosoc_rm.versioning.web`, navigation "Versions"): `GET /versions/` (per component:
    current tag, Unreleased by class, class and status, next version, verdict, changelog, manifest, API.md, tags),
    `GET /versions/{component}` (signals, entries, notes, findings, lint table, tag table, drafts),
    `GET /versions/{component}/manifest.diff`, `GET /versions/{component}/drafts/{version}/{file}`. In a local
-   deployment only (section 13a): `POST /versions/refresh`, `POST /versions/{component}/draft` (jobs). Row hooks:
+   deployment only (section 13a): `POST /versions/refresh`, `POST /versions/{component}/draft` (jobs; 404 for a
+   component outside the catalogue), `POST /versions/{component}/drafts/{version}/approve` (G5, the signed-in
+   login; CR-VER-a). Row hooks:
    `data-component`, `data-verdict`, `data-signal`, `data-rule`, `data-tag`. A plug-in's `router` factory may
    take the app (`plugins.load`, additive) so it registers POST routes only when `app.state.rm.local_routes`.
 - **CLI:** `nanosoc-rm changelog lint`, `version next|tags|refresh|draft|approve|yank|fixed-in`, `manifest init`
