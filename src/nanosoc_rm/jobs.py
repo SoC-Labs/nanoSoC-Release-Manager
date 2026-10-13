@@ -50,13 +50,15 @@ from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
            "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "EXTRA_KINDS",
-           "MODULE_KINDS", "register_kind"]
+           "MODULE_KINDS", "PLUGIN_KINDS", "register_kind"]
 
 # Job kinds other packages add without editing this file's logic. Two seams, merged at integration (Wave B):
-# MODULE_KINDS (interfaces.md section 18): kind -> module with params(p) -> dict (ValueError = usage),
-# cli_args(p) -> [args], and optional outcome(docs, last_line) -> fields, limit_s(config, job) -> float and ACTION
-# (an `actions` entry logged on submit). EXTRA_KINDS (register_kind, below): kind -> (check, args) callables.
-MODULE_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind"}
+# MODULE_KINDS (interfaces.md section 18): kind -> module with params(p) (or job_params) -> dict (ValueError =
+# usage), cli_args(p) (or job_args) -> [args], and optional outcome(docs, last_line) -> fields,
+# limit_s(config, job) -> float and ACTION (an `actions` entry logged on submit). Imported only when such a job is
+# submitted or run. EXTRA_KINDS (register_kind, below): kind -> (check, args) callables.
+MODULE_KINDS = {"matrix-cell": "nanosoc_rm.matrix.jobkind", "bumps": "nanosoc_rm.bumps.jobkind"}
+PLUGIN_KINDS = MODULE_KINDS                   # the bumps branch's name for the same seam
 KINDS = ("compat", "mirror-sync", "walk") + tuple(MODULE_KINDS)
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
@@ -179,7 +181,10 @@ def _params(kind: str, params: dict) -> dict:
     """The job's parameters, checked; JobUsage when the CLI would exit 3 on them."""
     if kind in MODULE_KINDS or kind in EXTRA_KINDS:
         try:
-            return _extra(kind).params(params) if kind in MODULE_KINDS else EXTRA_KINDS[kind][0](params)
+            if kind in MODULE_KINDS:
+                mod = _extra(kind)
+                return (getattr(mod, "params", None) or mod.job_params)(dict(params))
+            return EXTRA_KINDS[kind][0](params)
         except ValueError as e:
             raise JobUsage(str(e)) from None
     if kind == "compat":
@@ -208,7 +213,8 @@ def _params(kind: str, params: dict) -> dict:
 def cli_args(kind: str, params: dict, work: Path | None = None) -> list[str]:
     """The `nanosoc-rm` arguments a job runs (`--keep-work` only when `work` is given)."""
     if kind in MODULE_KINDS:
-        return list(_extra(kind).cli_args(params))
+        mod = _extra(kind)
+        return list((getattr(mod, "cli_args", None) or mod.job_args)(params))
     if kind in EXTRA_KINDS:
         args = list(EXTRA_KINDS[kind][1](params))
         return args if "--json" in args else args + ["--json"]

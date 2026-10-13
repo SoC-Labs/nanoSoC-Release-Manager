@@ -1,0 +1,37 @@
+# expect-error: maxItems at /fact/proposals
+# E3, E5: a frozen or silicon configuration's scan never carries a proposal.
+schema: 1
+kind: bump_scan
+subject: bump_scan:eth-main
+observed_at: '2026-10-13T09:32:41Z'
+sources:
+- kind: derived
+  command: 'ILLUSTRATIVE example: nanosoc_gen has no tags v0.1.0 or v0.2.0; they were set in a scratch copy of its
+    mirror to exercise the engine on real commits'
+- kind: derived
+  command: nanosoc-rm walk eth-main (stored snapshot pin_state:eth-main@2026-10-13T09:43:11Z#5057c700)
+- kind: registry
+  command: git -C <registry> show aecb4e2622eeefe1eae051a336118e12811428d9:eligibility.yaml
+- kind: git
+  command: git -C <data_dir>/mirrors/nanosoc_arch_tech.git ls-tree fea19bd247cd70daf85d6a01d2fe1a7f8a8020c0 -- nanosoc_gen
+fact:
+  configuration: eth-rc4
+  eligible: false
+  refused: 'silicon configuration (eth-chiplet r0p0): never proposed (E3, E5)'
+  walk:
+    snapshot: pin_state:eth-main@2026-10-13T09:43:11Z#5057c700
+    observed_at: '2026-10-13T09:32:41Z'
+    pins: 5
+  rows: []
+  proposals:
+  - bp-baf82b05fd03
+  counts: {}
+  auto_merge: {}
+  schedule:
+    enabled: false
+    gate: Phase 4
+    gate_status: not-met
+    reason: 'ships disabled (CR-15: built and used by hand now; scheduling it is Phase 4 automation). Enabling needs
+      the Phase 4 entry gate in docs/phase-gates.yaml checked by a person and a CR that adds the job to nanosoc_rm.schedule;
+      until then run `nanosoc-rm bumps --store` by hand.'
+  problems: []

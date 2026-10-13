@@ -46,7 +46,10 @@
         "manifest_proposal",
         "release_draft",
         "yank_proposal",
-        "defect_trailers"
+        "defect_trailers",
+        "bump_proposal",
+        "bump_scan",
+        "bump_ledger"
       ]
     },
     "subject": {
@@ -464,11 +467,31 @@
       }
     },
     {
+      "if": { "properties": { "kind": { "const": "bump_proposal" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/proposal" },
+          "subject": { "pattern": "^bump_proposal:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
       "if": { "properties": { "kind": { "const": "changelog_lint" } } },
       "then": {
         "properties": {
           "fact": { "$ref": "tool-release.schema.json#/$defs/changelog_lint" },
           "subject": { "pattern": "^changelog_lint:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bump_scan" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/scan" },
+          "subject": { "pattern": "^bump_scan:" }
         },
         "not": { "required": ["snapshot"] }
       }
@@ -549,6 +572,16 @@
         "properties": {
           "fact": { "$ref": "tool-release.schema.json#/$defs/defect_trailers" },
           "subject": { "pattern": "^defect_trailers:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bump_ledger" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/ledger" },
+          "subject": { "pattern": "^bump_ledger:" }
         },
         "not": { "required": ["snapshot"] }
       }

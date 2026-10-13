@@ -44,7 +44,7 @@ __all__ = ["main", "EXIT_OK", "EXIT_FINDING", "EXIT_UNVERIFIED", "EXIT_USAGE", "
 # interfaces.md section 0.5 modules that own commands, in --help order of registration. `db` is the
 # foundation's own (`alerts`, section 8). Phase 5's `lock` is deliberately absent (A7).
 PLUGIN_MODULES = ("db", "registry", "mirror", "walker", "analysis", "t0", "ci", "scan", "credentials", "web",
-                  "schedule", "trace", "quality", "matrix", "versioning")
+                  "schedule", "trace", "quality", "matrix", "versioning", "bumps")
 
 
 class RMGroup(click.Group):

@@ -1,0 +1,99 @@
+# expect-error: const at /decision/would
+# A blocked proposal is held: the bot would not open a pull request for it.
+id: bp-baf82b05fd03
+configuration: eth-main
+tree_paths:
+- nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen
+- nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen
+depth: 4
+order: 1
+consumer:
+  component: nanosoc_arch_tech
+  repo:
+    host: gitlab
+    path: soclabs/nanosoc-m0/nanosoc_arch_tech
+  branch: main
+  base: fea19bd247cd70daf85d6a01d2fe1a7f8a8020c0
+  configured: 06b4d24b8a377e6128d645e19c244f5577ab89bd
+  at_configured: false
+path: nanosoc_gen
+dependency:
+  component: nanosoc_gen
+  repo:
+    host: gitlab
+    path: soclabs/nanosoc_gen
+from:
+  commit: b945836e5143f02c111ae7b94b16252db19a0c31
+  tag: v0.1.0
+  version: 0.1.0
+  exact: true
+to:
+  commit: 28b4358f180f6c70c1107c33aab79910501e8c26
+  tag: v0.2.0
+  version: 0.2.0
+  exact: true
+  repo:
+    host: gitlab
+    path: soclabs/nanosoc_gen
+newest: null
+range:
+  declared: null
+  source: null
+  allows: null
+  problem: null
+change:
+  class: unknown
+  class_source: none
+  class_detail: the tagged commit has no changelog (CHANGELOG.md, CHANGELOG, CHANGES.md, HISTORY.md)
+  changelog:
+    file: null
+    excerpt: ''
+    truncated: false
+  commits:
+    count: 61
+    shown:
+    - commit: 28b4358f180f6c70c1107c33aab79910501e8c26
+      subject: (commit subject elided in this public example)
+    - commit: a79454d27e914b798f60604f6d8b41136d893134
+      subject: (commit subject elided in this public example)
+  diverged: false
+defects:
+  fixed:
+  - id: SL-DEF-0001
+    title: AHB link forwards HTRANS not qualified by HSEL (phantom transfers)
+    forms:
+    - A
+    - B
+    commits:
+    - 036d3811e630c89b2344b56aa617b40a99cd652b
+    - adbb9abfaa81350e6f40d3b5c4e20f1f87b8002d
+  introduced: []
+  unjudged: []
+matrix:
+  verdict: null
+  source: null
+  observed_at: null
+  href: null
+  pins:
+  - nanosoc-multicore-system/ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen=28b4358f180f6c70c1107c33aab79910501e8c26
+  - nanosoc-multicore-system/nanosoc_arch_tech/nanosoc_gen=28b4358f180f6c70c1107c33aab79910501e8c26
+patch:
+  file: bp-baf82b05fd03.diff
+  regenerated: false
+  note: 'Gitlink move only. E1 asks a bump to regenerate generated RTL: that needs the generator (NANOSOC_GEN_OK=1),
+    which this tool never runs. After applying, a person regenerates build_soc if the consumer commits generated
+    output, and runs the configuration''s T1/T2.'
+decision:
+  mode: shadow
+  would: open-pull-request
+  auto_merge: false
+  goes_to: person
+  blockers:
+  - 'shadow mode (E2): the bot only records what it would do; a person applies the patch and merges'
+  - 'auto_merge in eligibility.yaml is empty (E2: switched on per class only after zero disagreements)'
+  - 'change class unknown: only fix or feature may auto-merge (E3)'
+  - 'T0-T2 on the exact commits: no result stored (E3 needs PASS)'
+  - 'build-affecting unknown until the C7 file-list diff exists: T3 may be needed first (E3)'
+waits_for: []
+state: blocked
+reason: the tag is not on the pinned repo

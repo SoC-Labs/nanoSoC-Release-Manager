@@ -28,6 +28,7 @@ __all__ = ["PLUGINS", "load", "render_page"]
 
 # (module, navigation label)
 PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Matrix"),
+           ("nanosoc_rm.bumps.web", "Bumps"),
            ("nanosoc_rm.versioning.web", "Versions"))                   # CR-VER (Wave B versioning)
 
 
