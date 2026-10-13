@@ -24,7 +24,8 @@ def _target(name):
 
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
-        "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum", "import-ledger",
+        "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
+        "import-ledger",
         "observation", "pin-state", "release-lock", "result-bundle"])
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 

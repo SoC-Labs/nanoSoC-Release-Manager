@@ -1131,3 +1131,162 @@ Where each gap the three acceptance files logged is resolved:
 | scope_web G19 | 3 (`--no-tags`) |
 | scope_web G21 | 17.4 |
 | scope_web G22 | 13 (host drift) |
+
+## 18. Bump proposals in shadow mode (Phase 4 E1-E7; Wave B, built per CR-15)
+
+Requirements: E1, E2, E3, E5, E7 (Phase 4), H3; CR-15 and CR-WB-bumps (`docs/CHANGES.md`). Built and usable by
+hand now; ENABLING it (a schedule, a bot that writes) stays behind the Phase 4 entry gate in
+`docs/phase-gates.yaml`. Package `nanosoc_rm.bumps`; schema `schemas/bump-proposal.schema.json` (new file, additive).
+
+**What it never does.** It never opens a pull request, pushes, writes a branch or tag, or calls a host's write API.
+There is no bump writer credential (H3); a `[credentials.bump_writer]` or `[credentials.bot_tag]` in the config is
+reported as a problem (exit 1) and never read. Every git call is a read through `gitrun.run_git` (no new
+`WRITE_CALLS` entry). A proposal is a patch and commands for a person; every page and CLI text says so.
+
+### 18.1 Functions (module paths)
+
+| Name | Where |
+|---|---|
+| `proposals(configuration=None, *, config=None, store=False) -> Answer` (bump_scan first, then bump_proposal, deepest first) | `nanosoc_rm.bumps` |
+| `stored(configuration=None)`, `scans()`, `get(id)`, `mark(id, login, decision, note=None)`, `marks(id=None)` | `nanosoc_rm.bumps` |
+| `ledger(*, config=None) -> bump_ledger`, `schedule_status() -> dict`, `writer_problems(config)` | `nanosoc_rm.bumps` |
+| `patch_text(fact)`, `commit_message(fact)`, `person_commands(fact)` | `nanosoc_rm.bumps` (`.patchfile`) |
+| `scan`, `scan_all`, `proposal_id`, `BumpUsage` (exit 3), `CannotAnswer` (exit 2) | `nanosoc_rm.bumps.engine` |
+| `parse_tag`, `allows`, `Version`, `RangeError` | `nanosoc_rm.bumps.versions` |
+| `router` (plug-in), `job_params`/`job_args` (job kind) | `nanosoc_rm.bumps.web`, `nanosoc_rm.bumps.jobkind` |
+
+### 18.2 The scan (E1, E3, E5)
+
+Inputs, all read: the configuration's latest stored walk (section 4; never re-walked), the component mirrors
+(section 3), the registry (catalogue, eligibility, defects) and the local job records. Per pin of the walk:
+
+1. **Refusals first.** A frozen or silicon configuration is never proposed: its scan has `eligible: false`, a
+   `refused` reason and no rows (E3, E5; the schema refuses a refused scan with a proposal).
+2. **Consumer branch.** The configuration's own branch for its root (a configuration that follows a tag has none);
+   else the consumer repo's default branch as the mirror recorded it. `release/*` is never a target (E5). The
+   gitlink is read at that branch's tip (`git ls-tree <tip> -- <path>`), so the patch applies to the branch now.
+   The same gitlink in the same consumer branch reached through two tree paths is one proposal (`duplicate` rows).
+3. **Release tags.** Tags of every repo of the dependency in its mirror whose name is a release: `vX.Y.Z`,
+   `X.Y.Z`, or the grandfathered `vX.Y` (C10; read as X.Y.0, marked `grandfathered`). A pre-release suffix
+   (`-rc.1`, `-chiplet-verified`) is never proposed. The canonical repo's tag wins a name clash. **Newer** = the
+   tag's commit is not already in the pin (`merge-base --is-ancestor`) and its version is above the newest release
+   the pin contains (`from.tag`, `from.exact` when the tag names the pin itself).
+4. **Range (C11).** When the consumer's `nanosoc-component.yaml` at the branch tip declares a `requires[].range`
+   for that path (or that component), the proposal is the newest release the range allows; the newest overall is
+   `newest`. Ranges are Cargo style (`^`, `~`, `=`, `>`, `>=`, `<`, `<=`, `X.Y.*`, `*`, bare = caret); a range that
+   does not parse holds the pin with the problem named, never a guess. No manifest: no range, every release counts.
+5. **Change.** The changelog (CHANGELOG.md, CHANGELOG, CHANGES.md, HISTORY.md at the tag) sections in
+   (from version, to version]; the class each declares (`Class: fix` line, else `### Breaking|Added|Fixed`
+   headings), the most severe of them, `unknown` when any section declares nothing (C2: never from the version
+   number). The versioning module's classifier replaces it when built (18.6). The commits `from..to` (count and
+   20 subjects); `diverged` when the pin is not an ancestor of the tag.
+6. **Defects (registry).** `fixed`: a `fixed_in` commit of the dependency that the tag contains and the pin does
+   not, with its forms; `introduced`: an `origin` commit likewise. A commit the mirror lacks is `unjudged`.
+7. **Matrix cell.** The matrix module's stored cell for exactly this move (18.6), else a finished local compat
+   what-if job whose `--pin` list is exactly `<tree path>=<to sha>` for every tree path of the move. None: the
+   page offers Run (a POST that queues that compat job).
+8. **Reachability.** The tag's commit must be reachable on the repo the consumer's .gitmodules names; else the
+   proposal is `blocked` (the bot would hold; a person moves the URL or pushes the tag first).
+9. **Order (E1).** Deepest first: `order` 1 is applied first; `waits_for` lists proposals inside the dependency
+   itself (they land and are tagged before this one).
+10. **Decision.** Always `mode: shadow`, `would: open-pull-request` (or `hold` when blocked), `auto_merge: false`,
+    `goes_to: person`, with `blockers`: every E3 condition known to fail, shadow mode first (class not fix or
+    feature, no PASS matrix cell, diverged, a defect introduced, build-affecting unknown until C7 exists).
+11. **Patch.** Gitlink move only (`regenerated: false`): E1's regenerated RTL needs the generator, which this tool
+    never runs; the note says so.
+
+**Proposal id:** `bp-` + the first 12 hex of sha1(`<consumer host>:<path>|<branch>|<gitlink path>|<from>|<to>`):
+the same move has the same id in every configuration and every run.
+
+### 18.3 The patch (`<id>.diff`)
+
+Plain text first (the proposal, the commands for a person, a suggested commit message), then one
+`diff --git a/<path> b/<path>` / `index <from>..<to> 160000` / `-Subproject commit <from>` / `+Subproject commit
+<to>`. A person applies it with `git apply --index` (a gitlink lives only in the index, so a plain `git apply`
+changes nothing when the submodule is not checked out). It does not apply to a branch that moved the gitlink.
+
+### 18.4 Records: `<data_dir>/bumps.sqlite`
+
+Not rebuildable, not facts, so apart from `rm.sqlite` (as `jobs.sqlite` is): `proposals` (id, first and last time
+computed, the configurations, the latest bump_proposal observation), `marks` (proposal, at, login, decision `done`
+or `declined`, note: every mark is a write action logged with its login, H2) and `scans` (the latest bump_scan per
+configuration). The bump kinds are not in `db.EVENT_KINDS`, so `/facts/<subject>` does not serve them;
+`/bumps/facts/<subject>` does, with the same hooks.
+
+### 18.5 The shadow ledger (E2)
+
+Each kept proposal against its consumer branch in the mirror now: **agreed** (the branch pins exactly the proposed
+commit; `person.commit` is the commit that moved it), **disagreed** (another commit that is not a newer release
+containing the proposal, or a `declined` mark), **pending** (still the old pin; a `done` mark the mirror does not
+show yet stays pending with a note), **superseded** (a newer proposal for the same gitlink, or a newer release
+containing it), **unknown** (the mirror cannot answer). Threshold: 4 weeks since the first proposal AND 20 decided
+(agreed + disagreed), whichever is later; then auto-merge may be PROPOSED for a class (fix, feature) with zero
+disagreements. Switching it on is a registry change a person makes after the Phase 4 gate; `auto_merge.enabled`
+is always false here and a non-empty `eligibility.yaml auto_merge` is a problem. `observed_at` is the oldest
+consumer mirror sync it read.
+
+### 18.6 Interfaces this module needs from other Wave B modules
+
+Looked up at run time (`nanosoc_rm.bumps.interfaces`); a module not built here is not an error and the fallback
+is named in the fact (`class_source`, `matrix.source`):
+
+| Provider | Function | Fallback |
+|---|---|---|
+| versioning (C2, C3) | `nanosoc_rm.versioning.classify_bump(component, from_commit, to_commit, *, config) -> {"class", "detail", "sources"} \| None` | the changelog's declared class, else `unknown` |
+| matrix (D3) | `nanosoc_rm.matrix.bump_cell(configuration, overrides: {tree_path: sha}, *, config) -> {"verdict", "observed_at", "href", "detail"} \| None` | a finished compat what-if job with exactly those pins |
+
+### 18.7 CLI and job
+
+```
+nanosoc-rm bumps [CONFIG] [--store] [--json]      # = bumps scan; every registered configuration without CONFIG
+nanosoc-rm bumps queue [CONFIG] [--json]          # the kept proposals
+nanosoc-rm bumps show ID [--json]
+nanosoc-rm bumps patch ID [--out FILE]            # stdout, or a NEW file (never overwritten: exit 3)
+nanosoc-rm bumps mark ID done|declined --by LOGIN [--note TEXT]
+nanosoc-rm bumps ledger [--json]
+nanosoc-rm bumps schedule [--json]
+```
+
+`--json`: scan prints the bump_scan then the bump_proposal observations, one per line. Exit: 0 answered (a
+proposal is work for a person, not a failure), 1 a problem finding (a bump writer credential configured, auto_merge
+not empty), 2 could not answer (no stored walk, a registry that does not load), 3 usage (unknown configuration or
+proposal, an existing `--out`, a bad mark decision).
+
+**Job kind `bumps`** (`nanosoc_rm.jobs.PLUGIN_KINDS`, a new seam: kind -> module with `job_params(params)` and
+`job_args(params)`): `nanosoc-rm bumps scan [CONFIG] --store --json` in the local worker, so the mirror reads
+(which may fetch blobs anonymously from a partial mirror's promisor remote) never run inside a request.
+
+**Schedule:** ships DISABLED. `schedule_status()` is always `{"enabled": false, "gate": "Phase 4", "gate_status":
+<docs/phase-gates.yaml status>}` (schema: `enabled` const false); `nanosoc_rm.schedule.JOBS` has no bump job.
+Enabling needs the Phase 4 gate checked by a person and a CR that adds the job.
+
+### 18.8 Pages (plug-in `nanosoc_rm.bumps.web`, navigation "Bumps")
+
+| Route | Shows or does |
+|---|---|
+| `GET /bumps/?configuration=&state=&cls=&outcome=&component=&job=` | the queue (kept proposals with filters), per-configuration scans with pins by status, the ledger summary, the schedule banner (DISABLED, gate named), Scan now |
+| `GET /bumps/p/{id}` | one proposal: move, range, class, changelog, commits, defects, matrix cell or Run, waits-for, blockers, patch, commands for a person, marks |
+| `GET /bumps/p/{id}/patch.diff` | the patch (`text/x-diff`, attachment `<id>.diff`) |
+| `GET /bumps/ledger` | E2 ledger: outcomes, agreement, threshold, by class, auto-merge OFF |
+| `GET /bumps/facts/{subject}` | one bump observation with its sources verbatim |
+| `POST /bumps/scan` | queue the `bumps` job (field `configuration`, optional); an identical queued or running job is reused |
+| `POST /bumps/p/{id}/mark` | "mark as done by a person" (`decision` done or declined, `note`), with the signed-in login |
+
+The POSTs act only in a local deployment (the app's `local_routes`, CR-16/CR-17); elsewhere they answer 403 with the
+CLI command, and the pages show the command instead of the buttons. Both are behind the section 14 guard and its
+CSRF check. Colours: README section 6 and `web.page` classes, always with the text (`proposed` info, `blocked`
+amber; outcomes agreed green, disagreed red, pending and superseded grey, unknown amber; class breaking red,
+feature info, fix green, none grey, unknown amber). Row hooks: `data-proposal`, `data-state`, `data-outcome`,
+`data-configuration`; page hooks `data-shadow`, `data-schedule`.
+
+**Observation kinds** (observation.schema.json, enum values plus one `allOf` entry each; event kinds, no snapshot):
+
+| kind | subject | fact |
+|---|---|---|
+| bump_proposal | `bump_proposal:<configuration>:<id>` | `bump-proposal.schema.json#/$defs/proposal` |
+| bump_scan | `bump_scan:<configuration>` | `#/$defs/scan` |
+| bump_ledger | `bump_ledger:all` | `#/$defs/ledger` |
+
+Examples: `bump-proposal.example.yaml`, `observation.bumps.example.jsonl` (ILLUSTRATIVE: synthetic tags on real
+commits, labelled); invalid: `bump-proposal.auto-merge-in-shadow-mode.yaml`, `.release-branch-target.yaml`,
+`.claims-regenerated-rtl.yaml`, `.blocked-but-would-open-a-pr.yaml`, `observation.bump-scan-frozen-with-proposal.yaml`.

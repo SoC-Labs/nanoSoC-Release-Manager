@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/bump-proposal.schema.json",
+  "title": "Bump proposal (Phase 4, shadow mode): what the bump bot would do, for a person to do",
+  "description": "Wave B, built per CR-15, enabled only by the Phase 4 entry gate. The document is one proposal: in one consumer repo's branch, move one gitlink from its pin to a newer release tag of the pinned component (E1), with the changelog excerpt and change class, the defects the move fixes and introduces (registry), the matrix cell for that move when one is stored, and the patch a person applies. SHADOW MODE ONLY (E2): the tool never opens a pull request, never pushes and never writes a branch; `decision.mode` is always `shadow` and `decision.auto_merge` always false. Frozen and silicon configurations are never proposed (E3, E5), nor is a release/* branch. The observation kinds `bump_proposal`, `bump_scan` and `bump_ledger` (observation.schema.json) carry `$defs/proposal`, `$defs/scan` and `$defs/ledger` as their fact. interfaces.md section 18. Additive: a new schema file, no existing schema bumps.",
+  "$ref": "#/$defs/proposal",
+  "$defs": {
+    "proposal_id": {
+      "description": "bp- + the first 12 hex of sha1(consumer host:path | branch | gitlink path | from | to): the same move has the same id in every configuration and every run.",
+      "type": "string",
+      "pattern": "^bp-[0-9a-f]{12}$"
+    },
+    "verdict": {
+      "enum": ["PASS", "WARN", "WAIVED", "FAIL", "UNVERIFIED", "INFRA", "NOT-RUN"]
+    },
+    "tagref": {
+      "type": "object",
+      "required": ["commit", "tag", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "tag": { "type": ["string", "null"], "description": "The release tag naming this commit, or (for `from`) the newest release tag it contains; null when none." },
+        "version": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/semver" }, { "type": "null" }] },
+        "exact": { "type": "boolean", "description": "The tag names this very commit (false: the commit only contains it)." },
+        "grandfathered": { "type": "boolean", "description": "The tag has the two-part form vX.Y (C10: existing tags are kept), read as X.Y.0." },
+        "repo": { "$ref": "defs.schema.json#/$defs/repo", "description": "`to` only: the repo the tag was read from (the canonical one when several carry it)." }
+      }
+    },
+    "defect_ref": {
+      "type": "object",
+      "required": ["id", "title", "commits"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "defs.schema.json#/$defs/defect_id" },
+        "title": { "type": "string" },
+        "forms": { "type": "array", "items": { "type": "string" } },
+        "commits": { "type": "array", "minItems": 1, "items": { "$ref": "defs.schema.json#/$defs/sha" } }
+      }
+    },
+    "proposal": {
+      "description": "One proposed gitlink move (E1).",
+      "type": "object",
+      "required": ["id", "configuration", "tree_paths", "depth", "order", "consumer", "path", "dependency", "from", "to",
+                   "newest", "range", "change", "defects", "matrix", "patch", "decision", "waits_for", "state", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/proposal_id" },
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id", "description": "The configuration whose tree this proposal was computed from. Never a frozen or silicon one (E3, E5)." },
+        "tree_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "Where the moved pin sits in the configuration's tree (the `--pin` paths of the matching compat what-if)." },
+        "depth": { "type": "integer", "minimum": 1 },
+        "order": { "type": "integer", "minimum": 1, "description": "E1 deepest first: 1 is applied first." },
+        "consumer": {
+          "type": "object",
+          "required": ["component", "repo", "branch", "base", "configured", "at_configured"],
+          "additionalProperties": false,
+          "properties": {
+            "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+            "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+            "branch": {
+              "type": "string",
+              "minLength": 1,
+              "not": { "pattern": "^release/" },
+              "description": "The branch a person's pull request would target: the configuration's own branch for its root, else the consumer repo's default branch. Never release/* (E5)."
+            },
+            "base": { "$ref": "defs.schema.json#/$defs/sha", "description": "The branch tip the patch applies to." },
+            "configured": { "$ref": "defs.schema.json#/$defs/sha", "description": "The consumer commit the configuration's tree pins." },
+            "at_configured": { "type": "boolean", "description": "base == configured: the configuration pins the consumer at its branch tip." }
+          }
+        },
+        "path": { "type": "string", "minLength": 1, "description": "The gitlink path inside the consumer repo." },
+        "dependency": {
+          "type": "object",
+          "required": ["component", "repo"],
+          "additionalProperties": false,
+          "properties": {
+            "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+            "repo": { "$ref": "defs.schema.json#/$defs/repo", "description": "The repo the consumer's .gitmodules URL names (where the new commit must be reachable)." }
+          }
+        },
+        "from": { "$ref": "#/$defs/tagref" },
+        "to": { "$ref": "#/$defs/tagref" },
+        "newest": { "anyOf": [{ "$ref": "#/$defs/tagref" }, { "type": "null" }], "description": "The newest release tag past the pin, when the declared range holds the proposal below it." },
+        "range": {
+          "type": "object",
+          "required": ["declared", "source", "allows", "problem"],
+          "additionalProperties": false,
+          "properties": {
+            "declared": { "type": ["string", "null"], "description": "The consumer manifest's requires[].range for this path (C11), or null when none is declared." },
+            "source": { "type": ["string", "null"] },
+            "allows": { "type": ["boolean", "null"], "description": "null when no range is declared." },
+            "problem": { "type": ["string", "null"] }
+          }
+        },
+        "change": {
+          "type": "object",
+          "required": ["class", "class_source", "class_detail", "changelog", "commits", "diverged"],
+          "additionalProperties": false,
+          "properties": {
+            "class": { "enum": ["breaking", "feature", "fix", "none", "unknown"] },
+            "class_source": { "enum": ["classifier", "changelog", "none"] },
+            "class_detail": { "type": "string" },
+            "changelog": {
+              "type": "object",
+              "required": ["file", "excerpt", "truncated"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "type": ["string", "null"] },
+                "excerpt": { "type": "string", "maxLength": 4000 },
+                "truncated": { "type": "boolean" }
+              }
+            },
+            "commits": {
+              "type": "object",
+              "required": ["count", "shown"],
+              "additionalProperties": false,
+              "properties": {
+                "count": { "type": "integer", "minimum": 0 },
+                "shown": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "required": ["commit", "subject"],
+                    "additionalProperties": false,
+                    "properties": { "commit": { "$ref": "defs.schema.json#/$defs/sha" }, "subject": { "type": "string" } }
+                  }
+                }
+              }
+            },
+            "diverged": { "type": "boolean", "description": "The pin is not an ancestor of the tag: the move drops commits (E3: goes to a person)." }
+          }
+        },
+        "defects": {
+          "type": "object",
+          "required": ["fixed", "introduced", "unjudged"],
+          "additionalProperties": false,
+          "properties": {
+            "fixed": { "type": "array", "items": { "$ref": "#/$defs/defect_ref" } },
+            "introduced": { "type": "array", "items": { "$ref": "#/$defs/defect_ref" } },
+            "unjudged": { "type": "array", "items": { "type": "string" }, "description": "Defect commits the dependency's mirror does not hold, so the move cannot be judged against them." }
+          }
+        },
+        "matrix": {
+          "type": "object",
+          "required": ["verdict", "source", "observed_at", "href", "pins"],
+          "additionalProperties": false,
+          "properties": {
+            "verdict": { "anyOf": [{ "$ref": "#/$defs/verdict" }, { "type": "null" }], "description": "null: no stored result for this move; the page offers Run." },
+            "source": { "enum": ["matrix", "compat-job", null] },
+            "observed_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
+            "href": { "type": ["string", "null"] },
+            "pins": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^.+=[0-9a-f]{40}$" }, "description": "The `--pin TREE_PATH=SHA` overrides that test this move." }
+          }
+        },
+        "patch": {
+          "type": "object",
+          "required": ["file", "regenerated", "note"],
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+\\.diff$" },
+            "regenerated": { "const": false, "description": "E1 asks for regenerated RTL; that needs the generator (NANOSOC_GEN_OK), which this tool never runs. The patch is the gitlink move only." },
+            "note": { "type": "string", "minLength": 1 }
+          }
+        },
+        "decision": {
+          "type": "object",
+          "required": ["mode", "would", "auto_merge", "goes_to", "blockers"],
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "const": "shadow" },
+            "would": { "enum": ["open-pull-request", "hold"], "description": "What the bot would do outside shadow mode: open a pull request (E1), or hold (blocked)." },
+            "auto_merge": { "const": false, "description": "E2, E3: never in shadow mode." },
+            "goes_to": { "const": "person" },
+            "blockers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "description": "Every reason the move could not auto-merge (E3), shadow mode first." }
+          }
+        },
+        "waits_for": { "type": "array", "items": { "$ref": "#/$defs/proposal_id" }, "description": "Proposals inside the dependency itself, which (deepest first) land and are tagged before this one." },
+        "state": { "enum": ["proposed", "blocked"] },
+        "reason": { "type": ["string", "null"], "description": "Why a blocked proposal is blocked." }
+      },
+      "allOf": [
+        { "if": { "properties": { "state": { "const": "blocked" } } }, "then": { "properties": { "reason": { "type": "string", "minLength": 1 }, "decision": { "properties": { "would": { "const": "hold" } } } } } }
+      ]
+    },
+    "scan_row": {
+      "type": "object",
+      "required": ["tree_path", "component", "commit", "status", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "tree_path": { "type": "string", "minLength": 1 },
+        "component": { "type": ["string", "null"] },
+        "commit": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] },
+        "consumer": { "type": ["string", "null"] },
+        "status": {
+          "enum": ["proposal", "blocked", "up-to-date", "no-release-tag", "held-by-range", "external", "not-catalogued",
+                   "no-gitlink", "consumer-not-a-branch", "consumer-not-mirrored", "consumer-path-gone",
+                   "release-branch", "pin-not-in-mirror", "duplicate"]
+        },
+        "tag": { "type": ["string", "null"] },
+        "proposal": { "anyOf": [{ "$ref": "#/$defs/proposal_id" }, { "type": "null" }] },
+        "note": { "type": "string" }
+      }
+    },
+    "scan": {
+      "description": "One configuration's bump scan: every pin of its latest stored walk with why it is or is not proposed. Event kind, subject bump_scan:<configuration>.",
+      "type": "object",
+      "required": ["configuration", "eligible", "refused", "walk", "rows", "proposals", "counts", "auto_merge", "schedule", "problems"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "eligible": { "type": "boolean" },
+        "refused": { "type": ["string", "null"], "description": "Why the configuration is never proposed (frozen or silicon: E3, E5)." },
+        "walk": {
+          "type": ["object", "null"],
+          "required": ["snapshot", "observed_at", "pins"],
+          "additionalProperties": false,
+          "properties": { "snapshot": { "type": "string" }, "observed_at": { "$ref": "defs.schema.json#/$defs/utc" }, "pins": { "type": "integer", "minimum": 0 } }
+        },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/scan_row" } },
+        "proposals": { "type": "array", "items": { "$ref": "#/$defs/proposal_id" } },
+        "counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "auto_merge": { "type": "object", "description": "eligibility.yaml auto_merge as read. Must be empty before the Phase 4 gate; anything in it is a problem and is ignored." },
+        "schedule": { "$ref": "#/$defs/schedule" },
+        "problems": { "type": "array", "items": { "type": "string" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "eligible": { "const": false } } },
+          "then": { "properties": { "proposals": { "maxItems": 0 }, "refused": { "type": "string", "minLength": 1 }, "rows": { "maxItems": 0 } } } }
+      ]
+    },
+    "schedule": {
+      "description": "The bump schedule as shipped: DISABLED, naming the gate that governs enabling it (CR-15).",
+      "type": "object",
+      "required": ["enabled", "gate", "gate_status", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "const": false },
+        "gate": { "const": "Phase 4" },
+        "gate_status": { "type": "string" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ledger_entry": {
+      "type": "object",
+      "required": ["id", "configurations", "consumer", "branch", "path", "dependency", "from", "to", "tag", "class",
+                   "first_proposed", "outcome", "person", "marks", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/proposal_id" },
+        "configurations": { "type": "array", "items": { "$ref": "defs.schema.json#/$defs/configuration_id" } },
+        "consumer": { "$ref": "defs.schema.json#/$defs/repo" },
+        "branch": { "type": "string" },
+        "path": { "type": "string" },
+        "dependency": { "$ref": "defs.schema.json#/$defs/component_id" },
+        "from": { "$ref": "defs.schema.json#/$defs/sha" },
+        "to": { "$ref": "defs.schema.json#/$defs/sha" },
+        "tag": { "type": ["string", "null"] },
+        "class": { "enum": ["breaking", "feature", "fix", "none", "unknown"] },
+        "first_proposed": { "$ref": "defs.schema.json#/$defs/utc" },
+        "outcome": {
+          "enum": ["agreed", "disagreed", "pending", "superseded", "unknown"],
+          "description": "agreed: the branch now pins exactly the proposed commit. disagreed: a person pinned something else, or declined it. pending: the branch still pins `from`. superseded: a newer proposal for the same pin replaced it, or a person moved to a newer release that contains it. unknown: the mirror cannot answer."
+        },
+        "person": {
+          "type": ["object", "null"],
+          "required": ["pin", "commit", "at"],
+          "additionalProperties": false,
+          "properties": {
+            "pin": { "$ref": "defs.schema.json#/$defs/sha" },
+            "commit": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" }] },
+            "at": { "type": ["string", "null"] }
+          }
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["at", "login", "decision"],
+            "additionalProperties": false,
+            "properties": { "at": { "$ref": "defs.schema.json#/$defs/utc" }, "login": { "type": "string", "minLength": 1 }, "decision": { "enum": ["done", "declined"] }, "note": { "type": ["string", "null"] } }
+          }
+        },
+        "note": { "type": "string" }
+      }
+    },
+    "ledger": {
+      "description": "E2 shadow ledger: what the bot would have done against what people did, read from the consumers' branches in the mirrors. Event kind, subject bump_ledger:all.",
+      "type": "object",
+      "required": ["started_at", "weeks", "counts", "agreement_rate", "by_class", "threshold", "auto_merge", "entries", "problems"],
+      "additionalProperties": false,
+      "properties": {
+        "started_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
+        "weeks": { "type": "number", "minimum": 0 },
+        "counts": {
+          "type": "object",
+          "required": ["agreed", "disagreed", "pending", "superseded", "unknown", "decided"],
+          "additionalProperties": false,
+          "properties": {
+            "agreed": { "type": "integer", "minimum": 0 }, "disagreed": { "type": "integer", "minimum": 0 },
+            "pending": { "type": "integer", "minimum": 0 }, "superseded": { "type": "integer", "minimum": 0 },
+            "unknown": { "type": "integer", "minimum": 0 }, "decided": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "agreement_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "by_class": { "type": "object", "additionalProperties": { "type": "object", "required": ["agreed", "disagreed"], "properties": { "agreed": { "type": "integer" }, "disagreed": { "type": "integer" } } } },
+        "threshold": {
+          "type": "object",
+          "required": ["weeks", "bumps", "met", "classes_without_disagreement", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "weeks": { "const": 4 }, "bumps": { "const": 20 }, "met": { "type": "boolean" },
+            "classes_without_disagreement": { "type": "array", "items": { "enum": ["fix", "feature"] } },
+            "reason": { "type": "string" }
+          }
+        },
+        "auto_merge": {
+          "type": "object",
+          "required": ["configured", "enabled", "gate"],
+          "additionalProperties": false,
+          "properties": { "configured": { "type": "object" }, "enabled": { "const": false }, "gate": { "type": "string" } }
+        },
+        "entries": { "type": "array", "items": { "$ref": "#/$defs/ledger_entry" } },
+        "problems": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

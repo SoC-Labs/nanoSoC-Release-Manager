@@ -36,7 +36,10 @@
         "quality_density",
         "quality_finding",
         "readme_check",
-        "doc_score"
+        "doc_score",
+        "bump_proposal",
+        "bump_scan",
+        "bump_ledger"
       ]
     },
     "subject": {
@@ -439,6 +442,36 @@
         "properties": {
           "fact": { "$ref": "#/$defs/doc_score" },
           "subject": { "pattern": "^doc_score:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bump_proposal" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/proposal" },
+          "subject": { "pattern": "^bump_proposal:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bump_scan" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/scan" },
+          "subject": { "pattern": "^bump_scan:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "bump_ledger" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "bump-proposal.schema.json#/$defs/ledger" },
+          "subject": { "pattern": "^bump_ledger:" }
         },
         "not": { "required": ["snapshot"] }
       }
