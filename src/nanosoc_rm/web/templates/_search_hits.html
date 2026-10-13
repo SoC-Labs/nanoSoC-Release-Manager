@@ -1,0 +1,12 @@
+{# The command bar's hits (htmx fragment, also the body of search.html). `hits` from shell.search. #}
+{% if hits %}
+<ul class="hitlist" role="listbox" aria-label="Matches for {{ q }}">
+{% for h in hits %}
+  <li role="option" aria-selected="false"><a class="hit" href="{{ h.href }}" data-kind="{{ h.kind }}"><span class="lbl"><strong>{{ h.label }}</strong><span class="sub">{{ h.sub }}</span></span><span class="chip {{ h.tone }}">{{ h.kind }}</span></a></li>
+{% endfor %}
+</ul>
+{% elif q and q|length >= min_query %}
+<p class="none" role="status">Nothing matches "{{ q }}". The command bar also searches commits.</p>
+{% elif q %}
+<p class="none" role="status">Type at least {{ min_query }} characters.</p>
+{% endif %}

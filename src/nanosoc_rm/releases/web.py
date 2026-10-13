@@ -178,7 +178,12 @@ async def _submit(request: Request, kind: str, params: dict, back: str) -> Respo
     return RedirectResponse(back + ("&" if "?" in back else "?") + "job=%d" % job["id"], 303)
 
 
-def router() -> APIRouter:
+def router(app: Any = None) -> APIRouter:
+    """The plug-in's routes. Its POST routes are registered only in a local deployment (`app.state.rm.local_routes`,
+    interfaces.md section 13a), so a GitHub + CI deployment keeps section 13's two Run routes as its only writes
+    (D5). Each POST still re-checks at request time."""
+    from nanosoc_rm.web.plugins import local_routes
+    local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
     def index(request: Request) -> HTMLResponse:
@@ -309,13 +314,16 @@ def router() -> APIRouter:
     get = ["GET"]
     r.add_api_route("/", index, methods=get, include_in_schema=False)
     r.add_api_route("/forks", forks_page, methods=get, include_in_schema=False)
-    r.add_api_route("/jobs", post_draft, methods=["POST"], include_in_schema=False)
-    r.add_api_route("/forks/jobs", post_forks, methods=["POST"], include_in_schema=False)
+    if local:
+        r.add_api_route("/jobs", post_draft, methods=["POST"], include_in_schema=False)
+    if local:
+        r.add_api_route("/forks/jobs", post_forks, methods=["POST"], include_in_schema=False)
     r.add_api_route("/{configuration}/{version}", draft_page, methods=get, include_in_schema=False)
     r.add_api_route("/{configuration}/{version}/errata", errata_page, methods=get, include_in_schema=False)
     r.add_api_route("/{configuration}/{version}/download.zip", download, methods=get, include_in_schema=False)
     r.add_api_route("/{configuration}/{version}/files/{name}", file_view, methods=get, include_in_schema=False)
-    r.add_api_route("/{configuration}/{version}/verify", post_verify, methods=["POST"], include_in_schema=False)
+    if local:
+        r.add_api_route("/{configuration}/{version}/verify", post_verify, methods=["POST"], include_in_schema=False)
     return r
 
 

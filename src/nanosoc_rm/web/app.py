@@ -39,7 +39,7 @@ from starlette.websockets import WebSocketClose
 from nanosoc_rm import auth as authmod
 from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.config import Config, ConfigError, load_config
-from nanosoc_rm.web import plugins, registry_facts, views
+from nanosoc_rm.web import plugins, registry_facts, routers, shell, views
 from nanosoc_rm.web.page import NAV, Page, env, render
 
 __all__ = ["create_app", "STATIC_DIR", "STATIC_PREFIX", "NDJSON"]
@@ -282,11 +282,40 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
     def page(request: Request, template: str, title: str, status: int = 200, problems: list[str] | None = None,
              **ctx: Any) -> HTMLResponse:
         config, ident = _ctx(request)
+        path = request.url.path
+        problems = list(problems or [])
+        try:
+            rail = shell.rail(config, ident, path, state.nav)
+        except Exception as e:                       # noqa: BLE001 - the rail never takes a page down
+            rail = None
+            problems.append("the navigation rail could not be read: %s" % str(e)[:200])
+        if ctx.get("crumbs") is None:
+            ctx["crumbs"] = _default_crumbs(path, title)
         html = render(template, title=title, identity=ident, problems=problems, csrf=state.csrf_for(ident, config),
-                      nav=state.nav, path=request.url.path, auth_mode=config.auth_mode,
+                      nav=state.nav, path=path, auth_mode=config.auth_mode, rail=rail,
                       local_ci=jobs.is_local_ci(config), actions=state.local_routes, **ctx)
         return HTMLResponse(html, status_code=status)
     state.page = page
+
+    def _default_crumbs(path: str, title: str) -> list[tuple[str, str | None]]:
+        """Spec 1.5: Inbox, then the navigation entry the page sits under (a plug-in's or a Tools page's), then
+        the page. A workspace handler passes its own."""
+        if path == "/":
+            return [("Inbox", None)]
+        entry = next((n for n in state.nav if n[1] != "/" and any(
+            path == p or path.startswith(p.rstrip("/") + "/") for p in n[2])), None)
+        trail: list[tuple[str, str | None]] = [("Inbox", "/")]
+        if entry is not None and entry[1].rstrip("/") != path.rstrip("/"):
+            trail.append((entry[0], entry[1]))
+        return shell.crumbs(trail + [(title, None)])
+
+    def delegate(name: str, request: Request, *args: Any) -> Response | None:
+        """Wave C core-router seam (routers.DELEGATES): a workspace module that is built here answers the page;
+        None means it did not (not built, or it declines), and the older page is served."""
+        target = routers.DELEGATES.get(name)
+        mod = routers.optional(target[0]) if target else None
+        fn = getattr(mod, target[1], None) if mod is not None else None
+        return fn(request, *args) if fn is not None else None
 
     def not_found(request: Request, what: str) -> HTMLResponse:
         return page(request, "message.html", "Not found", status=404, message="No %s is known here." % what)
@@ -295,12 +324,18 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         return registry_facts.refresh(config)
 
     # ----- pages ---------------------------------------------------------------------------------------
-    def dashboard(request: Request) -> HTMLResponse:
+    def dashboard(request: Request) -> Response:
+        answer = delegate("dashboard", request)
+        if answer is not None:
+            return answer
         config, _ = _ctx(request)
         problems = registry_problems(config)
         return page(request, "dashboard.html", "Dashboard", problems=problems, d=views.dashboard(config))
 
-    def configuration(request: Request, id: str) -> HTMLResponse:
+    def configuration(request: Request, id: str) -> Response:
+        answer = delegate("configuration", request, id)
+        if answer is not None:
+            return answer
         config, _ = _ctx(request)
         problems = registry_problems(config)
         c = views.configuration_page(config, id) if views.is_valid_id(id) else None
@@ -311,7 +346,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         return page(request, "configuration.html", "Configuration %s" % id, problems=problems, c=c,
                     job_html=job_fragment(request, job).body.decode() if job else "")
 
-    def component(request: Request, id: str) -> HTMLResponse:
+    def component(request: Request, id: str) -> Response:
+        answer = delegate("component", request, id)
+        if answer is not None:
+            return answer
         config, _ = _ctx(request)
         problems = registry_problems(config)
         c = views.component_page(config, id) if views.is_valid_id(id) else None
@@ -477,7 +515,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
             target = "/configurations/%s?job=%%d" % urllib.parse.quote(params["configuration"], safe="")
         return RedirectResponse(target % job["id"], 303)
 
-    def compat_page(request: Request) -> HTMLResponse:
+    def compat_page(request: Request) -> Response:
+        answer = delegate("compat", request)
+        if answer is not None:
+            return answer
         config, _ = _ctx(request)
         problems = registry_problems(config)
         q = request.query_params
@@ -548,7 +589,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         form = await request.form()
         return await _queue(request, "mirror-sync", {"component": str(form.get("component") or "") or None})
 
-    def branches_page(request: Request) -> HTMLResponse:
+    def branches_page(request: Request) -> Response:
+        answer = delegate("branches", request)
+        if answer is not None:
+            return answer
         q = request.query_params
         return _branches(request, q.get("component") or "", q.get("all") in ("1", "on", "true"), q.get("verdict") or "")
 
@@ -606,7 +650,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
                     job=job, job_html=job_fragment(request, job).body.decode() if job else "",
                     recent=views.safe_jobs(config, limit=10, kind="mirror-sync"))
 
-    def alerts_page(request: Request) -> HTMLResponse:
+    def alerts_page(request: Request) -> Response:
+        answer = delegate("alerts", request)
+        if answer is not None:
+            return answer
         config, _ = _ctx(request)
         open_, cleared = views.all_alerts(config)
         return page(request, "alerts.html", "Alerts", open_alerts=open_, cleared=cleared[:50])
@@ -631,6 +678,21 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         config, _ = _ctx(request)
         problems = registry_problems(config)
         return page(request, "errata_all.html", "Errata", problems=problems, errata=views.errata(config))
+
+    def search_page(request: Request) -> Response:
+        """Spec 1.4: the command bar. An htmx request gets the hits fragment; a plain GET (no JavaScript) the
+        full results page. GET only; reads stored facts and registry records."""
+        config, _ = _ctx(request)
+        q = (request.query_params.get("q") or "").strip()[:80]
+        scope = request.query_params.get("scope") or None
+        scope = scope if scope == "component" else None
+        hits = shell.search(config, q, scope=scope)
+        if request.headers.get("hx-request"):
+            p = Page()
+            return HTMLResponse(env.get_template("_search_hits.html").render(
+                hits=hits, q=q, min_query=shell.MIN_QUERY, fact=p.fact, page=p))
+        return page(request, "search.html", "Search", hits=hits, q=q, scope=scope, min_query=shell.MIN_QUERY,
+                    configs=views.configurations(config))
 
     # ----- JSON API (section 13): every line is an observation -----------------------------------------
     def api_configurations(request: Request) -> Response:
@@ -801,8 +863,10 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         return resp
 
     # Registration. api_route with explicit methods: no route is registered through a `.post(...)` call.
+    # The Wave C workspace routers first (routers.mount), so their deeper routes match before the app's own.
+    routers.mount(app)
     get = ["GET"]
-    for path, fn in (("/", dashboard), ("/configurations/{id}", configuration), ("/components/{id}", component),
+    for path, fn in (("/", dashboard), ("/search", search_page), ("/configurations/{id}", configuration), ("/components/{id}", component),
                      ("/contains", contains_page), ("/silicon-protection", silicon), ("/defects", defects_page),
                      ("/defects/{id}", defect_page), ("/errata/{configuration}", errata_page),
                      ("/runs/{nonce}", run_page), ("/facts/{subject:path}", facts_page),

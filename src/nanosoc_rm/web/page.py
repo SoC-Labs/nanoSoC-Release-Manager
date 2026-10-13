@@ -46,6 +46,18 @@ JOB_CLASS = {"queued": "state-grey", "running": "state-info", "done": "", "faile
              "cancelled": "state-grey", "infra": "state-amber"}
 
 
+def _with_tone(old: dict[str, str]) -> dict[str, str]:
+    """Wave C (spec 1.6): each older class keeps its name (tests and plug-ins read it) and gains the shell's tone
+    class from shell.TONE, which decides the colour."""
+    from nanosoc_rm.web.shell import tone
+    return {k: ("%s %s" % (v, tone(k))).strip() for k, v in old.items()}
+
+
+STATE_CLASS, EXPOSURE_CLASS, VERDICT_CLASS, ITEM_CLASS, BRANCH_CLASS, RELATION_CLASS, JOB_CLASS = (
+    _with_tone(m) for m in (STATE_CLASS, EXPOSURE_CLASS, VERDICT_CLASS, ITEM_CLASS, BRANCH_CLASS, RELATION_CLASS,
+                            JOB_CLASS))
+
+
 def fact_href(subject: str) -> str:
     return "/facts/" + urllib.parse.quote(subject, safe="")
 
@@ -168,9 +180,12 @@ env.globals.update(short=short, fact_href=fact_href, human_age=human_age, STATE_
 
 def render(template: str, *, title: str, identity: Any = None, problems: list[str] | None = None,
            now: dt.datetime | None = None, csrf: str = "", environment: Environment | None = None,
-           nav: tuple = NAV, path: str = "", auth_mode: str = "github", **ctx: Any) -> str:
+           nav: tuple = NAV, path: str = "", auth_mode: str = "github", rail: dict | None = None,
+           crumbs: list | None = None, tabs: list | None = None, tab_current: str | None = None, **ctx: Any) -> str:
     """The body template rendered first (its facts recorded), then the layout with the page's data age.
-    `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's)."""
+    `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's).
+    Wave C shell: `rail` (shell.rail), `crumbs` [(label, href)], `tabs` [{key, label, href, count}] and
+    `tab_current` (a tab's key or href) go to the layout only."""
     page = Page(now)
     body_env = environment or env
     body_env.globals.update({k: v for k, v in env.globals.items() if k not in body_env.globals})
@@ -178,5 +193,6 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
     current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
     return env.get_template("layout.html").render(
         body=Markup(body), title=title, identity=identity, problems=problems or [], csrf=csrf, nav=nav,
-        current=current[1] if current else None, auth_mode=auth_mode,
+        current=current[1] if current else None, auth_mode=auth_mode, rail=rail, crumbs=crumbs or [], tabs=tabs or [],
+        tab_current=tab_current,
         age_seconds=page.age_seconds(), oldest=page.oldest(), human_age=human_age, now=clock.iso(page.now))

@@ -1207,8 +1207,8 @@ def test_AT_D5(tmp_path, monkeypatch):
     example_registry(tmp_path / "registry")
     prime_for_trigger(tmp_path)
     client = member_client(cfg_path)
-    writes = {(m, r.path) for r in client.app.routes
-              for m in getattr(r, "methods", ()) if m not in ("GET", "HEAD", "OPTIONS")}
+    from nanosoc_rm.web import routers
+    writes = routers.writes(client.app)              # included (plug-in) routers counted too
     assert writes == {("POST", "/configurations/{id}/runs"),
                       ("POST", "/api/v1/configurations/{id}/runs")}
     posted = example_provenance()

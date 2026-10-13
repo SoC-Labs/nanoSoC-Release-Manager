@@ -1,0 +1,36 @@
+{# Shared markup macros (Wave C shell, spec 1.1). Import with {% import "_ui.html" as ui %}. Every chip carries
+   its text; a dot never stands alone. No logic beyond printing what Python computed. #}
+{% macro chip(text, tone="c-neutral") -%}
+<span class="chip {{ tone }}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro dot(tone="d-notrun") -%}
+<span class="dot {{ tone }}" aria-hidden="true"></span>
+{%- endmacro %}
+
+{% macro tabs(items, current, label="Workspace tabs") -%}
+<nav class="tabs" aria-label="{{ label }}">
+{% for t in items %}
+  <a href="{{ t.href }}"{% if t.href == current or t.key == current %} aria-current="page"{% endif %}>{{ t.label }}{% if t.count is defined and t.count is not none %} <span class="chip c-neutral">{{ t.count }}</span>{% endif %}</a>
+{% endfor %}
+</nav>
+{%- endmacro %}
+
+{% macro crumbs(items) -%}
+<nav class="crumbs" aria-label="Breadcrumb"><ol>
+{% for label, href in items %}
+  {% if loop.last %}<li aria-current="page">{{ label }}</li>{% elif href %}<li><a href="{{ href }}">{{ label }}</a></li>{% else %}<li>{{ label }}</li>{% endif %}
+{% endfor %}
+</ol></nav>
+{%- endmacro %}
+
+{% macro copybox(id, text, label="Copy") -%}
+<div class="copybox">
+  <div class="bar"><span class="note">{{ label }}</span><button type="button" class="ghost" data-copy="{{ id }}">Copy</button></div>
+  <pre class="code" id="{{ id }}">{{ text }}</pre>
+</div>
+{%- endmacro %}
+
+{% macro job_card(job_html) -%}
+<div class="job-card">{{ job_html|safe }}</div>
+{%- endmacro %}

@@ -175,5 +175,8 @@ def test_a_ci_deployment_shows_commands_and_refuses_the_local_posts(tmp_path, mo
     c = TestClient(app)
     t = c.get("/bumps/").text
     assert 'action="/bumps/scan"' not in t and "nanosoc-rm bumps --store" in t
+    # D5: a GitHub + CI deployment registers no plug-in POST at all (CR-WC-seams), so the page's command is the way
+    from nanosoc_rm.web import routers
+    assert not {p for _, p in routers.writes(app)} & {"/bumps/scan", "/bumps/p/{pid}/mark"}
     r = c.post("/bumps/scan", data={"configuration": "eth-main"})
-    assert r.status_code == 403 and "nanosoc-rm bumps eth-main --store" in r.text
+    assert r.status_code in (404, 405)

@@ -1328,6 +1328,9 @@ def sweep(client, app, who, *, methods=None, skip=()):
 
 
 MEMBER_MUST_OPEN = {("GET", "/"), ("GET", "/silicon-protection"), ("GET", "/defects"), ("GET", "/api/v1/configurations")}
+# CR-W6: the Wave C pages a member must open in the real app's sweep (the checker's synthetic baseline sweeps only
+# the section 13 contract routes, so it keeps MEMBER_MUST_OPEN).
+APP_MUST_OPEN = MEMBER_MUST_OPEN | {("GET", "/search")}
 
 
 def check_a5(results, *, member, login_path, exempt=(), required=CONTRACT_ROUTES, must_open=MEMBER_MUST_OPEN):
@@ -2583,7 +2586,8 @@ def test_AT_A5(tmp_path, fake_github, fake_gitlab, monkeypatch):
     # Then alice is never refused and opens the fixed pages; bob gets 403 on every route including
     #   /api and POST; anonymous gets 401/403 or the login redirect; no refused body leaks rc4 data;
     #   every contracted route (interfaces.md §13) is in the table.
-    assert check_a5(results, member="alice", login_path=ASSUMED["login_path"], exempt=auth) == []
+    assert check_a5(results, member="alice", login_path=ASSUMED["login_path"], exempt=auth,
+                    must_open=APP_MUST_OPEN) == []
     # And the only unauthenticated surfaces are /auth/* and static files, which carry no data.
     for path, _, directory in route_table(app):
         if directory is not None:
@@ -2591,7 +2595,8 @@ def test_AT_A5(tmp_path, fake_github, fake_gitlab, monkeypatch):
             for f in Path(directory).rglob("*"):
                 if f.is_file():
                     text = f.read_bytes().decode("utf-8", "replace")
-                    assert "{{" not in text and "{%" not in text, "%s is a template, not a static asset" % f
+                    if f.suffix not in (".woff2",):           # a binary font's bytes may contain "{{" (Wave C fonts)
+                        assert "{{" not in text and "{%" not in text, "%s is a template, not a static asset" % f
                     assert not [s for s in LEAK_STRINGS if s in text], "%s carries data" % f
         else:
             assert not path.startswith(ASSUMED["static_prefix"] + "/")

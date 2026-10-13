@@ -719,6 +719,12 @@ def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str,
 
 - All `db` functions find the database through the config (`service.data_dir`), read per call.
 - **History:** every observation is kept in v1 (the volume is small: about 200 set-kind rows per poll). Pruning is a later decision.
+- **Other stores** (not facts, not rebuildable, apart from `rm.sqlite`): `<data_dir>/jobs.sqlite` (section 13a),
+  `<data_dir>/bumps.sqlite` (section 19.4) and `<data_dir>/gui.sqlite` (CR-W2: `nanosoc_rm.web.uistate`, mode
+  0600, `PRAGMA user_version = 1`): per-user inbox state `inbox_state(login, card_id, state, fingerprint, until,
+  at)` and the review basket `review_decision(login, component, commit_sha, key, decision, text, at)` and
+  `basket_flag(login, component, commit_sha, name, value, at)`. Each row carries its login and time; none changes
+  system state, so none is logged in `actions`.
 
 ### 12a. Scheduler
 
@@ -846,10 +852,17 @@ class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), sto
   navigation entry (`Quality` for `nanosoc_rm.quality.web`, `Releases` for `nanosoc_rm.releases.web`) and renders
   through `render_page(request, template, title, environment=...)`. Its routes sit behind the same guard and CSRF
   check (CR-R6).
-- **Job kinds from plug-ins (CR-R2):** `jobs.register_kind(name, params, args)`; the worker imports the modules
-  in `jobs.KIND_MODULES` on first use of a kind it does not know. Kinds today: `quality`, `release-draft`,
-  `release-verify`, `forks`. A plug-in kind's job ends `done` with the verdict of its exit code (0 PASS, 1 FAIL,
-  2 UNVERIFIED), `failed` on exit 3, as walk and sync do.
+- **Job kinds from plug-ins (CR-R2; one seam since CR-WC-seams):** `jobs.register_kind(name, params, args, *,
+  outcome=None, limit_s=None, action=None)` returns a `jobs.JobKind`; `jobs.registered(name)` looks one up and
+  `jobs.all_kinds()` lists the three built-in kinds (`jobs.KINDS`: compat, mirror-sync, walk) and every registered
+  one. The worker imports the modules in `jobs.KIND_MODULES` once, on first use of a kind it does not know. Kinds
+  today: `matrix-cell`, `bumps`, `quality`, `release-draft`, `release-verify`, `forks`, `versions-refresh`,
+  `version-draft`. A kind without `outcome` ends `done` with the verdict of its exit code (0 PASS, 1 FAIL,
+  2 UNVERIFIED), `failed` on exit 3, as walk and sync do. Another module's kind cannot be replaced.
+- **POST routes of plug-ins:** a plug-in `router` factory that takes the app registers its POST routes only when
+  `app.state.rm.local_routes` is true (`web.plugins.local_routes(app)`), so a GitHub + CI deployment serves
+  exactly section 13's two Run routes as writes (D5). The census reads `web.routers.writes(app)`, which counts the
+  routes of included routers too.
 
 ## 14. Auth and roles
 
@@ -976,7 +989,7 @@ class Regenerator(Protocol): name; available(); consumers(component); regenerate
    `tag_moved` (about `tag_check:<component>:<tag>`) for a moved or deleted release tag; `--store` stores the
    observation. `tag_check` compares the mirror with every stored `tag_check` of the component: a release tag
    once seen on the canonical host and now gone is a row with `deleted: true`; one at another commit is moved.
-4. **Jobs.** `jobs.register_kind(name, check, args)` (new, additive) adds `versions-refresh`
+4. **Jobs.** `jobs.register_kind(name, params, args)` (section 13a) adds `versions-refresh`
    (`version refresh [COMPONENT]...`) and `version-draft` (`version draft COMPONENT`).
 5. **Pages** (plug-in `nanosoc_rm.versioning.web`, navigation "Versions"): `GET /versions/` (per component:
    current tag, Unreleased by class, class and status, next version, verdict, changelog, manifest, API.md, tags),
@@ -1210,7 +1223,11 @@ contract examples do.
 | `matrix`, `queue`, `nightly_plan`, `NIGHTLY`, `bump_cell` / `run_cell`, `compare`, `baseline_for`, `quarantine`, `set_owner` / `capture`, `moved` (section 18; `bump_cell` for section 19.6) | `nanosoc_rm.matrix` / `.cells` / `.provenance` |
 | `changelog_lint`, `plan`, `tag_check`, `manifest_init`, `draft`, `approve`, `yank`, `defect_trailers`, `is_yanked`, `allowed`, `classify_bump`, `Regenerator`, `NoGenerator` (CR-VER, section 14b; `classify_bump` for section 19.6) | `nanosoc_rm.versioning` |
 | `draft`, `verify`, `drafts`, `forks`, `ReleaseUsage`, `ReleaseError` (CR-R1, section 14c) | `nanosoc_rm.releases` |
-| `MODULE_KINDS` (section 18, 19.7), `EXTRA_KINDS`, `register_kind`, `KIND_MODULES`, `all_kinds` (CR-VER, CR-R2, section 13a) | `nanosoc_rm.jobs` |
+| `JobKind`, `register_kind`, `registered`, `KIND_MODULES`, `all_kinds` (CR-VER, CR-R2, CR-WC-seams, section 13a) | `nanosoc_rm.jobs` |
+| `ROUTERS`, `WAVE_C_POSTS`, `DELEGATES`, `mount`, `optional`, `route_table`, `writes` (CR-W1, CR-W6) | `nanosoc_rm.web.routers` |
+| `deciding`, `causes`, `next_action`, `unused_waivers`, `Decision`, `Cause`, `GATE_LABEL`, `GATE_ITEM` (CR-W1) | `nanosoc_rm.web.verdict` |
+| `rail`, `search`, `crumbs`, `component_flags`, `redact`, `uniform`, `TONE` (CR-W1) | `nanosoc_rm.web.shell` |
+| `path`, `card_state`, `set_card`, `undo_card`, `decisions`, `decide`, `flags`, `set_flag`, `clear_basket` (CR-W2) | `nanosoc_rm.web.uistate` |
 | `trailer_text`, `build_allowed`, `build_phases`, `LATER_AUTOMATION`, `GOVERNED_AUTOMATION`, `AUTOMATION_CODE`, `scheduled_jobs`, `enabled_automation`, `automation_reached`, `automation_in_use`, `outbound_writes` (CR-R3, CR-R4, CR-VER-a, CR-18-matrix-r1, CR-15c) | `nanosoc_rm.phasegates` |
 | `automation_phase(name, declared=None)`, `LATER_SUBCOMMANDS`, `scheduled_jobs(enabled_only=True)` (CR-R8, CR-15c) | `nanosoc_rm.phasegates` |
 
@@ -1416,8 +1433,8 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
    With none, it says so and compares with nothing: never with older history. A pinned run with no gate results
    (INFRA, unanswered) or one that read moved pins is used only when no other run of that night is usable; it is
    then named, and the comparison has no rows and a note saying why it was not compared.
-6. **Jobs.** Kind `matrix-cell` (params `configuration`, `component`, `column`) through `jobs.EXTRA_KINDS`
-   (`nanosoc_rm.matrix.jobkind`: params, cli_args, outcome, limit_s, ACTION): the worker runs
+6. **Jobs.** Kind `matrix-cell` (params `configuration`, `component`, `column`) through `jobs.register_kind`
+   (`nanosoc_rm.matrix.jobkind`: params, cli_args, outcome, limit_s, action): the worker runs
    `nanosoc-rm matrix cell CONFIG --column COL [--component C] --store --json`; the cell takes its job id from
    `NANOSOC_RM_JOB` and the login from that job's record. Ceiling 3600 s (two T0 runs). Submitting logs `run_t0`
    (H2). `queue` skips cells already queued or running, no-target and same-as-pinned cells, and queues pinned first.
@@ -1598,8 +1615,8 @@ proposal is work for a person, not a failure), 1 a problem finding (a bump write
 not empty), 2 could not answer (no stored walk, a registry that does not load), 3 usage (unknown configuration or
 proposal, an existing `--out`, a bad mark decision).
 
-**Job kind `bumps`** (`nanosoc_rm.jobs.PLUGIN_KINDS`, a new seam: kind -> module with `job_params(params)` and
-`job_args(params)`): `nanosoc-rm bumps scan [CONFIG] --store --json` (params `{"configuration"}`), or `nanosoc-rm
+**Job kind `bumps`** (`nanosoc_rm.jobs.register_kind`, section 13a; `nanosoc_rm.bumps.jobkind` registers
+`job_params(params)` and `job_args(params)`): `nanosoc-rm bumps scan [CONFIG] --store --json` (params `{"configuration"}`), or `nanosoc-rm
 bumps ledger --store --json` (params `{"ledger": true}`, queued once after a mark), in the local worker, so the
 mirror reads (which may fetch blobs anonymously from a partial mirror's promisor remote) never run inside a
 request.

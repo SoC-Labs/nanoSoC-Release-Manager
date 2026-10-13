@@ -167,8 +167,9 @@ def test_a_ci_deployment_refuses_a_mark(tmp_path, monkeypatch):
     w = _local(tmp_path, monkeypatch, local=False)
     c = TestClient(create_app(w["cfg"], auth=FakeMembership(login="alice")))
     pid = bumps.stored("eth-main")[0]["fact"]["id"]
+    # D5 (CR-WC-seams): a GitHub + CI deployment registers no plug-in POST, so a mark cannot even be routed
     r = c.post("/bumps/p/%s/mark" % pid, data={"decision": "done"})
-    assert r.status_code == 403 and "nanosoc-rm bumps mark %s done" % pid in r.text
+    assert r.status_code in (404, 405)
     assert bumps.marks(pid) == []
 
 

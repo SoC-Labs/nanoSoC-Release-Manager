@@ -1,0 +1,66 @@
+{# The left rail (spec 1.3). `rail` from shell.rail; a <details> menu below 900 px. #}
+{% import "_ui.html" as ui %}
+<details class="rail" open data-rail>
+  <summary>Menu: inbox, configurations, components</summary>
+  <div class="rail-body">
+    <a class="rail-item{% if rail.inbox.current %} is-cur{% endif %}" href="{{ rail.inbox.href }}"{% if rail.inbox.current %} aria-current="page"{% endif %} data-rail-inbox>
+      <span class="two"><strong>Inbox</strong></span>{{ ui.chip("%d open" % rail.inbox.open, "c-ink") }}
+    </a>
+
+    <div class="rail-block" role="group" aria-labelledby="rail-h-cfg">
+      <p class="rail-h" id="rail-h-cfg">SoC configurations</p>
+    {% for c in rail.configurations %}
+      <a class="rail-item{% if c.current %} is-cur{% endif %}" href="{{ c.href }}"{% if c.current %} aria-current="page"{% endif %} data-rail-configuration="{{ c.id }}">
+        <span class="two">{{ ui.dot(c.dot) }}<span class="lines"><span class="name">{{ c.id }}</span><span class="cause">{{ c.cause }}</span></span></span>
+        {{ ui.chip(c.verdict, c.tone) }}
+      </a>
+    {% else %}
+      <p class="note">No configuration is registered.</p>
+    {% endfor %}
+    {% if rail.matrix %}
+      <a class="rail-item{% if rail.matrix_current %} is-cur{% endif %}" href="/matrix/"{% if rail.matrix_current %} aria-current="page"{% endif %}>
+        <span class="lines"><strong>Matrix</strong><span class="cause">pins against newer refs</span></span>
+      </a>
+    {% endif %}
+    </div>
+
+    <div class="rail-block" role="group" aria-labelledby="rail-h-comp">
+      <p class="rail-h" id="rail-h-comp">Components</p>
+      <form class="rail-search" method="get" action="/search" role="search">
+        <label for="rail-q">Search components</label>
+        <input id="rail-q" type="search" name="q" autocomplete="off" placeholder="e.g. tidelink"
+               hx-get="/search?scope=component" hx-trigger="input changed delay:200ms, search" hx-target="#rail-hits">
+        <input type="hidden" name="scope" value="component">
+      </form>
+      <div id="rail-hits" aria-live="polite"></div>
+    {% if rail.components %}
+      <p class="rail-h">In my configurations</p>
+    {% endif %}
+    {% for c in rail.components %}
+      <a class="rail-item{% if c.current %} is-cur{% endif %}" href="{{ c.href }}"{% if c.current %} aria-current="page"{% endif %}>
+        <span class="lines"><span class="name">{{ c.id }}</span><span class="cause">{{ c.sub }}</span></span>
+        <span class="chips">{% for text, tone in c.chips %}{{ ui.chip(text, tone) }}{% endfor %}</span>
+      </a>
+    {% endfor %}
+      <a class="more" href="/components">All {{ rail.n_components }} components</a>
+    </div>
+
+    {% if rail.alerts %}
+    <div class="rail-block sep" role="group" aria-labelledby="rail-h-alerts">
+      <p class="rail-h" id="rail-h-alerts">Alerts</p>
+    {% for a in rail.alerts %}
+      <a class="rail-item" href="{{ a.href }}"><span class="lines"><strong>{{ a.label }}</strong>{% if a.sub %}<span class="cause">{{ a.sub }}</span>{% endif %}</span></a>
+    {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="rail-block sep">
+      <p class="rail-h" id="rail-h-tools">Tools</p>
+      <nav aria-label="main">
+      {% for t in rail.tools %}
+        <a href="{{ t.href }}"{% if t.current %} aria-current="page" class="current"{% endif %}>{{ t.label }}</a>
+      {% endfor %}
+      </nav>
+    </div>
+  </div>
+</details>

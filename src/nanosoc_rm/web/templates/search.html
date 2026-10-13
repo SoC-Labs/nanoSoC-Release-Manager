@@ -1,0 +1,20 @@
+<section class="panel" aria-labelledby="h-search">
+  <h2 id="h-search">Search</h2>
+  <form method="get" action="/search" role="search">
+    <label for="search-page-q">Type a repo, config or commit</label>
+    <div class="row"><input id="search-page-q" type="search" name="q" value="{{ q }}" autocomplete="off">{% if scope %}<input type="hidden" name="scope" value="{{ scope }}">{% endif %} <button type="submit" class="prim">Search</button></div>
+  </form>
+</section>
+<section class="panel" aria-label="Results">
+{% include "_search_hits.html" %}
+</section>
+<section class="panel" aria-labelledby="h-start">
+  <h2 id="h-start">Registered configurations</h2>
+  <ul>
+  {% for rec in configs %}
+    <li><a href="/configurations/{{ quote(rec.fact.id) }}">{{ rec.fact.id }}</a> · {{ fact(rec, "registry record") }}</li>
+  {% else %}
+    <li class="note">No configuration is registered.</li>
+  {% endfor %}
+  </ul>
+</section>

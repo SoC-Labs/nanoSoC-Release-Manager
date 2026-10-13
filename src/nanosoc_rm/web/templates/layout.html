@@ -10,33 +10,53 @@
 <script src="/static/rm.js" defer></script>
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>
+{% import "_ui.html" as ui %}
+<a class="sr skip" href="#main">Skip to the page</a>
 <header class="top">
-  <a class="brand" href="/">nanoSoC <span>Release Manager</span></a>
-  <nav aria-label="main">
-  {% for label, href, _ in nav %}
-    <a href="{{ href }}"{% if current == href %} aria-current="page" class="current"{% endif %}>{{ label }}</a>
-  {% endfor %}
-  </nav>
-  {% if identity %}
-  <span class="who">{{ identity.login }}
-    {% if auth_mode == 'local' %}
-    <form method="post" action="/auth/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="link" type="submit">sign out</button></form>
-    {% else %}· <a href="/auth/logout">sign out</a>{% endif %}
-  </span>
-  {% endif %}
+  <a class="brand" href="/">
+    <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="12" r="2"></circle><path d="M6 7v10M6 12h10"></path></svg>
+    <span class="brand-name">nanoSoC <span>Release Manager</span></span>
+  </a>
+  <form class="cmd" method="get" action="/search" role="search">
+    <label for="cmd" class="sr">Type a repo, config or commit</label>
+    <div class="cmdbox">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <input id="cmd" type="search" name="q" autocomplete="off" placeholder="Type a repo, config or commit, e.g. 4de7860"
+             aria-controls="hits" hx-get="/search" hx-trigger="input changed delay:200ms, search" hx-target="#hits">
+      <button type="submit">Search</button>
+    </div>
+    <div id="hits" class="hits" aria-live="polite"></div>
+  </form>
+  <div class="hdr-right">
+    <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}" title="{% if oldest %}measured from the oldest fact on this page ({{ oldest }}){% else %}this page shows no stored fact{% endif %}; rendered {{ now }}">
+      Data age <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %} <span class="sr">(oldest fact {{ oldest }})</span>{% endif %}
+    </p>
+    <button type="button" data-theme-toggle hidden aria-pressed="false">Dark theme</button>
+    {% if identity %}
+    <span class="who">{{ identity.login }}
+      {% if auth_mode == 'local' %}
+      <form method="post" action="/auth/logout"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button class="link" type="submit">sign out</button></form>
+      {% else %}· <a href="/auth/logout">sign out</a>{% endif %}
+    </span>
+    {% endif %}
+  </div>
 </header>
-<main>
+<div class="frame">
+{% if rail %}{% include "_rail.html" %}{% endif %}
+<main class="page" id="main">
+<div class="page-inner">
+{% if crumbs %}{{ ui.crumbs(crumbs) }}{% endif %}
 {% for p in problems %}
   <p class="banner problem" role="status"><strong>Problem:</strong> {{ p }}</p>
 {% endfor %}
-  <div class="titlebar">
-    <h1>{{ title }}</h1>
-    <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}" title="{% if oldest %}measured from the oldest fact on this page ({{ oldest }}){% else %}this page shows no stored fact{% endif %}; rendered {{ now }}">
-      Data age <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %} <span class="note">(oldest fact {{ oldest }})</span>{% endif %}
-    </p>
-  </div>
+  <div class="titlebar"><h1>{{ title }}</h1></div>
+{% if tabs %}{{ ui.tabs(tabs, tab_current) }}{% endif %}
+<div class="body">
 {{ body }}
+</div>
+</div>
 </main>
-<footer class="foot note">Every fact links to <em>src</em>: the commands that found it. Read-only: this tool never pushes, tags or deletes.</footer>
+</div>
+<footer class="foot">Every fact links to <em>src</em>: the commands that found it. Read-only: this tool never pushes, tags or deletes.</footer>
 </body>
 </html>

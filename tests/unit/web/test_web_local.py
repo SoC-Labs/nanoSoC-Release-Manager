@@ -394,20 +394,29 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
     assert 'data-job-state="done"' in job_page and 'data-verdict="FAIL"' in job_page
     assert "Stored result:" in job_page and 'data-gate="t0.pins.reachable"' in job_page    # seeded above
     # colour never alone: every verdict pill carries its text
-    for m in re.finditer(r'<span class="pill (state-\w+)"[^>]*>([^<]*)<', job_page):
+    pills = list(re.finditer(r'<span class="pill (state-\w+)[^"]*"[^>]*>([^<]*)<', job_page))
+    assert pills                                                # an empty match list would prove nothing
+    for m in pills:
         assert m.group(2).strip(), m.group(0)
     assert "nanosoc-rm compat eth-rc4 --store" in c.get("/jobs/1/log").text
     assert c.get("/jobs/1/fragment").headers["content-type"].startswith("text/html")
 
 
 def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
-    writes = {(m, r.path) for r in local["app"].routes for m in (getattr(r, "methods", None) or ())
-              if m not in ("GET", "HEAD")}
-    assert writes == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs"),
-                      ("POST", "/compat/jobs"), ("POST", "/jobs/{id}/cancel"), ("POST", "/configurations/{id}/walk"),
-                      ("POST", "/mirrors/sync"), ("POST", "/alerts/clear"), ("POST", "/branches/refresh"),
-                      ("POST", "/hosts/refresh"), ("POST", "/auth/login"),
-                      ("POST", "/auth/logout")}
+    """CR-W6: the census counts every route, the included routers' too (routers.writes), against the base set,
+    the plug-ins' local POSTs and the Wave C POSTs (routers.WAVE_C_POSTS); any other write route fails it."""
+    from nanosoc_rm.web import routers
+    writes = routers.writes(local["app"])
+    base = {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs"),
+            ("POST", "/compat/jobs"), ("POST", "/jobs/{id}/cancel"), ("POST", "/configurations/{id}/walk"),
+            ("POST", "/mirrors/sync"), ("POST", "/alerts/clear"), ("POST", "/branches/refresh"),
+            ("POST", "/hosts/refresh"), ("POST", "/auth/login"), ("POST", "/auth/logout")}
+    plugin = {("POST", "/matrix/{configuration}/run"), ("POST", "/bumps/scan"), ("POST", "/bumps/p/{pid}/mark"),
+              ("POST", "/releases/jobs"), ("POST", "/releases/forks/jobs"),
+              ("POST", "/releases/{configuration}/{version}/verify"), ("POST", "/versions/refresh"),
+              ("POST", "/versions/{component}/draft"), ("POST", "/versions/{component}/drafts/{version}/approve")}
+    assert base | plugin <= writes, sorted(base | plugin - writes)
+    assert writes <= base | plugin | routers.WAVE_C_POSTS, sorted(writes - base - plugin - routers.WAVE_C_POSTS)
 
 
 def test_a_github_ci_deployment_shows_no_local_actions(service, registry_spy, tmp_path):

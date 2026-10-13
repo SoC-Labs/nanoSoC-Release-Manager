@@ -82,7 +82,7 @@ def test_job_kind_refuses_what_the_cli_would(clean):
                     {"configuration": "../x", "column": "pinned"}):
             with pytest.raises(jobs.JobUsage):
                 jobs.submit(cfg, "matrix-cell", bad, "alice")
-        assert "matrix-cell" in jobs.KINDS
+        assert "matrix-cell" in jobs.all_kinds()
 
 
 def test_a_lost_job_shows_infra(clean):

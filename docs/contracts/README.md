@@ -155,7 +155,7 @@ Keys:
 | quality_density, quality_finding, readme_check, doc_score | `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read; `worktree` outside git) | event (CR-14; one per target and commit, so they form a trend) | none |
 | changelog_lint, version_plan, manifest_proposal, defect_trailers | `<kind>:<target>:<commit>` (`+worktree` as quality's) | event (CR-VER; stored on `--store` and by `version refresh`) | none |
 | tag_check | `tag_check:<target>` | event (CR-VER) | none |
-| release_draft, yank_proposal | `<kind>:<target>:<version>` | event (CR-VER) | none |
+| tool_release_draft, yank_proposal | `<kind>:<target>:<version>` | event (CR-VER; `tool_release_draft` renamed from the versioning branch's `release_draft`, CR-WB-int) | none |
 
 **Current value (A3).**
 

@@ -179,7 +179,12 @@ def _later_jobs(config, f: dict, since: str) -> dict[str, dict]:
     return out
 
 
-def router() -> APIRouter:
+def router(app: Any = None) -> APIRouter:
+    """The plug-in's routes. Its POST routes are registered only in a local deployment (`app.state.rm.local_routes`,
+    interfaces.md section 13a), so a GitHub + CI deployment keeps section 13's two Run routes as its only writes
+    (D5). Each POST still re-checks at request time."""
+    from nanosoc_rm.web.plugins import local_routes
+    local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
     async def queue(request: Request) -> HTMLResponse:
@@ -302,6 +307,8 @@ def router() -> APIRouter:
     r.add_api_route("/facts/{subject:path}", facts, methods=get, include_in_schema=False)
     r.add_api_route("/p/{pid}/patch.diff", patch_file, methods=get, include_in_schema=False)
     r.add_api_route("/p/{pid}", proposal, methods=get, include_in_schema=False)
-    r.add_api_route("/scan", post_scan, methods=["POST"], include_in_schema=False)
-    r.add_api_route("/p/{pid}/mark", post_mark, methods=["POST"], include_in_schema=False)
+    if local:
+        r.add_api_route("/scan", post_scan, methods=["POST"], include_in_schema=False)
+    if local:
+        r.add_api_route("/p/{pid}/mark", post_mark, methods=["POST"], include_in_schema=False)
     return r

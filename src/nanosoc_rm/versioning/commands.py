@@ -171,8 +171,7 @@ def ensure_job_kinds() -> None:
     """Register this module's job kinds with the local job runner (idempotent)."""
     from nanosoc_rm import jobs
     for name, (check, args) in JOB_KINDS.items():
-        if name not in jobs.EXTRA_KINDS:
-            jobs.register_kind(name, check, args)
+        jobs.register_kind(name, check, args)
 
 
 def register(main: click.Group) -> None:

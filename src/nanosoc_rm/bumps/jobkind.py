@@ -1,4 +1,4 @@
-"""The `bumps` job kind for the local job runner (nanosoc_rm.jobs PLUGIN_KINDS; interfaces.md section 19.7).
+"""The `bumps` job kind for the local job runner (nanosoc_rm.jobs.register_kind; interfaces.md section 19.7).
 
 The /bumps page's Scan button queues `nanosoc-rm bumps [CONFIG] --store --json` as a job, and a mark queues
 `nanosoc-rm bumps ledger --store --json`, so the mirror reads (which may fetch blobs anonymously) never run inside
@@ -7,6 +7,8 @@ a web request.
 from __future__ import annotations
 
 import re
+
+from nanosoc_rm.jobs import register_kind
 
 __all__ = ["job_params", "job_args"]
 
@@ -30,3 +32,6 @@ def job_args(params: dict) -> list[str]:
     if params.get("ledger"):
         return ["bumps", "ledger", "--store", "--json"]
     return ["bumps", "scan"] + ([params["configuration"]] if params.get("configuration") else []) + ["--store", "--json"]
+
+
+register_kind("bumps", job_params, job_args)

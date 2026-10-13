@@ -82,7 +82,12 @@ def _filters(request: Request) -> tuple[list[str], str | None]:
     return comps, request.query_params.get("columns") or None
 
 
-def router() -> APIRouter:
+def router(app: Any = None) -> APIRouter:
+    """The plug-in's routes. Its POST routes are registered only in a local deployment (`app.state.rm.local_routes`,
+    interfaces.md section 13a), so a GitHub + CI deployment keeps section 13's two Run routes as its only writes
+    (D5). Each POST still re-checks at request time."""
+    from nanosoc_rm.web.plugins import local_routes
+    local = local_routes(app)
     from nanosoc_rm import matrix as M
     from nanosoc_rm.matrix import cells as K
     r = APIRouter(prefix=PREFIX)
@@ -199,7 +204,8 @@ def router() -> APIRouter:
     r.add_api_route("/", index, methods=get, include_in_schema=False)
     r.add_api_route("/{configuration}", grid, methods=get, include_in_schema=False)
     r.add_api_route("/{configuration}/cell", cell, methods=get, include_in_schema=False)
-    r.add_api_route("/{configuration}/run", run, methods=post, include_in_schema=False)
+    if local:
+        r.add_api_route("/{configuration}/run", run, methods=post, include_in_schema=False)
     return r
 
 

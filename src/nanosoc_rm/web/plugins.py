@@ -24,13 +24,19 @@ from typing import Any
 from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
-__all__ = ["PLUGINS", "load", "render_page"]
+__all__ = ["PLUGINS", "load", "render_page", "local_routes"]
 
 # (module, navigation label)
 PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Matrix"),
            ("nanosoc_rm.bumps.web", "Bumps"),
            ("nanosoc_rm.versioning.web", "Versions"),                   # CR-VER (Wave B versioning)
            ("nanosoc_rm.releases.web", "Releases"))                     # CR-R1 (Wave B releases)
+
+
+def local_routes(app: Any) -> bool:
+    """True when `app` registers local-deployment POST routes (section 13a); False for no app (a test building
+    a router alone) and for a GitHub + CI deployment."""
+    return bool(getattr(getattr(getattr(app, "state", None), "rm", None), "local_routes", False))
 
 
 def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:

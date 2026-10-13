@@ -1,4 +1,4 @@
-"""The `matrix-cell` job kind (nanosoc_rm.jobs EXTRA_KINDS seam): one matrix cell as a local job.
+"""The `matrix-cell` job kind (registered with nanosoc_rm.jobs.register_kind): one matrix cell as a local job.
 
 The worker runs `nanosoc-rm matrix cell CONFIG --column COL [--component C] --store --json` as a child process
 (the cell reads its job id from NANOSOC_RM_JOB, which the worker sets, and the login from that job's record), so
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from nanosoc_rm.jobs import register_kind
 from nanosoc_rm.matrix.columns import COLUMNS, PINNED
 
 __all__ = ["params", "cli_args", "outcome", "limit_s", "LIMIT_S", "ACTION"]
@@ -54,3 +55,6 @@ def outcome(docs: list[dict], last_line: str) -> dict:
 
 def limit_s(config, job: dict) -> float:
     return float(LIMIT_S)
+
+
+register_kind("matrix-cell", params, cli_args, outcome=outcome, limit_s=limit_s, action=ACTION)
