@@ -1,0 +1,9 @@
+{# The component workspace header and tabs (spec 4.1). `hdr` from compspace.header, `ws_tabs` from compspace.tabs. #}
+{% import "_ui.html" as ui %}
+<section class="ws-head" aria-label="{{ comp }} at a glance" data-component="{{ comp }}">
+  <p class="note">{% if hdr.canonical %}<code>{{ hdr.canonical[0] }}:{{ hdr.canonical[1] }}</code>{% else %}no canonical repo in the registry{% endif %}{% if hdr.default %} · default <code>{{ hdr.default }}</code>{% endif %}</p>
+  {% if hdr.flags %}<p class="chips" data-flags>{% for text, tone in hdr.flags %}{{ ui.chip(text, tone) }} {% endfor %}</p>{% endif %}
+  <p data-sentence>{{ hdr.sentence }}</p>
+  {% if hdr.primary %}<p><a class="prim" href="{{ hdr.primary.href }}" data-primary>{{ hdr.primary.label }}</a> <span class="note">You run the commands; nothing is changed from here.</span></p>{% endif %}
+</section>
+{{ ui.tabs(ws_tabs, ws_tab) }}

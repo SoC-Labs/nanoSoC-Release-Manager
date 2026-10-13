@@ -1,0 +1,15 @@
+{# Review queue (spec 4.5): one finding at a time, the patch basket beside it. #}
+{% include "_comp_header.html" %}
+{% if not obs %}
+<section class="panel" aria-labelledby="h-norev">
+  <h2 id="h-norev">Nothing to review yet</h2>
+  <p class="empty">No stored comment findings for {{ comp }}{% if request_commit %} at {{ request_commit }}{% endif %}. Opening its quality page queues the analysis as a job.</p>
+  <p><a class="prim" href="/quality/{{ quote(comp) }}">Analyse {{ comp }}</a> <span class="note">or <code>nanosoc-rm quality all {{ comp }} --store</code></span></p>
+</section>
+{% elif not st.total %}
+<section class="panel"><p class="empty">{{ fact(obs, "The analysis") }} found no comment finding other than banners. Nothing to review.</p></section>
+{% else %}
+<div id="review" aria-live="polite">
+{% include "review_main.html" %}
+</div>
+{% endif %}

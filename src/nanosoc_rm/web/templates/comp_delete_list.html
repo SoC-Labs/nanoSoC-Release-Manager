@@ -1,0 +1,11 @@
+{# The delete list (spec 4.3, build-first 4): rendered from the ticked rows only; also the htmx fragment. #}
+<h2 id="h-del">Delete list: {{ v.selected }} of {{ v.deletable }} branches selected · {{ v.total }} on {{ "the canonical repo" if v.only_canonical else "every copy" }}</h2>
+<pre class="code" id="delete-list" aria-labelledby="h-del">{{ v.delete_text }}</pre>
+{% if not v.delete_text %}<p class="note" role="status">Nothing selected. Tick deletable rows below, or select all {{ v.deletable }}.</p>{% endif %}
+<div class="row">
+  <button type="button" class="prim" data-copy="delete-list">Copy</button>
+  <a class="ghost" href="{{ href(comp, 'branches', canonical='1' if v.only_canonical else None, verdict=v.verdict, q=v.q) }}">Select all {{ v.deletable }}</a>
+  <a class="ghost" href="{{ href(comp, 'branches', canonical='1' if v.only_canonical else None, verdict=v.verdict, q=v.q, picked='1') }}">Clear</a>
+</div>
+{% for w in v.warnings %}<p class="banner alert" role="status" data-warning>{{ w }}</p>{% endfor %}
+<p class="note">You review and run these commands yourself; nothing is deleted from here.</p>

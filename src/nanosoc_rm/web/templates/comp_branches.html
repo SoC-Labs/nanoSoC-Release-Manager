@@ -1,0 +1,62 @@
+{# Component Branches (spec 4.3): every copy by default; the delete list and Copy first, then filters and table. #}
+{% import "_ui.html" as ui %}
+{% include "_comp_header.html" %}
+{% if v.every == 0 %}
+<section class="panel" aria-labelledby="h-nobr">
+  <h2 id="h-nobr">No branch inventory stored</h2>
+  <p class="empty">No branch of {{ comp }} has been read yet{% if not has_mirror %}, and it has no mirror here: sync it on <a href="/mirrors">Mirrors</a> (or <code>nanosoc-rm mirror sync --component {{ comp }}</code>) first{% endif %}.</p>
+  {% if actions %}
+  <form method="post" action="/branches/refresh"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ comp }}"><input type="hidden" name="all" value="1"><input type="hidden" name="return" value="{{ href(comp, 'branches') }}">
+    <button type="submit" class="prim">Re-read mirror</button></form>
+  {% else %}<p class="note">To read it: <code>nanosoc-rm branches {{ comp }} --all</code>.</p>{% endif %}
+</section>
+{% else %}
+<form method="get" action="{{ href(comp, 'branches') }}" class="branches" id="branch-form">
+  <input type="hidden" name="picked" value="1">
+  {% if v.only_canonical %}<input type="hidden" name="canonical" value="1">{% endif %}
+  {% if v.verdict %}<input type="hidden" name="verdict" value="{{ v.verdict }}">{% endif %}
+  {% for k in v.hidden %}<input type="hidden" name="del" value="{{ k }}">{% endfor %}
+  <section class="panel" id="delete-block" aria-live="polite">
+    {% include "comp_delete_list.html" %}
+  </section>
+  <noscript><p><button type="submit" class="ghost">Update the delete list</button></p></noscript>
+
+  <section class="panel" aria-labelledby="h-brs">
+    <h2 id="h-brs">Branches</h2>
+    <p class="note">{% if v.only_canonical %}Canonical repo only. <a href="{{ href(comp, 'branches') }}">Count every copy</a>{% else %}Every copy counted ({{ v.repos|length }} repo{{ "" if v.repos|length == 1 else "s" }}).{% if v.canonical %} <a href="{{ href(comp, 'branches', canonical='1') }}">Canonical repo only</a>{% endif %}{% endif %}</p>
+    {% if v.canonical_empty %}<p class="empty">The canonical repo has no stored branch; {{ v.every }} rows are on other copies. <a href="{{ href(comp, 'branches') }}">Show every copy</a>.</p>{% endif %}
+    <nav class="filters" aria-label="Branch filters">
+    {% for fl in v.filters %}
+      <a class="seg" href="{{ href(comp, 'branches', canonical='1' if v.only_canonical else None, verdict=fl.key, q=v.q) }}"{% if fl.key == v.verdict %} aria-current="true"{% endif %} data-filter="{{ fl.key or 'all' }}">{{ fl.label }} <span class="chip c-neutral">{{ fl.count }}</span></a>
+    {% endfor %}
+    </nav>
+    <div class="row">
+      <label for="branch-q">Find a branch</label>
+      <input id="branch-q" type="search" name="q" value="{{ v.q }}" autocomplete="off">
+      <button type="submit" class="ghost">Find</button>
+    </div>
+    <div class="scroll"><table data-branches>
+      <thead><tr><th>Delete</th><th>Branch</th>{% if v.repos|length > 1 %}<th>Copy</th>{% endif %}<th>Verdict</th><th class="num">Ahead / behind</th><th>Last commit</th><th>Why</th></tr></thead>
+      <tbody>
+      {% for r in v.rows %}{% set f = r.doc.fact %}
+        <tr data-verdict="{{ f.verdict }}" data-branch="{{ r.key }}" data-deletable="{{ 'yes' if r.deletable else 'no' }}">
+          <td>{% if r.deletable %}<input type="checkbox" class="delbox" id="del-{{ loop.index }}" name="del" value="{{ r.key }}"{% if r.checked %} checked{% endif %}
+              hx-get="{{ href(comp, 'branches') }}" hx-trigger="change" hx-include="#branch-form" hx-vals='{"part": "list"}' hx-target="#delete-block"><label class="sr" for="del-{{ loop.index }}">Delete {{ f.branch }}</label>{% else %}<span class="note">no</span>{% endif %}</td>
+          <td>{{ fact(r.doc, f.branch) }}</td>
+          {% if v.repos|length > 1 %}<td>{{ f.repo.host }}:{{ f.repo.path }}</td>{% endif %}
+          <td>{{ ui.chip(f.verdict, r.tone) }}</td>
+          <td class="num">{{ f.ahead }} / {{ f.behind }}</td>
+          <td>{{ f.last_commit_at[:10] }}</td>
+          <td>{{ r.why }}</td>
+        </tr>
+      {% else %}<tr><td colspan="7">No branch matches this filter.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+</form>
+{% if actions %}
+<form method="post" action="/branches/refresh" class="row"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ comp }}"><input type="hidden" name="all" value="1"><input type="hidden" name="return" value="{{ href(comp, 'branches') }}">
+  <button type="submit" class="ghost" title="re-read the mirror now and store the result">Re-read mirror</button></form>
+{% else %}<p class="note">To re-read the mirror: <code>nanosoc-rm branches {{ comp }} --all</code>.</p>{% endif %}
+{% endif %}

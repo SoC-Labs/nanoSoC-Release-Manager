@@ -4,6 +4,8 @@
     GET /quality/{target}                       summary of one target at a ref (analyses it when not stored)
     GET /quality/{target}/density               Q1 language table and sortable file table
     GET /quality/{target}/comments              Q2 findings with suggested edits     .../comments.diff  the patch
+                                                (CR-W5: banners excluded unless ?kind=banner; ?banners=1 adds
+                                                the banner rule to the patch; rows in review order)
     GET /quality/{target}/readme                Q3 mismatches and generated layout   .../readme.diff    the patch
     GET /quality/{target}/docs                  Q4 files ranked least concise first
     GET /quality/{target}/trend                 Q5 stored results per commit
@@ -31,7 +33,8 @@ from starlette.responses import HTMLResponse, PlainTextResponse, Response
 from nanosoc_rm import quality as q
 from nanosoc_rm.config import load_config
 
-__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page"]
+__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page", "selected_findings",
+           "comments_view"]
 
 PREFIX = "/quality"
 NAV_LABEL = "Quality"                                         # web/plugins.py: the top-navigation entry
@@ -251,8 +254,9 @@ def router() -> APIRouter:
             except (q.UsageError, q.QualityError, q.SourceError) as e:
                 return _error(request, e)
             sel = request.query_params.get("kind") or ""
+            extra = comments_view(config, target, obs, sel) if kind == "comments" else {}
             return _page(request, template, "%s: %s" % (title, target), target=target, ref=ref, obs=obs, f=obs["fact"],
-                         sel=sel)
+                         sel=sel, **extra)
         return handler
 
     def comments_diff(request: Request, target: str) -> Response:
@@ -266,12 +270,14 @@ def router() -> APIRouter:
                                      % (target, p.job["id"]), 202)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
-        findings = [x for x in obs["fact"]["findings"] if not sel or x["kind"] == sel]
+        banners = request.query_params.get("banners") == "1"
+        findings = selected_findings(obs["fact"]["findings"], sel, banners)
         text, _ = q.comment_patch(source, {"fact": {"findings": findings}})
         if not text.strip():
             return PlainTextResponse("Nothing to patch: no finding%s of %s has a mechanical edit.\n"
                                      % ((" of kind %s" % sel) if sel else "", target), 404)
-        return _diff_response(text, "%s-comments%s.diff" % (target, ("-" + sel) if sel else ""))
+        return _diff_response(text, "%s-comments%s%s.diff" % (target, ("-" + sel) if sel else "",
+                                                             "-with-banners" if banners and not sel else ""))
 
     def readme_diff(request: Request, target: str) -> Response:
         config = _config(request)
@@ -315,6 +321,43 @@ def router() -> APIRouter:
     r.add_api_route("/{target}/trend", trend_page, methods=get, include_in_schema=False)
     r.add_api_route("/{target}", summary, methods=get, include_in_schema=False)
     return r
+
+
+def selected_findings(findings: list[dict], sel: str = "", banners: bool = False) -> list[dict]:
+    """CR-W5: one kind when `sel` names it; otherwise every kind except `banner` (one rule, not N findings),
+    plus the banners when `banners` asks for the rule in the patch."""
+    if sel:
+        return [x for x in findings if x["kind"] == sel]
+    return [x for x in findings if x["kind"] != "banner" or banners]
+
+
+def comments_view(config, target: str, obs: dict, sel: str = "", limit: int = 500) -> dict:
+    """The comments page model (CR-W5): rows in review order (web.review.rank severity, then path), each with its
+    suggested edit as removed and added line TEXT read from the analysed commit's local blob
+    (quality.review_text: never fetched in a request); "line N" when the blob is not on this host."""
+    from nanosoc_rm.quality import review_text as rt
+    f = obs["fact"]
+    shown = rt.rank(selected_findings(f["findings"], sel))
+    n_banner = sum(1 for x in f["findings"] if x["kind"] == "banner")
+    try:
+        source = rt.local_source(config, target, f)
+    except Exception:                                         # noqa: BLE001 - no local copy: line numbers only
+        source = None
+    if source is not None:
+        try:
+            source.read_many(sorted({x["path"] for x in shown[:limit] if x.get("edit")}))
+        except Exception:                                     # noqa: BLE001
+            source = None
+    rows, unread = [], 0
+    for x in shown[:limit]:
+        diff, read = rt.edit_lines_for(source, x)
+        if diff and not read:
+            unread += 1
+        rows.append({"f": x, "severity": rt.severity(x), "diff": diff})
+    counts = [(k, n) for k, n in f.get("counts", {}).items() if k != "banner"]
+    return {"rows": rows, "n_shown": len(shown), "n_edits": sum(1 for x in shown if x.get("edit")),
+            "n_banner": n_banner, "worth": f["total"] - n_banner, "kind_counts": counts, "unread": unread,
+            "limit": limit}
 
 
 def _diff_response(text: str, name: str) -> Response:

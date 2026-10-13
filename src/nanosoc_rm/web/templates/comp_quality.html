@@ -1,0 +1,97 @@
+{# Component Quality (spec 4.4): stored facts only; banners are one rule, not N findings. #}
+{% import "_ui.html" as ui %}
+{% include "_comp_header.html" %}
+{% if not qv.analysed %}
+<section class="panel" aria-labelledby="h-noq">
+  <h2 id="h-noq">Not analysed yet</h2>
+  <p class="empty">No stored quality result for {{ comp }}. Opening its quality page queues the analysis as a job (it never runs inside a page request).</p>
+  <p><a class="prim" href="/quality/{{ quote(comp) }}">Analyse {{ comp }}</a> <span class="note">or <code>nanosoc-rm quality all {{ comp }} --store</code></span></p>
+</section>
+{% else %}
+{% set c = qv.comments %}
+<section class="panel" aria-labelledby="h-qhead">
+  <h2 id="h-qhead">Quality{% if c %} · <code>{{ short(c.fact.commit) if c.fact.commit else "work tree" }}</code>{% if c.fact.ref %} {{ c.fact.ref }}{% endif %}{% endif %}</h2>
+  {% if c %}<p>{{ fact(c, "comment findings analysed " ~ c.observed_at[:16]) }}</p>{% endif %}
+  {% if qv.worth %}<p><a class="prim" href="{{ href(comp, 'review', commit=c.fact.commit) }}" data-primary-review>Review: one finding at a time</a>{% if basket %} <span class="chip c-ink">{{ basket['items']|length }} in patch</span>{% endif %}</p>{% endif %}
+  <div class="tiles">
+    {% if qv.density %}<div class="tile"><strong>{{ qv.ratio_text }}</strong><span class="lbl">comment ratio · {{ qv.code_files }} code files · {{ fact(qv.density, "density") }}</span></div>
+    <div class="tile"><strong>{{ qv.outliers }}</strong><span class="lbl">outlier files</span></div>{% endif %}
+    {% if c %}<div class="tile" data-tile="findings"><strong>{{ qv.total }}</strong><span class="lbl">findings; {{ qv.banner_share }}% are banners</span></div>
+    <div class="tile" data-tile="worth"><strong>{{ qv.worth }}</strong><span class="lbl">worth a look (not banners)</span></div>{% endif %}
+    {% if qv.readme %}<div class="tile"><strong>{{ qv.readme_count }}</strong><span class="lbl">README mismatches in {{ qv.readme_files }} README{{ "" if qv.readme_files == 1 else "s" }} · {{ fact(qv.readme, "readme check") }}</span></div>{% endif %}
+    {% if qv.docs %}<div class="tile"><strong>{{ "%.1f"|format(qv.doc_score) if qv.doc_score is not none else "-" }}</strong><span class="lbl">doc score (100 = concise) · {{ fact(qv.docs, "doc score") }}</span></div>{% endif %}
+  </div>
+  {% if qv.worst_text %}<p class="note">Worst density: {{ qv.worst_text }}.</p>{% endif %}
+  <p class="note">Trend: {% if trend %}{{ trend }}{% else %}one stored point, no history yet{% endif %}.</p>
+</section>
+
+{% if c and qv.banner %}
+<section class="panel" aria-labelledby="h-banner" data-banner-rule>
+  <h2 id="h-banner">{{ qv.banner }} banner lines are one rule, not {{ qv.banner }} findings</h2>
+  <p>Decoration lines (rows of # or =) are {{ qv.banner_share }}% of the findings. They stay out of the counts and the queue. Add the rule to your patch only if you want them gone.</p>
+  {% if actions and basket %}
+  <form method="post" action="{{ href(comp, 'review/basket') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ basket.commit }}">
+    <input type="hidden" name="return" value="{{ href(comp, 'quality', commit=c.fact.commit) }}">
+    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if basket.banner else 'banner-on' }}" aria-pressed="{{ 'true' if basket.banner else 'false' }}">Also apply the banner rule: {{ "on" if basket.banner else "off" }}</button>
+  </form>
+  {% endif %}
+  <p class="note"><a href="/quality/{{ quote(comp) }}/comments?kind=banner">See the banner lines</a></p>
+</section>
+{% endif %}
+
+{% if qv.kinds %}
+<section class="panel" aria-labelledby="h-kinds">
+  <h2 id="h-kinds">The other {{ qv.worth }}, by kind</h2>
+  <ul class="bars">
+  {% for k in qv.kinds %}
+    <li data-kind="{{ k.kind }}"><a href="/quality/{{ quote(comp) }}/comments?kind={{ k.kind }}">{{ k.kind }}</a> <strong>{{ k.count }}</strong> <span class="bar" aria-hidden="true" style="display:inline-block;height:8px;width:{{ k.width }}px;background:currentColor"></span></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if qv.worst %}
+<section class="panel" aria-labelledby="h-worst">
+  <h2 id="h-worst">Worst {{ qv.worst|length }} findings, in review order</h2>
+  <ol>
+  {% for it in qv.worst %}
+    <li data-key="{{ it.key }}">{{ ui.chip(it.severity, it.severity_tone) }} <a href="{{ href(comp, 'review', commit=c.fact.commit, i=it.n) }}"><code>{{ it.path }}:{{ it.line }}</code></a> · {{ it.kind }}: {{ it.finding.suggestion }}</li>
+  {% endfor %}
+  </ol>
+</section>
+{% endif %}
+
+{% if qv.readme %}
+<section class="panel" aria-labelledby="h-readme">
+  <h2 id="h-readme">README mismatches: {{ qv.readme_count }} in {{ qv.readme_files }} README{{ "" if qv.readme_files == 1 else "s" }}</h2>
+  {% for g in qv.readme_groups[:6] %}
+  <h3>{{ g.readme }}</h3>
+  <ul>
+    {% for r in g.rows[:10] %}
+    <li data-readme-row="{{ r.key }}">{{ ui.chip(r.severity, "c-warn" if r.severity == "Medium" else "c-notrun") }} <code>{{ r.readme }}:{{ r.line }}</code> {{ r.kind }} <code>{{ r.token }}</code>: {{ r.detail }}
+      {% if r.mechanical and actions and basket %}
+      <form method="post" action="{{ href(comp, 'review/basket') }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ basket.commit }}"><input type="hidden" name="key" value="{{ r.key }}"><input type="hidden" name="return" value="{{ href(comp, 'quality', commit=c.fact.commit) }}">
+        {% if r.key in basket.readme %}<button type="submit" class="ghost" name="op" value="readme-remove">Remove the layout section from the patch</button>{% else %}<button type="submit" class="ghost" name="op" value="readme-add">Add the layout section to the patch</button>{% endif %}</form>
+      {% elif r.layout_covered %}<span class="note">covered by the layout section above</span>{% elif not r.mechanical %}<span class="note">fix by hand</span>{% endif %}
+    </li>
+    {% endfor %}
+    {% if g.rows|length > 10 %}<li class="note">+{{ g.rows|length - 10 }} more in {{ g.readme }}</li>{% endif %}
+  </ul>
+  {% endfor %}
+  {% if qv.readme_groups|length > 6 %}<p class="note">+{{ qv.readme_groups|length - 6 }} more READMEs: <a href="/quality/{{ quote(comp) }}/readme">every row</a>.</p>{% endif %}
+</section>
+{% endif %}
+
+{% if qv.weakest %}
+<section class="panel" aria-labelledby="h-docs">
+  <h2 id="h-docs">Weakest docs{% if qv.doc_score is not none %} (repo doc score {{ "%.1f"|format(qv.doc_score) }}){% endif %}</h2>
+  <ul>
+  {% for d in qv.weakest %}
+    <li><strong>{{ "%.1f"|format(d.score) }}</strong> <code>{{ d.path }}</code>: mean sentence {{ d.mean_sentence }} words, {{ "%.1f"|format(100 * d.passive_share) }}% passive voice{% if d.duplicated %}, {{ d.duplicated }} duplicated paragraphs{% endif %}.</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+<p class="note">Every row and the full tables: <a href="/quality/{{ quote(comp) }}">the {{ comp }} quality pages</a>.</p>
+{% endif %}
