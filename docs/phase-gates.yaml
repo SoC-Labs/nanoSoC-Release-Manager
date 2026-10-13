@@ -3,6 +3,9 @@
 # An implementation commit (one that changes src/) naming a requirement of a phase must come after that
 # phase's checked.at (AT-A7). Format: docs/contracts/interfaces.md section 17.6.
 # Status on 2026-09-30: no later phase has met its gate.
+# CR-15 (2026-10-12): build and enable are separate. A later phase's capabilities may be built and used locally
+# now; its gate governs ENABLING the automation listed under `automation` (none may be a scheduler job before the
+# gate is met). Implementation commits from 2026-10-12 on that name the phase's requirements are building.
 phases:
   - phase: Phase 2
     capabilities: [D3, D4, D7, D8, D9, D12]
@@ -13,6 +16,7 @@ phases:
         check: t0.runner.hardened is PASS with its control fired on 7 consecutive nightly T0 runs (nanosoc-rm t0 runs --json).
       - criterion: A CPU-budgeted host exists for T1 to T3.
         check: The host's CPU quota is recorded in the private registry and the runner_settings observation names that host's runner.
+    automation: [nightly_matrix]
     status: not-met
     checked: {}
   - phase: Phase 3
@@ -20,6 +24,7 @@ phases:
     entry_gate:
       - criterion: The Phase 2 consumer corpus runs nightly.
         check: Every pinned matrix cell has a result on 7 consecutive nights (nanosoc-rm matrix --json).
+    automation: [tool_release]
     status: not-met
     checked: {}
   - phase: Phase 4
@@ -31,6 +36,7 @@ phases:
         check: The Phase 2 manifest comparison, re-run within the last 30 days.
       - criterion: The Phase 3 change classifier is running.
         check: Every tool release since Phase 3 started carries a class computed by the classifier (nanosoc-rm changelog --json).
+    automation: [bump_bot]
     status: not-met
     checked: {}
   - phase: Phase 5
@@ -38,6 +44,7 @@ phases:
     entry_gate:
       - criterion: Phase 3 is complete.
         check: David accepted the Phase 3 live demo (gate 3); the record is in the private registry.
+    automation: [soc_release]
     status: not-met
     checked: {}
 # CR-5 (2026-10-10): implementation commits that named a later-phase requirement only because interfaces.md

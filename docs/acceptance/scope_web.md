@@ -60,7 +60,7 @@ Gate 2 (PR3). One acceptance test per v1 Must requirement in scope A and the web
 | [AT-A4](#at-a4) | Pressing Run on eth-rc4 creates a trigger pipeline in compat-ci with one `t0` job. Its `RM_REQUEST` carries the run's nonce and rc4's commit. The fetched result carries that job's id and a verdict. No T0 code runs in the service. | live + Run | A trigger answered 401 is recorded as exactly one `no-bundle` run with no pipeline and a reason naming 401, and is caught. An `RM_REQUEST` with a foreign nonce is rejected and caught. |
 | [AT-A5](#at-a5) | Every route in the app's own route table answers 403 to a signed-in non-member, and 401 or the login redirect to an anonymous user, with no rc4 data in the body. A member is never refused. Only `/auth/*` and static files are open, and static files carry no data. | offline | An app whose auth trusts a non-member is caught. A route added after construction is still swept. |
 | [AT-A6](#at-a6) | No call site in the package writes to a user's fork or touches a silicon release (checked in every phase, so a Phase 4 branch write to an org repo is not an A6 finding). The schemas cannot express yanking or un-freezing a silicon configuration. A full CLI cycle over a tree that pins a user's fork makes no push, no write request, and leaves every repo's refs unchanged. | offline | A planted write to `repos/alice/ip`, a push to an unresolvable URL and a planted `silicon/*` tag delete are caught. The git runner refuses a push. A yanked or un-frozen silicon entry is rejected. |
-| [AT-A7](#at-a7) | Phases 2 to 5 each have a written entry gate whose every criterion has a check. No commit that changes `src/` names a later-phase requirement before that phase's gate was checked. No later-phase route or command exists before its gate. | offline (reads the tool repo) | A D3 implementation commit before the Phase 2 gate is caught; a contracts-only commit naming G3 is not. A `/releases` route and a `lock` command before their gate are caught. |
+| [AT-A7](#at-a7) | Phases 2 to 5 each have a written entry gate whose every criterion has a check. No commit made before CR-15 that changes `src/` names a later-phase requirement before that phase's gate was checked. No later-phase automation is enabled before its gate (CR-15: building is allowed). | offline (reads the tool repo) | A pre-CR-15 D3 implementation commit before the Phase 2 gate is caught; a contracts-only commit naming G3 is not. An enabled `nightly_matrix` before the Phase 2 gate is caught; a `/releases` route and a `lock` command are not. |
 | [AT-H1](#at-h1) | On live data, the dashboard has all six items and one Run T0 button for every registered configuration, with counts equal to the CLI's. Each v1 page shows exactly the facts its CLI command gives (44 pins, 11 covered pinned-host silicon rows plus the canonical-host rows, 036d381 → `no`). Pressing Run shows the pending run and disables the button. | live + Run | A missing runner-status cell, a missing configuration, a Run form without CSRF, a wrong count, and a missing or invented fact are each caught, on fixture pages and on the real offline dashboard. |
 | [AT-H2](#at-h2) | GitHub sign-in asks for `read:org` only and checks `state`. Only `active` SoC-Labs members get a session: a non-member and a pending invitee get 403 everywhere. Roles come from the config. The user's token is kept nowhere. A Run is logged. The fake's membership answers match GitHub's real ones. | offline + live probe | A non-member who is let in is caught. A token left in the session cookie is caught. |
 | [AT-H3](#at-h3) | The credentials check reports the 4 v1 credentials (`credential_status` observations), each with its recorded scope inside its allowed scope. The poller token's live scopes and expiry match the record. The GitHub token is not a classic token. The OAuth request asks for `read:org` only. A credential that could not be checked is never `ok`. A token expiring within 14 days raises an alert. No Phase 4 credential exists before the Phase 4 gate. | live | Recorded `api`, live scopes that differ from the record, an unchecked `ok`, a missed expiry alert and a `bump_writer` credential are each caught. |
@@ -421,14 +421,18 @@ Observed 2026-09-30 with read-only calls, and re-checked the same evening. Contr
 1. Phases 2, 3, 4 and 5 each have an entry gate with at least one criterion, and every criterion has a `check`.
 2. A phase marked `gate-met` or `started` has `checked.at` and `checked.by`.
 3. The first commit that changes `src/` and names a requirement of a later phase is later than that phase's `checked.at`. Commits that change only contracts, schemas, docs or tests do not count: PR3 writes later phases' formats before any code (interfaces.md §15).
-4. Before a phase's gate is met, none of its surfaces exist:
+4. Before a phase's gate is met, none of its automation is enabled (none is a job the scheduler runs). CR-15
+   (2026-10-12) separates build from enable: a phase's routes and commands may exist (built and used locally),
+   and an implementation commit made from 2026-10-12 on that names its requirements is building, not starting
+   it; rule 3 still holds for every earlier commit. The register's per-phase `automation` names what the gate
+   governs (default below):
 
-   | Phase | Routes | Commands |
+   | Phase | Automation the gate governs | Surfaces (may be built; CR-15) |
    |---|---|---|
-   | 2 | `/matrix` | `matrix` |
-   | 3 | | `release`, `changelog` |
-   | 4 | `/bumps` | `bump` |
-   | 5 | `/releases`, `/trains`, `/forks` | `lock`, `forks` |
+   | 2 | `nightly_matrix` | `/matrix`, `matrix` |
+   | 3 | `tool_release` | `release`, `changelog` |
+   | 4 | `bump_bot` | `/bumps`, `bump` |
+   | 5 | `soc_release` | `/releases`, `/trains`, `/forks`, `lock`, `forks` |
 
 **Fixture**
 - Real: REQUIREMENTS.md, the tool repo's log, and the proposal's §9 entry gates. For example, Phase 2: generator deterministic, runner ephemeral with a fresh HOME, CPU-budgeted host.
@@ -441,7 +445,7 @@ Observed 2026-09-30 with read-only calls, and re-checked the same evening. Contr
   - a commit "feat(matrix): D3 …" that adds `src/matrix.py` before the Phase 2 gate was checked is caught;
   - a commit naming G3 and C11 that changes only `schemas/` is not;
   - the same repo with the Phase 2 gate checked before the D3 commit passes.
-- A route list with `/releases` and a command list with `lock`, while Phase 5 is not met, are both caught. A register missing Phase 2 is caught.
+- An enabled `nightly_matrix` while Phase 2 is not met is caught. A route list with `/releases` and a command list with `lock` are not (CR-15), nor is a D3 commit made after 2026-10-12. A register missing Phase 2 is caught.
 
 **Why it cannot pass vacuously**
 - A missing register fails.

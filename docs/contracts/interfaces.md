@@ -1074,7 +1074,10 @@ A static census of the package (AT-A2) must find every entry, and every call it 
 ### 17.6 Phase-gate register (A7)
 
 `docs/phase-gates.yaml`: `phases: [{phase: "Phase N", capabilities: [ids], entry_gate: [{criterion, check}],
-status: not-met|gate-met|started, checked: {at, by, evidence}}]`. A phase moves to `gate-met` only with
+automation: [names], status: not-met|gate-met|started, checked: {at, by, evidence}}]`. **CR-15:** a later phase's
+code, routes and commands may be built before its gate; the gate governs enabling its `automation` (a name there
+must not be a `schedule.JOBS` job until the phase is `gate-met`), and the commit rule below applies only to
+commits made before 2026-10-12. A phase moves to `gate-met` only with
 `checked.at` and `checked.by` filled in by a person. A commit that changes `src/` and names (in its message or
 its `Requirements:` trailer) a requirement of a later phase must come after that phase's `checked.at`.
 Contracts, schemas, docs and tests for later phases are gate-2 work and do not count (section 15).

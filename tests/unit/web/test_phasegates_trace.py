@@ -47,6 +47,14 @@ def test_requirement_map_reads_the_headings():
     assert idx["B7"]["priority"] == "Should"
 
 
+def test_a_later_phase_commit_after_cr15_is_building_not_a_breach(tmp_path):
+    repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
+                                   ("src/matrix/x.py", "feat(matrix): D3 matrix\n\nRequirements: D3, D8",
+                                    "2026-10-13T10:00:00Z")])
+    res = phasegates.check(gates(), PHASE_OF, phasegates.git_commits(repo), ["/", "/matrix/"], ["matrix"])
+    assert all(r["problems"] == [] for r in res), res
+
+
 def test_an_implementation_commit_before_its_gate_is_caught(tmp_path):
     repo = scratch_repo(tmp_path, [("README.md", "docs: start", "2026-09-30T10:00:00Z"),
                                    ("schemas/x.json", "contracts: release-lock for G3, manifest for C11", "2026-10-01T10:00:00Z"),
@@ -93,13 +101,22 @@ def test_a_cr_recorded_exemption_takes_only_its_ids_out_of_only_its_commit():
     assert phasegates.exemptions(reg, row) == {sha: {"D7"}}
 
 
-def test_surfaces_and_register_shape_are_checked():
-    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x"],
-                                                                ["walk", "lock", "matrix"])}
-    assert "Phase 5: route /releases exists before its entry gate" in res["Phase 5"]
-    assert "Phase 5: command `lock` exists before its entry gate" in res["Phase 5"]
-    assert "Phase 4: route /bumps exists before its entry gate" in res["Phase 4"]
-    assert "Phase 2: command `matrix` exists before its entry gate" in res["Phase 2"]
+def test_automation_and_register_shape_are_checked():
+    """CR-15: later-phase routes and commands may be built; an enabled later-phase automation is the breach."""
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/", "/releases", "/bumps/x",
+                                                                "/matrix/x"], ["walk", "lock", "matrix"])}
+    assert all(p == [] for p in res.values()), res
+    res = {r["phase"]: r["problems"] for r in phasegates.check(gates(), PHASE_OF, [], ["/"], ["walk"],
+                                                                automation=["poll", "nightly_matrix", "bump_bot"])}
+    assert res["Phase 2"] == ["Phase 2: automation `nightly_matrix` is enabled before its entry gate (CR-15: build, "
+                              "do not enable)"]
+    assert any("`bump_bot`" in p for p in res["Phase 4"]) and res["Phase 5"] == []
+    met = gates("gate-met", {"at": "2026-10-04T09:00:00Z", "by": "david"})
+    assert phasegates.check(met, PHASE_OF, [], [], [], automation=["nightly_matrix"])[0]["problems"] == []
+    own = gates()
+    own["phases"][0]["automation"] = ["matrix_sweep"]               # the register names what its gate governs
+    p2 = phasegates.check(own, PHASE_OF, [], [], [], automation=["matrix_sweep", "nightly_matrix"])[0]["problems"]
+    assert p2 == ["Phase 2: automation `matrix_sweep` is enabled before its entry gate (CR-15: build, do not enable)"]
     res = {r["phase"]: r["problems"] for r in phasegates.check(gates(drop="Phase 2"), PHASE_OF, [], [], [])}
     assert res["Phase 2"] == ["Phase 2: no entry gate written down"]
     unchecked = gates("gate-met", {})
@@ -139,7 +156,7 @@ def test_phase_gates_command_finds_a_planted_breach(tmp_path):
     git("commit", "-q", "-m", "docs", cwd=repo)
     (repo / "src" / "lock.py").write_text("x\n")
     git("add", "src", cwd=repo)
-    git("commit", "-q", "-m", "feat: lock writer for G3", cwd=repo)
+    git("commit", "-q", "-m", "feat: lock writer for G3", cwd=repo)          # dated 2026-09-30: before CR-15
     p = _cli("phase-gates", "--json", "--repo", str(repo))
     assert p.returncode == 1, p.stdout + p.stderr
     probs = {json.loads(x)["phase"]: json.loads(x)["problems"] for x in p.stdout.splitlines()}
