@@ -17,6 +17,8 @@ wall clock. Jobs, in the order they run within one tick:
 With no `[ci] project` configured (a local deployment, CR-17), the CI jobs (nightly_t0, fetch, runner) are left
 out: there is nothing to trigger or fetch, and Run executes locally instead (nanosoc_rm.jobs).
 
+A job registered with `enabled=False` (CR-15: built, not enabled; `gate` names the phase) is never run.
+
 When a job last ran is kept in `<data_dir>/schedule.json` (written atomically), so a restart neither repeats a
 night nor forgets one. A job that raises is still marked as run (it is retried at its next due time, never in a
 tight loop) and its error goes to stderr; the other jobs still run. A night missed while the service was down is
@@ -48,6 +50,10 @@ class Job:
     name: str
     every: str              # "poll" | "fetch" (a period from [schedule]) or "nightly" (once per UTC day)
     run: Callable[[Config], object]
+    # CR-15: a later phase's automation may be registered BUILT but disabled until its entry gate is met; tick()
+    # never runs a disabled job, and the phase-gate check (rule 5) judges only enabled ones.
+    enabled: bool = True
+    gate: str | None = None  # the phase whose entry gate must be met before `enabled` may be set (documentation)
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -184,7 +190,7 @@ def tick(now: dt.datetime, *, config: Config | None = None, jobs: tuple[Job, ...
     if jobs is None:
         jobs = JOBS if (config.get("ci") or {}).get("project") else tuple(j for j in JOBS if j.name not in CI_JOBS)
     for job in jobs:
-        if not due(job, now, state.get(job.name), config):
+        if not job.enabled or not due(job, now, state.get(job.name), config):
             continue
         try:
             job.run(config)

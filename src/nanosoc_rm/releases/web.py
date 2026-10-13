@@ -4,8 +4,8 @@
     GET  /releases/forks                     the latest fork listing (I1), and a button to list them again
     GET  /releases/{configuration}/{version}               one draft: checks, person steps, train, files, pins
     GET  /releases/{configuration}/{version}/errata        its errata document (F4) in the GUI's shell
-    GET  /releases/{configuration}/{version}/download.zip  the whole draft folder
-    GET  /releases/{configuration}/{version}/files/{name}  one file of it, as text
+    GET  /releases/{configuration}/{version}/download.zip  the draft folder, less any withheld archive
+    GET  /releases/{configuration}/{version}/files/{name}  one file of it, as text (403 for a withheld archive)
     POST /releases/jobs                      queue `release draft` (local deployment only)
     POST /releases/{configuration}/{version}/verify        queue `release verify`
     POST /releases/forks/jobs                queue `forks`
@@ -37,7 +37,7 @@ from nanosoc_rm import jobs
 from nanosoc_rm.config import Config, load_config
 from nanosoc_rm.releases.core import DRAFT_FILE, PUBLISH_NOTE, SEMVER, is_safe_id, releases_dir
 
-__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "INPUTS", "inputs_dir"]
+__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "INPUTS", "inputs_dir", "private_files"]
 
 PREFIX = "/releases"
 NAV_LABEL = "Releases"
@@ -128,6 +128,24 @@ def _read(d: Path) -> tuple[dict | None, str]:
         return None, "draft.json does not read: %s" % e
     problems = contracts.validate_observation(doc)
     return (doc, "") if not problems else (None, "draft.json does not meet its contract: %s" % "; ".join(problems[:3]))
+
+
+def private_files(doc: dict | None, lock: dict) -> dict[str, str]:
+    """{file name: why it is withheld}: the draft files the GUI never hands out (D11, D12). The generated-RTL
+    archive copy is withheld unless the draft's `vendor.scan-private` check PASSed: a finding there means vendor
+    content, for the private release store only, and an archive the scan could not vouch for is no better. An
+    unreadable draft withholds every archive-like file."""
+    checks = {c["id"]: c for c in ((doc or {}).get("fact") or {}).get("checks") or []}
+    priv = checks.get("vendor.scan-private")
+    names = {((lock.get("generated_rtl") or {}).get("archive") or {}).get("path")}
+    names |= {x["name"] for x in ((doc or {}).get("fact") or {}).get("files") or []
+              if x["name"].endswith((".gz", ".tgz", ".tar", ".zip", ".bz2", ".xz"))}
+    names.discard(None)
+    if doc is not None and priv is not None and priv["verdict"] == "PASS":
+        return {}
+    why = ("the vendor scan of the archive is %s: %s" % (priv["verdict"], priv["detail"])) if priv else \
+        "no vendor scan of the archive is recorded"
+    return {n: why for n in names}
 
 
 def _lock(d: Path) -> dict:
@@ -226,8 +244,10 @@ def router() -> APIRouter:
         job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
         verifies = [j for j in _recent(config, "release-verify", 50)
                     if j["params"].get("configuration") == configuration and j["params"].get("version") == version]
+        lock = _lock(d)
         return _page(request, "releases_draft.html", "Release %s %s" % (configuration, version), doc=doc,
-                     f=doc["fact"], lock=_lock(d), configuration=configuration, version=version,
+                     f=doc["fact"], lock=lock, withheld=private_files(doc, lock), configuration=configuration,
+                     version=version,
                      job_html=_job_html(request, config, job or (verifies[0] if verifies else None)))
 
     async def post_verify(request: Request, configuration: str, version: str) -> Response:
@@ -257,10 +277,16 @@ def router() -> APIRouter:
             return PlainTextResponse("404 Not Found: no such draft", 404)
         buf = io.BytesIO()
         top = "%s-%s" % (configuration, version)
+        withheld = private_files(_read(d)[0], _lock(d))
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             for p in sorted(d.iterdir()):
-                if p.is_file() and not p.is_symlink():
+                if p.is_file() and not p.is_symlink() and p.name not in withheld:
                     z.write(p, "%s/%s" % (top, p.name))
+            if withheld:
+                z.writestr("%s/WITHHELD.txt" % top, "".join(
+                    "%s is not in this download: %s. It goes only to the private release store (D12); a person "
+                    "copies it from the draft folder on the service host.\n" % (n, why)
+                    for n, why in sorted(withheld.items())))
         return Response(buf.getvalue(), media_type="application/zip",
                         headers={"content-disposition": 'attachment; filename="release-draft-%s.zip"' % top})
 
@@ -270,6 +296,11 @@ def router() -> APIRouter:
         if d is None or not _NAME.match(name) or not (d / name).is_file() or (d / name).is_symlink():
             return PlainTextResponse("404 Not Found: no such file in the draft", 404)
         p = d / name
+        withheld = private_files(_read(d)[0], _lock(d))
+        if name in withheld:
+            return PlainTextResponse("403 Forbidden: %s is withheld: %s. It goes only to the private release store "
+                                     "(D12); a person copies it from the draft folder on the service host."
+                                     % (name, withheld[name]), 403)
         if name.endswith((".gz", ".tgz", ".tar", ".zip")):
             return Response(p.read_bytes(), media_type="application/octet-stream",
                             headers={"content-disposition": 'attachment; filename="%s"' % name})

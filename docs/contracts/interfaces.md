@@ -728,6 +728,8 @@ def tick(now: datetime) -> list[str]             # nanosoc_rm.schedule: runs eve
 
 `serve` calls `tick(utcnow())` every 30 s. Tests call it with an injected time, so a schedule test never waits
 on the wall clock. Job names: `poll`, `nightly_t0`, `fetch`, `inventory`, `credentials`, `runner`.
+`Job` has optional `enabled` (default true) and `gate` (CR-R8): a later phase's job may be registered built with
+`enabled=False` and `gate="Phase N"` (CR-15); `tick` never runs a disabled job.
 
 ## 13. Web views and JSON API
 
@@ -1005,13 +1007,20 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
    `at=` the drafted commit: CR-R7);
    the release and silicon tags; the errata digest and revision; the archive copy against its manifest; with
    `--against DIR`, the manifest against DIR's `build_soc/` file for file (G7 done-when). Any drift is FAIL.
+   CR-R8: a release or silicon tag whose draft check was PASS and that is gone now is drift (C10: tags are never
+   deleted); one that was never created is NOT-RUN. GATES.md may differ from its drafted md5 only in the cells of
+   the rows under `## Signatures` (each row read back as `| <role> | | | |` must give the drafted md5): signing is
+   not drift, any other edit is. New check `ledger.signed`: PASS naming the roles that signed, else NOT-RUN
+   (person). An archive with a path that appears twice (an appended tar) is refused (exit 3).
 9. **Forks (I1, I2 check half).** For each `example` component (or the one named) and each of its repos, the host's
    fork list read anonymously (GitHub `GET repos/<path>/forks`, GitLab `GET projects/<path>/forks`, 100 per page,
    at most 5 pages; a refused listing is one UNVERIFIED row). Each fork's default branch is fetched anonymously
    (`fetch --filter=blob:none`, git config isolated) into a temporary repository that borrows the upstream
    mirror's objects: merge base, ahead/behind, `based_on` (newest upstream tag in the merge base),
    `releases_behind` (vX.Y.Z tags it lacks), open errata of the upstream's configurations, and, only when the
-   upstream's `nanosoc-component.yaml` declares `fork_contract`, the changed files outside `user_paths`
+   upstream's `nanosoc-component.yaml` declares `fork_contract`, the changed files outside `user_paths` (`git diff
+   --name-only --no-renames`, CR-R8: a file moved into a user path changes its old path too; UNVERIFIED when git
+   cannot list them)
    (`contract.upgrade_steps`: README or UPGRADE.md shows a merge and `git submodule update`). Not done: forks
    registered by URL (the registry has no field yet) and writing a fork contract into a project (a repo change for
    a person).
@@ -1026,7 +1035,10 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
   Phase 5 `lock` command is this `release draft`.
 - **Pages** (web/plugins.py, navigation "Releases"): `GET /releases/`, `/releases/forks`,
   `/releases/{configuration}/{version}` (checks with `data-check`/`data-verdict`, pins with `data-pin`/
-  `data-protection`, person steps, train, files), `.../errata`, `.../download.zip`, `.../files/{name}`;
+  `data-protection`, person steps, train, files), `.../errata`, `.../download.zip`, `.../files/{name}`. CR-R8
+  (D11, D12): the archive copy is withheld unless the draft's `vendor.scan-private` is PASS: `.../files/{name}`
+  answers 403 naming why, the zip leaves it out and carries `WITHHELD.txt`, and the files table shows WITHHELD
+  (`data-withheld`) instead of a link;
   `POST /releases/jobs`, `/releases/{configuration}/{version}/verify`, `/releases/forks/jobs` queue job kinds
   `release-draft`, `release-verify`, `forks` (404 in a deployment without local actions). A draft's input files
   are chosen only from `<data_dir>/release-inputs/`.
@@ -1141,6 +1153,7 @@ contract examples do.
 | `draft`, `verify`, `drafts`, `forks`, `ReleaseUsage`, `ReleaseError` (CR-R1, section 14b) | `nanosoc_rm.releases` |
 | `register_kind`, `KIND_MODULES` (CR-R2, section 13a) | `nanosoc_rm.jobs` |
 | `trailer_text`, `build_allowed`, `LATER_AUTOMATION`, `scheduled_jobs`, `outbound_writes` (CR-R3, CR-R4) | `nanosoc_rm.phasegates` |
+| `automation_phase`, `LATER_SUBCOMMANDS`, `scheduled_jobs(enabled_only=True)` (CR-R8) | `nanosoc_rm.phasegates` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -1204,9 +1217,15 @@ never read (a review label `G1:` is not a claim).
 **Build and enable (CR-15, CR-R4):** an optional top-level `build_allowed: {cr, phases}` counts only while
 `docs/CHANGES.md` has a row whose CR column is `cr`. For each listed phase whose gate is not met, implementation
 commits naming its ids and its routes and commands are reported as `built` (not problems), and the check fails
-instead when that phase's automation is enabled: a scheduler job (`nanosoc_rm.schedule.JOBS`) whose name starts
-with one of `phasegates.LATER_AUTOMATION[phase]`, or, for Phase 4 and 5, any `WRITE_CALLS` entry with effect
-`write` other than the CI trigger. The register's entry lists Phase 2 to 5.
+instead when that phase's automation is enabled: an enabled scheduler job (`nanosoc_rm.schedule.JOBS`) whose
+name holds one of `phasegates.LATER_AUTOMATION[phase]` as a word anywhere (CR-R8: words split on anything but
+letters and digits, case ignored, plural allowed; `nightly_matrix` and `auto-bump` count, a job registered
+`enabled=False` does not), or, for Phase 4 and 5, any `WRITE_CALLS` entry with effect `write` other than the CI
+trigger. The register's entry lists Phase 2 to 5.
+**Subcommands (CR-R8):** the command list holds each top-level command and `group sub` for each subcommand. A
+later phase may claim subcommands (`phasegates.LATER_SUBCOMMANDS`: Phase 5 claims `release draft`, `release
+verify`, `release list`); a bare group then counts for its own phase (Phase 3's `release`) only when it has a
+subcommand no other phase claims.
 
 ### 17.7 Gap index
 

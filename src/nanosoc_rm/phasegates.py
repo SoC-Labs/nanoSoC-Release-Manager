@@ -16,7 +16,8 @@ BUILT before their gate; it counts only while docs/CHANGES.md has a row for `cr`
 become information (`built`: the commits and surfaces that exist), and rule 5 holds instead:
 
 5. nothing ENABLES a later phase's automation before its gate: no scheduled job of that phase in
-   `nanosoc_rm.schedule.JOBS` (names in LATER_AUTOMATION), and no outbound write in `WRITE_CALLS` other than the
+   `nanosoc_rm.schedule.JOBS` that is enabled and whose name holds one of the phase's LATER_AUTOMATION words
+   anywhere (CR-R8: not only as a prefix; a job registered `enabled=False` runs nothing), and no outbound write in `WRITE_CALLS` other than the
    one CI trigger (bot pull requests and tags are Phase 4 and 5 automation).
 
 Exemptions (CR-5): the register's `exemptions` list names commits that named a later-phase id only because the
@@ -38,7 +39,7 @@ from nanosoc_rm import clock, contracts
 from nanosoc_rm.gitrun import run_git
 
 __all__ = ["LATER_PHASES", "LATER_SURFACES", "LATER_AUTOMATION", "IMPLEMENTATION_PREFIXES", "REGISTER",
-           "REQUIREMENTS", "requirement_phases", "requirement_index", "git_commits", "check", "exemptions",
+           "REQUIREMENTS", "LATER_SUBCOMMANDS", "automation_phase", "requirement_phases", "requirement_index", "git_commits", "check", "exemptions",
            "build_allowed", "trailer_text", "gather", "check_repo", "app_routes", "cli_commands", "scheduled_jobs",
            "outbound_writes", "find_repo"]
 
@@ -57,6 +58,28 @@ LATER_AUTOMATION: dict[str, tuple[str, ...]] = {
     "Phase 4": ("bump", "auto_merge", "revert"),
     "Phase 5": ("release", "lock", "forks", "train"),
 }
+# CR-R8: a CLI group may be shared by two phases. A later phase can claim named subcommands of a group ("group sub");
+# the bare group name then counts for its own phase only when it has a subcommand no other phase claims.
+LATER_SUBCOMMANDS: dict[str, tuple[str, ...]] = {
+    "Phase 5": ("release draft", "release verify", "release list"),
+}
+
+
+def automation_phase(name: str) -> list[str]:
+    """The later phases whose automation a scheduler job name names (CR-R8). A keyword counts wherever it stands as
+    a word of the name (words split on anything but letters and digits, case ignored, a plural `s`/`es` allowed),
+    so `nightly_matrix`, `auto-bump` and `weekly_release_train` are seen, not only names that start with one."""
+    low = (name or "").lower()
+    out = []
+    for ph, kws in LATER_AUTOMATION.items():
+        for kw in kws:
+            words = r"[^a-z0-9]+".join(map(re.escape, re.split(r"[^a-z0-9]+", kw)))
+            if re.search(r"(?<![a-z0-9])%s(?:e?s)?(?![a-z0-9])" % words, low):
+                out.append(ph)
+                break
+    return out
+
+
 # The one outbound write v1 makes (interfaces.md section 17.5); any other `write` entry is bot automation.
 CI_TRIGGER = "trigger/pipeline"
 _TRAILER = re.compile(r"^Requirements:[ \t]*(.*)$", re.M | re.I)
@@ -184,13 +207,18 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
             for r in LATER_SURFACES[ph]["routes"]:
                 if any(x == r or x.startswith(r + "/") for x in routes):
                     surfaces.append("route %s" % r)
-            for c in LATER_SURFACES[ph]["cli"]:
-                if c in commands:
-                    surfaces.append("command `%s`" % c)
+            claimed = {sc for p2, subs in LATER_SUBCOMMANDS.items() if p2 != ph for sc in subs}
+            for c in LATER_SURFACES[ph]["cli"] + LATER_SUBCOMMANDS.get(ph, ()):
+                if c not in commands:
+                    continue
+                subs = [x for x in commands if x.startswith(c + " ")]
+                if " " not in c and subs and all(x in claimed for x in subs):
+                    continue                          # the group holds only another phase's subcommands
+                surfaces.append("command `%s`" % c)
             if ph in buildable:
                 built += ["%s built (CR-15)" % s for s in surfaces]
                 for j in scheduled:
-                    if j.startswith(LATER_AUTOMATION[ph]):
+                    if ph in automation_phase(j):
                         problems.append("%s: scheduled job %s enables automation before its entry gate" % (ph, j))
                 if ph in ("Phase 4", "Phase 5") and bot_writes:
                     problems.append("%s: outbound write(s) %s enable bot automation before its entry gate" % (
@@ -220,15 +248,19 @@ def app_routes() -> list[str]:
 
 
 def cli_commands() -> list[str]:
-    """The top-level `nanosoc-rm` commands."""
+    """The top-level `nanosoc-rm` commands, and `group sub` for each subcommand of a group (CR-R8)."""
     from nanosoc_rm.cli import main
-    return sorted(main.commands)
+    out = list(main.commands)
+    for name, cmd in main.commands.items():
+        out += ["%s %s" % (name, sub) for sub in getattr(cmd, "commands", {}) or {}]
+    return sorted(out)
 
 
-def scheduled_jobs() -> list[str]:
-    """The names of the jobs the scheduler runs (rule 5)."""
+def scheduled_jobs(enabled_only: bool = True) -> list[str]:
+    """The names of the jobs the scheduler runs (rule 5). A job registered disabled (CR-15) is never run, so it
+    enables nothing; `enabled_only=False` lists every registered job."""
     from nanosoc_rm.schedule import JOBS
-    return [j.name for j in JOBS]
+    return [j.name for j in JOBS if j.enabled or not enabled_only]
 
 
 def outbound_writes() -> list[dict]:

@@ -319,6 +319,134 @@ def test_verify_finds_drift(scene, tmp_path):
     assert "GATES.md changed since the draft (md5)" in D.verify(d)["fact"]["drift"]
 
 
+def test_verify_fails_when_a_drafted_tag_is_deleted(scene, tmp_path):
+    """Review item R1: a release or silicon tag the draft saw at the commit and that is gone now is drift (C10)."""
+    d = tmp_path / "d"
+    doc = D.draft("soc-v1", "1.0.0", archive=_archive(tmp_path, RTL), out=d)
+    assert _checks(doc)["release.tag"]["verdict"] == "PASS" and _checks(doc)["release.silicon-tag"]["verdict"] == "PASS"
+    assert D.verify(d)["fact"]["verdict"] == "PASS"
+    scene.h.delete_remote_ref(GH, "SoC-Labs/soc", "refs/tags/v1.0.0")
+    scene.h.delete_remote_ref(GH, "SoC-Labs/soc", "refs/tags/silicon/demo-r0p0")
+    scene.sync()
+    v = D.verify(d)["fact"]
+    assert v["verdict"] == "FAIL", v
+    assert {c["id"]: c["verdict"] for c in v["checks"]}["tag.v1.0.0"] == "FAIL"
+    assert {c["id"]: c["verdict"] for c in v["checks"]}["tag.silicon-demo-r0p0"] == "FAIL"
+    assert any(x.startswith("v1.0.0 pointed at") for x in v["drift"]) and \
+        any(x.startswith("silicon/demo-r0p0 pointed at") for x in v["drift"])
+    # a tag that did not exist at draft time and still does not is a person step, not drift
+    d2 = tmp_path / "d2"
+    D.draft("soc-main", "2.0.0", archive=_archive(tmp_path, RTL), out=d2)
+    w = D.verify(d2)["fact"]
+    assert {c["id"]: c["verdict"] for c in w["checks"]}["tag.v2.0.0"] == "NOT-RUN" and w["drift"] == [], w
+
+
+def test_a_signed_ledger_verifies_and_any_other_edit_is_drift(scene, tmp_path):
+    """Review item R2: G2 needs a signed GATES.md; signing it must not make verify FAIL."""
+    d = tmp_path / "d"
+    D.draft("soc-v1", "1.0.0", archive=_archive(tmp_path, RTL), out=d)
+    g = d / "GATES.md"
+    drafted = g.read_text()
+    unsigned = {c["id"]: c for c in D.verify(d)["fact"]["checks"]}["ledger.signed"]
+    assert unsigned["verdict"] == "NOT-RUN" and unsigned["person"]
+    g.write_text(drafted.replace("| Release approver | | | |", "| Release approver | David | 2026-10-13 | DF |")
+                 .replace("| Second reviewer (tapeout, silicon or errata revision) | | | |",
+                          "| Second reviewer (tapeout, silicon or errata revision) | Ann | 2026-10-13 | AB |"))
+    v = D.verify(d)["fact"]
+    assert v["verdict"] == "PASS" and v["drift"] == [], v
+    sig = {c["id"]: c for c in v["checks"]}["ledger.signed"]
+    assert sig["verdict"] == "PASS" and "Release approver" in sig["detail"] and "Second reviewer" in sig["detail"]
+    # a changed gate row in a signed ledger is still drift
+    g.write_text(g.read_text().replace("| FAIL |", "| PASS |", 1) if "| FAIL |" in drafted else
+                 g.read_text().replace("| UNVERIFIED |", "| PASS |", 1))
+    assert "GATES.md changed since the draft (md5)" in D.verify(d)["fact"]["drift"]
+    # so is a signature row added or a role renamed
+    g.write_text(drafted.replace("| Release approver | | | |", "| Release approver | | | |\n| Extra | x | y | z |"))
+    assert "GATES.md changed since the draft (md5)" in D.verify(d)["fact"]["drift"]
+    g.write_text(drafted.replace("| Release approver | | | |", "| Releaser | David | x | y |"))
+    assert "GATES.md changed since the draft (md5)" in D.verify(d)["fact"]["drift"]
+
+
+def test_an_archive_with_a_duplicate_member_is_refused(tmp_path):
+    """Review item R6: two copies of one path: the manifest could not be one line per extracted file."""
+    p = tmp_path / "dup.tar"
+    with tarfile.open(p, "w") as tar:
+        for data in (b"old\n", b"new\n"):
+            info = tarfile.TarInfo("build_soc/a.v")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    with pytest.raises(A.ArchiveError, match="more than once"):
+        A.manifest(p)
+    # a repeated directory entry is harmless
+    q = tmp_path / "dirs.tar"
+    with tarfile.open(q, "w") as tar:
+        for _ in range(2):
+            info = tarfile.TarInfo("build_soc")
+            info.type = tarfile.DIRTYPE
+            tar.addfile(info)
+        info = tarfile.TarInfo("build_soc/a.v")
+        info.size = 2
+        tar.addfile(info, io.BytesIO(b"a\n"))
+    assert A.manifest(q).files == 1
+
+
+@pytest.mark.requirement("I2")
+def test_a_rename_into_user_paths_still_changes_the_old_path(tmp_path):
+    """Review item R5: with rename detection on, `git mv core.v user/core.v` listed only the new path."""
+    import os
+    env = dict(os.environ, GIT_CONFIG_GLOBAL="/dev/null", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+    r = tmp_path / "r"
+    run = lambda *a: subprocess.run(["git", *a], cwd=r, env=env, check=True, capture_output=True, text=True).stdout
+    r.mkdir()
+    run("init", "-q", "-b", "main", ".")
+    (r / "core.v").write_text("".join("line %d\n" % i for i in range(50)))
+    (r / "user").mkdir()
+    (r / "user" / "a.txt").write_text("a\n")
+    run("add", "-A")
+    run("commit", "-q", "-m", "base")
+    base = run("rev-parse", "HEAD").strip()
+    run("mv", "core.v", "user/core.v")
+    with open(r / "user" / "core.v", "a") as fh:
+        fh.write("one more\n")
+    run("commit", "-qam", "move")
+    changed = F.changed_paths(r / ".git", base, "HEAD")
+    assert changed == ["core.v", "user/core.v"], changed
+    assert [p for p in changed if not F._under(p, ["user/"])] == ["core.v"]
+    assert F.changed_paths(r / ".git", base, "no-such-ref") is None
+
+
+def test_the_gui_withholds_an_archive_with_vendor_content(scene, tmp_path):
+    """Review item R4 (D11, D12): a flagged archive is never handed out by the GUI, alone or in the zip."""
+    import zipfile
+    from fastapi.testclient import TestClient
+    from nanosoc_rm import auth
+    from nanosoc_rm.scan.rules import specimen
+    from nanosoc_rm.web import create_app
+    with open(scene.env.config, "a") as fh:
+        fh.write('[roles]\ndefault = ["member"]\n')
+    cfg = scene.config()
+    bad = _archive(tmp_path, dict(RTL, **{"build_soc/rtl/vendor.v": specimen("arm.banner")}), name="v.tar.gz")
+    doc = D.draft("soc-main", "1.1.0", archive=bad, out=D.draft_path(cfg, "soc-main", "1.1.0"))
+    assert _checks(doc)["vendor.scan-private"]["verdict"] == "WARN"
+    clean = _archive(tmp_path, RTL, name="c.tar.gz")
+    D.draft("soc-main", "1.2.0", archive=clean, out=D.draft_path(cfg, "soc-main", "1.2.0"))
+    c = TestClient(create_app(scene.env.config, auth=auth.FakeMembership(login="alice")))
+    r = c.get("/releases/soc-main/1.1.0/files/v.tar.gz")
+    assert r.status_code == 403 and "private release store" in r.text
+    z = c.get("/releases/soc-main/1.1.0/download.zip")
+    names = zipfile.ZipFile(io.BytesIO(z.content)).namelist()
+    assert z.status_code == 200 and "soc-main-1.1.0/v.tar.gz" not in names and "soc-main-1.1.0/WITHHELD.txt" in names
+    assert "soc-main-1.1.0/build_soc.md5sums.txt" in names
+    page = c.get("/releases/soc-main/1.1.0").text
+    assert 'data-file="v.tar.gz" data-withheld' in page and "WITHHELD" in page
+    assert 'href="/releases/soc-main/1.1.0/files/v.tar.gz"' not in page
+    # a clean archive is served
+    assert c.get("/releases/soc-main/1.2.0/files/c.tar.gz").status_code == 200
+    names = zipfile.ZipFile(io.BytesIO(c.get("/releases/soc-main/1.2.0/download.zip").content)).namelist()
+    assert "soc-main-1.2.0/c.tar.gz" in names and "soc-main-1.2.0/WITHHELD.txt" not in names
+
+
 def test_archive_manifest_matches_md5sum_and_refuses_escaping_members(tmp_path):
     files = {"build_soc/b.v": "b\n", "build_soc/a/x.sv": "x\n", "build_soc/A.v": "A\n"}
     link = tarfile.TarInfo("build_soc/link.v")

@@ -132,8 +132,8 @@ def test_real_main_later_phase_commands_are_built_not_enabled():
     later = {"matrix", "release", "changelog", "bump", "lock", "forks"} & set(cli.main.commands)
     assert later <= {"release", "forks"}, later                     # this branch builds only the release commands
     assert "lock" not in cli.PLUGIN_MODULES
-    assert not [j for j in phasegates.scheduled_jobs() for ph in phasegates.LATER_AUTOMATION
-                if j.startswith(phasegates.LATER_AUTOMATION[ph])], "a later phase's schedule is enabled"
+    assert not [j for j in phasegates.scheduled_jobs() if phasegates.automation_phase(j)], \
+        "a later phase's schedule is enabled"
     # In a fresh interpreter: in the merged suite other tests import the runner into this process (AT-A4).
     probe = subprocess.run([sys.executable, "-c", "import sys, nanosoc_rm.cli, nanosoc_rm.web; "
                             "sys.exit(1 if 'nanosoc_rm.t0.runner' in sys.modules else 0)"], capture_output=True, text=True)

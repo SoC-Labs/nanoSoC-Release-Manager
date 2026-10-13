@@ -17,10 +17,12 @@ from nanosoc_rm import db
 from nanosoc_rm.config import Config
 from nanosoc_rm.releases.core import PUBLISH_NOTE, check
 
-__all__ = ["TIERS_FOR", "tier_checks", "clone_checks", "approvals", "ledger", "checklist"]
+__all__ = ["TIERS_FOR", "tier_checks", "clone_checks", "approvals", "ledger", "unsigned", "checklist",
+           "SIGNATURES"]
 
 TIERS_FOR = {"fix": ("t0", "t1", "t2", "t3"), "feature": ("t0", "t1", "t2", "t3", "t4"),
              "tapeout": ("t0", "t1", "t2", "t3", "t4", "t6")}
+SIGNATURES = "## Signatures"
 _NAMES = {"t0": "T0 resolve", "t1": "T1 static and unit", "t2": "T2 smoke simulation", "t3": "T3 regression",
           "t4": "T4 FPGA build", "t6": "T6 ASIC flow"}
 
@@ -111,9 +113,28 @@ def ledger(release: dict, checks: list[dict]) -> str:
              "| Gate | Verdict now | Evidence or what is missing | Person |", "|---|---|---|---|"]
     lines += ["| `%s` | %s | %s | %s |" % (c["id"], c["verdict"], c["detail"].replace("|", "/"),
                                           "yes" if c["person"] else "") for c in checks]
-    lines += ["", "## Signatures", "", "| Role | Name | Date | Signature |", "|---|---|---|---|",
+    lines += ["", SIGNATURES, "", "| Role | Name | Date | Signature |", "|---|---|---|---|",
               "| Release approver | | | |", "| Second reviewer (tapeout, silicon or errata revision) | | | |", ""]
     return "\n".join(lines)
+
+
+def unsigned(text: str) -> tuple[str, list[str]]:
+    """(GATES.md with every signature cell blank, the roles whose row carries a signature). Only the rows under
+    the signatures heading change; `release verify` compares the blanked text with the drafted md5, so signing the
+    ledger is not drift and any other edit still is (G2)."""
+    out, roles, below = [], [], False
+    for line in text.split("\n"):
+        if line.strip() == SIGNATURES:
+            below = True
+        elif below and line.startswith("|") and not line.startswith(("| Role |", "|---")):
+            cells = line.strip().strip("|").split("|")
+            if len(cells) == 4:
+                role = cells[0].strip()
+                if any(c.strip() for c in cells[1:]):
+                    roles.append(role)
+                line = "| %s | | | |" % role
+        out.append(line)
+    return "\n".join(out), roles
 
 
 def checklist(release: dict, checks: list[dict], steps: list[dict]) -> str:

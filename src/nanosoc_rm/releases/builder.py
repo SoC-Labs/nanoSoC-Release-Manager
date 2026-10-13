@@ -38,7 +38,7 @@ from nanosoc_rm.releases import errata as errmod
 from nanosoc_rm.releases import lock as lockmod
 from nanosoc_rm.releases import notes as notesmod
 from nanosoc_rm.releases.core import (DRAFT_FILE, PUBLISH_NOTE, RELEASE_TAG, ReleaseError, ReleaseUsage, check,
-                                      draft_path, exit_for, ladder, md5_file, parse_version,
+                                      draft_path, exit_for, ladder, md5_bytes, md5_file, parse_version,
                                       read_json, releases_dir)
 
 __all__ = ["draft", "verify", "drafts", "read_draft", "find_draft", "parse_waiver", "ARTEFACT_KINDS",
@@ -712,16 +712,29 @@ def verify(ref: str | os.PathLike, *, config: Config | str | None = None, agains
     checks, drift = [], []
     # files as recorded
     bad = []
+    signed: list[str] | None = None
     for x in f["files"]:
         p = d / x["name"]
         if not p.is_file():
             bad.append("%s is missing" % x["name"])
         elif md5_file(p)[0] != x["md5"]:
+            if x["name"] == "GATES.md":
+                # G2: a person signs the ledger after the draft. Only the signature cells may change: the ledger
+                # with those cells blank must still be the drafted file byte for byte.
+                text = p.read_text(encoding="utf-8", errors="replace")
+                blank, signed = cl.unsigned(text)
+                if md5_bytes(blank.encode()) == x["md5"]:
+                    continue
             bad.append("%s changed since the draft (md5)" % x["name"])
     extra = sorted(p.name for p in d.iterdir() if p.name != DRAFT_FILE and p.name not in {x["name"] for x in f["files"]})
     bad += ["%s was added after the draft" % n for n in extra]
     drift += bad
-    checks.append(check("files.md5", "FAIL" if bad else "PASS", "; ".join(bad) or "%d file(s) as drafted" % len(f["files"])))
+    checks.append(check("files.md5", "FAIL" if bad else "PASS", "; ".join(bad) or "%d file(s) as drafted%s" % (
+        len(f["files"]), " (GATES.md differs only in its signatures)" if signed is not None else "")))
+    checks.append(check("ledger.signed", "PASS" if signed else "NOT-RUN",
+                        ("GATES.md is signed by: %s" % ", ".join(signed)) if signed else
+                        "GATES.md is not signed yet (a person signs it once every gate has evidence)",
+                        person=not signed, requirement="G2"))
     # pins
     reg = _registry(config)
     cfg = reg.configuration(cid)
@@ -745,11 +758,18 @@ def verify(ref: str | os.PathLike, *, config: Config | str | None = None, agains
                         "; ".join(pin_checks) or "every lock pin has the same commit, state and protection now"))
     # tags
     tags = lockmod.repo_tags(config, f["component"], _repo(reg.canonical(f["component"])))
-    for name in [f["tag"]] + ([lock["release"]["silicon"]["tag"]] if lock.get("release", {}).get("silicon") else []):
+    drafted = {c["id"]: c["verdict"] for c in f["checks"]}
+    sil = (lock.get("release") or {}).get("silicon")
+    for name, cid_ in [(f["tag"], "release.tag")] + ([(sil["tag"], "release.silicon-tag")] if sil else []):
         at = tags.get(name)
         if at is not None and at != commit:
             drift.append("%s now exists at %s, not the drafted commit %s" % (name, at[:12], commit[:12]))
             checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1]))
+        elif at is None and drafted.get(cid_) == "PASS":
+            # the draft saw this tag at the commit; tags are permanent (C10), so its loss is drift
+            drift.append("%s pointed at %s when drafted and is gone now: tags are never deleted (C10)" % (
+                name, commit[:12]))
+            checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1], requirement="C10"))
         else:
             checks.append(check("tag.%s" % name.replace("/", "-"), "PASS" if at else "NOT-RUN",
                                 "%s %s" % (name, "points at the drafted commit" if at else "is not created yet")))

@@ -1419,6 +1419,13 @@ LATER_AUTOMATION = {"Phase 2": ("matrix", "flaky", "quarantine"), "Phase 3": ("c
                     "Phase 4": ("bump", "auto_merge", "revert"), "Phase 5": ("release", "lock", "forks", "train")}
 
 
+def _names_automation(job, keywords):
+    """CR-R8: a keyword counts as a word anywhere in the job name (not only as a prefix), plural allowed."""
+    low = job.lower()
+    return any(re.search(r"(?<![a-z0-9])%s(?:e?s)?(?![a-z0-9])" % r"[^a-z0-9]+".join(
+        map(re.escape, re.split(r"[^a-z0-9]+", k))), low) for k in keywords)
+
+
 def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, scheduled=(), writes=()):
     """A7: each later phase has a written, checked entry gate before its code or surfaces appear.
     Only commits that change implementation (src/) count: PR3 writes later phases' formats and
@@ -1428,7 +1435,8 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, s
     CR-R3: ids are read only from a commit's `Requirements:` trailer lines.
     CR-15: a register `build_allowed` entry {cr, phases}, counted only while `changes` has a row for its CR,
     lets those phases be BUILT before their gate (commits and surfaces are not problems); what must not happen
-    is ENABLING their automation: a scheduler job of that phase (`scheduled`, by name prefix) or an outbound
+    is ENABLING their automation: an enabled scheduler job of that phase (`scheduled`, a keyword as a word anywhere
+    in its name, CR-R8) or an outbound
     write other than the CI trigger (`writes`, the WRITE_CALLS entries) for Phase 4 and 5."""
     probs = []
     commits = [c for c in commits if any(f.startswith(IMPLEMENTATION_PREFIXES) for f in c.get("files", []))]
@@ -1473,7 +1481,7 @@ def check_a7(gates_doc, phase_of, commits, routes, cli_commands, changes=None, s
                              % (ph, first["sha"][:7], first["at"], sorted(named(first) & ph_ids)))
         if not met and ph in buildable:
             probs += ["%s: scheduled job %s enables automation before its entry gate" % (ph, j)
-                      for j in scheduled if j.startswith(LATER_AUTOMATION[ph])]
+                      for j in scheduled if _names_automation(j, LATER_AUTOMATION[ph])]
             if ph in ("Phase 4", "Phase 5") and bot_writes:
                 probs.append("%s: outbound write(s) enable bot automation before its entry gate" % ph)
         elif not met:
@@ -2052,6 +2060,11 @@ def _nc_A7_checker(tmp):
     assert check_a7(ba, phase_of, git_commits(repo), ["/", "/releases"], ["walk", "lock"], changes=cr15) == []
     assert "Phase 2: scheduled job matrix_nightly enables automation before its entry gate" in \
         check_a7(ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15, scheduled=["poll", "matrix_nightly"])
+    for name, ph in (("nightly_matrix", "Phase 2"), ("auto-bump", "Phase 4"), ("weekly_release_train", "Phase 5")):
+        assert "%s: scheduled job %s enables automation before its entry gate" % (ph, name) in check_a7(
+            ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15, scheduled=["poll", name]), name
+    assert check_a7(ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15,
+                    scheduled=["poll", "nightly_t0", "clock_sync", "unlocked"]) == []
     assert "Phase 4: outbound write(s) enable bot automation before its entry gate" in check_a7(
         ba, phase_of, git_commits(repo), ["/"], ["walk"], changes=cr15,
         writes=[{"effect": "write", "method": "POST", "target": "repos/:repo/pulls"}])

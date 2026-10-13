@@ -73,6 +73,13 @@ def _git(cwd: Path, *args: str, timeout: float = 600):
                         "-o IdentityFile=/dev/null -o IdentityAgent=none"})
 
 
+def changed_paths(work: Path, base: str, ref: str) -> list[str] | None:
+    """Every path `ref` changed since `base` (None when git could not say). Rename detection is off: a fork that
+    moves an upstream file into a user path changed BOTH paths, and the old one is outside the user paths (I2)."""
+    r = _git(work, "diff", "--name-only", "--no-renames", base, ref)
+    return [p for p in r.stdout.split("\n") if p.strip()] if r.ok else None
+
+
 def _upstream_file(mirror: Path, ref: str, name: str) -> str | None:
     r = run_git("show", "%s:%s" % (ref, name), cwd=mirror)
     return r.stdout if r.ok else None
@@ -150,12 +157,16 @@ def _status(config: Config, component: str, upstream: dict, fork: dict, up_ref: 
             have = {m[len(prefix):] for m in merged}
             fact["releases_behind"] = sum(1 for t in releases if t not in have)
         if contract is not None:
-            changed = _git(work, "diff", "--name-only", base, "refs/fork").stdout.split("\n")
+            changed = changed_paths(work, base, "refs/fork")
             roots = list(contract.get("user_paths") or [])
-            outside = sorted(p for p in changed if p.strip() and not _under(p, roots))
-            fact["user_paths"] = {"verdict": "FAIL" if outside else "PASS", "outside": outside[:200],
-                                  "reason": "%d changed file(s) outside the declared user paths" % len(outside)
-                                  if outside else "every change is inside the declared user paths"}
+            outside = sorted(p for p in changed or [] if not _under(p, roots))
+            if changed is None:
+                fact["user_paths"] = {"verdict": "UNVERIFIED", "outside": [],
+                                      "reason": "git could not list the fork's changed files"}
+            else:
+                fact["user_paths"] = {"verdict": "FAIL" if outside else "PASS", "outside": outside[:200],
+                                      "reason": "%d changed file(s) outside the declared user paths" % len(outside)
+                                      if outside else "every change is inside the declared user paths"}
     late = (fact["behind"] or 0) > 0 or (fact["releases_behind"] or 0) > 0
     fact["verdict"] = "WARN" if late or fact["user_paths"]["verdict"] == "FAIL" else "PASS"
     fact["reason"] = ("behind the upstream by %s commit(s)%s" % (fact["behind"], "" if fact["releases_behind"] is None

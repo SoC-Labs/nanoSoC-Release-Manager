@@ -35,7 +35,7 @@
 {% endif %}
 <h2>Files</h2>
 <table><thead><tr><th>File</th><th class="num">Bytes</th><th>md5</th></tr></thead><tbody>
-{% for x in f.files %}<tr data-file="{{ x.name }}"><td><a href="{{ rurl(configuration, version, 'files/' ~ x.name) }}">{{ x.name }}</a></td><td class="num">{{ x.bytes }}</td><td><code>{{ x.md5 }}</code></td></tr>{% endfor %}
+{% for x in f.files %}<tr data-file="{{ x.name }}"{% if x.name in withheld %} data-withheld{% endif %}><td>{% if x.name in withheld %}{{ x.name }} <span class="pill state-red">WITHHELD</span> <span class="note">Not downloadable here: {{ withheld[x.name] }}. Private release store only (D12); never publish it.</span>{% else %}<a href="{{ rurl(configuration, version, 'files/' ~ x.name) }}">{{ x.name }}</a>{% endif %}</td><td class="num">{{ x.bytes }}</td><td><code>{{ x.md5 }}</code></td></tr>{% endfor %}
 </tbody></table>
 {% if lock.pins %}
 <details><summary>Lock pins ({{ lock.pins|length }})</summary>

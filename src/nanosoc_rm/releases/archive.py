@@ -5,7 +5,7 @@
 
 The archive is read, never extracted: member contents are hashed from the tar stream. A member with an absolute
 path or a `..` part is refused (ArchiveError), so a manifest can never name a file outside its tree. Symlinks and
-directories are counted but not listed (the manifest lists regular files, as `md5sum` over `find -type f` does).
+directories are counted but not listed; a path that appears twice (an appended tar) is refused (the manifest lists regular files, as `md5sum` over `find -type f` does).
 The format matches `md5sum` (two spaces), sorted by path in byte order.
 """
 from __future__ import annotations
@@ -48,11 +48,17 @@ def manifest(archive: str | os.PathLike, keep_members: bool = False) -> Manifest
     file's content (for the vendor scan, D11)."""
     path = Path(archive)
     digest, size = md5_file(path)
-    lines, symlinks, members = [], 0, []
+    lines, symlinks, members, seen = [], 0, [], set()
     try:
         with tarfile.open(path, "r:*") as tar:
             for m in tar:
                 name = _safe(m.name)
+                if not m.isdir():
+                    if name in seen:
+                        raise ArchiveError("archive member %r appears more than once: which copy a tree holds "
+                                           "depends on the extractor, so the manifest could not be one line per "
+                                           "file (rebuild the archive without appending)" % name)
+                    seen.add(name)
                 if m.issym() or m.islnk():
                     symlinks += 1
                     continue
