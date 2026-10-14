@@ -507,16 +507,19 @@ def test_a_get_never_refreshes_branches_or_hosts_and_the_post_does(local, monkey
     monkeypatch.setattr(views, "compare_now", lambda config, comp: calls.append(("hosts", comp)) or [])
     c = TestClient(local["app"])
     sign_in(c)
-    assert c.get("/branches?component=tidelink&refresh=1").status_code == 200
+    # CR-W1: /branches?component= answers 303 to the workspace tab, which reads stored rows only
+    r = c.get("/branches?component=tidelink&refresh=1", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/components/tidelink/branches")
+    assert c.get(r.headers["location"]).status_code == 200
     assert c.get("/hosts?component=tidelink&refresh=1").status_code == 200
-    assert calls == [("branches", "tidelink", False)]                   # a cross-site link computes nothing new
+    assert calls == []                                                  # a cross-site link computes nothing new
     token = page_csrf(c)
     r = c.post("/branches/refresh", data={"csrf_token": token, "component": "tidelink", "all": "1"})
     assert r.status_code == 200 and "Branches" in r.text
     r = c.post("/hosts/refresh", data={"csrf_token": token, "component": "tidelink"})
     assert r.status_code == 200 and "Host copies" in r.text
     assert 'action="/hosts/refresh"' in r.text and 'name="refresh"' not in r.text
-    assert calls[1:] == [("branches", "tidelink", True), ("hosts", "tidelink")]
+    assert calls == [("branches", "tidelink", True), ("hosts", "tidelink")]
     assert c.post("/hosts/refresh", data={"component": "tidelink"}).status_code == 403
     assert c.post("/branches/refresh", data={"csrf_token": token, "component": "../x"}).status_code == 400
 

@@ -1,0 +1,69 @@
+{# Component Overview (spec 4.2). Every number below comes from compspace (stored facts only). #}
+{% import "_ui.html" as ui %}
+{% include "_comp_header.html" %}
+<section class="panel" aria-labelledby="h-needs">
+  <h2 id="h-needs">What needs doing in {{ comp }}</h2>
+  <div class="card" data-need="branches">
+    {% if branch_oldest %}
+    <p>{{ ui.chip("%d DELETABLE" % deletable, "c-warn" if deletable else "c-pass") }} <strong>Branches</strong></p>
+    <p>{% for v, n in branch_counts|dictsort %}{{ v }} {{ n }}{{ ", " if not loop.last }}{% endfor %}. Every copy counted. {{ fact(branch_oldest, "branch inventory") }}</p>
+    <p><a class="ghost" href="{{ href(comp, 'branches') }}">Review delete list</a></p>
+    {% else %}
+    <p>{{ ui.chip("NOT READ", "c-notrun") }} <strong>Branches</strong></p>
+    <p>No branch inventory is stored for {{ comp }}.</p>
+    <p><a class="ghost" href="{{ href(comp, 'branches') }}">Open Branches</a></p>
+    {% endif %}
+  </div>
+  <div class="card" data-need="quality">
+    {% if qv.comments %}
+    <p>{{ ui.chip("%d TO REVIEW" % qv.worth, "c-warn" if qv.worth else "c-pass") }} <strong>Quality</strong> at <code>{{ short(qv.comments.fact.commit) }}</code></p>
+    <p>{{ qv.total }} findings; {{ qv.banner }} are banners (one rule).{% if qv.worst %} Worst first: <code>{{ qv.worst[0].path }}:{{ qv.worst[0].line }}</code> {{ qv.worst[0].kind }} ({{ qv.worst[0].severity }}).{% endif %} {{ fact(qv.comments, "analysed") }}</p>
+    <p><a class="ghost" href="{{ href(comp, 'review') }}">Start review</a></p>
+    {% else %}
+    <p>{{ ui.chip("NOT ANALYSED", "c-notrun") }} <strong>Quality</strong></p>
+    <p>No stored quality result for {{ comp }}.</p>
+    <p><a class="ghost" href="{{ href(comp, 'quality') }}">Open Quality</a></p>
+    {% endif %}
+  </div>
+  <div class="card" data-need="hosts">
+    {% for h in hdr.hosts %}
+    <p>{{ ui.chip(h.chip, h.tone) }} <strong>Host copies</strong>: {{ fact(h.doc, h.canonical ~ " vs " ~ h.copy_host) }}</p>
+    <p>{% if h.relation == "AHEAD" %}Canonical {{ h.canonical }} has {{ h.canonical_only }} commits the {{ h.copy_host }} copy lacks. AHEAD can be pushed {{ h.canonical }} to {{ h.copy_host }}.{% elif h.relation == "BEHIND" %}The {{ h.copy_host }} copy has {{ h.copy_only }} commits {{ h.canonical }} lacks: check before overwriting.{% elif h.relation == "DIVERGED" %}Diverged ({{ h.canonical_only }} / {{ h.copy_only }}): a person decides.{% elif h.relation == "SAME" %}Both copies are the same.{% else %}{{ h.relation }}.{% endif %}{% if h.mismatch %} Default branches differ.{% endif %} Push plan: not computed.</p>
+    {% else %}
+    <p>{{ ui.chip("NOT COMPARED", "c-notrun") }} <strong>Host copies</strong></p>
+    <p>No host comparison is stored for {{ comp }}. <a href="/hosts?component={{ quote(comp) }}">Hosts</a></p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel" aria-labelledby="h-pinned">
+  <h2 id="h-pinned">Where {{ comp }} is pinned</h2>
+  <div class="scroll"><table data-pins>
+    <thead><tr><th>Configuration</th><th>Pin</th><th>Commit</th><th>Hosts</th><th class="num">Lag</th><th>What it means</th></tr></thead>
+    <tbody>
+    {% for p in pins %}
+      <tr data-pin="{{ p.configuration }}:{{ p.tree_path }}"{% if p.meaning.gate %} class="is-deciding"{% endif %}>
+        <td><a href="{{ p.href }}">{{ p.configuration }}</a></td>
+        <td>{{ fact(p.doc, p.tree_path) }}</td>
+        <td><code>{{ short(p.commit) }}</code></td>
+        <td>{% for h in p.hosts %}{{ ui.chip(h.text, h.tone) }} {% endfor %}</td>
+        <td class="num">{{ "-" if p.lag is none else p.lag }}</td>
+        <td>{{ ui.chip(p.meaning.chip, p.meaning.tone) }} {{ p.meaning.text }}{% if p.meaning.gate %} <a href="{{ p.href }}">Open the deciding gate</a>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% for cid in never %}
+      <tr data-pin="{{ cid }}:never-walked"><td><a href="/configurations/{{ quote(cid) }}">{{ cid }}</a></td><td colspan="5">{{ ui.chip("NEVER WALKED", "c-notrun") }} No stored walk: the tree of {{ cid }} is not known yet.</td></tr>
+    {% endfor %}
+    {% if not pins and not never %}<tr><td colspan="6">No stored walk pins {{ comp }}.</td></tr>{% endif %}
+    </tbody>
+  </table></div>
+</section>
+
+{% if record or mirrors or defects %}
+<section class="panel" aria-labelledby="h-reg">
+  <h2 id="h-reg">Registry and mirrors</h2>
+  {% if record %}<p>{{ fact(record, "registry record") }}: class {{ record.fact.record['class'] }}</p>{% endif %}
+  <ul>{% for m in mirrors %}<li>{{ fact(m, m.fact.repo.host ~ ':' ~ m.fact.repo.path ~ (' ok' if m.fact.ok else ' FAILED')) }}{% if m.fact.last_success_at %}, last fetched {{ page.age_of(m.fact.last_success_at) }} ago{% endif %}</li>{% endfor %}</ul>
+  {% if defects %}<p>Defects citing it: {% for d in defects %}<a href="/defects/{{ quote(d.fact.id) }}">{{ d.fact.id }}</a> {{ fact(d, d.fact.record.title) }}{{ "; " if not loop.last }}{% endfor %}</p>{% endif %}
+</section>
+{% endif %}

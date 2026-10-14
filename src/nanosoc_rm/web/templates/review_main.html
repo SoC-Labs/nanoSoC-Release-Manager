@@ -1,0 +1,94 @@
+{# The review body (also the htmx answer of decide and basket POSTs). `st` from web.review.state. #}
+{% import "_ui.html" as ui %}
+{% set b = st.basket %}
+<p class="review-progress" data-progress>{{ fact(obs, "Analysed at " ~ (short(obs.fact.commit) if obs.fact.commit else "the work tree")) }} ·
+  <strong>{{ st.done }} of {{ st.total }} reviewed</strong> · {{ st.in_patch }} in patch · {{ st.skipped }} skipped · {{ st.dismissed }} not a finding</p>
+<nav aria-label="Review steps">
+  <ol class="filters steps">
+  {% if st.steps_before %}<li class="note">{{ st.steps_before }} earlier</li>{% endif %}
+  {% for s in st.steps %}
+    <li><a class="seg" href="{{ href(comp, 'review', commit=st.commit, i=s.n) }}"{% if s.current %} aria-current="step"{% endif %}>{{ s.n + 1 }} <span class="chip {{ s.tone }}">{{ s.word }}</span></a></li>
+  {% endfor %}
+  {% if st.steps_after %}<li class="note">{{ st.steps_after }} more</li>{% endif %}
+  </ol>
+</nav>
+<div class="review-grid">
+<section class="panel" aria-labelledby="h-finding" data-finding="{{ st.current.key if st.current else '' }}">
+{% if st.current %}{% set it = st.current %}
+  <h2 id="h-finding">Finding {{ it.n + 1 }} of {{ st.total }}</h2>
+  <p>{{ ui.chip(it.severity, it.severity_tone) }} {{ ui.chip(it.kind, "c-neutral") }} {{ ui.chip(it.status_word, "c-ink" if it.decision in ("accept", "edit") else "c-notrun") }}</p>
+  <p><code>{{ it.path }}:{{ it.line }}</code></p>
+  <p>{{ it.why }}</p>
+  {% if it.caution %}<p>{{ ui.chip("CHECK", "c-warn") }} {{ it.caution }}</p>{% endif %}
+  {% if it.excerpt %}
+  <h3>The code, lines {{ it.excerpt.lines[0][0] }} to {{ it.excerpt.lines[-1][0] }}</h3>
+  <pre class="code excerpt" data-excerpt>{% for n, text, flagged in it.excerpt.lines %}{% if flagged %}<span class="hl">{{ "%5d"|format(n) }}  {{ text }}</span>{% else %}{{ "%5d"|format(n) }}  {{ text }}{% endif %}
+{% endfor %}</pre>
+  {% else %}
+  <p class="note" data-no-excerpt>{{ it.excerpt_note }} Evidence: <code>{{ it.evidence }}</code></p>
+  {% endif %}
+  {% if it.diff %}
+  <h3>Suggested edit</h3>
+  <pre class="code" data-edit>{% for sign, text in it.diff %}<span class="diffline {{ 'del' if sign == '-' else 'ins' }}">{{ sign }} {{ text }}</span>
+{% endfor %}</pre>
+  {% if not it.diff_read %}<p class="note">The original lines are not on this host yet, so they show as line numbers.</p>{% endif %}
+  {% else %}
+  <p class="note">No mechanical edit: use Edit to give the replacement lines, or skip it.</p>
+  {% endif %}
+  {% if actions %}
+  <form method="post" action="{{ href(comp, 'review/decide') }}" class="decide">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="key" value="{{ it.key }}"><input type="hidden" name="commit" value="{{ st.commit }}">
+    <div class="row">
+      <button type="submit" class="prim" name="decision" value="accept" hx-post="{{ href(comp, 'review/decide') }}" hx-target="#review"{% if not it.finding.edit %} disabled{% endif %}>Accept</button>
+      <button type="submit" class="ghost" name="decision" value="skip" hx-post="{{ href(comp, 'review/decide') }}" hx-target="#review">Skip</button>
+      <button type="submit" class="ghost" name="decision" value="dismiss" hx-post="{{ href(comp, 'review/decide') }}" hx-target="#review">Not a finding</button>
+    </div>
+    <details id="edit-{{ it.n }}"{% if it.decision == "edit" %} open{% endif %}>
+      <summary>Edit</summary>
+      <label for="edit-text-{{ it.n }}">Your replacement lines (empty = delete only)</label>
+      <textarea id="edit-text-{{ it.n }}" name="text" rows="4">{{ it.edit_text }}</textarea>
+      <button type="submit" class="ghost" name="decision" value="edit" hx-post="{{ href(comp, 'review/decide') }}" hx-target="#review">Save edit to patch</button>
+    </details>
+  </form>
+  <p class="note">Accept adds the suggested edit to the basket and moves to the next finding.</p>
+  {% else %}
+  <p class="note">Decisions and the patch basket are part of the local deployment.</p>
+  {% endif %}
+{% else %}
+  <h2 id="h-finding">Queue done</h2>
+  <p role="status">{{ st.in_patch }} edit{{ "" if st.in_patch == 1 else "s" }} in the patch. Download the patch, then apply it with <code>git apply</code>. Pick any step above to change a decision.</p>
+{% endif %}
+</section>
+
+<aside class="panel" id="basket" aria-labelledby="h-basket">
+  <h2 id="h-basket">Patch basket</h2>
+  <p>{{ b['items']|length }} finding{{ "" if b['items']|length == 1 else "s" }}{% if b.banner %}, plus the banner rule ({{ b.n_banner }} lines){% endif %}{% if b.readme %}, plus the README layout{% endif %}.</p>
+  {% if b['items'] %}
+  <ul>
+  {% for x in b['items'] %}
+    <li data-basket="{{ x.key }}"><code>{{ x.path }}:{{ x.line }}</code> {{ x.kind }}{% if x.decision == "edit" %} (edited){% endif %}
+      {% if actions %}<form method="post" action="{{ href(comp, 'review/basket') }}" class="inline"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ st.commit }}"><input type="hidden" name="key" value="{{ x.key }}">
+        <button type="submit" class="ghost" name="op" value="remove" hx-post="{{ href(comp, 'review/basket') }}" hx-target="#review">Remove</button></form>{% endif %}</li>
+  {% endfor %}
+  </ul>
+  {% else %}<p class="note">Empty. Accepted and edited findings land here.</p>{% endif %}
+  {% if actions and b.n_banner %}
+  <form method="post" action="{{ href(comp, 'review/basket') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ st.commit }}">
+    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if b.banner else 'banner-on' }}" aria-pressed="{{ 'true' if b.banner else 'false' }}" hx-post="{{ href(comp, 'review/basket') }}" hx-target="#review" data-banner-toggle>Also apply the banner rule: {{ "on" if b.banner else "off" }}</button>
+    <span class="note">Removes {{ b.n_banner }} decoration lines in one rule. Off by default.</span>
+  </form>
+  {% endif %}
+  {% for p in st.patch_problems %}<p class="banner alert" role="status">{{ p }}</p>{% endfor %}
+  {% if st.patch_preview %}
+  <h3>Patch preview</h3>
+  <pre class="code" data-patch-preview>{% for cls, ln in st.patch_preview %}<span class="diffline {{ cls }}">{{ ln }}</span>
+{% endfor %}</pre>
+  {% if st.patch_lines > 40 %}<p class="note">First 40 of {{ st.patch_lines }} lines.</p>{% endif %}
+  <p><a class="prim" href="{{ st.download }}" download="{{ b.file_name }}" data-download>Download {{ b.file_name }}</a></p>
+  {% endif %}
+  {% if actions and (b['items'] or b.banner or b.readme) %}
+  <form method="post" action="{{ href(comp, 'review/basket') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ st.commit }}">
+    <button type="submit" class="ghost" name="op" value="clear" hx-post="{{ href(comp, 'review/basket') }}" hx-target="#review" hx-confirm="Forget every decision for this commit?">Clear the basket</button></form>
+  {% endif %}
+</aside>
+</div>

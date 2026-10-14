@@ -83,7 +83,10 @@ def test_each_page_shows_the_cli_rows(site):
     assert dens.status_code == 200 and "data-age-seconds" in dens.text and "data-source-for" in dens.text
     assert sorted(_rows(dens.text, "data-path")) == sorted(r["path"] for r in cli("density"))
     com = c.get("/quality/demo/comments")
-    assert sorted(_rows(com.text, "data-kind")) == sorted(r["kind"] for r in cli("comments"))
+    rows = cli("comments")
+    assert sorted(_rows(com.text, "data-kind")) == sorted(r["kind"] for r in rows if r["kind"] != "banner")
+    ban = c.get("/quality/demo/comments?kind=banner")                  # CR-W5: banners one click away
+    assert sorted(_rows(ban.text, "data-kind")) == sorted(r["kind"] for r in rows if r["kind"] == "banner")
     rd = c.get("/quality/demo/readme")
     mism = [r for r in cli("readme") if r["status"] == "missing"]
     assert len(_rows(rd.text, "data-kind")) == len(mism) == 3 and "## Repository layout" in rd.text
@@ -211,3 +214,43 @@ def test_one_navigation_holds_every_wave_b_page_once(site):
         assert len(nav) == 1, url
         for label in labels:
             assert nav[0].count(">%s</a>" % label) == 1, (url, label)
+
+
+def test_comments_page_hides_banners_by_default_and_shows_the_real_line_text(site, tmp_path):
+    """CR-W5 (build-first 5): banners are left out of the default table and patch (one rule, not N findings),
+    `?kind=banner` shows them, `?banners=1` adds them to the patch, and a suggested edit shows the ORIGINAL line
+    text (not "line N") when the blob is on this host; rows are in review order."""
+    c, repo = site["client"], site["repo"]
+    page = _settle(c, "/quality/demo/comments", site["cfg"]).text
+    assert "banner" not in _rows(page, "data-kind")
+    assert "data-banner-link" in page and "data-patch-banners" in page
+    edits = re.findall(r'<pre class="edit">(.*?)</pre>', page, re.S)
+    assert edits and not any("- line " in e for e in edits), edits[:2]
+    import html as _html
+    row = re.search(r'<tr data-kind="[^"]+"><td><code>([^<:]+):(\d+)</code></td>.*?<span class="del">- (.*?)</span>',
+                    page, re.S)
+    path, line, text = row.group(1), int(row.group(2)), _html.unescape(row.group(3))
+    assert text == (repo / path).read_text().split("\n")[line - 1]          # the very line, at the analysed commit
+    sev = re.findall(r'<tr data-kind="[^"]+"><td><code>[^<]+</code></td><td>(\w+)</td>', page)
+    order = ["High", "Medium", "Check", "Low"]
+    assert sev == sorted(sev, key=order.index), sev
+    plain = c.get("/quality/demo/comments.diff").text
+    with_b = c.get("/quality/demo/comments.diff?banners=1").text
+    only_b = c.get("/quality/demo/comments.diff?kind=banner").text
+    banner_files = set(re.findall(r"^diff --git a/(\S+)", only_b, re.M))
+    assert banner_files and not banner_files & set(re.findall(r"^diff --git a/(\S*banner\S*)", plain, re.M))
+    assert banner_files <= set(re.findall(r"^diff --git a/(\S+)", with_b, re.M))
+    for name, text in (("p.diff", plain), ("b.diff", with_b)):
+        p = tmp_path / name
+        p.write_text(text)
+        git("apply", "--check", str(p), cwd=repo)
+
+
+def test_comments_preview_says_line_n_when_the_text_is_not_here(site, monkeypatch):
+    """The blob-presence rule: no local text, so the removed lines read "line N" with a note."""
+    from nanosoc_rm.quality import review_text
+    c = site["client"]
+    _settle(c, "/quality/demo/comments", site["cfg"])
+    monkeypatch.setattr(review_text, "local_source", lambda *a, **k: (_ for _ in ()).throw(OSError("gone")))
+    page = c.get("/quality/demo/comments").text
+    assert "- line " in page and "not on this host yet" in page

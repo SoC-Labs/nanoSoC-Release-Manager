@@ -1,0 +1,3 @@
+{# The workspace tabs; the review fragment re-sends them out of band so the "N left" count follows a decision. #}
+{% import "_ui.html" as ui %}
+<div id="ws-tabs"{% if oob %} hx-swap-oob="true"{% endif %}>{{ ui.tabs(ws_tabs, ws_tab) }}</div>

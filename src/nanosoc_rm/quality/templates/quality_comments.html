@@ -1,23 +1,22 @@
 {% include "_qstyle.html" %}
 {% set here = 'comments' %}
 {% include "_qnav.html" %}
-{% set shown = f.findings|selectattr('kind', 'equalto', sel)|list if sel else (f.findings|rejectattr('kind', 'equalto', 'banner')|list) + (f.findings|selectattr('kind', 'equalto', 'banner')|list) %}
-<p class="kindchips"><a href="{{ qurl(target, 'comments', ref=ref) }}">all: {{ f.total }}</a>{% for k, n in f.counts.items() %}<a href="{{ qurl(target, 'comments', ref=ref, kind=k) }}">{{ k }}: {{ n }}</a>{% endfor %}</p>
-<p>{% set n_edits = shown|selectattr('edit')|list|length %}{% if n_edits %}<a class="download" data-patch href="{{ qurl(target, 'comments.diff', ref=ref, kind=sel) }}">Download patch</a> of the {{ n_edits }} mechanical edit(s){% if sel %} of kind {{ sel }}{% endif %}.{% else %}No mechanical edits{% if sel %} of kind {{ sel }}{% endif %}, so no patch: fix these by hand.{% endif %} Review it, then <code>git apply</code> it in a clean checkout. The tool never edits files. Same rows: <code>nanosoc-rm quality comments {{ target }} --json</code>.</p>
-{% if not sel %}<p class="note">Banners are listed last; pick a kind above to see one kind only.</p>{% endif %}
+<p class="kindchips"><a href="{{ qurl(target, 'comments', ref=ref) }}"{% if not sel %} aria-current="true"{% endif %}>worth a look: {{ worth }}</a>{% for k, n in kind_counts %}<a href="{{ qurl(target, 'comments', ref=ref, kind=k) }}"{% if sel == k %} aria-current="true"{% endif %}>{{ k }}: {{ n }}</a>{% endfor %}<a href="{{ qurl(target, 'comments', ref=ref, kind='banner') }}"{% if sel == 'banner' %} aria-current="true"{% endif %} data-banner-link>banner: {{ n_banner }} (one rule)</a></p>
+<p>{% if n_edits %}<a class="download" data-patch href="{{ qurl(target, 'comments.diff', ref=ref, kind=sel) }}">Download patch</a> of the {{ n_edits }} mechanical edit(s){% if sel %} of kind {{ sel }}{% endif %}{% if not sel and n_banner %}; or <a data-patch-banners href="{{ qurl(target, 'comments.diff', ref=ref, banners=1) }}">include the banner rule</a> ({{ n_banner }} more){% endif %}.{% else %}No mechanical edits{% if sel %} of kind {{ sel }}{% endif %}, so no patch: fix these by hand.{% endif %} Review it, then <code>git apply</code> it in a clean checkout. The tool never edits files. Same rows: <code>nanosoc-rm quality comments {{ target }} --json</code>.</p>
+{% if not sel %}<p class="note">Banners are one rule, not {{ n_banner }} findings: they are left out here and in the patch. Rows are in review order (High, Medium, Check, Low).</p>{% endif %}
 <div class="scroll"><table class="sortable" data-quality="findings">
-  <thead><tr><th>Where</th><th>Kind</th><th>Evidence</th><th>Suggested edit</th></tr></thead>
+  <thead><tr><th>Where</th><th>Severity</th><th>Kind</th><th>Evidence</th><th>Suggested edit</th></tr></thead>
   <tbody>
-{% for x in shown[:500] %}
-  <tr data-kind="{{ x.kind }}"><td><code>{{ x.path }}:{{ x.line }}</code></td><td>{{ x.kind }}</td><td><code>{{ x.evidence }}</code></td>
-    <td>{{ x.suggestion }}{% if x.edit %}
-<pre class="edit">{% for n in range(x.edit.start, x.edit.end + 1) %}<span class="del">- line {{ n }}</span>
-{% endfor %}{% for ln in x.edit.replacement %}<span class="add">+ {{ ln }}</span>
+{% for r in rows %}{% set x = r.f %}
+  <tr data-kind="{{ x.kind }}"><td><code>{{ x.path }}:{{ x.line }}</code></td><td>{{ r.severity }}</td><td>{{ x.kind }}</td><td><code>{{ x.evidence }}</code></td>
+    <td>{{ x.suggestion }}{% if r.diff %}
+<pre class="edit">{% for sign, text in r.diff %}<span class="{{ 'del' if sign == '-' else 'add' }}">{{ sign }} {{ text }}</span>
 {% endfor %}</pre>{% endif %}</td></tr>
-{% else %}<tr><td colspan="4">No findings.</td></tr>
+{% else %}<tr><td colspan="5">No findings.</td></tr>
 {% endfor %}
   </tbody>
 </table></div>
-{% if shown|length > 500 %}<p class="note">Showing 500 of {{ shown|length }}; filter by kind, or use the CLI with --json.</p>{% endif %}
+{% if unread %}<p class="note">{{ unread }} suggested edit(s) show line numbers: the file at this commit is not on this host yet.</p>{% endif %}
+{% if n_shown > limit %}<p class="note">Showing {{ limit }} of {{ n_shown }}; filter by kind, or use the CLI with --json.</p>{% endif %}
 {% if f.undated_todos %}<p class="note">{{ f.undated_todos }} TODO/FIXME line(s) could not be dated (no blame).</p>{% endif %}
 {% include "_qsort.html" %}
