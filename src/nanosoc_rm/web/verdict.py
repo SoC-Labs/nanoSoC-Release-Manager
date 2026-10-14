@@ -302,12 +302,17 @@ def next_action(decision: Decision | None, cid: str, https_url: str | None = Non
 
 
 def unused_waivers(doc: dict | None, record: dict | None) -> list[dict]:
-    """Registry waivers (a frozen record's t0_waivers) whose tree_path no gate's `waived[].covered_by` names."""
+    """Registry waivers (a frozen record's t0_waivers) that covered nothing: no gate the waiver applies to (its own,
+    plus the foundry gate for an arm-gate `not-reached` waiver: `t0.gates._waiver_gates`) names its tree_path in
+    `waived[].covered_by`. Keyed on (gate, tree_path) as `t0.gates.apply_waivers` is, so the GUI and the CLI's
+    unused count agree (ROB-mutation-2)."""
+    from nanosoc_rm.t0.gates import _waiver_gates
     rec = ((record or {}).get("fact") or {}).get("record") or {}
     waivers = list(rec.get("t0_waivers") or []) if rec.get("frozen") else []
-    used = {w.get("covered_by") for g in ((doc or {}).get("fact") or {}).get("gates") or []
+    used = {(g.get("id"), w.get("covered_by")) for g in ((doc or {}).get("fact") or {}).get("gates") or []
             for w in g.get("waived") or []}
-    return [w for w in waivers if w.get("tree_path") not in used]
+    return [w for w in waivers
+            if not any((gid, w.get("tree_path")) in used for gid in _waiver_gates(w))]
 
 
 def https_url(config: Any, component: str) -> str | None:
