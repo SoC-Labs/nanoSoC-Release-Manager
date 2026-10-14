@@ -115,8 +115,12 @@ def register(main: click.Group) -> None:
     @json_option
     def list_cmd(configuration, as_json):
         """Every release draft on this host (newest first)."""
+        from nanosoc_rm.cliutil import unregistered_configuration
         from nanosoc_rm.releases import drafts
         rows = drafts(configuration=configuration)
+        if not rows and (msg := unregistered_configuration(configuration)):
+            click.echo("nanosoc-rm release list: %s" % msg, err=True)
+            return EXIT_USAGE
         docs = [r["doc"] for r in rows if r["doc"]]
         if as_json:
             emit(docs, True)

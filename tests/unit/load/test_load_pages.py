@@ -29,8 +29,8 @@ PASSWORD = "load-test password"
 # Per GET. Generous on purpose: <host> is a shared login server (load average near 300 while this was written, when
 # the example-data sweep's slowest page took 18 s); the connection budget below is the deterministic guard.
 PAGE_BUDGET_S = 60.0
-CONNECTIONS_BUDGET = 80               # store connections per GET: 28 to 57 today, except the ROB-load-7 pages
-N_PLUS_ONE = ("/versions/", "/versions/tidelink", "/components/tidelink/versions", "/quality/")   # ROB-load-7
+CONNECTIONS_BUDGET = 80               # store connections per GET (28 to 57 on 2026-10-14), the overviews included
+N_PLUS_ONE = ("/versions/", "/versions/tidelink", "/components/tidelink/versions", "/quality/")   # were ROB-load-7
 
 
 def _signed_in(tmp_path, monkeypatch, extra_configs=()):
@@ -100,20 +100,18 @@ def test_every_get_page_answers_within_budget(local, monkeypatch):
             errors.append((url, r.status_code, r.text[:200]))
         if took > PAGE_BUDGET_S:
             slow.append((url, round(took, 1)))
-        if n.connections > CONNECTIONS_BUDGET and url not in N_PLUS_ONE:
+        if n.connections > CONNECTIONS_BUDGET:
             chatty.append((url, n.connections))
     assert not errors, errors
     assert not slow, slow
     assert not chatty, chatty
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-7: the /versions/ and /quality/ overviews read the store once per "
-                                       "component or target and kind (versioning/core.py overview, quality/web.py "
-                                       "_overview_rows)")
 @pytest.mark.parametrize("url", N_PLUS_ONE)
 def test_an_overview_page_opens_a_bounded_number_of_store_connections(local, monkeypatch, url):
-    """An overview reads each kind once, not once per catalogue component (today 184 to 188 connections for
-    /versions/ with the example catalogue; 553 with the demo registry's, about 60 s under load on <host>)."""
+    """ROB-load-7 (fixed). An overview reads each kind once, not once per catalogue component (before the fix 180
+    to 189 connections for /versions/ with the example catalogue; 553 with the demo registry's, about 60 s under
+    load on <host>)."""
     c = L.OpCounter()
     with c.installed(monkeypatch):
         assert local["client"].get(url).status_code == 200
@@ -140,11 +138,8 @@ def test_a_page_reads_quality_findings_independent_of_their_history(local, monke
     assert seen.by_kind.get("quality_finding", 0) <= 2 * 2, seen.by_kind
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-6: the rail opens two store connections per registered "
-                                       "configuration on every page (web/shell.py _decisions: views.pins and "
-                                       "views.compat_results per configuration)")
 def test_a_page_opens_a_bounded_number_of_store_connections_whatever_the_configuration_count(tmp_path, monkeypatch):
-    """The rail lists each configuration with its deciding gate. Reading that must not cost a store connection per
+    """ROB-load-6 (fixed). The rail lists each configuration with its deciding gate. Reading that must not cost a store connection per
     configuration: each connection runs the DDL and commits (ROB-load-3), about 85 ms on <host>, so 500
     configurations made GET /alerts take 95 s (1031 connections) and / 186 s."""
     def connections(n_extra, where):
@@ -154,9 +149,34 @@ def test_a_page_opens_a_bounded_number_of_store_connections_whatever_the_configu
         env = _signed_in(where, monkeypatch, extra)
         L.add_configurations(env["cfg"], 1)
         env["client"].get("/")                                    # the inbox refreshes the registry facts
-        c = L.OpCounter()
-        with c.installed(monkeypatch):
-            assert env["client"].get("/alerts").status_code == 200
-        return c.connections
+        out = {}
+        for url in ("/alerts", "/"):                              # the rail alone; the rail plus the inbox board
+            c = L.OpCounter()
+            with c.installed(monkeypatch):
+                assert env["client"].get(url).status_code == 200
+            out[url] = c.connections
+        return out
     few, many = connections(0, tmp_path / "few"), connections(40, tmp_path / "many")
-    assert many <= few + 10, (few, many)
+    assert all(many[u] <= few[u] + 10 for u in few), (few, many)
+
+
+def test_the_batched_overview_reads_answer_what_the_per_target_reads_did(local):
+    """ROB-load-7's batched reads return, per target, exactly the documents and order of the per-target read they
+    replace (quality.stored(kind, target); versioning.stored(kind, component)). Seeded: the quality example."""
+    from nanosoc_rm import quality as q
+    from nanosoc_rm import versioning
+    from nanosoc_rm.versioning.core import stored_by_target as v_by_target
+    _quality_history(local["cfg"], 3)
+    seen = 0
+    for kind in q.KINDS:
+        by = q.stored_by_target(kind, config=local["cfg"])
+        targets = {d["fact"]["target"] for d in q.stored(kind, config=local["cfg"])}
+        assert set(by) == targets
+        for t in targets:
+            assert by[t] == q.stored(kind, t, config=local["cfg"]), (kind, t)
+            seen += len(by[t])
+    assert seen >= 4                                              # the example's four kinds plus the history
+    for kind in ("version_plan", "changelog_lint", "tag_check"):
+        by = v_by_target(kind, config=local["cfg"])
+        for t in by:
+            assert by[t] == versioning.stored(kind, t, config=local["cfg"]), (kind, t)

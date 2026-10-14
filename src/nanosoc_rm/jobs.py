@@ -306,15 +306,33 @@ def command_text(kind: str, params: dict) -> str:
     return "nanosoc-rm " + shlex.join([a for a in cli_args(kind, params) if a != "--json"])
 
 
+# Kinds whose identical request, while one is still queued, is that queued job rather than a second one (ROB-load-5):
+# a compat run answers for the configuration's tree as it is when the job STARTS, so a second queued copy can only
+# repeat the first one's answer (about 3 minutes of the single worker each). A running job is not reused: it may
+# have read the tree before the change the person is asking about.
+COALESCE_QUEUED = ("compat",)
+
+
 def submit(config: Config, kind: str, params: dict, by: str) -> dict:
-    """Queue a job. JobUsage for a request the CLI would refuse. A compat job logs `run_t0` (H2)."""
+    """Queue a job. JobUsage for a request the CLI would refuse. A compat job logs `run_t0` (H2). A compat request
+    identical to one still queued returns that queued job (COALESCE_QUEUED) and logs nothing: no second run."""
     if not by:
         raise JobUsage("a job needs the login that asked for it")
     p = _params(kind, dict(params or {}))
+    text = json.dumps(p, sort_keys=True)
     with _connect(config) as con:
-        cur = con.execute("INSERT INTO jobs (kind, params, state, by, created_at, command) VALUES (?, ?, 'queued', ?, ?, ?)",
-                          (kind, json.dumps(p, sort_keys=True), by, clock.iso(), command_text(kind, p)))
-        job_id = cur.lastrowid
+        con.execute("BEGIN IMMEDIATE")
+        same = None
+        if kind in COALESCE_QUEUED:
+            same = con.execute("SELECT id FROM jobs WHERE state = 'queued' AND kind = ? AND params = ? "
+                               "ORDER BY id LIMIT 1", (kind, text)).fetchone()
+        if same is None:
+            cur = con.execute("INSERT INTO jobs (kind, params, state, by, created_at, command) "
+                              "VALUES (?, ?, 'queued', ?, ?, ?)", (kind, text, by, clock.iso(), command_text(kind, p)))
+            job_id = cur.lastrowid
+        con.execute("COMMIT")
+    if same is not None:
+        return get(config, same["id"])
     k = None if kind in KINDS else registered(kind)
     action = "run_t0" if kind == "compat" else (k.action if k is not None else None)
     if action:

@@ -136,9 +136,13 @@ def register(main: click.Group) -> None:
     def queue_cmd(configuration, as_json):
         """The kept proposals (oldest first), as the /bumps page shows them."""
         from nanosoc_rm import bumps
+        from nanosoc_rm.cliutil import unregistered_configuration
         docs, err = _guard(lambda: bumps.stored(configuration))
         if err is not None:
             return err
+        if not docs and (msg := unregistered_configuration(configuration)):
+            click.echo("nanosoc-rm bumps queue: %s" % msg, err=True)
+            return EXIT_USAGE
         if as_json:
             for d in docs:
                 click.echo(json.dumps(d, separators=(",", ":")))

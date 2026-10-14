@@ -105,7 +105,7 @@ def open_source(target: str | None, *, ref: str | None = None, path: str | os.Pa
                          "components (give --path DIR)" % target) from None
     mirror = inp.mirror_path(cfg, comp.id)
     if not (mirror / "HEAD").is_file():
-        raise QualityError("component %s has no mirror at %s: run `nanosoc-rm mirror sync %s` first"
+        raise QualityError("component %s has no mirror at %s: run `nanosoc-rm mirror sync --component %s` first"
                            % (comp.id, mirror, comp.id))
     sources: list[dict] = []
     if ref is None:
@@ -202,10 +202,23 @@ def stored(kind: str, target: str | None = None, *, config=None) -> list[dict]:
     return sorted(docs_, key=lambda d: d["observed_at"])
 
 
-def trend(kind: str, target: str, *, config=None) -> list[dict[str, Any]]:
-    """[{commit, observed_at, value}] for one target: the comment ratio, findings, mismatches or doc score."""
+def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
+    """{target: stored(kind, target)} for every target with a stored observation of `kind`, in ONE store read
+    (ROB-load-7: the overview must not read the store once per target and kind)."""
+    out: dict[str, list[dict]] = {}
+    k = KINDS.get(kind, kind)
+    for d in stored(kind, config=config):                       # oldest first, kept per target
+        target = d["fact"]["target"]
+        if d["subject"].startswith("%s:%s:" % (k, target)):
+            out.setdefault(target, []).append(d)
+    return out
+
+
+def trend(kind: str, target: str, *, config=None, docs: list[dict] | None = None) -> list[dict[str, Any]]:
+    """[{commit, observed_at, value}] for one target: the comment ratio, findings, mismatches or doc score.
+    `docs`: that target's stored(kind, target) when the caller has already read it."""
     rows = []
-    for d in stored(kind, target, config=config):
+    for d in (docs if docs is not None else stored(kind, target, config=config)):
         f = d["fact"]
         value = {"quality_density": lambda: f["totals"]["ratio"], "quality_finding": lambda: f["total"],
                  "readme_check": lambda: f["mismatch_count"],
