@@ -22,8 +22,6 @@ def _latest_ops(monkeypatch, cfg, kind, prefix=""):
     return c.ops, n
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-1: db.latest of a set kind is quadratic in the snapshot history "
-                                       "(correlated subquery per row, db/__init__.py _latest)")
 def test_current_pins_cost_at_most_linear_in_the_walk_history(tmp_path, monkeypatch):
     """Doubling the number of stored walks of one configuration at most doubles the cost of reading its current
     pins. Today it quadruples: 1000 walks of eth-rc4's 44 pins take 33.7 s per db.latest call."""
@@ -77,8 +75,6 @@ def test_current_alerts_cost_linear_in_the_alert_history(tmp_path, monkeypatch):
     assert ops_b <= 2.6 * ops_a, (ops_a, ops_b)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-3: every db.connect runs the DDL and PRAGMA user_version = 1, a "
-                                       "write, so a read waits on any writer (db/__init__.py connect)")
 def test_a_read_does_not_wait_for_a_writer(tmp_path, monkeypatch):
     """WAL mode lets readers run while a writer holds its lock (a walk or a quality --store mid-transaction).
     db.latest is a read; it must answer while another connection holds a write transaction open. Today it
@@ -98,8 +94,6 @@ def test_a_read_does_not_wait_for_a_writer(tmp_path, monkeypatch):
         writer.close()
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-3: a read-only db call commits a write transaction "
-                                       "(PRAGMA user_version = 1 in db/__init__.py _DDL, run on every connect)")
 def test_a_read_commits_nothing(tmp_path):
     """Another connection's PRAGMA data_version changes only when someone commits. Reading must not."""
     cfg = L.store_config(tmp_path)

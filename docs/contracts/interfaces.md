@@ -747,6 +747,7 @@ SQLite in WAL mode at `<data_dir>/rm.sqlite`:
 |---|---|---|
 | `observations` | kind, subject, observed_at, snapshot_id, doc JSON | yes, from mirrors, registry and CI |
 | `snapshots` | id, scope, kind, completed_at | yes |
+| `current_snapshots` | scope, kind, snapshot_id: the current snapshot of each scope, kept by triggers on `snapshots` (CR-ROB-store) | yes |
 | `runs` | nonce, configuration, commit, request, trigger, triggered_by, triggered_at, pipeline_id, job_id, state | **no**: back it up |
 | `actions` | at, login, action, target, result | **no**: back it up (H2) |
 | `alerts` | kind, subject, raised_at, cleared_at, cleared_by | yes |
@@ -754,13 +755,19 @@ SQLite in WAL mode at `<data_dir>/rm.sqlite`:
 ```python
 def put(obs: dict) -> None                       # validates (schema + README section 4 rules) before insert; raises on any breach
 def put_snapshot(scope: str, docs: list[dict]) -> str   # writes a whole snapshot atomically, marks it complete, returns its id
-def latest(kind: str, subject_prefix: str = "") -> list[dict]   # set kinds: latest complete snapshot per scope; events: latest per subject
+def latest(kind: str, subject_prefix: str = "") -> list[dict]   # set kinds: the last completed snapshot per scope; events: latest per subject
 def data_age(obs: list[dict]) -> timedelta       # now - min(observed_at)
 def put_run(run: RunRecord) -> None
 def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str, by: str) -> None
 ```
 
 - All `db` functions find the database through the config (`service.data_dir`), read per call.
+- **Current snapshot** (CR-ROB-store): the snapshot of a scope that completed last, in commit order, never by the
+  wall-clock `completed_at` (a clock stepped back must not hide a newer run). Reading it costs the current rows, not
+  the history.
+- **Schema version** (CR-ROB-store): `rm.sqlite` is at `PRAGMA user_version = 2` and `jobs.sqlite` at 1. A connection
+  runs the DDL only when the store is below its version (once, under `BEGIN IMMEDIATE`); otherwise opening it
+  writes nothing, so a read never waits for the write lock.
 - **History:** every observation is kept in v1 (the volume is small: about 200 set-kind rows per poll). Pruning is a later decision.
 - **Other stores** (not facts, not rebuildable, apart from `rm.sqlite`): `<data_dir>/jobs.sqlite` (section 13a),
   `<data_dir>/bumps.sqlite` (section 19.4) and `<data_dir>/gui.sqlite` (CR-W2: `nanosoc_rm.web.uistate`, mode
