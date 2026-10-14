@@ -50,7 +50,7 @@
       {% endif %}
       {% if store %}{% set s = store.get((r.configuration, r.version)) %}{% set sd = store.get(none) %}
       <td data-published="{{ 'yes' if s else 'no' }}">{% if s %}{{ fact(sd.doc, 'manifest ' ~ (s.published or '')) }}{% elif sd and sd.doc %}{{ fact(sd.doc, 'not in the store') }}{% else %}<span class="note">no store index</span>{% endif %}</td>
-      <td>{% if s %}<span class="pill {{ 'state-green' if s.store[0] == 'MATCH' else ('state-grey' if s.store[0] == '-' else 'state-red') }}" title="{{ s.store[2] }}">{{ s.store[0] }}</span>{% else %}-{% endif %}</td>
+      <td>{% if s %}<span class="pill {{ 'state-green' if s.store[0] == 'MATCH' else ('state-grey' if s.store[0] == '-' else ('state-amber' if s.store[0] == 'UNVERIFIED' else 'state-red')) }}" title="{{ s.store[2] }}">{{ s.store[0] }}</span>{% else %}-{% endif %}</td>
       {% endif %}
     </tr>
   {% endfor %}

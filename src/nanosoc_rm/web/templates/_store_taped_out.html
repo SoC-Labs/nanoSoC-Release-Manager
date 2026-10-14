@@ -7,11 +7,12 @@
   <p class="empty">No store index is stored, so nothing is known about tapeouts of {{ c.cid }}. {% if local is defined and local %}Open <a href="/store/">Store</a> and refresh the index.{% else %}Run <code>nanosoc-rm store index --store</code>.{% endif %}</p>
   {% elif taped.rows %}
   <div class="scroll"><table>
-    <thead><tr><th scope="col">Tapeout</th><th scope="col">Foundry</th><th scope="col">Date</th><th scope="col">GDS raw md5</th><th scope="col">Store</th><th scope="col">Release lock</th><th scope="col">Source commit</th></tr></thead>
+    <thead><tr><th scope="col">Tapeout</th><th scope="col">Foundry</th><th scope="col">Date</th><th scope="col">GDS raw md5</th><th scope="col">Signature</th><th scope="col">Store</th><th scope="col">Release lock</th><th scope="col">Source commit</th></tr></thead>
     <tbody>{% for r in taped.rows %}{% set m = r.manifest %}<tr data-tapeout="{{ m.path }}">
       <td>{{ fact(taped.doc, m.tapeout_id or m.name) }}{% if m.status %} <span class="note">{{ m.status }}</span>{% endif %}</td>
       <td>{{ m.foundry or 'not recorded' }}{% if m.shuttle %}, {{ m.shuttle }}{% endif %}</td><td>{{ m.date or 'not recorded' }}</td>
       <td>{% if m.gds_raw_md5 %}<code>{{ m.gds_raw_md5 }}</code>{% else %}not recorded{% endif %}</td>
+      <td title="{{ m.signature_detail or '' }}" data-signature="{{ m.signature or 'unknown' }}">{{ ui.chip((m.signature or 'unknown')|upper, 'c-pass' if r.trusted else ('c-fail' if m.signature == 'invalid' else 'c-warn')) }}</td>
       <td title="{{ r.store[2] }}">{{ ui.chip(r.store[0], r.store[1]) }}</td><td title="{{ r.lock[2] }}">{{ ui.chip(r.lock[0], r.lock[1]) }}</td>
       <td>{% if r.link %}<a href="{{ r.link }}" rel="noopener" data-commit-link>{{ short(m.commit, 12) }}</a>{% if r.repo_from == 'registry' %} <span class="note">(repository from the registry)</span>{% endif %}{% elif m.commit %}<code>{{ short(m.commit, 12) }}</code> <span class="note">repository not recorded</span>{% else %}<span class="note">no git identity recorded</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table></div>

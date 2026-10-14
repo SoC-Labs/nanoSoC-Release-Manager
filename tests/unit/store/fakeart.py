@@ -51,6 +51,7 @@ class FakeArtifactory:
         self.writes: list[tuple[str, str]] = []
         self.auth_seen: set[str] = set()
         self.down = False
+        self.fail: dict[str, int] = {}         # API-relative path -> HTTP status to answer instead (a broken read)
 
     # --- the one answer function ------------------------------------------------------------------------------
     def answer(self, method: str, target: str, headers: dict, body: bytes) -> tuple[int, bytes, str]:
@@ -70,6 +71,8 @@ class FakeArtifactory:
         if not path.startswith(BASE):
             return self._j(404, {"errors": [{"status": 404, "message": "Not Found"}]})
         rel = path[len(BASE):]
+        if rel in self.fail:
+            return self._j(self.fail[rel], {"errors": [{"status": self.fail[rel], "message": "failed by the test"}]})
         if method == "POST" and rel == "api/search/aql":
             return self._aql(body.decode())
         if method not in ("GET", "HEAD"):
@@ -188,7 +191,9 @@ BUILD_REV = "fedcba0987654321fedcba0987654321fedcba09"
 DOC_BYTES = b"# Errata\n\nnone yet\n"
 
 
-def sample(configuration: str = "demo-si", **kw) -> FakeArtifactory:
+def sample(configuration: str = "demo-si", *, key=None, created_by: str = "publisher", **kw) -> FakeArtifactory:
+    """`key`: an RSA private key file that signs the tapeout record (SSHSIG, namespace nanosoc-rm, as the publish
+    unit writes it); without one the `.sig` beside it is junk bytes, which no allowed signer accepts."""
     import hashlib
     manifest = json.dumps({
         "schema": 1, "kind": "tapeout-record", "tapeout_id": "demo-tapeout-1", "project": "chipa", "version": "1.0.0",
@@ -215,8 +220,9 @@ def sample(configuration: str = "demo-si", **kw) -> FakeArtifactory:
         item("asic-record", "chipa/blk/run1/docs", "secret_manual.pdf", size=50,
              props={"confidentiality": "VENDOR_CONFIDENTIAL"}),
         item("asic-record", "chipa/blk/run1/recipe", "recipe.tar.gz"),
-        item("asic-release", "chipa/1.0.0", "tapeout-demo.json", size=len(manifest), sha1=man_sha1),
-        item("asic-release", "chipa/1.0.0", "tapeout-demo.json.sig"),
+        item("asic-release", "chipa/1.0.0", "tapeout-demo.json", size=len(manifest), sha1=man_sha1,
+             created_by=created_by),
+        item("asic-release", "chipa/1.0.0", "tapeout-demo.json.sig", created_by=created_by),
     ]
     builds = {"chipa-blk": [
         {"name": "chipa-blk", "number": "run1", "started": "2026-08-30T10:00:00.000+0000", "agent": {"name": "pub"},
@@ -227,7 +233,30 @@ def sample(configuration: str = "demo-si", **kw) -> FakeArtifactory:
          "vcs": [{"revision": COMMIT, "branch": "main", "url": "git@github.com:Demo-Org/Demo-Chip.git"}],
          "properties": {"vcs.worktree_dirty": "no", "pnr.raw_md5": RAW_A}, "modules": []},
     ]}
+    if key is not None:
+        from nanosoc_rm.publish import signing
+        sig = signing.sign(manifest, key, ssh_keygen="/nonexistent/ssh-keygen").text.encode()
+    else:
+        sig = b"this is not a signature"
     files = {"asic-release/chipa/1.0.0/tapeout-demo.json": manifest,
+             "asic-release/chipa/1.0.0/tapeout-demo.json.sig": sig,
              "asic-record/chipa/blk/run1/docs/ERRATA.md": DOC_BYTES}
     kw.setdefault("repos", {"asic-candidate", "asic-record", "asic-release"})
     return FakeArtifactory(items=items, builds=builds, files=files, **kw)
+
+
+def make_signer(d) -> dict:
+    """Two fresh RSA keys in `d` (made per run with ssh-keygen, never committed) and an allowed signers file that
+    accepts only the first for the principal nanosoc-rm. {key, other, allowed}."""
+    import subprocess
+    from pathlib import Path
+    out = {}
+    for name in ("key", "other"):
+        k = Path(d) / ("%s.rsa" % name)
+        subprocess.run(["ssh-keygen", "-q", "-t", "rsa", "-b", "2048", "-N", "", "-C", "store-test", "-f", str(k)],
+                       check=True, stdin=subprocess.DEVNULL)
+        out[name] = k
+    allowed = Path(d) / "allowed_signers"
+    allowed.write_text("nanosoc-rm %s\n" % " ".join(Path(str(out["key"]) + ".pub").read_text().split()[:2]))
+    out["allowed"] = str(allowed)
+    return out

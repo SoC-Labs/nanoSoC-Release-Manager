@@ -195,11 +195,16 @@ service's manifests) and shows what it holds on `/store/`, the Silicon and Histo
    token_expires = "YYYY-MM-DD"                       # shown on /store/
    # repo = "asic-release"                            # the release repository (default)
    # repos = ["asic-candidate", "asic-record", "asic-release"]   # default: every repository
+   allowed_signers = "~/.config/nanosoc-rm/allowed_signers"   # who may sign a manifest (else the signing key's .pub)
+   shared_logins = ["<shared store login>"]          # a manifest these uploaded is never trusted
    [stores.artifactory.projects]                      # optional: the store project folder of a component
    <catalogue component> = "<store project>"
    ```
 3. Check it: `nanosoc-rm store index --store` (about 10 s; prints each feature probe), then open `/store/`.
    The index also runs once a night (scheduler job `store_index`) and on **Refresh the index**.
+
+A manifest in the release repository counts (green on the pages, silences "no manifest") only when its `.sig`
+verifies against `allowed_signers`. Without that key every manifest shows UNVERIFIED and raises a card.
 
 Documents up to 16 MiB that carry no confidentiality marking are kept, verified by sha1, in
 `<data_dir>/store-cache/` so the pages can offer them for download; the token never reaches a page.

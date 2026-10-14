@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from fakeart import BUILD_REV, COMMIT, DOC_BYTES, RAW_A, RAW_B, ZST_A, FakeArtifactory, sample
+from fakeart import BUILD_REV, COMMIT, DOC_BYTES, RAW_A, RAW_B, ZST_A, FakeArtifactory, make_signer, sample
 from nanosoc_rm import contracts, db
 from nanosoc_rm.config import ConfigError, load_config
 from nanosoc_rm.store import client as C
@@ -36,6 +36,11 @@ def run(fa: FakeArtifactory, **kw) -> dict:
         fact = I.build_index(c, st(**kw), now=NOW)
     assert contracts.validate("store", fact, "/$defs/store_index") == []
     return fact
+
+
+@pytest.fixture(scope="module")
+def keys(tmp_path_factory):
+    return make_signer(tmp_path_factory.mktemp("keys"))
 
 
 def probe(fact: dict, feature: str) -> dict:
@@ -158,10 +163,10 @@ def test_every_build_record_is_read_even_two_under_one_number():
     assert fact["builds"][0]["vcs"][0]["host"] == "github" and fact["builds"][0]["vcs"][0]["path"] == "Demo-Org/Demo-Chip"
 
 
-def test_the_manifest_is_read_and_its_signature_seen():
-    m = run(sample())["manifests"][0]
-    assert (m["kind"], m["configuration"], m["tag"], m["commit"], m["gds_raw_md5"], m["signature"]) == (
-        "tapeout", "demo-si", "v1.0.0", COMMIT, RAW_A, "present")
+def test_the_manifest_is_read_and_its_signature_verified(keys):
+    m = run(sample(key=keys["key"]), allowed_signers=keys["allowed"])["manifests"][0]
+    assert (m["kind"], m["configuration"], m["tag"], m["commit"], m["gds_raw_md5"], m["signature"], m["trusted"]) == (
+        "tapeout", "demo-si", "v1.0.0", COMMIT, RAW_A, "verified", True)
     assert (m["foundry"], m["shuttle"], m["date"], m["foundry_verdict"]) == ("foundry-x", "mpw-1", "2026-09-01", "accepted")
     assert m["repo"] == {"host": "github", "path": "Demo-Org/Demo-Chip"} and m["problems"] == []
 
@@ -381,13 +386,15 @@ def silicon_record(cid="demo-si", commit=COMMIT):
 
 
 @pytest.fixture
-def stored(tmp_path, monkeypatch):
+def stored(tmp_path, monkeypatch, keys):
+    """Index `fa` (default: the sample, its tapeout record signed by the allowed key) into a config that names the
+    allowed signers, and fix the registry answers."""
     def make(fa=None, projects=None, records=None):
-        extra = ""
+        extra = 'allowed_signers = "%s"\n' % keys["allowed"]
         if projects:
-            extra = "[stores.artifactory.projects]\n" + "".join('%s = "%s"\n' % kv for kv in projects.items())
+            extra += "[stores.artifactory.projects]\n" + "".join('%s = "%s"\n' % kv for kv in projects.items())
         cfg = load_config(write_cfg(tmp_path, URL, extra=extra))
-        with client_for(fa or sample()) as c:
+        with client_for(fa or sample(key=keys["key"])) as c:
             I.index(cfg, store=True, client=c)
         monkeypatch.setattr(V, "_cfg_records", lambda config: records if records is not None else [silicon_record()])
         monkeypatch.setattr(V, "_component_repo", lambda config, comp: {"host": "github", "path": "Demo-Org/Demo-Chip"}
@@ -408,8 +415,8 @@ def test_taped_out_matches_the_manifest_to_the_store_and_the_lock(stored, monkey
     assert V.taped_out(cfg, "demo-si")["rows"][0]["lock"][0] == "MISMATCH"
 
 
-def test_a_manifest_naming_a_stream_the_store_lacks_is_a_mismatch(stored):
-    fa = sample()
+def test_a_manifest_naming_a_stream_the_store_lacks_is_a_mismatch(stored, keys):
+    fa = sample(key=keys["key"])
     fa.items = [i for i in fa.items if i["name"] != "a.gds.zst"]
     cfg = stored(fa)
     assert V.taped_out(cfg, "demo-si")["rows"][0]["store"][0] == "NOT IN STORE"
@@ -425,8 +432,8 @@ def test_findings_name_unarchived_silicon_and_unregistered_shipped_streams(store
     assert "tag chipb-rc, commit 999999999999" in unreg["evidence"][0]
 
 
-def test_a_store_with_no_finding_raises_no_card(stored):
-    fa = sample()
+def test_a_store_with_no_finding_raises_no_card(stored, keys):
+    fa = sample(key=keys["key"])
     fa.items = [i for i in fa.items if i["name"] != "b.gds.zst"]
     cfg = stored(fa)
     assert V.findings(cfg) == []

@@ -8,6 +8,8 @@ What the client may do (the tool's own allow-list: on Artifactory OSS every toke
 server cannot be trusted to refuse a write; this module refuses it first):
 
     GET, HEAD   any path under the API base, except the Access API (`access/...`) and `api/security/...`
+                (tested on the percent-decoded, lower-cased path; an empty, `;`, `.`, `..` or double-encoded
+                segment is refused, so `..;/`, `%2e%2e/` and `api//security` cannot reach them)
     POST        `api/search/aql` only (AQL is a read; WRITE_CALLS `read-post`)
     PUT         only through the publish service (`nanosoc_rm.store.publish`, the Wave E publish unit), only to a
                 path inside the configured release repository, and never from the web process. This module makes
@@ -23,6 +25,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +69,12 @@ class Settings:
     token_expires: str | None
     repos: tuple[str, ...]
     projects: dict[str, str]                 # catalogue component -> store project folder (the publish unit's key)
+    # Trust in a release-repository manifest (shared with the publish unit, CR-ART-cfg): the allowed signers file
+    # (or the signing key's .pub), the principal it names, the ssh-keygen for non-RSA keys, the shared logins.
+    allowed_signers: str | None = None
+    signer_identity: str = "nanosoc-rm"
+    ssh_keygen: str = "ssh-keygen"
+    shared_logins: tuple[str, ...] = ()
 
 
 def settings(config: Config) -> Settings:
@@ -80,19 +89,28 @@ def settings(config: Config) -> Settings:
     if bad:
         raise ConfigError("%s: [stores.artifactory] repos holds %d entry(ies) that are not repository keys"
                           % (config.path, len(bad)))
+    allowed = table.get("allowed_signers") or None
+    if not allowed and table.get("signing_key") and Path(str(table["signing_key"]) + ".pub").is_file():
+        allowed = str(table["signing_key"]) + ".pub"            # the publish unit's fallback (publish.core)
     return Settings(url=url, release_repo=repo, token_file=table.get("token_file"),
                     token_expires=table.get("token_expires") or None, repos=repos,
-                    projects={str(k): str(v) for k, v in (table.get("projects") or {}).items()})
+                    projects={str(k): str(v) for k, v in (table.get("projects") or {}).items()},
+                    allowed_signers=allowed, signer_identity=table.get("signer_identity") or "nanosoc-rm",
+                    ssh_keygen=table.get("ssh_keygen") or "ssh-keygen",
+                    shared_logins=tuple(table.get("shared_logins") or ()))
 
 
 def _norm(path: str) -> str:
+    """The path as the server will resolve it, percent-decoded, for the allow-list test. Refused: an absolute or
+    scheme URL, a backslash, and any segment that is empty, carries a `;` (Tomcat strips `..;` to `..`), decodes to
+    `.` or `..`, or still holds a `%` after one decode (a double-encoded dot)."""
     p = (path or "").split("?", 1)[0]
     if "://" in p or p.startswith("/") or "\\" in p:
         raise StoreRefused("? %s" % path[:80], "a path relative to the API base is required")
-    parts = p.split("/")
-    if any(s in ("..", ".") for s in parts):
-        raise StoreRefused("? %s" % path[:80], "a path may not leave the API base")
-    return p
+    parts = [urllib.parse.unquote(s) for s in p.split("/")]
+    if any(s in ("", ".", "..") or ";" in s or "%" in s or "/" in s or "\\" in s for s in parts):
+        raise StoreRefused("? %s" % path[:80], "a path may not leave the API base (dot, empty or encoded segment)")
+    return "/".join(parts)
 
 
 def check_request(method: str, path: str, *, publish_repo: str | None = None) -> None:
@@ -100,7 +118,8 @@ def check_request(method: str, path: str, *, publish_repo: str | None = None) ->
     m = (method or "").upper()
     p = _norm(path)
     call = "%s %s" % (m, p)
-    if p.startswith(_REFUSED_PREFIXES) or "/access/api/" in "/" + p:
+    low = p.lower()
+    if low.startswith(_REFUSED_PREFIXES) or "/access/api/" in "/" + low or "/api/security/" in "/" + low:
         raise StoreRefused(call, "the Access and security APIs are never called (Basic auth there locks the admin out)")
     if m in ("GET", "HEAD"):
         return

@@ -134,7 +134,10 @@
         "commit": { "$ref": "#/$defs/commit_or_null" },
         "repo": { "$ref": "#/$defs/git_repo" },
         "gds_raw_md5": { "$ref": "#/$defs/md5_or_null" },
-        "signature": { "enum": ["present", "absent"] },
+        "signature": { "enum": ["verified", "invalid", "unverified", "absent"], "description": "verified: an SSHSIG .sig over these bytes by an allowed signer; invalid: a .sig that does not verify; unverified: a signature this host could not check; absent: none." },
+        "signature_detail": { "type": ["string", "null"] },
+        "signer": { "type": ["string", "null"], "description": "SHA256 fingerprint of the verifying key, or null." },
+        "trusted": { "type": "boolean", "description": "Signature verified and not uploaded by a shared login. Only a trusted manifest is shown green, registers a shipped stream or silences release_not_archived." },
         "problems": { "type": "array", "items": { "type": "string" } }
       }
     },

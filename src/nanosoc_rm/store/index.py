@@ -13,7 +13,9 @@ probe row NOT-RUN with its reason, and the sections that need it are NOT-RUN too
                                    build record, including a number filed twice (the vcs block is not AQL-queryable,
                                    so it is fetched per build and joined here, client-side)
     storage.release_repo           GET api/storage/<release repo>: the manifest repository exists
-    download.manifest              GET <release repo>/<path> of each manifest (JSON, at most 1 MiB each)
+    download.manifest              GET <release repo>/<path> of each manifest (JSON, at most 1 MiB each) and of its
+                                   `.sig`, verified against the allowed signers (`_signature`): only a verified
+                                   manifest no shared login uploaded is `trusted`
 
 The fact keeps the rows a page needs, not the whole store: every stream (GDS), source archive, manifest,
 signature and document (collateral) as a row; foundry returns one row per return folder; every other file only in
@@ -459,6 +461,50 @@ def _builds(client: StoreClient, probes: list, hosts: dict | None) -> tuple[dict
     return sec, out
 
 
+SIG_MAX = 64 << 10                           # bytes read of one signature
+_SIG_EXTS = (".sig", ".minisig", ".asc", ".sigstore.json")
+
+
+def _signature(client: StoreClient, st: Settings, full: str, body: bytes, sigs: set[str], failed: list[str]
+               ) -> tuple[str, str, str | None]:
+    """(state, why, signer fingerprint) of the manifest at `full`, read from the store and checked here:
+
+        verified    `<full>.sig` is an SSHSIG (namespace nanosoc-rm) over these bytes by a key the allowed signers
+                    file accepts for `signer_identity` (the publish unit's own check, `publish.signing.verify`)
+        invalid     a `.sig` is there and does not verify (junk, another key, other bytes, another namespace)
+        unverified  a signature is there but this host cannot check it (no allowed signers configured, an
+                    unreadable allowed signers file, a signature that could not be downloaded, a format the tool
+                    does not check)
+        absent      no signature beside the manifest
+
+    Only `verified` makes a manifest trusted: on Artifactory OSS every token is effectively admin, so the store
+    itself cannot say who wrote a file."""
+    have = [ext for ext in _SIG_EXTS if full + ext in sigs]
+    if not have:
+        return "absent", "no signature beside the manifest", None
+    if ".sig" not in have:
+        return "unverified", "a %s signature is not checked by this tool (only an SSHSIG .sig)" % have[0], None
+    if not st.allowed_signers:
+        return "unverified", ("no allowed signers to verify against ([stores.artifactory] allowed_signers, or the "
+                              "signing key's .pub)"), None
+    from nanosoc_rm.publish import signing
+    try:
+        allowed = signing.load_allowed(st.allowed_signers, st.signer_identity)
+    except signing.SignatureError as e:
+        return "unverified", str(e), None
+    try:
+        text = client.get_bytes("%s/%s" % (quote(st.release_repo, safe=""), quote(full + ".sig")), SIG_MAX)
+    except StoreError as e:
+        failed.append(str(e))
+        return "unverified", "the signature could not be read: %s" % e.cause, None
+    try:
+        fpr = signing.verify(body, text.decode("ascii"), allowed, ssh_keygen=st.ssh_keygen)
+    except Exception as e:                                        # noqa: BLE001 - any parse or check failure
+        why = str(e) if isinstance(e, signing.SignatureError) else "not an SSH signature (%s)" % type(e).__name__
+        return "invalid", why[:200], None
+    return "verified", "signed by %s" % fpr, fpr
+
+
 def _manifests(client: StoreClient, st: Settings, probes: list, items: list[dict] | None, hosts: dict | None
                ) -> tuple[dict, list[dict]]:
     try:
@@ -471,7 +517,8 @@ def _manifests(client: StoreClient, st: Settings, probes: list, items: list[dict
     if items is None:
         return {"verdict": "NOT-RUN", "reason": "AQL is not available, so the release repository was not listed"}, []
     rows = [a for a in items if a["repo"] == st.release_repo and a["role"] in ("manifest", "signature")]
-    sigs = {a["path"] + "/" + a["name"] for a in rows if a["role"] == "signature"}
+    sigs = {"/".join(x for x in (a["path"], a["name"]) if x) for a in rows if a["role"] == "signature"}
+    shared = set(st.shared_logins)
     out, failed = [], []
     for a in rows:
         if a["role"] != "manifest":
@@ -483,18 +530,24 @@ def _manifests(client: StoreClient, st: Settings, probes: list, items: list[dict
             failed.append(str(e))
             continue
         m = parse_manifest(full, a["name"], body, hosts)
-        m.update(md5=a["md5"], created=a["created"], created_by=a["created_by"],
-                 signature="present" if any(full + ext in sigs for ext in (".minisig", ".sig", ".asc",
-                                                                           ".sigstore.json")) else "absent")
+        state, why, fpr = _signature(client, st, full, body, sigs, failed)
+        m.update(md5=a["md5"], created=a["created"], created_by=a["created_by"], signature=state,
+                 signature_detail=why, signer=fpr)
+        if state != "verified":
+            m["problems"].append("signature %s: %s" % (state, why) if state != "absent" else "signature absent")
+        if a["created_by"] and a["created_by"] in shared:
+            m["problems"].append("uploaded by the shared login %s" % a["created_by"])
+        m["trusted"] = state == "verified" and a["created_by"] not in shared
         out.append(m)
     if not rows:
         _probe(probes, "download.manifest", "NOT-RUN", "no manifest in %s yet" % st.release_repo)
     elif failed:
-        _probe(probes, "download.manifest", "FAIL", "%d manifest(s) unreadable: %s" % (len(failed), failed[0]))
+        _probe(probes, "download.manifest", "FAIL", "%d manifest file(s) unreadable: %s" % (len(failed), failed[0]))
     else:
-        _probe(probes, "download.manifest", "PASS", "%d manifest(s) read" % len(out))
+        _probe(probes, "download.manifest", "PASS", "%d manifest(s) read, %d verified"
+               % (len(out), sum(1 for m in out if m["signature"] == "verified")))
     return ({"verdict": "PASS" if not failed else "INFRA",
-             "reason": None if not failed else "%d manifest(s) could not be read" % len(failed)}, out)
+             "reason": None if not failed else "%d manifest file(s) could not be read" % len(failed)}, out)
 
 
 def build_index(client: StoreClient, st: Settings, *, hosts: dict | None = None,

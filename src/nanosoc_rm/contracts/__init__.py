@@ -248,4 +248,10 @@ WRITE_CALLS: list[dict[str, str]] = [
               "person runs, under the same git runner and WRITE_CALLS",
      "reason": "CR-17: the service's local job worker runs `nanosoc-rm compat`, `mirror sync` and `walk` as a child "
                "process, so a cancel can stop the whole process tree and the service never imports the tier runner"},
+    {"file": "nanosoc_rm/publish/signing.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local",
+     "guard": "_run() starts only `<[stores.artifactory] ssh_keygen> -Y sign|verify` (refused otherwise), with a "
+              "minimal environment, no stdin but the bytes to verify, a 60 s limit; the file imports no HTTP client",
+     "reason": "CR-ART-publish: sign and verify a manifest with ssh-keygen -Y (OpenSSH 8.1+); it writes only a "
+               "temporary file"},
 ]

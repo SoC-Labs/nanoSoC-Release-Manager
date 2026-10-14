@@ -27,7 +27,7 @@ from typing import Any
 from nanosoc_rm import clock, db
 from nanosoc_rm.config import ConfigError
 
-__all__ = ["latest", "shown", "taped_out", "timeline", "component_versions", "release_rows", "collateral",
+__all__ = ["trusted", "latest", "shown", "taped_out", "timeline", "component_versions", "release_rows", "collateral",
            "findings", "search", "commit_link", "projects", "NO_IDENTITY", "cached_file"]
 
 NO_IDENTITY = "no git identity recorded"
@@ -141,6 +141,25 @@ def _lock_gds(config: Any, cid: str) -> list[dict]:
     return out
 
 
+def trusted(m: dict) -> bool:
+    """A manifest is trusted only when the index verified its signature and no shared login uploaded it."""
+    return m.get("trusted") is True
+
+
+def _distrust(m: dict) -> str:
+    """Why a manifest is not trusted, in one line."""
+    why = ["signature %s (%s)" % (m.get("signature") or "unknown", m.get("signature_detail") or "not checked")]
+    why += [p for p in m.get("problems") or [] if p.startswith("uploaded by the shared login")]
+    return "; ".join(why)
+
+
+def _untrusted(verdict: tuple[str, str, str], m: dict) -> tuple[str, str, str]:
+    """A green verdict on an untrusted manifest is UNVERIFIED (amber): a store token holder could have written it."""
+    if trusted(m) or verdict[1] != "c-pass":
+        return verdict
+    return ("UNVERIFIED", "c-warn", "%s, but the manifest is not trusted: %s" % (verdict[2], _distrust(m)))
+
+
 def _streams_by_raw(fact: dict) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     for a in fact.get("artefacts") or []:
@@ -204,13 +223,14 @@ def taped_out(config: Any, cid: str) -> dict:
         else:
             lock = ("MISMATCH", "c-fail", "lock md5 %s, manifest %s" % (", ".join(sorted({lk["md5"] for lk in locks})),
                                                                        raw or "none"))
+        store, lock = _untrusted(store, m), _untrusted(lock, m)
         repo = m.get("repo") or comp_repo
-        out["rows"].append({"manifest": m, "store": store, "lock": lock,
+        out["rows"].append({"manifest": m, "store": store, "lock": lock, "trusted": trusted(m),
                             "link": commit_link(config, repo, m.get("commit")),
                             "repo_from": "manifest" if m.get("repo") else ("registry" if comp_repo else None)})
     # Streams of this configuration's store projects (`[stores.artifactory] projects`), newest first
     projects = set(out["projects"])
-    manifest_raw = {r["manifest"].get("gds_raw_md5") for r in out["rows"]}
+    manifest_raw = {r["manifest"].get("gds_raw_md5") for r in out["rows"] if r["trusted"]}
     for a in fact.get("artefacts") or []:
         if a["role"] == "stream" and a.get("project") in projects:
             out["streams"].append({"a": a, "registered": a.get("raw_md5") in manifest_raw,
@@ -324,7 +344,8 @@ def _chips_of(config: Any, comp: str, sha: str, fact: dict | None) -> list[str]:
     for m in (fact or {}).get("manifests") or []:
         if m.get("kind") == "tapeout" and ((m.get("pin_components") or {}).get(comp) == sha or
                                            (comp == m.get("component") and m.get("commit") == sha)):
-            out.add("%s (tapeout manifest)" % (m.get("configuration") or m.get("name")))
+            out.add("%s (%s)" % (m.get("configuration") or m.get("name"),
+                                 "tapeout manifest" if trusted(m) else "unverified tapeout manifest"))
     return sorted(out)
 
 
@@ -366,7 +387,8 @@ def release_rows(config: Any) -> dict:
             store = ("MATCH", "c-pass", "raw md5 %s in the store" % raw)
         else:
             store = ("NOT IN STORE", "c-fail", "no stream carries raw md5 %s" % raw)
-        out[key] = {"published": m.get("created"), "manifest": m, "store": store}
+        out[key] = {"published": m.get("created"), "manifest": m, "store": _untrusted(store, m),
+                    "trusted": trusted(m)}
     return out
 
 
@@ -425,6 +447,8 @@ def findings(config: Any) -> list[dict]:
         for lk in _lock_gds(config, m.get("configuration") or "") if m.get("configuration") else []:
             if raw and lk["md5"] != raw and lk["version"] == m.get("version"):
                 why.append("release lock %s says GDS md5 %s, the manifest %s" % (lk["version"], lk["md5"], raw))
+        if not trusted(m):
+            why.append("the manifest is not trusted: %s" % _distrust(m))
         for a in m.get("artefacts") or []:
             held = next((x for x in fact.get("artefacts") or [] if _full(x) == a.get("path")), None)
             if held and a.get("stored_md5") and held.get("md5") and a["stored_md5"] != held["md5"]:
@@ -434,24 +458,25 @@ def findings(config: Any) -> list[dict]:
         if why:
             out.append({"kind": "store_mismatch", "about": m["path"], "doc": doc,
                         "title": "The store does not hold what manifest %s names." % m["name"], "evidence": why})
-    # release_not_archived: a silicon configuration with no tapeout or release manifest in the release repository
+    # release_not_archived: a silicon configuration with no trusted manifest in the release repository. Only when
+    # the manifests were read (a NOT-RUN or INFRA section knows nothing about what the repository holds).
     for cid, rec in sorted(silicon.items()):
-        if fact["sections"].get("manifests", {}).get("verdict") == "INFRA":
+        if fact["sections"].get("manifests", {}).get("verdict") != "PASS":
             break
-        if not _manifests_for(config, fact, cid):
+        if not [m for m in _manifests_for(config, fact, cid) if trusted(m)]:
             s = rec["silicon"]
             out.append({"kind": "release_not_archived", "about": cid, "doc": doc,
-                        "title": "%s (%s %s) has no manifest in %s." % (cid, s.get("chip"), s.get("revision"),
+                        "title": "%s (%s %s) has no verified manifest in %s." % (cid, s.get("chip"), s.get("revision"),
                                                                         fact["release_repo"]),
                         "evidence": ["silicon configuration at %s, tag %s" % (str(rec.get("commit") or "?")[:12],
                                                                               ((rec.get("ref") or {}).get("tag")
                                                                                if isinstance(rec.get("ref"), dict)
                                                                                else None) or "-"),
-                                     "the store's release repository %s holds %d manifest(s), none for it"
-                                     % (fact["release_repo"], len(fact.get("manifests") or []))]})
+                                     "the store's release repository %s holds %d manifest(s), none for it with a "
+                                     "verified signature" % (fact["release_repo"], len(fact.get("manifests") or []))]})
     # tapeout_unregistered: a stream the store marks shipped that no registered tapeout manifest covers
     registered_raw = {m.get("gds_raw_md5") for m in fact.get("manifests") or []
-                      if m.get("kind") == "tapeout" and m.get("configuration") in silicon}
+                      if m.get("kind") == "tapeout" and m.get("configuration") in silicon and trusted(m)}
     groups: dict[str, list[dict]] = {}
     for a in fact.get("artefacts") or []:
         shipped = (a.get("ships") or "").lower() in SHIPPED

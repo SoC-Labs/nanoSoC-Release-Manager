@@ -13,7 +13,7 @@ import pytest
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "store"))
-from fakeart import DOC_BYTES, sample  # noqa: E402
+from fakeart import DOC_BYTES, make_signer, sample  # noqa: E402
 
 from nanosoc_rm.config import load_config  # noqa: E402
 from nanosoc_rm.store import client as C  # noqa: E402
@@ -31,11 +31,13 @@ def store_app(tmp_path, monkeypatch, seeded_db):
     (tmp_path / "data").mkdir()
     shutil.copy(seeded_db, tmp_path / "data" / "rm.sqlite")
     (tmp_path / "store.token").write_text(TOKEN + "\n")
-    extra = ('[stores.artifactory]\nurl = "http://127.0.0.1:9/artifactory"\ntoken_file = "%s"\n'
-             '[stores.artifactory.projects]\nnanosoc-ethernet-chiplet = "chipa"\n' % (tmp_path / "store.token"))
+    keys = make_signer(tmp_path)
+    extra = ('[stores.artifactory]\nurl = "http://127.0.0.1:9/artifactory"\ntoken_file = "%s"\nallowed_signers = "%s"\n'
+             '[stores.artifactory.projects]\nnanosoc-ethernet-chiplet = "chipa"\n'
+             % (tmp_path / "store.token", keys["allowed"]))
     cfg = local_config(tmp_path / "rm.toml", tmp_path / "data", reg, extra=extra)
     monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
-    fa = sample(configuration="eth-rc4", token=TOKEN)
+    fa = sample(configuration="eth-rc4", token=TOKEN, key=keys["key"])
     with C.StoreClient("http://fake.invalid/artifactory", TOKEN, transport=fa.transport()) as c:
         I.index(load_config(cfg), store=True, client=c)
     app = create_app(cfg)
@@ -92,6 +94,7 @@ def test_taped_out_panel_and_timeline(store_app):
     s = c.get("/configurations/eth-rc4/silicon").text
     assert "data-taped-out" in s and "tapeout-demo.json" in s and "IN STORE" in s and "foundry-x" in s
     assert "NO LOCK" in s                                                # no release draft of eth-rc4 here
+    assert 'data-signature="verified"' in s and "VERIFIED" in s
     h = c.get("/configurations/eth-rc4/history").text
     assert "data-timeline" in h and 'data-event="tapeout"' in h and 'data-event="upload"' in h
 
@@ -115,3 +118,24 @@ def test_the_store_post_exists_only_in_a_local_deployment(store_app, tmp_path, f
     cfg = write_config(tmp_path / "gh.toml", data=store_app["data"], github_url=fake_github.url)
     app = create_app(cfg, auth=auth.FakeMembership(login="alice"))
     assert not {w for w in routers.writes(app) if w[1].startswith("/store")}
+
+
+def test_an_unsigned_record_shows_unverified_never_in_store(tmp_path, monkeypatch, seeded_db):
+    """SI-1 in the GUI: a record whose .sig is junk shows its signature INVALID and its store state UNVERIFIED."""
+    reg = make_registry(tmp_path / "registry")
+    (tmp_path / "data").mkdir()
+    shutil.copy(seeded_db, tmp_path / "data" / "rm.sqlite")
+    (tmp_path / "store.token").write_text(TOKEN + "\n")
+    keys = make_signer(tmp_path)
+    extra = ('[stores.artifactory]\nurl = "http://127.0.0.1:9/artifactory"\ntoken_file = "%s"\nallowed_signers = "%s"\n'
+             % (tmp_path / "store.token", keys["allowed"]))
+    cfg = local_config(tmp_path / "rm.toml", tmp_path / "data", reg, extra=extra)
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    fa = sample(configuration="eth-rc4", token=TOKEN)                   # no key: the .sig beside the record is junk
+    with C.StoreClient("http://fake.invalid/artifactory", TOKEN, transport=fa.transport()) as c:
+        I.index(load_config(cfg), store=True, client=c)
+    client = TestClient(create_app(cfg))
+    assert sign_in(client).status_code == 303
+    s = client.get("/configurations/eth-rc4/silicon").text
+    assert 'data-signature="invalid"' in s and "UNVERIFIED" in s and ">IN STORE<" not in s
+    assert "has no verified manifest" in client.get("/").text

@@ -1874,7 +1874,8 @@ named with `regen` is Phase 3 automation (`LATER_AUTOMATION`).
 
 The tool reads what the artefact store (Artifactory, `[stores.artifactory]`) holds and stores it as one fact;
 pages show that fact. Read-only: the store client admits GET and HEAD on any path except the Access and
-security APIs, and one POST, `api/search/aql` (WRITE_CALLS `read-post`). A PUT is admitted only to the publish
+security APIs, and one POST, `api/search/aql` (WRITE_CALLS `read-post`). The allow-list tests the
+percent-decoded path and refuses an empty segment, a `;` (Tomcat's `..;`), `.`, `..` and a `%` left after one decode. A PUT is admitted only to the publish
 service (`check_request(..., publish_repo=<release repo>)`, inside the release repository); the index never makes
 one. Bearer token only (`[stores.artifactory] token_file`); never Basic auth, never a netrc, never a redirect.
 
@@ -1886,7 +1887,10 @@ one. Bearer token only (`[stores.artifactory] token_file`); never Basic auth, ne
 `repos` (the repositories AQL reads; default all), `projects` (`[stores.artifactory.projects] <component> = "<store
 project>"`, shared with the publish unit: a person's statement of which store project folder a component's uploads
 are in; a configuration's project is its component's; nothing else maps a store path to a configuration). The
-publish unit's keys (`publishers` logins, `shared_logins`, signing) are read by it, not by the index.
+index also reads the publish unit's trust keys: `allowed_signers` (else the `.pub` beside `signing_key`),
+`signer_identity` (default `nanosoc-rm`), `ssh_keygen` and `shared_logins`. `publishers` is the publish unit's
+alone: Artifactory's `created_by` on a published manifest is the tool token's user, never the person, so it is not
+compared with it.
 
 ### 22.2 One run (`store.index.build_index`, `nanosoc-rm store index [--store] [--no-cache]`, job `store-index`)
 
@@ -1895,7 +1899,11 @@ reason, and the sections that need it are NOT-RUN too: `system.ping`, `system.ve
 with repo, path, name, size, created, created_by, md5, sha1 and properties), `aql.properties`, `build.list` and
 `build.info` (every build record, a number filed twice read once per record with `?started=`; the vcs block is not
 AQL-queryable, so it is fetched per build and joined here), `storage.release_repo`, `download.manifest` (each
-`*.json` in the release repository, at most 1 MiB). Index verdict: INFRA when the store did not answer, refused the
+`*.json` in the release repository, at most 1 MiB, and its `.sig`). Each manifest's `signature`: `verified` (an
+SSHSIG, namespace `nanosoc-rm`, over its bytes by an allowed signer; `publish.signing.verify`), `invalid` (a `.sig`
+that does not verify), `unverified` (no allowed signers, a signature that could not be read, a format the tool does
+not check) or `absent`; `trusted` is `verified` and not uploaded by a `shared_logins` login. A manifest or signature
+that could not be read makes the section INFRA. Index verdict: INFRA when the store did not answer, refused the
 token or returned a cut answer; UNVERIFIED when the file listing could not run (AQL absent); else PASS.
 
 The fact keeps the rows a page needs: every stream (GDS), source archive, manifest, signature and document as a
@@ -1925,10 +1933,14 @@ INFRA, 3 no `[stores.artifactory]` or no readable token file.
   silicon configurations (stored trees, or their root) and tapeout manifests that pin it.
 - Releases: **Published** and **Store** columns per draft (a manifest for that configuration and version; its GDS
   raw md5 in the store), and the documents with a download link when a verified copy is held.
+- Trust: only a trusted manifest is green. Where a verdict would be IN STORE, MATCH or MATCH (lock) for an
+  untrusted manifest, the page shows UNVERIFIED (amber) with the reason; the Taped out panel shows each record's
+  signature state.
 - Inbox cards (category silicon): `store_mismatch` (a manifest names a store path or raw md5 the store does not
-  hold, or disagrees with the release lock), `release_not_archived` (a silicon configuration with no manifest in
-  the release repository), `tapeout_unregistered` (streams the store marks shipped that no tapeout manifest of a
-  registered silicon configuration covers, one card per store project). `nanosoc-rm store findings` prints them.
+  hold, disagrees with the release lock, or is not trusted), `release_not_archived` (a silicon configuration with
+  no trusted manifest in the release repository; raised only when the manifests section is PASS),
+  `tapeout_unregistered` (streams the store marks shipped that no trusted tapeout manifest of a registered silicon
+  configuration covers, one card per store project). `nanosoc-rm store findings` prints them.
 - Search (the command bar and `nanosoc-rm store search`): artefact path, name or run tag; a hex prefix of a commit,
   a build revision, a raw md5 or a stored md5.
 

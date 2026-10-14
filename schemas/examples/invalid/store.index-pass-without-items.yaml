@@ -316,7 +316,7 @@
    },
    "schema": 1,
    "shuttle": "mpw-1",
-   "signature": "present",
+   "signature": "verified",
    "status": "accepted",
    "tag": "v1.0.0",
    "tags": [
