@@ -112,9 +112,6 @@ def test_the_newest_snapshot_is_current_when_the_clock_moves_forward(cfg, monkey
     assert [d["fact"]["ok"] for d in db.latest("mirror_status", config=cfg)] == [False]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-5: an alert raised again after the clock stepped back (raised_at "
-                                       "older than the stored raise) is ignored by db._raise_row, so a cleared "
-                                       "mirror_failed alert stays cleared while the mirror fails again")
 def test_an_alert_raised_again_after_the_clock_stepped_back_is_open(cfg):
     subj = "alert:mirror_failed:github:SoC-Labs/x"
     db.raise_alert("mirror_failed", "github:SoC-Labs/x", "first failure", SRC, at="2026-10-14T09:00:00Z", config=cfg)
@@ -160,16 +157,10 @@ def test_a_schedule_state_from_the_past_runs_the_jobs(cfg):
     assert _ran(cfg, NOW, last="2026-10-13T08:00:00Z") == ["poll", "credentials"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-6: schedule.due() trusts a last-run time in the future; after the "
-                                       "clock steps back (or ran fast once) poll and the nightly jobs stop until the "
-                                       "clock catches up, with no alert or log line")
 def test_a_last_run_in_the_future_does_not_stall_the_schedule(cfg):
     assert _ran(cfg, NOW, last="2026-10-21T09:00:00Z") == ["poll", "credentials"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-8: one malformed last-run time in schedule.json makes every tick "
-                                       "raise ValueError (load_state checks the JSON, not the times), so the schedule "
-                                       "stops for good; serve logs 'tick failed' every 30 s")
 @pytest.mark.parametrize("bad", ["2026-13-45T99:00:00Z", "yesterday"])
 def test_a_garbled_last_run_time_does_not_stop_every_later_job(cfg, bad):
     """One malformed time in schedule.json (a hand edit, a torn write): tick must not raise before any job runs."""
@@ -185,9 +176,6 @@ def test_human_age_of_a_normal_fact():
     assert human_age(90) == "90 s" and human_age(3 * 3600) == "3 h"
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-7: a fact stamped in the future (clock skew between hosts or a "
-                                       "stepped clock) prints a negative age such as '-3600 s' and reads as fresh; "
-                                       "the CLI clamps the same case to 0")
 def test_a_fact_from_the_future_is_shown_as_clock_skew_not_as_fresh():
     text = human_age(-3600)
     assert not text.startswith("-") and ("skew" in text.lower() or "future" in text.lower()), text

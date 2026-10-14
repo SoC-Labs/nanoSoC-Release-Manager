@@ -433,20 +433,32 @@ def _is_job_process(pid: int, job_id: int) -> bool:
         return False
 
 
-def recover(config: Config) -> list[int]:
+def recover(config: Config, log: Callable[[str], None] | None = None) -> list[int]:
     """Service start: every job still marked running belongs to a service that is gone. Its process (if still
-    alive) is stopped and the job becomes INFRA with the reason. Returns the job ids."""
+    alive) is stopped and the job becomes INFRA with the reason. Returns the ids of the jobs it marked.
+
+    One job that cannot be handled (its log cannot be written, its row cannot be updated) never stops the others
+    (ROB-faults-3): the problem goes to `log` (default stderr) and recovery carries on. Listing the running jobs
+    itself (a corrupt jobs.sqlite) still raises; Worker.start logs that and starts anyway."""
+    log = log or (lambda m: print("nanosoc-rm worker: %s" % m, file=sys.stderr))
     out = []
     for job in jobs(config, limit=10 ** 6, states=("running",)):
         pid = job.get("pid")
-        alive = bool(pid) and _is_job_process(pid, job["id"])
-        if alive:
-            _stop_groups(_groups(_tree(pid)) | {pid})
-        reason = ("the service restarted while this job ran; %s, so the job has no result. Run it again."
-                  % ("its process (pid %d) was stopped" % pid if alive else "its process had already ended"))
-        _update(config, job["id"], state="infra", verdict="INFRA", reason=reason, finished_at=clock.iso())
-        _append_log(config, job["id"], "\n[worker] %s\n" % reason)
+        try:
+            alive = bool(pid) and _is_job_process(pid, job["id"])
+            if alive:
+                _stop_groups(_groups(_tree(pid)) | {pid})
+            reason = ("the service restarted while this job ran; %s, so the job has no result. Run it again."
+                      % ("its process (pid %d) was stopped" % pid if alive else "its process had already ended"))
+            _update(config, job["id"], state="infra", verdict="INFRA", reason=reason, finished_at=clock.iso())
+        except Exception as e:                                    # noqa: BLE001 - the other jobs still recover
+            log("job %d could not be recovered: %s: %s" % (job["id"], type(e).__name__, e))
+            continue
         out.append(job["id"])
+        try:
+            _append_log(config, job["id"], "\n[worker] %s\n" % reason)
+        except OSError as e:
+            log("job %d marked INFRA, but its log could not be written: %s" % (job["id"], e))
     return out
 
 
@@ -528,6 +540,7 @@ class Worker:
         self._thread: threading.Thread | None = None
         self._lock_fd: int | None = None
         self._log = log or (lambda m: print("nanosoc-rm worker: %s" % m, file=sys.stderr))
+        self._unrecorded: dict[int, dict] = {}       # job id -> final fields whose write failed (ROB-faults-2)
 
     def config(self) -> Config:
         return load_config(self.config_path)
@@ -557,8 +570,11 @@ class Worker:
         if not self.acquire(config):
             self._log("another worker holds %s: this process runs no jobs" % (config.data_dir / "jobs.lock"))
             return self
-        for job_id in recover(config):
-            self._log("job %d was running when the service stopped: marked INFRA" % job_id)
+        try:
+            for job_id in recover(config, self._log):
+                self._log("job %d was running when the service stopped: marked INFRA" % job_id)
+        except Exception as e:                                    # noqa: BLE001 - serve still starts (ROB-faults-3)
+            self._log("could not recover jobs left running (%s: %s); starting anyway" % (type(e).__name__, e))
         self._thread = threading.Thread(target=self._loop, name="rm-jobs", daemon=True)
         self._thread.start()
         return self
@@ -591,9 +607,33 @@ class Worker:
             con.execute("COMMIT")
         return get(config, r["id"]) if r is not None else None
 
+    FINISH_RETRY_S = (0.2, 1.0)                     # waits between the attempts to record a job's end
+
+    def _record_end(self, config: Config, job_id: int, fields: dict) -> None:
+        """Write a job's final fields, retrying a store error (a locked or briefly full jobs.sqlite). If every
+        attempt fails the fields are kept and written again before the next job is claimed, so the job is
+        never left `running` while this worker lives (ROB-faults-2); the store error is raised for _loop to log."""
+        for wait in (*self.FINISH_RETRY_S, None):
+            try:
+                _update(config, job_id, **fields)
+                self._unrecorded.pop(job_id, None)
+                return
+            except sqlite3.Error as e:
+                if wait is None:
+                    self._unrecorded[job_id] = fields
+                    raise
+                self._log("job %d: recording its end failed (%s); retrying" % (job_id, e))
+                time.sleep(wait)
+
+    def _record_pending(self, config: Config) -> None:
+        for job_id, fields in list(self._unrecorded.items()):
+            self._record_end(config, job_id, fields)
+
     def step(self) -> int | None:
-        """Run the oldest queued job to its end. Returns its id, or None when nothing was queued."""
+        """Run the oldest queued job to its end. Returns its id, or None when nothing was queued. A job end that
+        could not be recorded earlier is recorded first."""
         config = self.config()
+        self._record_pending(config)
         job = self._claim(config)
         if job is None:
             return None
@@ -603,7 +643,7 @@ class Worker:
             fields = {"state": "infra", "verdict": "INFRA", "reason": "the worker could not run the job: %s: %s"
                       % (type(e).__name__, str(e)[:300])}
         fields["finished_at"] = clock.iso()
-        _update(config, job["id"], **fields)
+        self._record_end(config, job["id"], fields)
         _append_log(config, job["id"], "[worker] %s %s at %s%s\n" % (
             fields["state"], fields.get("verdict") or "", fields["finished_at"],
             ": " + fields["reason"] if fields.get("reason") else ""))

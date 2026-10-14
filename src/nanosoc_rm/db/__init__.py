@@ -237,8 +237,11 @@ def _raise_row(con: sqlite3.Connection, doc: dict) -> None:
     if row is None:
         con.execute("INSERT INTO alerts (kind, subject, raised_at, cleared_at, cleared_by) VALUES (?, ?, ?, ?, ?)",
                     (f["alert_kind"], doc["subject"], f["raised_at"], f["cleared_at"], f["cleared_by"]))
-    elif clock.parse(f["raised_at"]) > clock.parse(row["raised_at"]):
-        # Raised again after the stored raise: open again (with whatever clearing the new document carries).
+    elif (clock.parse(f["raised_at"]) > clock.parse(row["raised_at"])
+          or (row["cleared_at"] and not f["cleared_at"] and f["raised_at"] != row["raised_at"])):
+        # Raised again: open again (with whatever clearing the new document carries). A new uncleared raise of a
+        # cleared alert reopens it whatever its time, so a raise after the wall clock stepped back is not lost
+        # (ROB-faults-5); only the very raise that was cleared (same raised_at) leaves it cleared.
         con.execute("UPDATE alerts SET raised_at = ?, cleared_at = ?, cleared_by = ? WHERE subject = ?",
                     (f["raised_at"], f["cleared_at"], f["cleared_by"], doc["subject"]))
     elif f["cleared_at"] and not row["cleared_at"]:

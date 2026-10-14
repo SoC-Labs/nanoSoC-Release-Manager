@@ -75,9 +75,6 @@ def test_a_compat_job_that_exits_1_after_printing_pass_is_not_pass(cfg, monkeypa
 
 
 # ----- the worker cannot record the result -------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-faults-2: a store error while the worker records a job's end (a locked or "
-                                       "full jobs.sqlite) escapes Worker.step and leaves the job `running` until the "
-                                       "service restarts; cancel can no longer stop it")
 def test_a_failed_final_write_never_leaves_the_job_running(cfg, monkeypatch):
     monkeypatch.setenv("FAULT_MODE", "ok")
     job = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
@@ -137,8 +134,6 @@ def test_a_corrupt_jobs_store_refuses_a_submit_loudly(cfg):
         jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-3: Worker.start() raises on a corrupt jobs.sqlite (recover() reads "
-                                       "it unguarded), so `nanosoc-rm serve` exits before serving any page")
 def test_a_corrupt_jobs_store_does_not_stop_the_worker_from_starting(cfg):
     _corrupt(cfg.data_dir / "jobs.sqlite")
     w = jobs.Worker(cfg.path, argv_prefix=CHILD, poll_s=60)
@@ -171,9 +166,6 @@ def test_a_restart_marks_every_running_job_infra_even_with_no_pid(cfg):
     assert jobs.recover(cfg) == []                            # idempotent: a second start finds nothing running
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-3: recover() stops at the first job whose log cannot be written "
-                                       "(PermissionError escapes), so later running jobs stay `running` and "
-                                       "Worker.start(), hence `serve`, fails")
 def test_an_unwritable_job_log_does_not_stop_recovery(cfg):
     a = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
     b = jobs.submit(cfg, "walk", {"configuration": "eth-rc4"}, by="alice")

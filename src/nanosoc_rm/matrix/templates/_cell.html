@@ -25,7 +25,7 @@
     {% endif %}
     <span class="meta">
       {% if column != 'pinned' %}{{ cv.target.ref or '' }} <code>{{ short(cv.target.commit) }}</code>{% endif %}
-      {% if cv.age_s is not none %}· {{ human_age(cv.age_s) }} ago{% endif %}
+      {% if cv.age_s is not none %}· {{ human_age(cv.age_s) }}{% if cv.age_s >= 0 %} ago{% endif %}{% endif %}
       {% if cv.comparison and cv.comparison.changes %}· <span title="{% for x in cv.comparison.changes %}{{ x.gate }} {{ x.baseline }}→{{ x.cell }}; {% endfor %}">{{ cv.comparison.changes|length }} gate change(s) vs pinned</span>{% endif %}
     </span>
     <span class="meta"><a href="{{ murl(v.configuration, 'cell', component=component, column=column, tier=tier) }}">detail</a>

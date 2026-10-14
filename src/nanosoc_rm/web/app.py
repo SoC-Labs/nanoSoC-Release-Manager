@@ -22,9 +22,11 @@ FastAPI's own docs and OpenAPI routes are switched off. Plug-ins (web/plugins.py
 from __future__ import annotations
 
 import hmac
+import html
 import json
 import os
 import secrets
+import sqlite3
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
@@ -110,6 +112,24 @@ class Guard:
             return
         if kind != "http":                         # an ASGI scope this app does not know: served to nobody
             return
+        started = False
+
+        async def tracked(message: dict) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+        try:
+            await self._http(scope, receive, tracked)
+        except sqlite3.DatabaseError as e:
+            # A store that cannot be read (corrupt, locked past its timeout, read-only) on any route, the guard's
+            # own session check included: a page that names the store, never a bare 500 (ROB-faults-11).
+            if started:
+                raise
+            resp = await run_in_threadpool(_store_problem, self.state, scope, e)
+            await resp(scope, receive, send)
+
+    async def _http(self, scope: dict, receive: Callable, send: Callable) -> None:
         path = scope.get("path", "")
         if any(_is_under(path, p) for p in _OPEN_PREFIXES):
             await self.app(scope, receive, send)
@@ -184,6 +204,48 @@ class Guard:
         scope["state"]["identity"] = ident
         scope["state"]["config"] = config
         await self.app(scope, receive, send)
+
+
+_STORES = (("rm.sqlite", "the fact store"), ("jobs.sqlite", "the job store"),
+           ("sessions.sqlite", "the session store"), ("gui.sqlite", "the GUI state store"),
+           ("bumps.sqlite", "the bump store"))
+
+
+def _store_fails(path: Path) -> str | None:
+    """Why the SQLite file at `path` cannot be read (None: it reads, or it does not exist). Read-only, short
+    timeout: this runs only to name the store on an error page."""
+    if not path.exists():
+        return None
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % urllib.parse.quote(str(path)), uri=True, timeout=0.5)
+        try:
+            con.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return str(e)
+    return None
+
+
+def _store_problem(state: "_State", scope: dict, error: sqlite3.DatabaseError) -> Response:
+    """The answer to a request a store could not serve: 503, naming each store that does not read now (or
+    "a data store" when the failure was transient), and the error. No traceback, no data."""
+    named = []
+    try:
+        data_dir = Path(state.config().data_dir)
+        named = ["%s (%s) could not be read: %s" % (what, name, why) for name, what in _STORES
+                 if (why := _store_fails(data_dir / name)) is not None]
+    except Exception:                                # noqa: BLE001 - the page still answers
+        pass
+    stores = "; ".join(named) or "a data store could not be read: %s" % str(error)[:300]
+    text = ("Problem: %s. The service is up, but this page needs that data. If this persists, the store needs "
+            "repair or restoring from backup." % stores)
+    if _is_under(scope.get("path", ""), "/api"):
+        return JSONResponse({"error": text}, 503)
+    body = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Problem: data store</title></head>'
+            '<body><main><h1>Problem</h1><p class="problem">%s</p><p><a href="/">Inbox</a></p></main></body></html>'
+            % html.escape(text))
+    return HTMLResponse(body, 503)
 
 
 async def _read_body(receive: Callable) -> bytes | None:

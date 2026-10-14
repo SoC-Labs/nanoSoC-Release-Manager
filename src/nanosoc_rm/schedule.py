@@ -20,7 +20,8 @@ out: there is nothing to trigger or fetch, and Run executes locally instead (nan
 A job registered with `enabled=False` (CR-15: built, not enabled; `gate` names the phase) is never run.
 
 When a job last ran is kept in `<data_dir>/schedule.json` (written atomically), so a restart neither repeats a
-night nor forgets one. A job that raises is still marked as run (it is retried at its next due time, never in a
+night nor forgets one. A last-run time that does not parse, or that lies in the future (the clock stepped back),
+counts as never run, with a line on stderr: the job runs rather than the schedule stalling. A job that raises is still marked as run (it is retried at its next due time, never in a
 tight loop) and its error goes to stderr; the other jobs still run. A night missed while the service was down is
 caught up later the same UTC day; a night that was missed entirely shows in `t0 coverage` (D2).
 
@@ -171,17 +172,40 @@ def _save_state(config: Config, state: dict[str, str]) -> None:
     os.replace(tmp, path)
 
 
+def _last_run(job: Job, now: dt.datetime, last: str | None) -> dt.datetime | None:
+    """When `job` last ran, as a time `due` can trust; None means "treat as never run".
+
+    A time that does not parse (a hand edit, a torn write; ROB-faults-8) and a time after `now` (the wall clock
+    stepped back, or ran fast once; ROB-faults-6) are both distrusted: the job runs now rather than stall until the
+    clock catches up, and the reason goes to stderr. A job may then run twice; a stalled schedule is worse."""
+    if last is None:
+        return None
+    try:
+        t = clock.parse(last)
+    except (ValueError, TypeError, OverflowError):
+        print("nanosoc-rm schedule: job %s has an unreadable last-run time %r in schedule.json; treating it as "
+              "never run" % (job.name, last), file=sys.stderr)
+        return None
+    if t > now:
+        print("nanosoc-rm schedule: job %s last ran at %s, after now (%s): clock skew; treating it as never run"
+              % (job.name, clock.iso(t), clock.iso(now)), file=sys.stderr)
+        return None
+    return t
+
+
 def due(job: Job, now: dt.datetime, last: str | None, config: Config) -> bool:
-    """Is `job` due at `now`, given when it last ran (None: never)?"""
+    """Is `job` due at `now`, given when it last ran (None: never)? A last-run time that does not parse or lies
+    after `now` counts as never (see _last_run)."""
     sched = config["schedule"]
+    t = _last_run(job, now, last)
     if job.every == "nightly":
         hh, mm = (int(x) for x in sched["nightly_utc"].split(":"))
         start = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
         if now < start:
             return False
-        return last is None or clock.parse(last) < start
+        return t is None or t < start
     minutes = sched["fetch_minutes"] if job.every == "fetch" else sched["poll_minutes"]
-    return last is None or now - clock.parse(last) >= dt.timedelta(minutes=minutes)
+    return t is None or now - t >= dt.timedelta(minutes=minutes)
 
 
 def tick(now: dt.datetime, *, config: Config | None = None, jobs: tuple[Job, ...] | None = None) -> list[str]:

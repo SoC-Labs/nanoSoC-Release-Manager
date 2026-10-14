@@ -46,7 +46,7 @@ CARD_KINDS = {
     "compat_fail": "compat", "never_checked": "compat", "silicon_uncovered": "silicon", "red_pin": "silicon",
     "branches_deletable": "branches", "host_drift": "hosts", "alert_group": "mirrors", "quality_top": "quality",
     "waiver_unused": "compat", "errata_exposure": "silicon", "matrix_flaky": "compat", "bump_proposal": "bumps",
-    "release_draft": "silicon",
+    "release_draft": "silicon", "registry_unloaded": "compat",
 }
 CATS = (("all", "All"), ("compat", "Compatibility"), ("branches", "Branches"), ("silicon", "Silicon"),
         ("quality", "Quality"), ("hosts", "Host copies"), ("mirrors", "Mirrors"), ("bumps", "Bumps"))
@@ -68,6 +68,7 @@ WEIGHTS = {
     "matrix_flaky": {"base": 40, "expiring": 55, "expiring_days": 3},
     "bump_proposal": {"base": 25, "blocked": 10},
     "release_draft": {"base": 60},
+    "registry_unloaded": {"base": 200},
 }
 STALE_AFTER = dt.timedelta(days=7)
 STALE_FACTOR = 0.8
@@ -203,8 +204,9 @@ def _is_t0(doc: dict | None) -> bool:
 
 
 class _Ctx:
-    def __init__(self, config, now: dt.datetime):
+    def __init__(self, config, now: dt.datetime, problems: list[str] | None = None):
         self.config, self.now = config, now
+        self.problems = list(problems or [])                    # the page's banner so far (registry problems)
         self.records = views.configurations(config)
         self.frozen = {r["fact"]["id"]: views.is_frozen(r) for r in self.records}
         # One read per kind for every configuration (each store read opens a connection).
@@ -359,6 +361,23 @@ def _never_checked(ctx: _Ctx) -> list[Card]:
                               "fields": {}, "local": False},
         dest=("queues one check per press (nanosoc-rm compat CONFIG --store)" if ctx.local_ci
               else "triggers one CI T0 run per press"), basis=cids)]
+
+
+def _registry_unloaded(ctx: _Ctx) -> list[Card]:
+    """No configuration record is stored: the registry has never loaded (a registry that loads has at least one
+    configuration). Every other card is built from registry records, so an empty inbox here would mean "nothing
+    known", not "nothing needs you" (ROB-faults-12)."""
+    if ctx.records:
+        return []
+    said = [p for p in ctx.problems if "registry" in p.lower()] or ["no registry records are stored"]
+    return [Card(
+        id="registry_unloaded:all", kind="registry_unloaded", chip=("NO REGISTRY", "c-fail"),
+        title="The registry has never loaded, so nothing here can be checked.",
+        why="Every configuration and component comes from the registry. Until it loads, an empty inbox means "
+            "nothing is known, not that nothing needs you.",
+        weight=WEIGHTS["registry_unloaded"]["base"], meta="registry checkout ([registry] path)",
+        evidence=[_evidence("PROBLEM", "c-fail", p[:300]) for p in said],
+        dest="fix the registry checkout; the next page load reads it")]
 
 
 def _silicon_uncovered(ctx: _Ctx) -> list[Card]:
@@ -774,7 +793,7 @@ def _releases(ctx: _Ctx) -> list[Card]:
 
 
 # Builder order matters: compat and silicon claim tree paths before the red-pin card reads them.
-BUILDERS = (_compat_fail, _never_checked, _silicon_uncovered, _red_pins, _branches, _host_drift, _alert_groups,
+BUILDERS = (_registry_unloaded, _compat_fail, _never_checked, _silicon_uncovered, _red_pins, _branches, _host_drift, _alert_groups,
             _quality, _waivers, _errata, _matrix, _bumps, _releases)
 
 
@@ -792,7 +811,7 @@ def cards(config, login: str | None = None, now: dt.datetime | None = None,
     """Every card the stored facts give, ranked. A builder that cannot read its source adds a problem (when a list
     is passed) and gives no card; it never takes the inbox down."""
     now = now or clock.now()
-    ctx = _Ctx(config, now)
+    ctx = _Ctx(config, now, problems)
     out: list[Card] = []
     for build in BUILDERS:
         try:

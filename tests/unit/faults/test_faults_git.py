@@ -223,10 +223,6 @@ def test_an_https_network_failure_is_cause_network(name):
     assert private_read.classify(NETWORK_STDERR[name]) == "network"
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-10: an ssh fetch that fails for a network reason (DNS, refused, "
-                                       "unreachable) is classified not-found, because git's trailing 'Could not read "
-                                       "from remote repository' matches the not-found pattern before the network one; "
-                                       "the alert then reads 'private or missing' during an outage")
 @pytest.mark.parametrize("name", sorted(SSH_NETWORK_STDERR))
 def test_an_ssh_network_failure_is_cause_network_not_not_found(name):
     assert private_read.classify(SSH_NETWORK_STDERR[name]) == "network"
