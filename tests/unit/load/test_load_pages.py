@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import sys
 import time
 import urllib.parse
@@ -180,3 +179,15 @@ def test_the_batched_overview_reads_answer_what_the_per_target_reads_did(local):
         by = v_by_target(kind, config=local["cfg"])
         for t in by:
             assert by[t] == versioning.stored(kind, t, config=local["cfg"]), (kind, t)
+
+
+def test_a_commit_search_reads_no_quality_finding_document(local, monkeypatch):
+    """CR-ROB-int (review of ROB-load-2): the search box matches a commit prefix on quality_finding subjects only,
+    so a commit search decodes no finding document beyond the rail's newest per target."""
+    _quality_history(local["cfg"], 30)
+    seen = L.DocCounter().install(monkeypatch)
+    r = local["client"].get("/search", params={"q": "%040x" % 7})
+    assert r.status_code == 200
+    assert "quality of tidelink" in r.text
+    assert seen.by_kind.get("quality_finding", 0) <= 2 * 2, seen.by_kind      # the rail's newest per target only
+

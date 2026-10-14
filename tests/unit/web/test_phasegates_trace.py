@@ -395,6 +395,30 @@ def test_commit_trailers():
                                                "subject": "web: pages", "ids": ["A3", "H1", "H2"]}]
 
 
+def test_a_change_request_name_in_a_trailer_is_one_token():
+    """CR-ROB-int: `CR-W2` names the CHANGES.md row CR-W2, never the requirement W2; `CR-PR1` is not PR1."""
+    commits = [{"sha": "c" * 40, "at": "2026-10-14T10:00:00+00:00",
+                "message": "x\n\nRequirements: A5, CR-W2, CR-PR1, CR-ROB-auth, CR8, CR-6a\n"}]
+    assert trace.commit_trailers(commits)[0]["ids"] == ["A5", "CR-6a", "CR-PR1", "CR-ROB-auth", "CR-W2", "CR8"]
+
+
+def test_trace_names_a_change_request_without_a_changes_row(tmp_path):
+    """CR-ROB-int: a CR name in a trailer is known only while docs/CHANGES.md has its row."""
+    repo = tmp_path / "r"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "tests").mkdir()
+    (repo / "docs" / "REQUIREMENTS.md").write_text("### A1 · Should · v1\n\n### PR1 · Should · v1\n")
+    (repo / "docs" / "phase-gates.yaml").write_text("phases: []\n")
+    (repo / "docs" / "CHANGES.md").write_text("| CR-W2 | 2026-10-14 | A1 | x | y | David |\n| CR-PR1 | 2026-10-14 | A1 | x | y | David |\n")
+    git("init", "-q", "-b", "main", ".", cwd=repo)
+    git("add", "-A", ".", cwd=repo)
+    git("commit", "-q", "-m", "x\n\nRequirements: A1, CR-W2, CR-PR1, CR-W9", cwd=repo)
+    rows, problems = trace.trace(repo)
+    assert problems == ["commit %s names unknown requirement CR-W9" % trace.commit_trailers(
+        phasegates.git_commits(repo))[0]["sha"][:7]], problems
+    assert not {r["requirement"]: r for r in rows}["PR1"]["commits"]
+
+
 def test_trace_on_this_repo():
     rows, problems = trace.trace(REPO)
     by = {r["requirement"]: r for r in rows}

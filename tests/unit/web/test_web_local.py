@@ -431,9 +431,6 @@ def _fill(path):
 # answer yet", never a 500. Every other GET route must answer 200.
 _NO_MIRROR = (503, "has no mirror")
 NOT_200_HERE = {
-    # NEW (found by walking every route): the matrix view of the example tree fails its own schema; see
-    # test_the_matrix_page_renders_on_the_example_data below. /configurations/{id}/matrix 303s to /matrix/{id}.
-    "/configurations/{id}/matrix": (503, "is too short"), "/matrix/{configuration}": (503, "is too short"),
     "/matrix/{configuration}/cell": (404, "no column"),
     "/components/{id}/review/patch.diff": (404, "no stored comment findings"),
     "/quality/{target}": _NO_MIRROR, "/quality/{target}/density": _NO_MIRROR, "/quality/{target}/comments": _NO_MIRROR,
@@ -446,6 +443,9 @@ NOT_200_HERE = {
     "/releases/{configuration}/{version}": (404, "Not found"), "/releases/{configuration}/{version}/errata": (404, "Not found"),
     "/releases/{configuration}/{version}/download.zip": (404, "no such draft"),
     "/releases/{configuration}/{version}/files/{name}": (404, "no such file"),
+    "/store/file/{sha1}": (404, "no verified copy"),                 # Wave E: the fixture's store holds no file
+    "/publish/release/{configuration}/{version}": (404, "No such release"),     # Wave E: "x" is not a version
+    "/publish/tapeout/{tapeout_id}": (404, "No tapeout draft"),      # Wave E: the fixture registry has no tapeouts/
 }
 
 
@@ -505,11 +505,9 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
     assert c.get("/jobs/1/fragment").headers["content-type"].startswith("text/html")
 
 
-@pytest.mark.xfail(strict=True, reason="NEW (found 2026-10-14 when the smoke test began walking every route): "
-                   "/matrix/eth-rc4 answers 503 on the contract example data. The view copies pin_state.split, and "
-                   "the example marks nanosoc_arch_tech split while the tree pins it once, so fact.splits[].pins has "
-                   "1 item and the matrix_view fails its schema (minItems 2); matrix/__init__.py matrix()")
 def test_the_matrix_page_renders_on_the_example_data(local):
+    """CR-ROB-int (found when the smoke test began walking every route): the example marks nanosoc_arch_tech split
+    while the stored tree holds one of its pins; the view lists no split for it instead of failing its schema."""
     seed(local["cfg"], "observation.compat-result.example.jsonl")
     c = TestClient(local["app"])
     sign_in(c)

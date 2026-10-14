@@ -29,7 +29,9 @@ from nanosoc_rm.cliutil import EXIT_USAGE, emit, exit_code, json_option
 __all__ = ["requirement_markers", "commit_trailers", "trace", "UnknownRequirement", "register"]
 
 _TRAILER = re.compile(r"^Requirements:\s*(.+?)\s*$", re.M | re.I)
-_ID_TOKEN = re.compile(r"[A-Z]+[0-9]+")
+# A change-request name (`CR8`, `CR-16`, `CR-W2`, `CR-ROB-auth`) is one token, read before requirement ids, so
+# `CR-W2` is never the requirement W2 nor `CR-PR1` the requirement PR1 (phasegates' id match has the same boundary).
+_ID_TOKEN = re.compile(r"(?<![\w-])CR-?[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|[A-Z]+[0-9]+")
 
 
 def requirement_markers(tests_dir: Path) -> dict[str, list[str]]:

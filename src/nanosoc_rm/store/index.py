@@ -47,8 +47,8 @@ CACHE_TOTAL = 256 << 20
 CACHE_DIR = "store-cache"
 INDEX_ROLES = ("stream", "source", "manifest", "signature", "doc", "foundry-return")
 SECTION_VERDICTS = ("PASS", "NOT-RUN", "INFRA")
-_SHA = re.compile(r"^[0-9a-f]{7,40}$")
-_MD5 = re.compile(r"^[0-9a-f]{32}$")
+_SHA = re.compile(r"^[0-9a-f]{7,40}\Z")
+_MD5 = re.compile(r"^[0-9a-f]{32}\Z")
 _STREAM = re.compile(r"\.(gds|oas|oasis)(\.(zst|gz|xz|bz2))?$", re.I)
 _ARCHIVE = re.compile(r"\.(tar\.(gz|zst|xz|bz2)|tgz|zip)$", re.I)
 _SIG = re.compile(r"\.(minisig|sig|asc|sigstore\.json)$", re.I)
@@ -641,7 +641,7 @@ def cache_collateral(client: StoreClient, fact: dict, cache_dir: Path) -> None:
         if _confidential(a):
             a["cache_reason"] = "withheld: confidentiality %s" % a["confidentiality"]
             continue
-        if not re.match(r"^[0-9a-f]{40}$", sha1):
+        if not re.match(r"^[0-9a-f]{40}\Z", sha1):
             a["cache_reason"] = "no sha1 from the store to verify a download"
             continue
         if a["size"] > CACHE_MAX or total + a["size"] > CACHE_TOTAL:

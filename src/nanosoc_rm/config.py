@@ -137,7 +137,7 @@ def validate(doc: dict) -> list[str]:
         for name, table in creds.items():
             # Any credential name is accepted here: AT-A2 and `credentials check` (H3) must SEE an extra one
             # (a Phase 4 bump_writer, say) and report it, so the loader never hides it by refusing the file.
-            if not re.match(r"^[a-z][a-z0-9_]*$", name):
+            if not re.match(r"^[a-z][a-z0-9_]*\Z", name):
                 problems.append("[credentials.%s] name must be lower_snake_case" % name)
             _check_table("credentials.%s" % name, table, _CREDENTIAL, problems)
             exp = table.get("expires") if isinstance(table, dict) else None
@@ -169,7 +169,7 @@ def _check_artifactory(table: dict, problems: list[str]) -> None:
     """The store keys: the URL ends in /artifactory (so no call can reach the Access API, where a failed login locks
     the admin out) and carries no user or token; a shared login is never a publisher; projects name store folders."""
     url = table.get("url")
-    if isinstance(url, str) and not re.match(r"^https?://[^/?#@\s]+(/[^?#@\s]*)?/artifactory$", url.rstrip("/")):
+    if isinstance(url, str) and not re.match(r"^https?://[^/?#@\s]+(/[^?#@\s]*)?/artifactory\Z", url.rstrip("/")):
         problems.append("[stores.artifactory] url must be http(s)://<host>[:port]/artifactory, with no user or token "
                         "(no credentials in the url: token_file is the only credential)")
     exp = table.get("token_expires")
@@ -186,7 +186,7 @@ def _check_artifactory(table: dict, problems: list[str]) -> None:
     projects = table.get("projects")
     if isinstance(projects, dict):
         for k, v in projects.items():
-            if not isinstance(v, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", v):
+            if not isinstance(v, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z", v):
                 problems.append("[stores.artifactory] projects.%s must be a store project name" % k)
 
 

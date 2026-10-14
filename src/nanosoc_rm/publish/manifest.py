@@ -31,7 +31,7 @@ ARTEFACT_ROLES = ("archive", "gds", "netlist", "bitstream", "logs", "flists", "s
                   "other")
 RAW_MD5_PROPS = ("rm.raw_md5", "pnr.raw_md5", "file.raw_md5")
 LAYOUT_PROPS = ("rm.layout_hash", "layout.canonical_hash")
-_STORE_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+$")
+_STORE_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+\Z")
 # A backfill draft's free-text tapeout_status, read as one of the four states only when it says exactly that.
 _STATUS_WORDS = {"draft": "draft", "submitted": "submitted", "accepted": "accepted", "accepted-by-foundry": "accepted",
                  "fabricated": "fabricated"}
@@ -68,8 +68,8 @@ def resolve_artefact(store: Any, role: str, path: str, expected_raw_md5: str | N
         raise PublishRefused("artefact %s (%s) is not in the store" % (path, role))
     sums = st.get("checksums") or {}
     sha256, md5 = sums.get("sha256"), sums.get("md5")
-    if not (isinstance(sha256, str) and re.match(r"^[0-9a-f]{64}$", sha256) and isinstance(md5, str)
-            and re.match(r"^[0-9a-f]{32}$", md5)):
+    if not (isinstance(sha256, str) and re.match(r"^[0-9a-f]{64}\Z", sha256) and isinstance(md5, str)
+            and re.match(r"^[0-9a-f]{32}\Z", md5)):
         raise PublishRefused("artefact %s: the store gives no sha256 and md5 for it" % path)
     try:
         size = int(st.get("size"))
@@ -192,7 +192,7 @@ def release_manifest(config: Config, configuration: str, version: str, *, artefa
 # Tapeout record
 # ---------------------------------------------------------------------------------------------------------
 def tapeout_draft_path(config: Config, tapeout_id: str) -> Path:
-    if not re.match(r"^[a-z0-9][a-z0-9._-]{0,127}$", tapeout_id or ""):
+    if not re.match(r"^[a-z0-9][a-z0-9._-]{0,127}\Z", tapeout_id or ""):
         raise PublishUsage("%r is not a tapeout id" % str(tapeout_id)[:80])
     reg = Path(config.require("registry", "path"))
     return reg / "tapeouts" / ("%s.tapeout.yaml" % tapeout_id)
@@ -233,7 +233,7 @@ def _need(rec: dict, pointer: str) -> Any:
 
 def _date(value: Any) -> str | None:
     v = str(value) if value is not None else None
-    return v if v and re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", v) else None
+    return v if v and re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z", v) else None
 
 
 def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str | Path | None = None,

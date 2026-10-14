@@ -7,7 +7,6 @@ C1 bump rule is checked for its algebraic properties.
 """
 from __future__ import annotations
 
-import pytest
 from prop_helpers import example, given, st  # loads the profile; skips without hypothesis
 
 from nanosoc_rm.bumps import versions as bv

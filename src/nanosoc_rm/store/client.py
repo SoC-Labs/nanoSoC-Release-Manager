@@ -41,7 +41,7 @@ AQL_PATH = "api/search/aql"
 DEFAULT_RELEASE_REPO = "asic-release"
 TIMEOUT_S = 60.0
 _REFUSED_PREFIXES = ("access/", "api/security/")
-_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 
 
 class StoreError(Exception):
@@ -151,7 +151,7 @@ class StoreClient:
     """GET, HEAD and AQL against one Artifactory API base, with a Bearer token."""
 
     def __init__(self, url: str, token: str, *, timeout: float = TIMEOUT_S, transport: Any = None):
-        if not re.match(r"^https?://[^/@\s]+(/[^\s@]*)?$", url or ""):
+        if not re.match(r"^https?://[^/@\s]+(/[^\s@]*)?\Z", url or ""):
             raise ConfigError("[stores.artifactory] url must be http(s)://host[:port]/path with no user or token")
         self.url = url.rstrip("/") + "/"
         self._token = token

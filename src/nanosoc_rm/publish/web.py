@@ -42,9 +42,9 @@ NAV_PATH = PREFIX + "/"
 JOB_KINDS = ("publish-release", "register-tapeout")
 HERE = Path(__file__).resolve().parent
 _WEB_TEMPLATES = HERE.parent / "web" / "templates"
-_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
-_SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")
+_SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+_SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
 
 
 def _env() -> Environment:

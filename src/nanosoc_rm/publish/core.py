@@ -23,7 +23,7 @@ RELEASE_STATUS = "RELEASED"
 TAPEOUT_STATUS = "TAPED-OUT"
 TAPEOUT_STATES = ("draft", "submitted", "accepted", "fabricated")
 EXPIRY_WARNING_DAYS = 14
-_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")
 
 
 class PublishUsage(ValueError):

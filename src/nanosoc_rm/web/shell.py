@@ -266,8 +266,8 @@ def search(config, q: str, limit: int = 8, scope: str | None = None) -> list[dic
                         f["component"], f["configuration"], "covered" if f.get("covered") else "UNCOVERED"),
                         "commit", "c-pass" if f.get("covered") else "c-fail", href):
                     return False
-        for d in db.latest("quality_finding", "quality_finding:", config=config):
-            parts = d["subject"].split(":")
+        for subject in db.subjects("quality_finding", "quality_finding:", config=config):   # no document decoded
+            parts = subject.split(":")
             if len(parts) >= 3 and parts[2].startswith(hexq):
                 target = parts[1]
                 href = "/components/%s/quality" % _quote(target) if compspace else "/quality/%s" % _quote(target)

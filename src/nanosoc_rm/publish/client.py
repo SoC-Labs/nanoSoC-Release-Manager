@@ -31,9 +31,9 @@ import httpx
 __all__ = ["Store", "StoreRefused", "StoreError", "refuse_writes_here", "writes_refused", "SAFE_NAME",
            "SAFE_SEGMENT", "prop_value"]
 
-SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$")
-SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+@=/-]{0,1023}$")
+SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}\Z")
+SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+_PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+@=/-]{0,1023}\Z")
 _CHECKSUM_SUFFIX = (".md5", ".sha1", ".sha256", ".sha512")
 # The only builds this client writes or promotes: the tool's own records (never a producer's build).
 BUILD_NAME_PREFIXES = ("rm-release-", "rm-tapeout-")
@@ -83,7 +83,7 @@ class Store:
 
     def __init__(self, url: str, token: str, *, release_repo: str, timeout: float = TIMEOUT_S,
                  transport: httpx.BaseTransport | None = None):
-        if not re.match(r"^https?://[^/?#]+(/[^?#]*)?/artifactory$", (url or "").rstrip("/")):
+        if not re.match(r"^https?://[^/?#]+(/[^?#]*)?/artifactory\Z", (url or "").rstrip("/")):
             raise StoreRefused("refused: the store url must end in /artifactory")
         if "@" in urllib.parse.urlsplit(url).netloc:
             # httpx would send Basic auth from the url's userinfo instead of the Bearer token
@@ -208,7 +208,7 @@ class Store:
         checksums and refuses a mismatch."""
         url = self.check("PUT", rel)
         matrix = "".join(";%s=%s" % (k, prop_value(v)) for k, v in sorted((props or {}).items())
-                         if re.match(r"^[a-z][a-z0-9_.]{0,63}$", k))
+                         if re.match(r"^[a-z][a-z0-9_.]{0,63}\Z", k))
         hdrs = {"Content-Type": "application/octet-stream"}
         for alg, value in (checksums or {}).items():
             hdrs["X-Checksum-%s" % alg.capitalize()] = value

@@ -11,10 +11,10 @@ from nanosoc_rm.publish.core import PublishUsage
 
 __all__ = ["release_params", "release_args", "tapeout_params", "tapeout_args"]
 
-_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
-_SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")
+_SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+_SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
+_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 
 
 def _common(p: dict) -> dict:

@@ -212,7 +212,10 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
            "observed_at": min(times, key=clock.parse), "sources": srcs,
            "fact": {"configuration": configuration, "commit": C.root_commit(tree, croot), "columns": cols,
                     "generated_at": clock.iso(now), "rows": rows_out, "pinned": pinned,
-                    "splits": [{"component": r["component"], "pins": r["pins"]} for r in rows_out if r["split"]],
+                    # a split lists the pins it is split across; a stored split flag the stored tree shows only one
+                    # pin of (a partial tree) is no split here, rather than a view that fails its schema (503)
+                    "splits": [{"component": r["component"], "pins": r["pins"]} for r in rows_out
+                               if r["split"] and len(r["pins"]) > 1],
                     "quarantine": [dict(e["fact"], subject=e["subject"],
                                         active=e["fact"]["test"] in active) for e in q_entries],
                     "nightly": {"name": NIGHTLY.name, "enabled": NIGHTLY.enabled, "gate": NIGHTLY.gate,

@@ -758,6 +758,7 @@ def put(obs: dict) -> None                       # validates (schema + README se
 def put_snapshot(scope: str, docs: list[dict]) -> str   # writes a whole snapshot atomically, marks it complete, returns its id
 def latest(kind: str, subject_prefix: str = "") -> list[dict]   # set kinds: the last completed snapshot per scope; events: latest per subject
 def newest_per(kind: str, group, subject_prefix: str = "") -> list[dict]   # events: newest per group(subject); decodes only those (CR-ROB-store)
+def subjects(kind: str, subject_prefix: str = "") -> list[str]    # events: the subjects latest() answers, no document decoded (CR-ROB-int)
 def data_age(obs: list[dict]) -> timedelta       # now - min(observed_at)
 def put_run(run: RunRecord) -> None
 def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str, by: str) -> None

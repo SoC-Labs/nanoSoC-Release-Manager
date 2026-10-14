@@ -31,8 +31,8 @@ __all__ = ["trusted", "latest", "shown", "taped_out", "timeline", "component_ver
            "findings", "search", "commit_link", "projects", "NO_IDENTITY", "cached_file"]
 
 NO_IDENTITY = "no git identity recorded"
-_HEX = re.compile(r"^[0-9a-f]{4,40}$")
-_SHA = re.compile(r"^[0-9a-f]{7,40}$")
+_HEX = re.compile(r"^[0-9a-f]{4,40}\Z")
+_SHA = re.compile(r"^[0-9a-f]{7,40}\Z")
 SHIPPED = ("yes", "true", "shipped")
 
 
@@ -241,7 +241,7 @@ def taped_out(config: Any, cid: str) -> dict:
     return out
 
 
-_DRAFT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")          # the publish page's tapeout id rule
+_DRAFT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")          # the publish page's tapeout id rule
 
 
 def registry_tapeout_drafts(config: Any, cid: str) -> list[dict]:
@@ -465,7 +465,7 @@ def collateral(config: Any) -> dict:
 def cached_file(config: Any, sha1: str) -> tuple[Path, dict] | None:
     """The cached copy of a document the shown index lists, or None (an unknown sha1 is never served)."""
     from nanosoc_rm.store.index import CACHE_DIR
-    if not re.match(r"^[0-9a-f]{40}$", sha1 or ""):
+    if not re.match(r"^[0-9a-f]{40}\Z", sha1 or ""):
         return None
     doc, _ = shown(config)
     if doc is None:

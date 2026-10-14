@@ -43,7 +43,7 @@ from nanosoc_rm.config import Config, load_config
 
 __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc", "subject_of",
            "check_observation", "database_path", "connect", "ensure_schema", "put", "put_snapshot", "new_snapshot_id",
-           "latest", "newest_per", "history",
+           "latest", "newest_per", "subjects", "history",
            "data_age", "put_run", "get_run", "runs", "log_action", "actions", "raise_alert", "alerts",
            "clear_alert"]
 
@@ -472,6 +472,15 @@ def newest_per(kind: str, group: Callable[[str], str], subject_prefix: str = "",
                 best[g] = r
         docs = _docs(con, sorted(r["rid"] for r in best.values()))
         return _overlay_alerts(con, docs) if kind == "alert" else docs
+
+
+def subjects(kind: str, subject_prefix: str = "", *, config: Config | str | Path | None = None) -> list[str]:
+    """For an event kind: the subjects that `latest(kind, subject_prefix)` would answer, in the same order, without
+    decoding a document (the search box matches commit prefixes on quality_finding subjects only)."""
+    if kind not in EVENT_KINDS:
+        raise ValueError("subjects reads event kinds, not %r" % kind)
+    with connect(config) as con:
+        return [r["subject"] for r in _newest_rows(con, kind, subject_prefix)]
 
 
 def history(subject: str, *, config: Config | str | Path | None = None) -> list[dict]:
