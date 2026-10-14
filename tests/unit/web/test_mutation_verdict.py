@@ -209,3 +209,18 @@ def test_a_red_run_with_an_infra_gate_still_reports_infra():
             [pin("a", manifest="fail")])
     dec = V.deciding(d)
     assert dec.gate == "t0.manifest.valid" and dec.infra is True and "t0.infra.probe" in dec.infra_text
+
+
+@pytest.mark.xfail(strict=True, reason="ROB-mutation-2: unused_waivers matches by tree_path only, so a waiver "
+                                       "of one gate hides an unused waiver of another gate at the same path")
+def test_an_unused_waiver_of_another_gate_at_the_same_path_is_reported():
+    """A t0_waiver names ONE item: (gate, tree_path, result) (eligibility schema). t0.gates.apply_waivers -- the
+    CLI's `unused_waivers` count -- reports the arm-gate waiver below as unused; web.verdict.unused_waivers (the
+    inbox and configuration pages) does not, because the fetchable gate used a waiver at the same tree_path."""
+    used = {"gate": "t0.pins.fetchable", "tree_path": "tidelink", "result": "fail"}
+    unused = {"gate": "t0.vendor.no-arm-ip", "tree_path": "tidelink", "result": "fail"}
+    rec = {"fact": {"record": {"frozen": True, "t0_waivers": [used, unused]}}}
+    d = doc("x", [gate("t0.pins.fetchable", "WAIVED", raw_verdict="FAIL",
+                       waived=[{"tree_path": "tidelink", "result": "fail", "covered_by": "tidelink"}]),
+                  gate("t0.vendor.no-arm-ip", "PASS")], [pin("tidelink")], verdict="WAIVED")
+    assert V.unused_waivers(d, rec) == [unused]
