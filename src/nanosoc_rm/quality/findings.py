@@ -270,6 +270,8 @@ def _c_hyphen_prose(t: str) -> bool:
     the end) needs two such words, or one of two longer halves, since `a-b;` is code."""
     if not t.rstrip().endswith(";"):
         return bool(_HYPHEN_WORD.search(t))
+    if _ASSIGN_STMT.match(re.sub(r"^\s*assign\s+", "", t)):
+        return False                                      # `q <= count-offset;`: a subtraction in a statement
     return len(re.findall(r"(?<![\w-])[A-Za-z]{3,}-[A-Za-z]{3,}(?![\w(])", t)) >= 2 or \
         bool(re.search(r"(?<![\w-])[A-Za-z]{4,}-[A-Za-z]{4,}(?![\w(])", t))
 
@@ -278,8 +280,11 @@ def _python_prose(t: str) -> bool:
     """A Python comment line that parses but is not Python: hyphenated words (`Allow-list (per-line)`), or an
     HDL bit range written high:low (`{msg_id[31:28], cksum[27:16]}`, `prime[7:0]<<24`). Strings are ignored."""
     u = re.sub(r"\"[^\"]*\"|'[^']*'", "\"\"", t)
-    if _HYPHEN_WORD.search(u) or re.match(r"^\s*[A-Za-z_]\w*\s+\(", u):
-        return True                                       # `name (words)`: Python never spaces a call
+    assign = re.match(r"^\s*[A-Za-z_][\w.]*(\[[^\]]*\])?\s*[-+*/|&]?=\s*[^=\s]", u)
+    if _HYPHEN_WORD.search(u) and not assign:
+        return True                                       # `total = price-discount` is a subtraction
+    if re.match(r"^\s*[A-Za-z_]\w*\s+\([^),]*\w\s+[^),\s]", u):
+        return True                                       # `name (two words)`: Python never spaces a call
     return any(int(a) > int(b) for a, b in _BIT_RANGE.findall(u))
 
 
@@ -689,6 +694,11 @@ def _family(a: str, b: str) -> bool:
     return bool(x and y) and (x == y or x in y or y in x)
 
 
+# Register and pipeline-stage suffixes: RTL renames a signal by changing one (`_q` -> `_r`), so a comment naming the
+# old suffix is a stale rename, not a sibling.
+_REG_SUFFIXES = set("q d r s v n p c ns cs ff reg nxt next".split())
+
+
 def _sibling(a: str, b: str) -> bool:
     """`a` and `b` differ in one `_` part and both parts are short words (`u_tx_ptp_det` / `u_rx_ptp_det`,
     `ram_style` / `rom_style`, `rd_ptr` / `wr_ptr`): two different things, so `a` is not a misspelt `b` (it is
@@ -697,6 +707,8 @@ def _sibling(a: str, b: str) -> bool:
     if len(x) != len(y):
         return False
     diff = [(p, q) for p, q in zip(x, y) if p != q]
+    if len(diff) == 1 and diff[0] == (x[-1], y[-1]) and set(diff[0]) <= _REG_SUFFIXES:
+        return False                                      # `count_q` / `count_r`, `d0_min_s` / `d0_min_v`: a rename
     return len(diff) == 1 and all(len(t) <= 3 and t.isalpha() for t in diff[0])
 
 

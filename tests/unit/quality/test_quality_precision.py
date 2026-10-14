@@ -226,3 +226,76 @@ def test_group_headings_and_string_labels_are_not_restating(tmp_path):
                       "  endfunction\nendclass\n"}     # tidelink uvm/tidelink_system/env/tidelink_system_env.sv:118
     fs, _ = _findings(tmp_path / "verb", verb, "restates_code")
     assert [f["path"] for f in fs] == ["env.sv"], "a verb-led comment over a group still restates it"
+
+
+# ----- review fixes: recall the precision rules must keep, and the decisive rules each pinned -------------------
+def test_a_register_suffix_rename_is_not_a_sibling(tmp_path):
+    """`count_q` -> `count_r` is how RTL renames a register (tidelink tidelink_lane_deskew.sv:449 names
+    `d0_min_s`; the code declares only `d0_min_v`): a stale rename, still reported. tx/rx stays a sibling."""
+    files = {"c.v": "module c(input clk, output reg [3:0] count_r);\n  // count_q holds the running total\n"
+                    "  always @(posedge clk) count_r <= count_r + 1;\nendmodule\n",
+             "d.sv": "module d(input clk);\n  logic [3:0] d0_min_v;\n  // d0_min_s is the smallest lane-0 delay\n"
+                     "  always_ff @(posedge clk) d0_min_v <= 4'd0;\nendmodule\n"}
+    fs, _ = _findings(tmp_path, files, "unknown_identifier")
+    got = {(f["identifier"], f.get("did_you_mean")) for f in fs}
+    assert got == {("count_q", "count_r"), ("d0_min_s", "d0_min_v")}, got
+
+
+def test_a_subtraction_in_a_statement_is_code_not_hyphenated_prose(tmp_path):
+    from nanosoc_rm.quality.findings import is_code_line
+    assert is_code_line("verilog", "assign data_out = data-offset;") == (True, True)
+    assert is_code_line("verilog", "q <= count-offset;") == (True, True)
+    assert is_code_line("python", "total = price-discount")[0]
+    assert is_code_line("python", "print (total)")[0]
+    # the prose twins stay prose
+    assert not is_code_line("verilog", "S2 scaffold: PHY v2 select pass-through (default 0 = bit-identical;")[0]
+    assert not is_code_line("python", "Allow-list (per-line)")[0]
+    assert not is_code_line("python", "die_a (sender / inst0)")[0]
+    assert not is_code_line("shell", "SKIP_DEPLOY=1 / SKIP_UART=1 / SKIP_DAP=1")[0]
+    files = {"a.v": "module a(input clk, input [3:0] count, output reg [3:0] q);\n  always @(posedge clk) begin\n"
+                    "    q <= count;\n    // q <= count-offset;\n    // data_out <= data-offset;\n  end\nendmodule\n"}
+    fs, _ = _findings(tmp_path, files, "commented_out_code")
+    assert [f["path"] for f in fs] == ["a.v"], fs
+
+
+def test_a_long_decoration_edit_stores_no_context(tmp_path, monkeypatch):
+    """BULK_CONTEXT_MAX_LINES: a decoration edit longer than the cap stores no lines (uncapped, the tidelink fact
+    tripled); one within the cap keeps them. The cap is lowered so a short fixture spans both sides of it."""
+    from nanosoc_rm.quality import findings as fmod
+    files = {"two.py": "# File: two.py\n# Author: someone\n# Copyright 2024 SoC Labs\nX = 1\n",
+             "one.sv": "// ===== Setup =====\nmodule m;\nendmodule\n"}
+    fs, _ = _findings(tmp_path / "wide", files)
+    bulk = {f["path"]: f for f in fs if f.get("bulk") == BULK_RULE and f.get("edit")}
+    span = {p: f["edit"]["end"] - f["edit"]["start"] + 1 for p, f in bulk.items()}
+    assert span["one.sv"] == 1 and span["two.py"] > 1, span
+    assert all("context" in f for f in bulk.values())
+    monkeypatch.setattr(fmod, "BULK_CONTEXT_MAX_LINES", 1)
+    fs, _ = _findings(tmp_path / "capped", files)
+    bulk = {f["path"]: f for f in fs if f.get("bulk") == BULK_RULE and f.get("edit")}
+    assert "context" not in bulk["two.py"] and "context" in bulk["one.sv"]
+
+
+def _readme_status(tmp_path, readme, files=None):
+    fs = {"README.md": readme, "Makefile": "build:\n\t@echo build\n"}
+    fs.update(files or {})
+    obs = quality.readme(None, path=make_repo(tmp_path / "r", fs))
+    assert contracts.validate_observation(obs) == []
+    f = obs["fact"]
+    return {c["token"]: c["status"] for c in f["checks"]}, [(m["kind"], m["token"]) for m in f["mismatches"]]
+
+
+def test_untagged_fence_runs_repo_scripts_and_env_prefixed_commands(tmp_path):
+    readme = ("# D\n\n```\nscripts/missing_tool.sh --all\nV=1 make build\n"
+              "flist/flatten.py   SoC flist  -> absolute paths\n```\n")
+    status, missing = _readme_status(tmp_path, readme)
+    assert ("script", "scripts/missing_tool.sh") in missing, missing
+    assert status.get("build") == "ok", status
+    assert "flist/flatten.py" not in status
+
+
+def test_a_console_fence_without_prompts_is_output_and_urls_are_not_paths(tmp_path):
+    readme = ("# D\n\n```console\n./scripts/nope.sh\n```\n\n"
+              "Clone `example.org/soclabs/tools.git` and read `example.com/docs/guide.md`.\n")
+    status, missing = _readme_status(tmp_path, readme)
+    assert missing == [], missing
+    assert not any("nope" in t or "example" in t for t in status), status

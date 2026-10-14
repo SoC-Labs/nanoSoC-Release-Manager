@@ -1,8 +1,8 @@
 """Q6: the quality pages, a FastAPI APIRouter mounted at /quality by the web app (behind its sign-in guard).
 
     GET /quality/                               overview: every target with its latest stored numbers and trend
-                                                (CR-WD-Q5: ?scope=mine, the default when any configuration is
-                                                registered, keeps the repos in my configurations; ?scope=all)
+                                                (CR-WD-Q5: ?scope=mine, the default when any listed target is
+                                                in my configurations, keeps those repos; ?scope=all)
     GET /quality/{target}                       summary of one target at a ref (analyses it when not stored)
     GET /quality/{target}/density               Q1 language table and sortable file table
     GET /quality/{target}/comments              Q2 findings with suggested edits     .../comments.diff  the patch
@@ -202,15 +202,16 @@ def my_components(config) -> set[str]:
 
 
 def overview_model(config, scope: str | None = None) -> dict:
-    """The overview's rows and its filter (CR-WD-Q5): `scope` "mine" or "all"; None picks "mine" when any repo is
-    in a configuration, else "all"."""
+    """The overview's rows and its filter (CR-WD-Q5): `scope` "mine" or "all"; None picks "mine" when any listed
+    target is a repo in a configuration, else "all" (a `[quality] paths` name is not a component id, so it never
+    counts as mine and must not be hidden by default)."""
     mine = my_components(config)
     rows = _overview_rows(config)
-    if scope not in ("mine", "all"):
-        scope = "mine" if mine else "all"
-    shown = [r for r in rows if r["target"] in mine] if scope == "mine" else rows
     for r in rows:
         r["mine"] = r["target"] in mine
+    if scope not in ("mine", "all"):
+        scope = "mine" if any(r["mine"] for r in rows) else "all"   # never default to an empty table
+    shown = [r for r in rows if r["mine"]] if scope == "mine" else rows
     return {"rows": shown, "scope": scope, "n_all": len(rows), "n_mine": sum(1 for r in rows if r["mine"])}
 
 

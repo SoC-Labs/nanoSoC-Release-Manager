@@ -269,7 +269,7 @@ def test_comments_preview_shows_the_deleted_text_even_when_the_blob_is_not_here(
 
 
 def test_overview_filters_to_the_repos_in_my_configurations(site, monkeypatch):
-    """CR-WD-Q5: the overview defaults to the repos in my configurations when any repo is in one; ?scope=all shows
+    """CR-WD-Q5: the overview defaults to the repos in my configurations when any listed target is one; ?scope=all shows
     every target. my_components reads the stored pin_state facts (a walked tree's children)."""
     from pathlib import Path
 
@@ -285,11 +285,14 @@ def test_overview_filters_to_the_repos_in_my_configurations(site, monkeypatch):
         db.put(doc, config=cfg)
     mine = qweb.my_components(cfg)
     assert "nanosoc_arch_tech" in mine and "demo" not in mine
-    ov = c.get("/quality/")
+    ov = c.get("/quality/")      # no listed target is mine (a [quality] paths name): never an empty default
+    assert 'data-scope="all"' in ov.text and _rows(ov.text, "data-target") == ["demo"]
+    ov = c.get("/quality/?scope=mine")
     assert 'data-scope="mine"' in ov.text and _rows(ov.text, "data-target") == []
     assert "Show all 1 targets" in ov.text and "Repos in my configurations: 0" in ov.text
     monkeypatch.setattr(qweb, "my_components", lambda config: mine | {"demo"})
-    assert _rows(c.get("/quality/").text, "data-target") == ["demo"]
+    ov = c.get("/quality/")
+    assert 'data-scope="mine"' in ov.text and _rows(ov.text, "data-target") == ["demo"]
     assert _rows(c.get("/quality/?scope=all").text, "data-target") == ["demo"]
 
 

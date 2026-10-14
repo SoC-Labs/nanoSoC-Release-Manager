@@ -54,6 +54,8 @@ _TRANSCRIPT_FENCES = {"console", "shell-session", "terminal"}
 _PROMPT = re.compile(r"^(\$|%|>|#)\s+")
 _COMMAND_START = set("make gmake git cd python python3 python2 bash sh zsh source . pytest pip pip3 uv export env sudo "
                      "cmake ninja vivado vcs xrun verilator tclsh perl nanosoc-rm docker ssh scp rsync curl wget".split())
+# A script run by its repo path (`scripts/run_all.sh --all`); a two-space gap or `->` makes it a description list
+_REPO_SCRIPT = re.compile(r"^[\w.-]+(/[\w.-]+)+\.(sh|bash|py|tcl|pl|rb)$")
 _URL_LIKE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|org|net|io|uk|edu|gov|dev|eu|de|fr|ai|co)(/|:|$)", re.I)
 _BRANCH_WORDS = {"main", "master", "develop", "dev", "trunk", "HEAD"}
 _BUILD_EXT = set("bin bit xsa hwh elf rpt log vcd fst fsdb dcp mcs ltx spef sdf wdb vpd".split())
@@ -165,7 +167,9 @@ def _fence_command(st: str, lang: str, prompted: bool) -> str | None:
     cmd = _PROMPT.sub("", st, count=1)
     if lang == "":
         first = cmd.split(None, 1)[0] if cmd.split() else ""
-        if not (first in _COMMAND_START or first.startswith("./") or re.match(r"^[A-Za-z_]\w*=\S*$", first)):
+        script = bool(_REPO_SCRIPT.match(first)) and not re.search(r"\s{2,}|->", cmd)
+        if not (first in _COMMAND_START or first.startswith("./") or script or
+                re.match(r"^[A-Za-z_]\w*=\S*$", first)):
             return None
     return cmd
 
