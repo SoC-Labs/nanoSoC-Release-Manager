@@ -120,6 +120,17 @@ def test_an_alert_raised_again_after_the_clock_stepped_back_is_open(cfg):
     assert subj in {a["subject"] for a in db.alerts(config=cfg)}
 
 
+def test_the_cleared_raise_stored_again_stays_cleared(cfg):
+    """The bound of the ROB-faults-5 fix: only a NEW raise reopens; the very raise that was cleared, stored again
+    (same raised_at), leaves the alert cleared (review)."""
+    subj = "alert:mirror_failed:github:SoC-Labs/x"
+    doc = db.raise_alert("mirror_failed", "github:SoC-Labs/x", "first failure", SRC, at="2026-10-14T09:00:00Z",
+                         config=cfg)
+    db.clear_alert(subj, "alice", at="2026-10-14T09:05:00Z", config=cfg)
+    db.put(dict(doc, observed_at="2026-10-14T09:06:00Z"), config=cfg)
+    assert subj not in {a["subject"] for a in db.alerts(config=cfg)}
+
+
 def test_an_alert_raised_again_later_is_open(cfg):
     """The control for the test above."""
     subj = "alert:mirror_failed:github:SoC-Labs/x"
@@ -179,3 +190,15 @@ def test_human_age_of_a_normal_fact():
 def test_a_fact_from_the_future_is_shown_as_clock_skew_not_as_fresh():
     text = human_age(-3600)
     assert not text.startswith("-") and ("skew" in text.lower() or "future" in text.lower()), text
+
+
+@pytest.mark.parametrize("age, ago", [(-3600, False), (3600, True)])
+def test_a_matrix_cell_from_the_future_does_not_say_ago(age, ago):
+    """The matrix cell appends 'ago' to the age; never to a clock-skew age (ROB-faults-7, review)."""
+    from nanosoc_rm.matrix import web as mweb
+    from nanosoc_rm.web.page import short
+    cv = {"status": "done", "verdict": None, "age_s": age, "target": {}, "comparison": None}
+    html = mweb._env().get_template("_cell.html").render(
+        cv=cv, component="c", column="pinned", tier=None, v={"configuration": "x"}, local=False, docs={},
+        human_age=human_age, short=short)
+    assert ("ago" in html) is ago, html

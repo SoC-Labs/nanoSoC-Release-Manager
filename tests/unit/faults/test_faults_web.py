@@ -75,6 +75,14 @@ def test_a_corrupt_store_page_names_the_store_not_a_bare_500(gui, page):
     corrupt(gui["data"] / "rm.sqlite")
     r = gui["client"].get(page)
     assert not bare_500(r), (page, r.status_code, r.text[:200])
+    assert r.status_code == 503 and "rm.sqlite" in r.text, (page, r.status_code, r.text[:200])
+
+
+def test_a_corrupt_store_api_answer_is_json_naming_the_store(gui):
+    corrupt(gui["data"] / "rm.sqlite")
+    r = gui["client"].get("/api/v1/configurations")
+    assert r.status_code == 503, (r.status_code, r.text[:200])
+    assert "rm.sqlite" in r.json()["error"], r.text[:200]
 
 
 def test_a_corrupt_session_store_is_not_a_bare_500(gui):
@@ -131,3 +139,4 @@ def test_a_registry_that_never_loaded_is_not_an_inbox_clear(tmp_path, monkeypatc
     text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", client.get("/").text))
     assert "registry problem" in text                               # the banner is there either way
     assert "Nothing needs you" not in text, text[:600]
+    assert "last good records" not in text and "last stored records" not in text, text[:600]

@@ -95,6 +95,50 @@ def test_a_failed_final_write_never_leaves_the_job_running(cfg, monkeypatch):
     assert jobs.get(cfg, job["id"])["state"] != "running"
 
 
+def test_a_final_write_that_fails_every_retry_is_written_before_the_next_claim(cfg, monkeypatch):
+    """Every attempt to record the end fails: the worker keeps the fields and writes them on its next step, before
+    it claims another job (ROB-faults-2; review: the kept-fields path had no test)."""
+    monkeypatch.setenv("FAULT_MODE", "ok")
+    monkeypatch.setattr(jobs.Worker, "FINISH_RETRY_S", (0, 0))
+    job = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
+    real = jobs._update
+    broken = {"on": True}
+
+    def flaky(config, job_id, **fields):
+        if "finished_at" in fields and broken["on"]:
+            raise sqlite3.OperationalError("database is locked")
+        return real(config, job_id, **fields)
+    monkeypatch.setattr(jobs, "_update", flaky)
+    worker = jobs.Worker(cfg.path, argv_prefix=CHILD)
+    with pytest.raises(sqlite3.OperationalError):
+        worker.step()
+    assert jobs.get(cfg, job["id"])["state"] == "running"     # the store refused every attempt
+    broken["on"] = False
+    assert worker.step() is None                              # nothing else queued; the kept end is written first
+    got = jobs.get(cfg, job["id"])
+    assert got["state"] != "running" and got["finished_at"], got
+
+
+def test_a_job_row_that_cannot_be_updated_does_not_stop_recovery_of_the_others(cfg, monkeypatch):
+    """recover(): one job whose row update fails is logged and skipped; the next job still becomes INFRA
+    (ROB-faults-3; review: only the log-write half had a test)."""
+    a = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
+    b = jobs.submit(cfg, "walk", {"configuration": "eth-rc4"}, by="alice")
+    for j in (a, b):
+        jobs._update(cfg, j["id"], state="running", started_at="2026-10-14T08:00:00Z")
+    real = jobs._update
+
+    def refuse_a(config, job_id, **fields):
+        if job_id == a["id"]:
+            raise sqlite3.OperationalError("disk I/O error")
+        return real(config, job_id, **fields)
+    monkeypatch.setattr(jobs, "_update", refuse_a)
+    said = []
+    assert jobs.recover(cfg, said.append) == [b["id"]]
+    assert jobs.get(cfg, b["id"])["state"] == "infra"
+    assert any("job %d could not be recovered" % a["id"] in m for m in said), said
+
+
 def test_a_job_dir_that_cannot_be_made_is_infra_with_the_reason(cfg, monkeypatch):
     """Read-only data dir (or disk full) for the job's own directory: the worker records INFRA, it does not crash."""
     monkeypatch.setenv("FAULT_MODE", "ok")
