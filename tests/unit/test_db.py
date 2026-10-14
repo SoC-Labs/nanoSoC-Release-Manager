@@ -349,13 +349,19 @@ def test_a_version_1_store_is_migrated_once_and_the_last_stored_snapshot_is_curr
 
 
 def test_deleting_the_current_snapshot_makes_the_previous_complete_one_current(rm_config):
-    """Pruning by hand keeps a current snapshot for the scope (the delete trigger)."""
+    """Pruning by hand keeps a current snapshot for the scope (the delete trigger): the newest remaining complete
+    one, never an older one (three runs, so "the previous" and "the oldest" differ)."""
+    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s0"))
     db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s1"))
     db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s2"))
     with db.connect() as con, con:
         con.execute("DELETE FROM observations WHERE snapshot_id = 's2'")
         con.execute("DELETE FROM snapshots WHERE id = 's2'")
     assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s1"}
+    with db.connect() as con, con:
+        con.execute("DELETE FROM observations WHERE snapshot_id = 's0'")
+        con.execute("DELETE FROM snapshots WHERE id = 's0'")
+    assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s1"}   # not current: no change
     with db.connect() as con, con:
         con.execute("DELETE FROM observations WHERE snapshot_id = 's1'")
         con.execute("DELETE FROM snapshots WHERE id = 's1'")
