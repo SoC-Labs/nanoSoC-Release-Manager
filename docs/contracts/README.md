@@ -151,6 +151,7 @@ Keys:
 | credential_status | `credential_status:<name>` | set | `credential_status:all` (one check) |
 | registry_record | `registry_record:<file>#<pointer>` | set | `registry_record:<file>` (one registry read) |
 | branch_state | `branch_state:<host>:<path>:<branch>` | set | `branch_state:<host>:<path>` (one inventory of one repo; CR8) |
+| freshness | `freshness:<configuration>` (the tree) and `freshness:<configuration>:<first tree path>` (a pin) | set | `freshness:<configuration>` (one scan of one stored walk; interfaces section 24) |
 | rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |

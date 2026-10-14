@@ -7,6 +7,9 @@ wall clock. Jobs, in the order they run within one tick:
 
     poll         every schedule.poll_minutes (15): sync every catalogue component's mirror, then walk every
                  configuration, compare hosts and refresh the silicon-protection list (sections 3 to 7)
+    freshness_scan  every schedule.poll_minutes, right after poll: queue one `freshness-scan` local job (section
+                 23; read-only git over the walks poll just stored), unless one is queued or running already. The
+                 worker runs it as a child process, never this process.
     inventory    every schedule.poll_minutes: list the org and the group (A1)
     nightly_t0   once per UTC day, at or after schedule.nightly_utc: trigger T0 for every configuration and
                  @registry, kind `schedule` (D2)
@@ -102,6 +105,13 @@ def _poll(config: Config) -> None:
         raise RuntimeError("; ".join(errors))
 
 
+def _freshness_scan(config: Config) -> None:
+    from nanosoc_rm import jobs
+    if jobs.jobs(config, kind="freshness-scan", states=("queued", "running")):
+        return
+    jobs.submit(config, "freshness-scan", {}, by="schedule")
+
+
 def _inventory(config: Config) -> None:
     from nanosoc_rm.mirror import inventory
     inventory()
@@ -137,6 +147,7 @@ def _runner(config: Config) -> None:
 
 JOBS: tuple[Job, ...] = (
     Job("poll", "poll", _poll),
+    Job("freshness_scan", "poll", _freshness_scan),
     Job("inventory", "poll", _inventory),
     Job("nightly_t0", "nightly", _nightly_t0),
     Job("fetch", "fetch", _fetch),

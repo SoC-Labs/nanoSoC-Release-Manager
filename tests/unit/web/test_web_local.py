@@ -479,7 +479,8 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
     plugin = {("POST", "/matrix/{configuration}/run"), ("POST", "/bumps/scan"), ("POST", "/bumps/p/{pid}/mark"),
               ("POST", "/releases/jobs"), ("POST", "/releases/forks/jobs"),
               ("POST", "/releases/{configuration}/{version}/verify"), ("POST", "/versions/refresh"),
-              ("POST", "/versions/{component}/draft"), ("POST", "/versions/{component}/drafts/{version}/approve")}
+              ("POST", "/versions/{component}/draft"), ("POST", "/versions/{component}/drafts/{version}/approve"),
+              ("POST", "/freshness/scan")}                    # CR-WF-fresh: queues the read-only freshness-scan job
     assert base | plugin <= writes, sorted(base | plugin - writes)
     assert writes <= base | plugin | routers.WAVE_C_POSTS, sorted(writes - base - plugin - routers.WAVE_C_POSTS)
 

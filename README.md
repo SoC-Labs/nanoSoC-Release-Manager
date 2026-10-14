@@ -36,6 +36,22 @@ environment plus the `env` its tiers.yaml entry declares.
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
 `nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`; as a systemd service: `docs/DEPLOY.md`.
 
+## Submodule-tree freshness (CR-WF-fresh)
+
+How far each pin lags its upstream default branch, and how long since its parent last moved it. Read-only: the last
+stored walk plus the mirrors; nothing is re-walked or fetched.
+
+```
+nanosoc-rm freshness scan --store              # every registered configuration; the scheduler runs it after each poll
+nanosoc-rm freshness show                      # one line per tree: verdict, lagging pins, days since the newest bump
+nanosoc-rm freshness show eth-main --tree      # every pin, depth first, with the worst state beneath it
+```
+
+Per pin: Outdated (10+ commits behind, or behind and not bumped for 90 days), Behind (1 to 9), Current, Unpushed
+(no host holds the commit), Not measured (with the reason). A tree's verdict is its worst direct pin; a frozen
+silicon tree says Frozen and what it would be, and is never counted. Page: `/freshness/`. Details: interfaces.md
+section 24.
+
 ## Code and documentation quality (CR-14, Q1-Q6)
 
 Read-only reports on any catalogued repo at any ref, or a local checkout; every fix is a patch you review and
