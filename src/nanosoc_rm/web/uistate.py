@@ -13,11 +13,17 @@ to their own view, nothing that changes system state. Each row carries the login
     flags(config, login, comp, commit) -> {name: value}           basket flags ("banner", "readme:<row key>")
     set_flag(config, login, comp, commit, name, value)            value None removes the flag
     clear_basket(config, login, comp, commit)
+    prefs(config, login) -> {name: value}                         per-login view preferences (Wave F, CR-WF-gui):
+                                                                  "timeline" ("on"/"off"), "notify.kind.<cat>" and
+                                                                  "notify.project.<id>" ("off" mutes one)
+    set_pref(config, login, name, value)                          value None removes the preference
 
 A done card reopens when its facts change: `card_state(..., fingerprints={card: fp})` drops a done row whose
 stored fingerprint differs from the card's current one. A snoozed card reopens at `until`.
 
-WAL mode, one table per concern, `PRAGMA user_version = 1`. This module imports no HTTP library (AT-A2's local
+WAL mode, one table per concern, `PRAGMA user_version = 2` (version 2 adds `pref`, CR-WF-gui; a version-1 file
+gains the table the next time it is opened, every other table untouched). `prefs` never creates the file: a GET that reads
+preferences of a login with no file answers {} (the defaults). This module imports no HTTP library (AT-A2's local
 rule: a sqlite write sits in a file that makes no outbound call).
 """
 from __future__ import annotations
@@ -25,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import datetime as dt
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import Iterator, Mapping
@@ -32,9 +39,9 @@ from typing import Iterator, Mapping
 from nanosoc_rm import clock
 
 __all__ = ["path", "card_state", "set_card", "undo_card", "decisions", "decide", "flags", "set_flag",
-           "clear_basket", "CARD_STATES", "DECISIONS", "VERSION"]
+           "clear_basket", "prefs", "set_pref", "PREF_NAME", "CARD_STATES", "DECISIONS", "VERSION"]
 
-VERSION = 1
+VERSION = 2
 CARD_STATES = ("done", "snoozed")
 DECISIONS = ("accept", "edit", "skip", "dismiss")
 _DDL = """
@@ -47,7 +54,11 @@ CREATE TABLE IF NOT EXISTS review_decision (
 CREATE TABLE IF NOT EXISTS basket_flag (
     login TEXT NOT NULL, component TEXT NOT NULL, commit_sha TEXT NOT NULL, name TEXT NOT NULL,
     value TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (login, component, commit_sha, name));
+CREATE TABLE IF NOT EXISTS pref (
+    login TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (login, name));
 """
+# A preference name: the timeline toggle, or one muted notification kind or project (CR-WF-gui).
+PREF_NAME = re.compile(r"^(timeline|notify\.kind\.[a-z_]{1,40}|notify\.project\.[A-Za-z0-9_.-]{1,100})$")
 
 
 def path(config) -> Path:
@@ -65,8 +76,8 @@ def _connect(config) -> Iterator[sqlite3.Connection]:
     try:
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL")
-        if con.execute("PRAGMA user_version").fetchone()[0] == 0:
-            con.executescript(_DDL)
+        if con.execute("PRAGMA user_version").fetchone()[0] < VERSION:
+            con.executescript(_DDL)                                  # every table IF NOT EXISTS: an upgrade adds
             con.execute("PRAGMA user_version = %d" % VERSION)
         yield con
     finally:
@@ -169,3 +180,25 @@ def clear_basket(config, login: str, comp: str, commit: str) -> None:
         for table in ("review_decision", "basket_flag"):
             con.execute("DELETE FROM %s WHERE login = ? AND component = ? AND commit_sha = ?" % table,
                         (login, comp, commit))
+
+
+def prefs(config, login: str) -> dict[str, str]:
+    """{name: value} of this login's view preferences; {} when gui.sqlite does not exist (a GET never creates
+    it) or was written before preferences existed."""
+    _need(login)
+    if not path(config).exists():
+        return {}
+    with _connect(config) as con:
+        return {r["name"]: r["value"] for r in con.execute("SELECT name, value FROM pref WHERE login = ?", (login,))}
+
+
+def set_pref(config, login: str, name: str, value: str | None, now: dt.datetime | None = None) -> None:
+    _need(login)
+    if not PREF_NAME.match(name or ""):
+        raise ValueError("not a preference name: %r" % (name or "")[:60])
+    with _connect(config) as con:
+        if value is None:
+            con.execute("DELETE FROM pref WHERE login = ? AND name = ?", (login, name))
+        else:
+            con.execute("INSERT OR REPLACE INTO pref (login, name, value, at) VALUES (?, ?, ?, ?)",
+                        (login, name, str(value)[:40], clock.iso(_now(now))))

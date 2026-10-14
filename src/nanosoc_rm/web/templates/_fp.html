@@ -1,0 +1,20 @@
+{# Front-page macros (Wave F, CR-WF-gui): the freshness state as a shape plus its word (never colour alone), and
+   the one "How is this judged?" disclosure shared by Home and Matrix. #}
+{% macro mark(css) -%}
+<span class="mk mk-{{ css }}" aria-hidden="true"></span>
+{%- endmacro %}
+
+{% macro state(css, word) -%}
+<span class="fs fs-{{ css }}">{{ mark(css) }}{{ word }}</span>
+{%- endmacro %}
+
+{% macro judged() -%}
+<details class="fp-judged">
+  <summary>How is this judged?</summary>
+  <div class="fp-pop">
+    <p><strong>Outdated</strong> = 10 or more commits behind the upstream default branch, or behind and not bumped for 90 days. <strong>Behind</strong> = 1 to 9 behind, bumped within 90 days. <strong>Current</strong> = at the default-branch head. <strong>Unpushed</strong> = the pinned commit is on no host. <strong>Not measured</strong> = the commits behind could not be counted (the reason is in the details).</p>
+    <p>A configuration is judged on its direct pins (its worst one). A pin row shows the worst state at or beneath it. Days = since anyone last moved the pin: Fresh under 30 d, Aging 30 to 89 d, Stale 90 d or more.</p>
+    <p>A frozen silicon configuration is old on purpose: it reads <strong>Frozen</strong>, says what it would be if live, and is never counted as outdated. <strong>?</strong> = a guessed characterisation. [brackets] = not known yet. Pages read stored scans only.</p>
+  </div>
+</details>
+{%- endmacro %}

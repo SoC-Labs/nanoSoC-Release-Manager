@@ -1,6 +1,7 @@
 """The core-router seam (Wave C, CR-W1): the workspace modules that own the app's main pages.
 
-    ROUTERS          the core page modules, in mount order (inbox, configuration workspace, component workspace)
+    ROUTERS          the core page modules, in mount order (inbox, configuration workspace, component workspace;
+                     Wave F: the projects home and notifications)
     WAVE_C_POSTS     the exact set of POST routes they may add (spec section 8), for the route census
     mount(app)       import each module and include its router; called by create_app BEFORE the app's own GET
                      routes, so `/configurations/{id}/tree` is matched before the catch-all `/configurations/{id}`
@@ -22,15 +23,16 @@ import inspect
 from types import ModuleType
 from typing import Any
 
-__all__ = ["ROUTERS", "WAVE_C_POSTS", "DELEGATES", "mount", "optional", "route_table", "writes"]
+__all__ = ["ROUTERS", "WAVE_C_POSTS", "WAVE_F_POSTS", "DELEGATES", "mount", "optional", "route_table", "writes"]
 
-ROUTERS = ("nanosoc_rm.web.inbox", "nanosoc_rm.web.cfgspace", "nanosoc_rm.web.compspace")
+ROUTERS = ("nanosoc_rm.web.inbox", "nanosoc_rm.web.cfgspace", "nanosoc_rm.web.compspace", "nanosoc_rm.web.home",
+           "nanosoc_rm.web.notifications")
 
 # The app's older pages hand over to the workspace module that owns them (spec 1.7), without app.py changing
 # again: app handler -> (module under nanosoc_rm.web, function). The function takes the request (and the path
 # parameter) and returns a Response, or None to let the older page answer.
 DELEGATES = {
-    "dashboard": ("inbox", "dashboard"),            # GET /
+    "dashboard": ("home", "dashboard"),             # GET / (CR-WF-gui: the projects home, no longer the inbox)
     "alerts": ("inbox", "alerts"),                  # GET /alerts
     "configuration": ("cfgspace", "configuration"),  # GET /configurations/{id}
     "compat": ("cfgspace", "compat"),               # GET /compat (?job= and ?configuration= 303 to the workspace)
@@ -46,6 +48,16 @@ WAVE_C_POSTS = frozenset({
     ("POST", "/alerts/clear-group"),
     ("POST", "/components/{id}/review/decide"),
     ("POST", "/components/{id}/review/basket"),
+})
+
+
+# CR-WF-gui: the Wave F core POSTs, all local-only and CSRF-checked; each writes gui.sqlite (one login's view
+# state) and nothing else. The catalogue page's POST is a plug-in route (nanosoc_rm.catalogue.web).
+WAVE_F_POSTS = frozenset({
+    ("POST", "/home/timeline"),
+    ("POST", "/notifications/read"),
+    ("POST", "/notifications/read-all"),
+    ("POST", "/notifications/prefs"),
 })
 
 

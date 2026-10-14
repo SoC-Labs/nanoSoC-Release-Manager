@@ -36,6 +36,17 @@ environment plus the `env` its tiers.yaml entry declares.
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
 `nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`; as a systemd service: `docs/DEPLOY.md`.
 
+## The front page: projects, freshness, catalogue, notifications (CR-WF-gui)
+
+`/` is the projects home: one tree of projects, their configurations and their pins, each row with its freshness
+state as a word beside a shape and the days since the pin last moved, and a detail panel on the right. Freshness
+pills and Filters (Type, Builds a, Role, No forkable project) narrow it; Timeline (off by default, saved per login)
+adds a bar per row from its last bump to today. The inbox is now **Notifications** behind the bell
+(`/notifications`; the cards stay at `/inbox`). `/matrix/` opens on the freshness matrix, with the compatibility
+matrix as its second tab. `/catalogue/` characterises repos: the new-repo queue from the org scan, the open
+questions, every group, and a downloadable `catalogue.yaml` patch (the tool never writes the registry). Pages read
+stored facts only. Page map: `docs/GUI.md`; contracts: interfaces.md section 25.
+
 ## Submodule-tree freshness (CR-WF-fresh)
 
 How far each pin lags its upstream default branch, and how long since its parent last moved it. Read-only: the last

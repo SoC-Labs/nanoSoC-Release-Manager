@@ -106,9 +106,10 @@ def _cfg_href(cid: str, tab: str = "") -> str:
 def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()) -> dict:
     """The left rail (spec 1.3). Every block from stored data; a block whose module is not built here is empty."""
     login = getattr(identity, "login", "") or ""
-    inbox = routers.optional("inbox")
+    notes = routers.optional("notifications") or routers.optional("inbox")
+    count = getattr(notes, "unread_count", None) or getattr(notes, "open_count", None)
     try:
-        open_n = int(inbox.open_count(config, login)) if inbox is not None and hasattr(inbox, "open_count") else 0
+        open_n = int(count(config, login)) if count is not None else 0
     except Exception:                                            # noqa: BLE001 - the rail never breaks a page
         open_n = 0
     decisions = _decisions(config)
@@ -147,7 +148,7 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
     tools = [{"label": label, "href": href,
               "current": any(path == p or (p != "/" and path.startswith(p.rstrip("/") + "/")) for p in prefixes)}
              for label, href, prefixes in nav if href != "/"]
-    return {"inbox": {"open": open_n, "href": "/", "current": path == "/"},
+    return {"inbox": {"open": open_n, "href": "/notifications", "current": path == "/notifications"},
             "configurations": configs, "matrix": has_matrix,
             "matrix_current": path.startswith("/matrix"),
             "components": comps, "components_more": max(0, len(in_tree) - len(comps)),

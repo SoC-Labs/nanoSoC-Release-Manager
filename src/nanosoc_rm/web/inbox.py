@@ -1,12 +1,18 @@
-"""The Inbox at `/` (Wave C spec section 2; CR-W1, CR-W2, CR-W3): ranked cards, one cause and one action each, built
-only from stored observations, with the configuration board under them.
+"""The inbox cards (Wave C spec section 2; CR-W1, CR-W2, CR-W3): ranked cards, one cause and one action each, built
+only from stored observations.
+
+CR-WF-gui (David 2026-10-14, chat: front page approved) REVERSES CR-W1's inbox at `/`: `/` is the projects home
+(web.home) and the cards are the data source of Notifications behind the bell (web.notifications, one line per
+card). The full card view (evidence, snooze) stays reachable at GET /inbox, linked from Notifications; the
+configuration board moved under the projects tree.
 
     cards(config, login=None, now=None) -> [Card]      every card the stored facts give, ranked (2.3, 2.3 Ranking)
     open_count(config, login) -> int                   cards this login has not marked done or snoozed (the rail)
     board(config, d=None, local_ci=False) -> dict      the configuration board (2.5, build-first fix 2)
-    dashboard(request) / alerts(request)               the pages, handed over by app.py (routers.DELEGATES)
-    router(app)                                        the local-only POSTs: /inbox/done, /inbox/snooze,
-                                                       /inbox/undo, /alerts/clear-group
+    dashboard(request)                                 GET /inbox: the card view (its own route since CR-WF-gui)
+    alerts(request)                                    GET /alerts, handed over by app.py (routers.DELEGATES)
+    router(app)                                        GET /inbox; the local-only POSTs: /inbox/done,
+                                                       /inbox/snooze, /inbox/undo, /alerts/clear-group
 
 Rules this module keeps (spec section 0 and 2):
 - A card is built from module functions over the store (views, db, verdict, alertgroups, and the Wave B modules
@@ -902,16 +908,17 @@ def _cat(value: Any) -> str:
 
 
 def dashboard(request: Request) -> Response:
-    """GET /: the inbox above the configuration board."""
+    """GET /inbox: the inbox cards with their evidence, snooze and undo (the board is on the projects home)."""
     from nanosoc_rm import jobs
     from nanosoc_rm.web import registry_facts
     config, _ = _ctx(request)
     problems = list(registry_facts.refresh(config))
     cat = _cat(request.query_params.get("cat"))
     view = inbox_view(config, _login(request), cat, problems=problems)
-    crumbs = [("Inbox", None)] if cat == "all" else [("Inbox", "/"), (CAT_LABEL[cat], None)]
-    return request.app.state.rm.page(request, "inbox.html", "Inbox", problems=problems, crumbs=crumbs, inbox=view,
-                                     board=board(config, local_ci=jobs.is_local_ci(config)))
+    trail = [("Projects", "/"), ("Notifications", "/notifications")]
+    crumbs = trail + ([("Cards", None)] if cat == "all" else [("Cards", "/inbox"), (CAT_LABEL[cat], None)])
+    return request.app.state.rm.page(request, "inbox.html", "Notification cards", problems=problems, crumbs=crumbs,
+                                     inbox=view, board=None)
 
 
 def alerts(request: Request) -> Response:
@@ -938,7 +945,7 @@ def _inbox_fragment(request: Request, cat: str) -> HTMLResponse:
 def _back(request: Request, cat: str) -> Response:
     if request.headers.get("hx-request"):
         return _inbox_fragment(request, cat)
-    return RedirectResponse("/" if cat == "all" else "/?cat=%s" % cat, 303)
+    return RedirectResponse("/inbox" if cat == "all" else "/inbox?cat=%s" % cat, 303)
 
 
 def _card_field(form: Any) -> str | None:
@@ -1008,11 +1015,12 @@ async def post_clear_group(request: Request) -> Response:
 
 
 def router(app: Any = None):
-    """The inbox adds no GET route (its pages are handed over by app.py); its POSTs exist only in a local
-    deployment (section 13a), so a GitHub + CI deployment keeps exactly the two Run routes (D5)."""
+    """GET /inbox (the card view, CR-WF-gui); its POSTs exist only in a local deployment (section 13a), so a
+    GitHub + CI deployment keeps exactly the two Run routes (D5)."""
     from fastapi import APIRouter
     from nanosoc_rm.web.plugins import local_routes
     r = APIRouter()
+    r.add_api_route("/inbox", dashboard, methods=["GET"], include_in_schema=False)
     if local_routes(app):
         for path, fn in (("/inbox/done", post_done), ("/inbox/snooze", post_snooze), ("/inbox/undo", post_undo),
                          ("/alerts/clear-group", post_clear_group)):

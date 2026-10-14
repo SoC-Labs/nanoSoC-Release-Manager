@@ -23,7 +23,7 @@ from markupsafe import Markup, escape
 from nanosoc_rm import clock
 
 __all__ = ["Page", "env", "render", "fact_href", "short", "human_age", "STATE_CLASS", "EXPOSURE_CLASS",
-           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV"]
+           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav"]
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 
@@ -96,6 +96,13 @@ class Page:
                       % (tag, escape(cls), escape(s), escape(obs["observed_at"]), escape(text), tag,
                          escape(s), escape(fact_href(s)), escape(obs["observed_at"])))
 
+    def mark(self, obs: dict) -> Markup:
+        """A fact shown as a whole element (a tree row, a matrix cell) rather than as a label: its A3 attributes
+        (`data-subject`, `data-observed-at`) for that element, recorded for the page's data age. The element's
+        detail view prints the same fact with `fact()` and its source link (CR-WF-gui)."""
+        self.facts.append(obs)
+        return Markup('data-subject="%s" data-observed-at="%s"' % (escape(obs["subject"]), escape(obs["observed_at"])))
+
     def oldest(self) -> str | None:
         return min((o["observed_at"] for o in self.facts), key=clock.parse) if self.facts else None
 
@@ -154,11 +161,32 @@ def _json(obj: Any) -> str:
 env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html"]),
                   trim_blocks=True, lstrip_blocks=True)
 # The top navigation: (label, href, the path prefixes that mark it current). Plug-ins add entries per app.
-NAV = (("Dashboard", "/", ("/", "/configurations", "/runs")), ("Compat", "/compat", ("/compat",)),
+NAV = (("Projects", "/", ("/", "/configurations", "/runs")), ("Compat", "/compat", ("/compat",)),
        ("Branches", "/branches", ("/branches",)), ("Hosts", "/hosts", ("/hosts",)),
        ("Contains", "/contains", ("/contains",)), ("Silicon", "/silicon-protection", ("/silicon-protection",)),
        ("Registry", "/components", ("/components", "/defects", "/errata")), ("Mirrors", "/mirrors", ("/mirrors",)),
        ("Alerts", "/alerts", ("/alerts",)))
+
+
+# The header's main navigation (Wave F, CR-WF-gui; Home.dc.html): label, href, the prefixes that mark it current.
+# An entry whose page is not built here (a plug-in not installed) is left out; every other page is under More.
+TOP_NAV = (("Projects", "/", ("/",)), ("Matrix", "/matrix/", ("/matrix",)), ("Releases", "/releases/", ("/releases",)),
+           ("Silicon", "/silicon-protection", ("/silicon-protection",)), ("Catalogue", "/catalogue/", ("/catalogue",)))
+_CORE_TOP = ("/", "/silicon-protection")
+
+
+def top_nav(nav: tuple, path: str) -> tuple[list[dict], list[dict]]:
+    """(main entries, the rest under More) for the header, each {label, href, current}."""
+    def cur(prefixes) -> bool:
+        return any(path == p or (p != "/" and path.startswith(p.rstrip("/") + "/")) or
+                   (p != "/" and path == p.rstrip("/")) for p in prefixes)
+    hrefs = {href for _, href, _ in nav}
+    main = [{"label": label, "href": href, "current": cur(prefixes)} for label, href, prefixes in TOP_NAV
+            if href in _CORE_TOP or href in hrefs]
+    taken = {m["href"] for m in main}
+    more = [{"label": label, "href": href, "current": cur(prefixes)} for label, href, prefixes in nav
+            if href not in taken]
+    return main, more
 
 
 def _age_text(at: str | None) -> str:
@@ -181,18 +209,22 @@ env.globals.update(short=short, fact_href=fact_href, human_age=human_age, STATE_
 def render(template: str, *, title: str, identity: Any = None, problems: list[str] | None = None,
            now: dt.datetime | None = None, csrf: str = "", environment: Environment | None = None,
            nav: tuple = NAV, path: str = "", auth_mode: str = "github", rail: dict | None = None,
-           crumbs: list | None = None, tabs: list | None = None, tab_current: str | None = None, **ctx: Any) -> str:
+           crumbs: list | None = None, tabs: list | None = None, tab_current: str | None = None,
+           bell: int | None = None, bare: bool = False, **ctx: Any) -> str:
     """The body template rendered first (its facts recorded), then the layout with the page's data age.
     `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's).
     Wave C shell: `rail` (shell.rail), `crumbs` [(label, href)], `tabs` [{key, label, href, count}] and
-    `tab_current` (a tab's key or href) go to the layout only."""
+    `tab_current` (a tab's key or href) go to the layout only. Wave F header: `bell` (unread notifications, None
+    when unknown) and `bare` (the page prints its own title: no title bar)."""
     page = Page(now)
     body_env = environment or env
     body_env.globals.update({k: v for k, v in env.globals.items() if k not in body_env.globals})
     body = body_env.get_template(template).render(page=page, fact=page.fact, csrf=csrf, identity=identity, **ctx)
     current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
+    main_nav, more_nav = top_nav(tuple(nav), path)
     return env.get_template("layout.html").render(
-        body=Markup(body), title=title, identity=identity, problems=problems or [], csrf=csrf, nav=nav,
+        body=Markup(body), title=title, main_nav=main_nav, more_nav=more_nav, bell=bell, bare=bare,
+        path_is_notifications=path == "/notifications" or path.startswith("/notifications/"), identity=identity, problems=problems or [], csrf=csrf, nav=nav,
         current=current[1] if current else None, auth_mode=auth_mode, rail=rail, crumbs=crumbs or [], tabs=tabs or [],
         tab_current=tab_current,
         age_seconds=page.age_seconds(), oldest=page.oldest(), human_age=human_age, now=clock.iso(page.now))

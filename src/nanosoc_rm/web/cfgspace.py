@@ -637,7 +637,7 @@ def _tabs(request: Request, ctx: Ctx, current: str, config: Any) -> list[dict]:
 
 def _crumbs(ctx: Ctx, tab: str) -> list[tuple[str, str | None]]:
     label = dict((k, label) for k, label, _ in TABS)[tab]
-    return shell.crumbs([("Inbox", "/"), ("SoC configurations", None), (ctx.cid, _base(ctx.cid)), (label, None)])
+    return shell.crumbs([("Projects", "/"), ("SoC configurations", None), (ctx.cid, _base(ctx.cid)), (label, None)])
 
 
 def _page(request: Request, ctx: Ctx, tab: str, template: str, problems: list[str] | None = None,

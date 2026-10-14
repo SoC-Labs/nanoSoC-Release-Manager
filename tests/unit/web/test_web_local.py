@@ -480,9 +480,11 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               ("POST", "/releases/jobs"), ("POST", "/releases/forks/jobs"),
               ("POST", "/releases/{configuration}/{version}/verify"), ("POST", "/versions/refresh"),
               ("POST", "/versions/{component}/draft"), ("POST", "/versions/{component}/drafts/{version}/approve"),
-              ("POST", "/freshness/scan")}                    # CR-WF-fresh: queues the read-only freshness-scan job
-    assert base | plugin <= writes, sorted(base | plugin - writes)
-    assert writes <= base | plugin | routers.WAVE_C_POSTS, sorted(writes - base - plugin - routers.WAVE_C_POSTS)
+              ("POST", "/freshness/scan"),                    # CR-WF-fresh: queues the read-only freshness-scan job
+              ("POST", "/catalogue/patch")}                   # CR-WF-gui: builds a catalogue patch, writes nothing
+    assert base | plugin | routers.WAVE_F_POSTS <= writes, sorted(base | plugin | routers.WAVE_F_POSTS - writes)
+    allowed = base | plugin | routers.WAVE_C_POSTS | routers.WAVE_F_POSTS          # CR-WF-gui: + the Wave F POSTs
+    assert writes <= allowed, sorted(writes - allowed)
 
 
 def test_a_github_ci_deployment_shows_no_local_actions(service, registry_spy, tmp_path):

@@ -1,10 +1,10 @@
 {# The left rail (spec 1.3). `rail` from shell.rail; a <details> menu below 900 px. #}
 {% import "_ui.html" as ui %}
 <details class="rail" open data-rail>
-  <summary>Menu: inbox, configurations, components</summary>
+  <summary>Menu: notifications, configurations, components</summary>
   <div class="rail-body">
     <a class="rail-item{% if rail.inbox.current %} is-cur{% endif %}" href="{{ rail.inbox.href }}"{% if rail.inbox.current %} aria-current="page"{% endif %} data-rail-inbox>
-      <span class="two"><strong>Inbox</strong></span>{{ ui.chip("%d open" % rail.inbox.open, "c-ink") }}
+      <span class="two"><strong>Notifications</strong></span>{{ ui.chip("%d unread" % rail.inbox.open, "c-ink") }}
     </a>
 
     <div class="rail-block" role="group" aria-labelledby="rail-h-cfg">

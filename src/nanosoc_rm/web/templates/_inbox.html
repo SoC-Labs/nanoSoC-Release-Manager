@@ -13,7 +13,7 @@
     </div>
   </div>
 
-  <form method="get" action="/" class="filters" role="group" aria-label="Filter the inbox">
+  <form method="get" action="/inbox" class="filters" role="group" aria-label="Filter the inbox">
   {% for f in inbox.filters %}
     <button type="submit" name="cat" value="{{ f.key }}" class="seg" aria-pressed="{{ 'true' if f.on else 'false' }}">{{ f.label }} <span class="mono">{{ f.count }}</span></button>
   {% endfor %}

@@ -47,6 +47,25 @@
       });
     });
 
+    /* Tabs whose panels are all in the page (the matrix, CR-WF-gui): switch without a reload; each tab is still
+       a link, so this is only a shortcut. */
+    document.querySelectorAll("[data-tabs]").forEach(function (nav) {
+      nav.addEventListener("click", function (ev) {
+        var a = ev.target.closest && ev.target.closest("a[aria-controls]");
+        if (!a || ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+        var panel = document.getElementById(a.getAttribute("aria-controls"));
+        if (!panel) return;
+        ev.preventDefault();
+        nav.querySelectorAll("a[aria-controls]").forEach(function (t) {
+          var on = t === a, p = document.getElementById(t.getAttribute("aria-controls"));
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          if (on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
+          if (p) p.hidden = !on;
+        });
+        if (history.replaceState) history.replaceState(null, "", a.href);
+      });
+    });
+
     /* Theme: follow the system unless the person picked one (localStorage, per browser). */
     var btn = document.querySelector("[data-theme-toggle]");
     var root = document.documentElement;
