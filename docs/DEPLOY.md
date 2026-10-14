@@ -134,5 +134,35 @@ target, **Run what-if**, wait for Now vs After), `/components/<component>/branch
 ## What this host can and cannot run
 
 T0 (resolve, pins, URLs, vendor scan) needs only git. T1 and T2 tiers call EDA tools (Verilator, VCS); on a host
-without them the tier result says the tool is not on this host. Private repos stay unreadable: every fetch is
-anonymous.
+without them the tier result says the tool is not on this host. By default every fetch is anonymous and private
+repos stay unreadable (one `mirror_failed` alert group, "private repos cannot be mirrored anonymously").
+
+## Private repos (optional, off by default; CR-PR1)
+
+To mirror private repos, give a host ONE read-only method. Add this one line under that host's table in
+`~/.config/nanosoc-rm/config.toml` and restart the service:
+
+```toml
+[hosts.gitlab]
+private_read = "ssh"          # the service user's existing ssh key, BatchMode (never prompts)
+```
+
+or, for a token with read scope only (GitLab `read_repository`; GitHub fine-grained "Contents: read"), in a
+0600 file:
+
+```toml
+private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-read.token" }
+```
+
+- It is used only by the mirror sync, only for `git fetch` and `git ls-remote`, and only after an anonymous fetch
+  of that repo failed; `gitrun` refuses every other git call with it, and every write as before. The T0 gates and
+  `compat` stay anonymous: they judge what anyone can fetch.
+- The ssh method uses whatever key the service user has. If that key can also push, the tool still never pushes,
+  but a key or deploy key with read access only is the safer choice (`identity_file = "..."` picks one).
+- Check it: `nanosoc-rm mirror sync --host gitlab`, then `nanosoc-rm mirror status --summary`. Repos read this way
+  show `credentials:ssh` (or `credentials:token`); a key or token the host refuses shows `unreadable:<cause>` and
+  raises one alert group, "private repos the read credentials cannot read" (a broken `private_read`, such as a
+  missing token file, raises the `private-read-config` group). These open even if you already cleared the old
+  anonymous alerts; the old anonymous alerts that were not cleared stay open until you clear their group on
+  `/alerts`.
+- The credential is never logged, stored or shown: not in commands, observations, alerts or pages.

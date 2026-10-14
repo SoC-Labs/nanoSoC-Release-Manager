@@ -9,6 +9,8 @@ that needs a key asks for it with `Config.require(...)`, which raises ConfigErro
 file, a TOML syntax error, a wrong type or an unknown section is a ConfigError, and the CLI turns every
 ConfigError into exit 3 (interfaces.md section 0.2).
 
+`[hosts.<host>] private_read` (CR-PR1, optional) names a read-only method for private mirrors.
+
 `[auth]` (CR-16) selects the sign-in: `mode = "github"` (default) or `"local"` with `[[auth.users]]` (login,
 scrypt `hash`, optional `roles`).
 
@@ -114,6 +116,9 @@ def validate(doc: dict) -> list[str]:
             if name not in HOST_KEYS:
                 problems.append("[hosts.%s] unknown host key; known: %s" % (name, ", ".join(HOST_KEYS)))
                 continue
+            if isinstance(table, dict) and "private_read" in table:
+                _check_private_read(name, table["private_read"], problems)
+                table = {k: v for k, v in table.items() if k != "private_read"}
             _check_table("hosts.%s" % name, table, _HOST, problems)
     creds = doc.get("credentials", {})
     if not isinstance(creds, dict):
@@ -146,6 +151,30 @@ def validate(doc: dict) -> list[str]:
             if not _type_ok(value, _STRS):
                 problems.append("[roles] %s must be a list of role names" % login)
     return problems
+
+
+_PRIVATE_READ = {"method": _STR, "identity_file": _STR, "token_file": _STR, "username": _STR}
+
+
+def _check_private_read(host: str, spec: Any, problems: list[str]) -> None:
+    """CR-PR1: `[hosts.<host>] private_read` = "ssh", or a table {method = "ssh", identity_file?} or
+    {method = "token", token_file, username?}. Optional; absent means anonymous only."""
+    where = "hosts.%s" % host
+    if isinstance(spec, str):
+        spec = {"method": spec}
+    if not isinstance(spec, dict):
+        problems.append("[%s] private_read must be \"ssh\" or a table" % where)
+        return
+    _check_table(where + ".private_read", spec, _PRIVATE_READ, problems)
+    kind = spec.get("method")
+    if kind not in ("ssh", "token"):
+        problems.append("[%s] private_read method must be \"ssh\" or \"token\"" % where)
+    elif kind == "token" and not isinstance(spec.get("token_file"), str):
+        problems.append("[%s] private_read method \"token\" needs token_file" % where)
+    elif kind == "ssh" and ("token_file" in spec or "username" in spec):
+        problems.append("[%s] private_read method \"ssh\" takes no token_file or username" % where)
+    elif kind == "token" and "identity_file" in spec:
+        problems.append("[%s] private_read method \"token\" takes no identity_file" % where)
 
 
 def _check_auth(auth: Any, problems: list[str]) -> None:
@@ -284,6 +313,11 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
     for table in doc.get("hosts", {}).values():
         if "web" in table:
             table.setdefault("git", table["web"])
+        spec = table.get("private_read")
+        if isinstance(spec, dict):
+            for key in ("identity_file", "token_file"):
+                if key in spec:
+                    spec[key] = _resolve(base, spec[key])
     doc.setdefault("paths", {}).setdefault("quarantine", str(Path(doc["service"]["data_dir"]) / "quarantine"))
     sched = doc.setdefault("schedule", {})
     sched.setdefault("poll_minutes", 15)

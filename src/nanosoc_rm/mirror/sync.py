@@ -19,24 +19,31 @@ One sync of one component: for each of its repos (canonical and copies, or the e
 
 Everything returned is stored: the mirror_status rows as one snapshot (scope `mirror_status:<component>`), each
 rewrite_alert as an event.
+
+Private repos (CR-PR1): when the anonymous fetch fails the way a private repo fails (`private_read.RETRY_CAUSES`)
+and the host has a `private_read` method, steps 1 and 2 run once more with it (`--filter=blob:limit=1m`). The
+mirror_status says how the repo was read: `access` anonymous, credentials (private, readable with credentials) or
+unreadable, with the `cause` of a failure and the `method` tried.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 from nanosoc_rm import clock, db
-from nanosoc_rm.config import Config, load_config
+from nanosoc_rm.config import Config, ConfigError, load_config
 from nanosoc_rm.mirror.catalogue import Catalogue, Entry, load_catalogue
 from nanosoc_rm.mirror.layout import (FETCH_TIMEOUT_S, default_branch, ensure_mirror, git_env, git_url, repo_key,
                                       run_in, set_default_branch, snapshot_id,
                                       split_key)
+from nanosoc_rm.mirror import private_read
 
-__all__ = ["sync_component", "sync_all", "detect_rewrite", "mirror_status", "fetch_argv"]
+__all__ = ["sync_component", "sync_all", "detect_rewrite", "mirror_status", "fetch_argv", "failure_message",
+           "access_summary"]
 
 
-def fetch_argv(url: str, key: str) -> list[str]:
-    """The section 3 fetch, after `git -C <mirror>`."""
-    return ["fetch", "--no-tags", "--prune", "--filter=blob:none", url,
+def fetch_argv(url: str, key: str, filter_spec: str = "--filter=blob:none") -> list[str]:
+    """The section 3 fetch, after `git -C <mirror>` (a credentialed fetch passes private_read.CREDENTIAL_FILTER)."""
+    return ["fetch", "--no-tags", "--prune", filter_spec, url,
             "+refs/heads/*:refs/r/%s/heads/*" % key, "+refs/tags/*:refs/r/%s/tags/*" % key]
 
 
@@ -117,6 +124,27 @@ def _sync_repo(config: Config, mirror: Path, entry: Entry, repo: dict
     fetch = run_in(mirror, *fetch_argv(url, key), env=env, timeout=FETCH_TIMEOUT_S)
     sources = [symref.source(), fetch.source()]
     previous = _previous_status(config, host, path)
+    access, cause, used, error = "anonymous", None, None, None
+    if not fetch.ok:
+        cause = private_read.classify(fetch.stderr)
+        error = _error_text(fetch)
+        if cause in private_read.RETRY_CAUSES:
+            try:
+                method = private_read.method(config, host)
+                penv = method.env() if method is not None else None
+            except ConfigError as e:                      # names the host, never a secret
+                method, penv, cause, error = None, None, "config", str(e)
+            if method is not None:
+                used = method.kind
+                purl = method.url(path)
+                new_default, symref = _advertised_default(mirror, purl, penv)
+                fetch = run_in(mirror, *fetch_argv(purl, key, private_read.CREDENTIAL_FILTER), env=penv,
+                               timeout=FETCH_TIMEOUT_S)
+                sources += [symref.source(), fetch.source()]
+                if fetch.ok:
+                    access, cause, error = "credentials", None, None
+                else:
+                    cause, error = private_read.classify(fetch.stderr), _error_text(fetch)
     alert = None
     if fetch.ok:
         if new_default and new_default != old_default:
@@ -127,11 +155,31 @@ def _sync_repo(config: Config, mirror: Path, entry: Entry, repo: dict
             if new_head and new_head != old_head:
                 alert = detect_rewrite(mirror, key, old_default, old_head, new_head, config=config)
         fact = {"repo": {"host": host, "path": path}, "component": entry.id, "ok": True,
-                "last_success_at": clock.iso(), "error": None}
+                "last_success_at": clock.iso(), "error": None, "access": access, "cause": None, "method": used}
     else:
         fact = {"repo": {"host": host, "path": path}, "component": entry.id, "ok": False,
-                "last_success_at": previous["last_success_at"] if previous else None, "error": _error_text(fetch)}
+                "last_success_at": previous["last_success_at"] if previous else None, "error": error,
+                "access": "unreadable", "cause": cause, "method": used}
     return fact, alert, sources, previous
+
+
+def _failure_way(fact: dict) -> tuple:
+    """What decides a failed repo's alert group: the read method tried, and whether private_read is misconfigured
+    (other cause changes, such as a network flap, do not raise the alert again)."""
+    return fact.get("method"), fact.get("cause") == "config"
+
+
+def failure_message(fact: dict) -> str:
+    """The `mirror_failed` alert text: the cause first, so alerts group by it (web.alertgroups)."""
+    repo = "%s:%s" % (fact["repo"]["host"], fact["repo"]["path"])
+    if fact.get("method"):
+        return "mirror fetch of %s failed with read credentials (%s): %s" % (repo, fact["method"], fact["error"])
+    if fact.get("cause") == "config":
+        return "mirror fetch of %s failed: private_read is misconfigured: %s" % (repo, fact["error"])
+    if fact.get("cause") in private_read.RETRY_CAUSES:
+        return "mirror fetch of %s failed: private or missing, no private_read for %s: %s" % (
+            repo, fact["repo"]["host"], fact["error"])
+    return "mirror fetch of %s failed: %s" % (repo, fact["error"])
 
 
 def sync_component(component_id: str, host: str | None = None, *, config: Config | None = None,
@@ -152,11 +200,11 @@ def sync_component(component_id: str, host: str | None = None, *, config: Config
         doc = {"schema": 1, "kind": "mirror_status", "subject": "mirror_status:%s:%s" % (repo["host"], repo["path"]),
                "observed_at": clock.iso(), "sources": sources, "snapshot": snap, "fact": fact}
         statuses.append(doc)
-        if not fact["ok"] and (previous is None or previous["ok"]):
-            # Raised when a repo starts failing (not on every failed poll); it re-opens after a recovery.
-            db.raise_alert("mirror_failed", doc["subject"],
-                           "mirror fetch of %s:%s failed: %s" % (repo["host"], repo["path"], fact["error"]),
-                           sources, config=config)
+        if not fact["ok"] and (previous is None or previous["ok"] or _failure_way(previous) != _failure_way(fact)):
+            # Raised when a repo starts failing (not on every failed poll); it re-opens after a recovery, and is
+            # raised again (open, even if a person cleared it) when the way it fails changes: read credentials
+            # configured then refused, or a private_read that is misconfigured.
+            db.raise_alert("mirror_failed", doc["subject"], failure_message(fact), sources, config=config)
         if alert is not None:
             alerts.append(alert)
     carried = []
@@ -198,3 +246,24 @@ def mirror_status(component_id: str | None = None, *, config: Config | None = No
         docs = [d for d in docs if d["fact"]["component"] == component_id]
     return sorted(docs, key=lambda d: (d["fact"]["component"] or "", d["fact"]["repo"]["host"],
                                        d["fact"]["repo"]["path"]))
+
+
+def access_summary(docs: list[dict]) -> list[dict]:
+    """Mirror rows counted by how they were read: [{access, cause, method, count, by_host}], unreadable first,
+    biggest first. Rows stored before CR-PR1 have no `access`: ok is anonymous, a failure is unreadable."""
+    out: dict[tuple, dict] = {}
+    for d in docs:
+        f = d["fact"]
+        access = f.get("access") or ("anonymous" if f["ok"] else "unreadable")
+        cause = f.get("cause") if not f["ok"] else None
+        if not f["ok"] and cause is None:
+            cause = private_read.classify(f.get("error"))
+        k = (access, cause, f.get("method"))
+        row = out.setdefault(k, {"access": access, "cause": cause, "method": f.get("method"), "count": 0,
+                                 "by_host": {}})
+        row["count"] += 1
+        h = f["repo"]["host"]
+        row["by_host"][h] = row["by_host"].get(h, 0) + 1
+    order = {"unreadable": 0, "credentials": 1, "anonymous": 2}
+    return sorted(out.values(), key=lambda r: (order.get(r["access"], 3), -r["count"], str(r["cause"]),
+                                               str(r["method"])))

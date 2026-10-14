@@ -30,11 +30,15 @@ import subprocess
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-__all__ = ["GitRefused", "GitError", "GitResult", "check_argv", "hardened_env", "run_git", "GIT_WRITES",
-           "DEFAULT_TIMEOUT_S"]
+__all__ = ["GitRefused", "GitError", "GitResult", "check_argv", "check_credentialed", "hardened_env", "run_git",
+           "GIT_WRITES", "DEFAULT_TIMEOUT_S", "CREDENTIALED_MARKER", "CREDENTIALED_READS"]
 
 GIT_WRITES = ("push", "send-pack", "receive-pack")        # interfaces.md section 17.5: the guard's minimum
 DEFAULT_TIMEOUT_S = 900                                   # the T0 kill limit; callers pass less where they can
+# CR-PR1: an environment carrying this variable holds a private-read credential (mirror/private_read.py). With
+# it, run_git allows only these subcommands, on top of every other refusal.
+CREDENTIALED_MARKER = "NANOSOC_RM_PRIVATE_READ"
+CREDENTIALED_READS = ("fetch", "ls-remote")
 
 
 class GitRefused(PermissionError):
@@ -265,6 +269,27 @@ def check_argv(args: Sequence[str]) -> None:
     raise _refuse("no subcommand", args)
 
 
+def check_credentialed(args: Sequence[str]) -> None:
+    """CR-PR1: raise GitRefused unless `args` is a `fetch` or `ls-remote` (no submodule recursion), the only
+    calls a private-read credential may reach. Called by run_git when the environment carries the marker."""
+    args = [str(a) for a in args]
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        # No -c or --config-env: a config setting could turn on submodule recursion or change the transport
+        # (core.sshCommand) under the credential. The private-read path passes its config through the env.
+        if args[i] == "-c" or args[i].startswith(("-c", "--config-env")):
+            raise _refuse("a private-read credential takes no -c or --config-env", args)
+        i += 2 if args[i] in _GLOBAL_WITH_VALUE else 1
+    sub = args[i] if i < len(args) else ""
+    if sub not in CREDENTIALED_READS:
+        raise _refuse("a private-read credential is only for %s, not %r" % (" and ".join(CREDENTIALED_READS),
+                                                                             sub), args)
+    # Every --recurse-submodules* option (including --recurse-submodules-default) is refused unless its value is
+    # an explicit "no" (any case); --no-recurse-submodules is allowed.
+    if any(a.startswith("--recurse-submodules") and a.partition("=")[2].lower() != "no" for a in args[i + 1:]):
+        raise _refuse("a private-read credential never follows submodules", args)
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Running
 # ---------------------------------------------------------------------------------------------------------
@@ -294,6 +319,8 @@ def run_git(*args: str | os.PathLike, cwd: str | os.PathLike | None = None, env:
     for a refused argv. A timeout gives returncode -1 and timed_out=True."""
     argv = ([] if cwd is None else ["-C", os.fspath(cwd)]) + [os.fspath(a) for a in args]
     check_argv(argv)
+    if (env and env.get(CREDENTIALED_MARKER)) or os.environ.get(CREDENTIALED_MARKER):
+        check_credentialed(argv)
     stdin = subprocess.DEVNULL if input is None else None
     try:
         p = subprocess.run(["git", *argv], input=input, stdin=stdin, capture_output=True, text=text,
