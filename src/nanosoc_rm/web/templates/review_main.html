@@ -62,7 +62,7 @@
 
 <aside class="panel" id="basket" aria-labelledby="h-basket">
   <h2 id="h-basket">Patch basket</h2>
-  <p>{{ b['items']|length }} finding{{ "" if b['items']|length == 1 else "s" }}{% if b.banner %}, plus the banner rule ({{ b.n_banner }} lines){% endif %}{% if b.readme %}, plus the README layout{% endif %}.</p>
+  <p>{{ b['items']|length }} finding{{ "" if b['items']|length == 1 else "s" }}{% if b.banner %}, plus the decoration rule ({{ b.n_banner }} banner and boilerplate findings){% endif %}{% if b.readme %}, plus the README layout{% endif %}.</p>
   {% if b['items'] %}
   <ul>
   {% for x in b['items'] %}
@@ -74,8 +74,8 @@
   {% else %}<p class="note">Empty. Accepted and edited findings land here.</p>{% endif %}
   {% if actions and b.n_banner %}
   <form method="post" action="{{ href(comp, 'review/basket') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ st.commit }}">
-    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if b.banner else 'banner-on' }}" aria-pressed="{{ 'true' if b.banner else 'false' }}" hx-post="{{ href(comp, 'review/basket') }}" hx-target="#review" data-banner-toggle>Also apply the banner rule: {{ "on" if b.banner else "off" }}</button>
-    <span class="note">Removes {{ b.n_banner }} decoration lines in one rule. Off by default.</span>
+    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if b.banner else 'banner-on' }}" aria-pressed="{{ 'true' if b.banner else 'false' }}" hx-post="{{ href(comp, 'review/basket') }}" hx-target="#review" data-banner-toggle>Also apply the decoration rule: {{ "on" if b.banner else "off" }}</button>
+    <span class="note">Removes {{ b.n_banner }} banners and header boilerplate fields in one rule. Off by default.</span>
   </form>
   {% endif %}
   {% for p in st.patch_problems %}<p class="banner alert" role="status">{{ p }}</p>{% endfor %}

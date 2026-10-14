@@ -35,6 +35,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock, db, jobs
+from nanosoc_rm.quality.findings import is_bulk
 from nanosoc_rm.web import alertgroups, routers, shell, uistate, verdict as V, views
 
 __all__ = ["Card", "CARD_KINDS", "CATS", "WEIGHTS", "STALE_AFTER", "STALE_FACTOR", "cards", "open_count", "board",
@@ -567,17 +568,17 @@ def _quality(ctx: _Ctx) -> list[Card]:
     out = []
     for t, d in sorted(newest.items()):
         f = d["fact"]
-        findings = [x for x in f.get("findings") or [] if x.get("kind") != "banner"]
+        findings = [x for x in f.get("findings") or [] if not is_bulk(x)]       # CR-WD-Q1: one decoration rule
         if not findings:
             continue
         ranked = _rank_findings(findings)
         k = len(findings)
-        banner = (f.get("counts") or {}).get("banner", 0)
+        banner = sum(1 for x in f.get("findings") or [] if is_bulk(x))
         first = ranked[0]
         href = "/components/%s/review" % _q(t) if _has("compspace") else "/quality/%s/comments" % _q(t)
         out.append(Card(
             id="quality_top:%s" % t, kind="quality_top", chip=("%d WORTH A LOOK" % k, "c-warn"),
-            title="%s has %d comment findings; %d are banners. Review the %d that matter first." % (
+            title="%s has %d comment findings; %d are decoration (one rule). Review the %d that matter first." % (
                 t, f.get("total") or 0, banner, k),
             why="Top one: %s:%s %s." % (first.get("path"), first.get("line"), first.get("kind")),
             weight=w["base"] + min(k, w["cap_k"]), fact_at=d["observed_at"], facts=[d],

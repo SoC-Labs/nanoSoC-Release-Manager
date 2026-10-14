@@ -3,7 +3,8 @@
 `gui.sqlite` (web.uistate), and blobs only through `quality.review_text` (local reads, never a fetch).
 
     stored_fact(config, comp, kind, ref=None, commit=None) -> obs | None   the analysed result to review
-    queue(obs) -> [item]                    non-banner findings in review order, each with a stable key
+    queue(obs) -> [item]                    findings outside the decoration rule (banner, boilerplate), in review
+                                            order (suggested edit first), each with a stable key
     key(commit, finding) -> str             "{commit}:{path}:{line}:{kind}" ("#n" on a repeat in one line)
     rank, severity, caution                 from quality.review_text (rules tested there and here)
     state(config, login, comp, obs, i=None) -> dict    the page model: progress, steps, current item, basket
@@ -20,6 +21,7 @@ from typing import Any
 
 from nanosoc_rm import quality as q
 from nanosoc_rm.quality import review_text as rt
+from nanosoc_rm.quality.findings import is_bulk
 from nanosoc_rm.quality.patch import combine, file_patch
 from nanosoc_rm.quality.source import SourceError
 from nanosoc_rm.web import uistate
@@ -65,12 +67,13 @@ def key(commit: str, f: dict) -> str:
 
 
 def queue(obs: dict | None) -> list[dict]:
-    """The non-banner findings of a stored result, ranked (High, Medium, Check, Low; then path and line)."""
+    """The findings of a stored result outside the decoration rule (CR-WD-Q1), ranked: a suggested edit first,
+    then High, Medium, Check, Low; then path and line (CR-WD-Q3)."""
     if obs is None:
         return []
     c = commit_of(obs)
     items, seen = [], {}
-    for n, f in enumerate(rank(x for x in obs["fact"].get("findings") or [] if x.get("kind") != "banner")):
+    for n, f in enumerate(rank(x for x in obs["fact"].get("findings") or [] if not is_bulk(x))):
         k = key(c, f)
         seen[k] = seen.get(k, 0) + 1
         if seen[k] > 1:                       # two findings of one kind on one line (two identifiers): #2, #3...
@@ -81,7 +84,8 @@ def queue(obs: dict | None) -> list[dict]:
 
 
 def banners(obs: dict | None) -> list[dict]:
-    return [x for x in (obs or {}).get("fact", {}).get("findings") or [] if x.get("kind") == "banner"]
+    """The findings of the decoration rule (banner and boilerplate, CR-WD-Q1): one basket flag applies them all."""
+    return [x for x in (obs or {}).get("fact", {}).get("findings") or [] if is_bulk(x)]
 
 
 def readme_rows(obs: dict | None) -> list[dict]:
@@ -175,7 +179,7 @@ def build_patch(config: Any, login: str, comp: str, obs: dict, readme_obs: dict 
     if b["banner"]:
         for f in banners(obs):
             if f.get("edit"):
-                edits.setdefault(f["path"], []).append((f["edit"], "%s:%s banner" % (f["path"], f["line"])))
+                edits.setdefault(f["path"], []).append((f["edit"], "%s:%s %s" % (f["path"], f["line"], f["kind"])))
     readmes = []
     if b["readme"] and readme_obs is not None:
         wanted = set(b["readme"])

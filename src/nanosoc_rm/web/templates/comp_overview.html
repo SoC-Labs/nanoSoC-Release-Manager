@@ -17,7 +17,7 @@
   <div class="card" data-need="quality">
     {% if qv.comments %}
     <p>{{ ui.chip("%d TO REVIEW" % qv.worth, "c-warn" if qv.worth else "c-pass") }} <strong>Quality</strong> at <code>{{ short(qv.comments.fact.commit) }}</code></p>
-    <p>{{ qv.total }} findings; {{ qv.banner }} are banners (one rule).{% if qv.worst %} Worst first: <code>{{ qv.worst[0].path }}:{{ qv.worst[0].line }}</code> {{ qv.worst[0].kind }} ({{ qv.worst[0].severity }}).{% endif %} {{ fact(qv.comments, "analysed") }}</p>
+    <p>{{ qv.total }} findings; {{ qv.banner }} are decoration (one rule).{% if qv.worst %} Worst first: <code>{{ qv.worst[0].path }}:{{ qv.worst[0].line }}</code> {{ qv.worst[0].kind }} ({{ qv.worst[0].severity }}).{% endif %} {{ fact(qv.comments, "analysed") }}</p>
     <p><a class="ghost" href="{{ href(comp, 'review') }}">Start review</a></p>
     {% else %}
     <p>{{ ui.chip("NOT ANALYSED", "c-notrun") }} <strong>Quality</strong></p>

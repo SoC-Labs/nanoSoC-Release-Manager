@@ -9,7 +9,9 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
   deeper indent than the prose around it, across blank comment lines), is documentation and not reported. A run
   with prose on one side is reported without an edit: deleting it could leave the prose pointing at nothing.
 - `restates_code`: a one-line comment whose words are all in the next code line (identifiers split on case and
-  `_`, with a few verb synonyms such as increment for `+=`), and that gives no reason (no "because", "so", ...).
+  `_`, with a few verb synonyms such as increment for `+=`; string literals do not count), and that gives no
+  reason (no "because", "so", ...). A heading (not led by a verb) that the next two code lines both match labels a
+  group: not reported; `# Create the agents` over two create lines still is.
 - `banner`: rules (one decoration character repeated, flush with the marker: `#####`, `// ------`) and titles
   boxed in them. Waveforms, table separators, boxes and arrows built from the same characters are comment art and
   never match.
@@ -23,6 +25,20 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
   repository without submodules (whose code is not read).
 
 `edit` is a mechanical change (delete or replace whole lines) when one is safe; the patch applies only those.
+
+Wave D (quality precision, CR-WD-Q1..Q3):
+
+- Every finding carries `severity` (SEVERITY_BY_KIND: one level per kind) and `context` (CR-W4: the analysed
+  lines around the finding and its edit), so a page shows the real deleted text without reading git.
+- `banner` and `boilerplate` are one bulk rule per repository (BULK_RULE, kinds BULK_KINDS): each such finding
+  carries `bulk: "decoration"` and the fact a `bulk_rules` summary (count, files, edits), so pages count, hide
+  and patch them as one group.
+- `unknown_identifier` reports a name only when it is code-shaped (snake_case, camelCase, `name()`), or the
+  comment line itself reads as code; and never for a plural, a fragment (`{m,s}_por_gate`, `prefix_`), a case
+  variant or a naming-convention variant (`u_x`, `x_i`, `x_r`, a numbered sibling) of a name that exists.
+- `commented_out_code` treats as prose: a line that continues an unfinished sentence, `VAR=1 means ...`, an
+  option list (`A=1 / B=1`), hyphenated words, HDL bit ranges (`[7:0]`) in Python, and a one-line annotation
+  that names what the next code line uses.
 """
 from __future__ import annotations
 
@@ -37,9 +53,17 @@ from dataclasses import dataclass
 from nanosoc_rm.quality.corpus import Corpus, Doc
 from nanosoc_rm.quality.lexers import CODE, Comment
 
-__all__ = ["find", "KINDS", "identifier_index", "is_code_line"]
+__all__ = ["find", "KINDS", "identifier_index", "is_code_line", "BULK_KINDS", "BULK_RULE", "SEVERITY_BY_KIND",
+           "bulk_rules", "is_bulk", "CONTEXT_AROUND"]
 
 KINDS = ("commented_out_code", "restates_code", "banner", "boilerplate", "stale_todo", "unknown_identifier")
+BULK_RULE = "decoration"
+BULK_KINDS = ("banner", "boilerplate")
+# One level per kind (CR-WD-Q2). High: a promise in the code that has gone stale. Medium: dead code a reader must
+# skip. Low: noise a mechanical edit removes. Check: a guess a person must confirm (a close name is not proof).
+SEVERITY_BY_KIND = {"stale_todo": "High", "commented_out_code": "Medium", "restates_code": "Low",
+                    "banner": "Low", "boilerplate": "Low", "unknown_identifier": "Check"}
+CONTEXT_AROUND = 3
 
 
 @dataclass
@@ -183,6 +207,8 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
     if not t.strip() or _PRAGMA.match(t):
         return False, False
     if language == "python":
+        if _python_prose(t):
+            return False, False
         ok = _python_code(t)
         return ok, ok
     if _prose(t) or re.search(r"[a-z]\.\s+[A-Z][a-z]", t):
@@ -196,7 +222,8 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
             value = t.split("=", 1)[1].strip()
             if len(value.split()) > 3 and not re.search(r"[$/\\\"'(){}\[\]]", value):
                 return False, False                       # "ROM_RUN_DIR= still wins over both"
-    if (language in ("verilog", "c") and _c_prose(t)) or _sentence(t):
+    if (language in ("verilog", "c") and (_c_prose(t) or _c_hyphen_prose(t)))\
+            or _sentence(t):
         return False, False
     if language in ("verilog", "c"):
         strong = bool(_ASSIGN_STMT.match(t) or _CALL_STMT.match(t) or
@@ -205,6 +232,8 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
         if language == "verilog" and kw and len(t.split()) > 8 and not t.rstrip().endswith((";", "begin", ")")):
             kw = False                                    # "output of the block is ..." prose
         return strong or kw, strong
+    if language in ("shell", "make", "tcl") and _script_prose(t):
+        return False, False
     if language in ("shell", "make"):
         if re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s{2,}[A-Za-z(]\S*\s+\S", t):
             return False, False                           # `QUIET=1    do not print...`: an option's help line
@@ -227,6 +256,51 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
     return False, False
 
 
+_BIT_RANGE = re.compile(r"\[\s*(\d+)\s*:\s*(\d+)\s*\]")
+_HYPHEN_WORD = re.compile(r"(?<![\w-])[A-Za-z]{2,}-[A-Za-z]{2,}(?![\w(])")
+_FUNCTION_WORDS = set("in is are was were only does did has had cannot must should would the to for when which that "
+                      "because never always also".split())
+_CMD_WORDS = set("make gmake python python3 bash sh zsh git exec env nice time cmake ninja sudo perl tclsh vivado "
+                 "vcs xrun verilator iverilog pytest echo cd source rm cp mv mkdir ln sed awk grep ssh scp "
+                 "curl wget".split())
+
+
+def _c_hyphen_prose(t: str) -> bool:
+    """A C/HDL comment line with hyphenated words (`pass-through`, `bit-identical`): prose. A statement (`;` at
+    the end) needs two such words, or one of two longer halves, since `a-b;` is code."""
+    if not t.rstrip().endswith(";"):
+        return bool(_HYPHEN_WORD.search(t))
+    return len(re.findall(r"(?<![\w-])[A-Za-z]{3,}-[A-Za-z]{3,}(?![\w(])", t)) >= 2 or \
+        bool(re.search(r"(?<![\w-])[A-Za-z]{4,}-[A-Za-z]{4,}(?![\w(])", t))
+
+
+def _python_prose(t: str) -> bool:
+    """A Python comment line that parses but is not Python: hyphenated words (`Allow-list (per-line)`), or an
+    HDL bit range written high:low (`{msg_id[31:28], cksum[27:16]}`, `prime[7:0]<<24`). Strings are ignored."""
+    u = re.sub(r"\"[^\"]*\"|'[^']*'", "\"\"", t)
+    if _HYPHEN_WORD.search(u) or re.match(r"^\s*[A-Za-z_]\w*\s+\(", u):
+        return True                                       # `name (words)`: Python never spaces a call
+    return any(int(a) > int(b) for a, b in _BIT_RANGE.findall(u))
+
+
+def _script_prose(t: str) -> bool:
+    """A shell, make or Tcl comment line that starts like code but is a sentence: `VAR=1 means "..."`,
+    `n=1 cannot separate ...` (an assignment followed by plain words that are not a command), or an option
+    list (`SKIP_A=1 / SKIP_B=1`)."""
+    u = re.sub(r"\"[^\"]*\"|'[^']*'", "\"\"", t)
+    if re.search(r"=\S*\s+/\s+[A-Za-z_]\w*=", u):
+        return True
+    words = u.split()
+    if len(words) >= 3 and words[1] in _FUNCTION_WORDS and re.fullmatch(r"[a-z_][\w-]*", words[0]):
+        return True                                       # `set_qor_strategy in U-2022.12 only accepts ...`
+    m = re.match(r"^\s*(export\s+)?[A-Za-z_]\w*\s?=\s?(\"\"|\S*)\s+(\S.*)$", u)
+    if not m:
+        return False
+    rest = m.group(3).split()
+    return bool(re.fullmatch(r"[a-z]{2,}", rest[0])) and rest[0] not in _CMD_WORDS and len(rest) >= 2 and \
+        not re.match(r"^[A-Za-z_]\w*=", rest[1])
+
+
 def _prose_line(text: str, flag: tuple[bool, bool]) -> bool:
     """A non-empty comment line that does not read as code: deleting a code-looking line next to one would cut
     a sentence or an example out of the documentation."""
@@ -246,10 +320,30 @@ def _example(doc: Doc, b: _Block, flags: list[tuple[bool, bool]], i: int, j: int
     if k >= 0 and _prose_line(b.texts[k], flags[k]):
         if b.texts[k].rstrip().endswith(":") or depth >= _indent(k) + 2:
             return True
+    k2 = i - 1
+    while k2 >= 0 and (not b.texts[k2].strip() or flags[k2][0] or _indent(k2) >= depth > 0):
+        k2 -= 1                                           # `# leasing:` then indented example lines
+    if k2 >= 0 and k2 != k and _prose_line(b.texts[k2], flags[k2]) and b.texts[k2].rstrip().endswith(":") \
+            and _indent(k2) < max(depth, 1):
+        return True
     k = j + 1
     while k < len(flags) and not b.texts[k].strip():
         k += 1
     return k < len(flags) and _prose_line(b.texts[k], flags[k]) and depth >= _indent(k) + 2
+
+
+def _annotation(doc: Doc, line: int, text: str) -> bool:
+    """A one-line comment directly above a code line that uses a name it gives (`# slot0 = 0x1` above
+    `write(APB_R8_SLOT0, ...)`): a label for that line, not dead code. A near copy of the next line (an older
+    version of it) is still dead code."""
+    if line >= len(doc.lexed.kinds) or doc.lexed.kinds[line] != CODE:
+        return False
+    code = doc.lexed.code[line]
+    words = {w for w in _words(text) if len(w) >= 3} | {w.lower() for w in _IDENT.findall(text) if len(w) >= 3}
+    cwords = set(_words(code)) | {w.lower() for w in _IDENT.findall(code)}
+    if not words & cwords:
+        return False
+    return difflib.SequenceMatcher(a=text.strip(), b=code.strip()).ratio() < 0.8
 
 
 def _commented_out(doc: Doc, b: _Block) -> list[dict]:
@@ -285,10 +379,15 @@ def _commented_out(doc: Doc, b: _Block) -> list[dict]:
             start, end = b.start + i, b.start + j
             before = i > 0 and _prose_line(b.texts[i - 1], flags[i - 1])
             after = j + 1 < len(flags) and _prose_line(b.texts[j + 1], flags[j + 1])
-            if before and (after or b.texts[i - 1].rstrip().endswith(":")) or _example(doc, b, flags, i, j):
+            if before and (after or b.texts[i - 1].rstrip().endswith(":") or _TODO.search(b.texts[i - 1])) \
+                    or _example(doc, b, flags, i, j):
                 i = j + 1
                 continue                                  # mid-paragraph, or an example the prose introduces
             n = end - start + 1
+            if n == 1 and (before and not re.search(r"[.!?:;]\s*$", b.texts[i - 1].rstrip())
+                           or _annotation(doc, end, b.texts[i])):
+                i = j + 1
+                continue                                  # the end of an unfinished sentence, or a label
             if n == 1:
                 out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
                                     "One line that reads as %s code: delete it by hand if it is dead (no patch "
@@ -336,6 +435,22 @@ def _words(text: str) -> list[str]:
     return out
 
 
+_ACTION_VERBS = set("create write enable disable wait start stop configure update build load send run compute "
+                    "update apply drive force release poll program inject sample capture".split())
+
+
+def _restated_share(words: list[str], code: str) -> float:
+    """The share of the comment's words that the code line says. String literals do not count: a YAML `desc:` or a
+    Tcl `-name "QSPI_SCLK"` is text the comment may label, not code it restates (CR-WD-Q1)."""
+    bare = re.sub(r"\"[^\"]*\"|'[^']*'", " ", code)
+    cw = set(_words(bare))
+    matched = 0
+    for w in words:
+        if w in cw or (w.endswith("s") and w[:-1] in cw) or any(m in bare for m in _SYN.get(w, ())):
+            matched += 1
+    return matched / len(words)
+
+
 def _restates(doc: Doc, b: _Block) -> list[dict]:
     if b.style != "line" or b.start != b.end:
         return []
@@ -347,13 +462,13 @@ def _restates(doc: Doc, b: _Block) -> list[dict]:
     if not 2 <= len(words) <= 8 or not re.match(r"^[A-Za-z][\w\s'.,()-]*$", text.strip()):
         return []
     code = doc.lexed.code[nxt - 1]
-    cw = set(_words(code))
-    matched = 0
-    for w in words:
-        if w in cw or (w.endswith("s") and w[:-1] in cw) or any(m in code for m in _SYN.get(w, ())):
-            matched += 1
-    if matched / len(words) < 0.75:
+    if _restated_share(words, code) < 0.75:
         return []
+    after = nxt + 1
+    lead = _words(text)[0] if _words(text) else ""
+    if lead not in _SYN and lead not in _ACTION_VERBS and after <= len(doc.lexed.kinds) and \
+            doc.lexed.kinds[after - 1] == CODE and _restated_share(words, doc.lexed.code[after - 1]) >= 0.75:
+        return []                                         # a heading over a group of lines (`# QSPI clocks`)
     return [_finding(doc, b.start, b.end, "restates_code", "%s  ->  %s" % (text.strip(), code.strip()),
                      "Delete the comment: it says what line %d already says. Keep a comment only for why." % nxt,
                      _delete(doc, b.start, b.end))]
@@ -556,6 +671,49 @@ def _identifier_like(tok: str, backticked: bool, call: bool) -> bool:
     return bool(re.match(r"^[a-z][a-z0-9]*[A-Z]", tok))          # camelCase; PascalCase is usually a proper noun
 
 
+def _code_shaped(tok: str, call: bool) -> bool:
+    """snake_case (an inner `_`), camelCase (a lower-case start with an upper-case hump) or `name()`: a word that
+    reads as an identifier on its own. `Spacingtable` (backticked or not) is a word."""
+    return call or "_" in tok.strip("_") or bool(re.match(r"^[a-z][a-z0-9]*[A-Z]", tok))
+
+
+def _family(a: str, b: str) -> bool:
+    """`a` and `b` name the same thing under a naming convention: one contains the other once digits are
+    dropped, `_` ignored and case folded (`role_strap` / `role_strap_i`, `u_x` / `x`, `lane0_score` /
+    `lane_score`, `test_10` / `test_15`, `time_stamp` / `timestamp`), or with a placeholder letter
+    (`gpiotx_N_io_link_data` / `gpiotx_7_io_link_data`)."""
+    def norm(t: str) -> str:
+        t = re.sub(r"(?<=_)[A-Z](?=_|$)|(?<=[A-Z])x(?=_|$)", "", t)       # placeholders: gpiotx_N_x, UARTx
+        return re.sub(r"[\d_]+", "", t.lower())
+    x, y = norm(a), norm(b)
+    return bool(x and y) and (x == y or x in y or y in x)
+
+
+def _sibling(a: str, b: str) -> bool:
+    """`a` and `b` differ in one `_` part and both parts are short words (`u_tx_ptp_det` / `u_rx_ptp_det`,
+    `ram_style` / `rom_style`, `rd_ptr` / `wr_ptr`): two different things, so `a` is not a misspelt `b` (it is
+    likely in a submodule, or gone on purpose)."""
+    x, y = a.lower().split("_"), b.lower().split("_")
+    if len(x) != len(y):
+        return False
+    diff = [(p, q) for p, q in zip(x, y) if p != q]
+    return len(diff) == 1 and all(len(t) <= 3 and t.isalpha() for t in diff[0])
+
+
+def _variant_of_known(tok: str, text: str, m: re.Match, index: set[str], lower: set[str]) -> bool:
+    """A name the repository holds in another form: a plural (`sim_builds`), a case variant, or a fragment of an
+    expansion (`{m,s}_por_gate`, `gpiorx_<N>_io_pad_clk`, `prefix_`, `_suffix`)."""
+    if tok.startswith("_") or tok.endswith("_"):
+        return True
+    before = text[m.start() - 1] if m.start() > 0 else ""
+    after = text[m.end()] if m.end() < len(text) else ""
+    if before in "}>" and before or after in "{<*" and after:
+        return True
+    if tok.endswith("s") and (tok[:-1] in index or (tok.endswith("es") and tok[:-2] in index)):
+        return True
+    return tok.lower() in lower
+
+
 def _file_identifiers(doc: Doc) -> list[str]:
     ids = set()
     for line in doc.lexed.code:
@@ -564,25 +722,36 @@ def _file_identifiers(doc: Doc) -> list[str]:
 
 
 def _unknown_identifiers(doc: Doc, b: _Block, index: set[str], file_ids: list[str],
-                         has_submodules: bool = False) -> list[dict]:
+                         has_submodules: bool = False, lower: set[str] | None = None) -> list[dict]:
     """A name the repository does not contain. Reported when a close match exists in this file (likely a rename,
     reported as did_you_mean, never edited) or when the comment marks it as code (`name` or name()) and the repository has no
     submodules (whose code is not read, so a name there would look absent); a bare word with neither is too
     often prose or an external library's name to report."""
     out = []
     seen = set()
+    lower = {x.lower() for x in index} if lower is None else lower
     for k, text in enumerate(b.texts):
         if re.search(r"https?://", text):
             text = re.sub(r"https?://\S+", " ", text)
+        code_line: bool | None = None
         for m in _CANDIDATE.finditer(text):
             tok, bt, call = m.group(2), bool(m.group(1)), bool(m.group(3))
             if tok in seen or tok in index or not _identifier_like(tok, bt, call):
                 continue
             if tok.lower() in ("todo", "fixme", "e_g", "i_e"):
                 continue
+            if _variant_of_known(tok, text, m, index, lower):
+                continue
+            if not _code_shaped(tok, call):
+                if code_line is None:
+                    code_line = is_code_line(doc.language, text)[0]
+                if not code_line:
+                    continue                              # a word in prose (`Spacingtable`), not a name in code
             seen.add(tok)
             line = b.start + k if b.style == "line" else b.start
             close = difflib.get_close_matches(tok, file_ids, n=1, cutoff=0.85)
+            if close and (_family(tok, close[0]) or _sibling(tok, close[0])):
+                continue                                  # a naming-convention variant or a sibling, not a rename
             if close:
                 why = "`%s` is not in this repository; `%s` in this file is the likely current name." % (tok, close[0])
             elif (bt or call) and not has_submodules:
@@ -620,9 +789,11 @@ def find(corpus: Corpus, *, now: float | None = None, kinds: tuple[str, ...] = K
     """The findings fact (observation kind quality_finding, without the envelope)."""
     now = time.time() if now is None else now
     index = identifier_index(corpus) if "unknown_identifier" in kinds else set()
+    lower = {x.lower() for x in index}
     has_subs = bool(corpus.source.gitlinks())
     findings: list[dict] = []
     undated = 0
+    n_before = 0
     for doc in corpus.code_docs():
         blocks = _blocks(doc)
         file_ids = _file_identifiers(doc) if "unknown_identifier" in kinds else []
@@ -643,12 +814,55 @@ def find(corpus: Corpus, *, now: float | None = None, kinds: tuple[str, ...] = K
             if "boilerplate" in kinds:
                 findings += _boilerplate(doc, b)
             if "unknown_identifier" in kinds:
-                findings += _unknown_identifiers(doc, b, index, file_ids, has_subs)
+                findings += _unknown_identifiers(doc, b, index, file_ids, has_subs, lower)
         if "stale_todo" in kinds:
             fs, u = _stale_todos(doc, corpus, now)
             findings += fs
             undated += u
+        lines = doc.lines
+        for f in findings[n_before:]:
+            _annotate(lines, f)
+        n_before = len(findings)
     findings.sort(key=lambda f: (f["path"], f["line"], KINDS.index(f["kind"])))
     counts = {k: sum(1 for f in findings if f["kind"] == k) for k in KINDS if k in kinds}
     return {"counts": counts, "total": len(findings), "findings": findings, "undated_todos": undated,
-            "kinds": list(kinds), "stale_todo_days": int(corpus.settings.get("stale_todo_days") or 180)}
+            "kinds": list(kinds), "stale_todo_days": int(corpus.settings.get("stale_todo_days") or 180),
+            "bulk_rules": bulk_rules(findings)}
+
+
+CONTEXT_MAX_LINES = 60
+BULK_CONTEXT_MAX_LINES = 8        # tidelink: 4885 decoration findings; uncapped they tripled the stored fact
+
+
+def _annotate(lines: list[str], f: dict) -> None:
+    """severity (per kind), bulk (the decoration rule) and context (CR-W4): the analysed lines around the finding
+    and its whole edit, so the preview shows the real deleted text. A bulk finding keeps only its edit's lines, and
+    only up to BULK_CONTEXT_MAX_LINES; any longer span gets no context (the page reads the blob, when it is
+    local)."""
+    f["severity"] = SEVERITY_BY_KIND[f["kind"]]
+    if f["kind"] in BULK_KINDS:
+        f["bulk"] = BULK_RULE
+    ed = f.get("edit") or {}
+    lo = min(f["line"], ed.get("start", f["line"]))
+    hi = max(f["end_line"], ed.get("end", f["end_line"]))
+    if f["kind"] not in BULK_KINDS:
+        lo, hi = lo - CONTEXT_AROUND, hi + CONTEXT_AROUND
+    lo, hi = max(1, lo), min(len(lines), hi)
+    cap = BULK_CONTEXT_MAX_LINES if f["kind"] in BULK_KINDS else CONTEXT_MAX_LINES
+    if hi >= lo and hi - lo + 1 <= cap:
+        f["context"] = {"start": lo, "lines": lines[lo - 1:hi]}
+
+
+def is_bulk(f: dict) -> bool:
+    """A finding of the bulk decoration rule (a stored fact from before `bulk` existed: by its kind)."""
+    return f.get("bulk") == BULK_RULE or f.get("kind") in BULK_KINDS
+
+
+def bulk_rules(findings: list[dict]) -> list[dict]:
+    """The bulk rule summary (CR-WD-Q1): one entry, counted and patched as a group, hidden from the review queue."""
+    group = [f for f in findings if is_bulk(f)]
+    if not group:
+        return []
+    return [{"rule": BULK_RULE, "kinds": list(BULK_KINDS), "count": len(group),
+             "files": len({f["path"] for f in group}), "edits": sum(1 for f in group if f.get("edit")),
+             "by_kind": {k: sum(1 for f in group if f["kind"] == k) for k in BULK_KINDS}}]

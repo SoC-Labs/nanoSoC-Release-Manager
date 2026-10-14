@@ -19,15 +19,16 @@ request must never do. So this module reads a blob only after proving it is loca
 An optional `context: {start, lines}` in a finding (CR-W4, written at analysis time) is used first; then no git
 call is made at all.
 
-Severity (spec 4.5; no schema field, derived here and tested):
+Severity (CR-WD-Q2): one level per finding kind, written into each finding at analysis time (`severity`,
+quality.findings.SEVERITY_BY_KIND); a finding stored before that field existed gets the same level from its kind.
 
-    High    stale_todo with age_days >= 180; unknown_identifier with one did_you_mean
-    Medium  a README row whose status is missing
-    Check   a finding without an edit whose kind normally has one (restates_code, boilerplate, banner,
-            commented_out_code); unknown_identifier without a suggestion
-    Low     restates_code, boilerplate, commented_out_code with an edit; a younger stale_todo
+    High    stale_todo
+    Medium  commented_out_code; a README row whose status is missing
+    Check   unknown_identifier (a close name is a guess); any other README row
+    Low     restates_code, banner, boilerplate
 
-Order: High, Medium, Check, Low, then path and line.
+Order (CR-WD-Q3): findings that have a suggested edit first (a person can accept those in one step), then
+High, Medium, Check, Low, then path and line.
 """
 from __future__ import annotations
 
@@ -219,27 +220,24 @@ def edit_lines_for(source: Source | None, finding: dict) -> tuple[list[tuple[str
 # Severity, order and caution
 # ---------------------------------------------------------------------------------------------------------
 def severity(f: dict) -> str:
-    """Derived severity of one finding (or one readme_check row, which has `readme` and `status`)."""
+    """The severity of one finding (its `severity`, else its kind's level) or one readme_check row (which has
+    `readme` and `status`)."""
+    from nanosoc_rm.quality.findings import SEVERITY_BY_KIND
     if "readme" in f and "status" in f:
         return "Medium" if f.get("status") == "missing" else "Check"
-    kind = f.get("kind")
-    if kind == "stale_todo":
-        return "High" if int(f.get("age_days") or 0) >= STALE_HIGH_DAYS else "Low"
-    if kind == "unknown_identifier":
-        dym = f.get("did_you_mean")
-        return "High" if isinstance(dym, str) and dym else "Check"
-    if kind in EDIT_KINDS:
-        return "Low" if f.get("edit") else "Check"
-    return "Check"
+    if f.get("severity") in SEVERITY:
+        return f["severity"]
+    return SEVERITY_BY_KIND.get(str(f.get("kind")), "Check")
 
 
 def rank_key(f: dict) -> tuple:
-    return (SEVERITY.index(severity(f)), f.get("path") or f.get("readme") or "", int(f.get("line") or 0),
-            str(f.get("kind") or ""))
+    return (0 if f.get("edit") else 1, SEVERITY.index(severity(f)), f.get("path") or f.get("readme") or "",
+            int(f.get("line") or 0), str(f.get("kind") or ""))
 
 
 def rank(findings: Iterable[dict]) -> list[dict]:
-    """Findings in review order: High, Medium, Check, Low, then by path and line."""
+    """Findings in review order: those with a suggested edit first, then High, Medium, Check, Low, then by path
+    and line."""
     return sorted(findings, key=rank_key)
 
 

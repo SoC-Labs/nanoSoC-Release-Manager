@@ -1,11 +1,15 @@
 """Q6: the quality pages, a FastAPI APIRouter mounted at /quality by the web app (behind its sign-in guard).
 
     GET /quality/                               overview: every target with its latest stored numbers and trend
+                                                (CR-WD-Q5: ?scope=mine, the default when any configuration is
+                                                registered, keeps the repos in my configurations; ?scope=all)
     GET /quality/{target}                       summary of one target at a ref (analyses it when not stored)
     GET /quality/{target}/density               Q1 language table and sortable file table
     GET /quality/{target}/comments              Q2 findings with suggested edits     .../comments.diff  the patch
-                                                (CR-W5: banners excluded unless ?kind=banner; ?banners=1 adds
-                                                the banner rule to the patch; rows in review order)
+                                                (CR-W5, CR-WD-Q1: the decoration rule, banner and
+                                                boilerplate findings, is excluded unless ?kind=decoration (or
+                                                one of its kinds); ?banners=1 adds the rule to the patch; rows
+                                                in review order)
     GET /quality/{target}/readme                Q3 mismatches and generated layout   .../readme.diff    the patch
     GET /quality/{target}/docs                  Q4 files ranked least concise first
     GET /quality/{target}/trend                 Q5 stored results per commit
@@ -34,7 +38,7 @@ from nanosoc_rm import quality as q
 from nanosoc_rm.config import load_config
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page", "selected_findings",
-           "comments_view"]
+           "comments_view", "my_components", "overview_model"]
 
 PREFIX = "/quality"
 NAV_LABEL = "Quality"                                         # web/plugins.py: the top-navigation entry
@@ -174,6 +178,42 @@ def _targets(config) -> list[dict]:
     return [rows[k] for k in sorted(rows)]
 
 
+def my_components(config) -> set[str]:
+    """CR-WD-Q5: the repos in my configurations: each registered configuration's own component and every component
+    its last walked tree pins (stored pin_state facts). Empty when no registry or tree is stored."""
+    out: set[str] = set()
+    try:
+        from nanosoc_rm.web import views
+        for rec in views.configurations(config):
+            comp = (rec["fact"].get("record") or {}).get("component")
+            if comp:
+                out.add(comp)
+    except Exception:                                         # noqa: BLE001 - no registry here: nothing is mine
+        pass
+    try:
+        from nanosoc_rm import db
+        for d in db.latest("pin_state", "pin_state:", config=config):
+            comp = (d["fact"].get("child") or {}).get("component")
+            if comp:
+                out.add(comp)
+    except Exception:                                         # noqa: BLE001
+        pass
+    return out
+
+
+def overview_model(config, scope: str | None = None) -> dict:
+    """The overview's rows and its filter (CR-WD-Q5): `scope` "mine" or "all"; None picks "mine" when any repo is
+    in a configuration, else "all"."""
+    mine = my_components(config)
+    rows = _overview_rows(config)
+    if scope not in ("mine", "all"):
+        scope = "mine" if mine else "all"
+    shown = [r for r in rows if r["target"] in mine] if scope == "mine" else rows
+    for r in rows:
+        r["mine"] = r["target"] in mine
+    return {"rows": shown, "scope": scope, "n_all": len(rows), "n_mine": sum(1 for r in rows if r["mine"])}
+
+
 def _overview_rows(config) -> list[dict]:
     out = []
     for t in _targets(config):
@@ -226,7 +266,8 @@ def router() -> APIRouter:
 
     def overview(request: Request) -> HTMLResponse:
         config = _config(request)
-        return _page(request, "quality_overview.html", "Code and doc quality", rows=_overview_rows(config))
+        return _page(request, "quality_overview.html", "Code and doc quality",
+                     **overview_model(config, request.query_params.get("scope")))
 
     def summary(request: Request, target: str) -> Response:
         config = _config(request)
@@ -324,11 +365,15 @@ def router() -> APIRouter:
 
 
 def selected_findings(findings: list[dict], sel: str = "", banners: bool = False) -> list[dict]:
-    """CR-W5: one kind when `sel` names it; otherwise every kind except `banner` (one rule, not N findings),
-    plus the banners when `banners` asks for the rule in the patch."""
+    """CR-W5, CR-WD-Q1: one kind when `sel` names it, the whole decoration rule when `sel` is "decoration";
+    otherwise every finding outside the rule (banner and boilerplate are one rule, not N findings), plus the
+    rule's findings when `banners` asks for the rule in the patch."""
+    from nanosoc_rm.quality.findings import BULK_RULE, is_bulk
+    if sel == BULK_RULE:
+        return [x for x in findings if is_bulk(x)]
     if sel:
         return [x for x in findings if x["kind"] == sel]
-    return [x for x in findings if x["kind"] != "banner" or banners]
+    return [x for x in findings if not is_bulk(x) or banners]
 
 
 def comments_view(config, target: str, obs: dict, sel: str = "", limit: int = 500) -> dict:
@@ -336,9 +381,11 @@ def comments_view(config, target: str, obs: dict, sel: str = "", limit: int = 50
     suggested edit as removed and added line TEXT read from the analysed commit's local blob
     (quality.review_text: never fetched in a request); "line N" when the blob is not on this host."""
     from nanosoc_rm.quality import review_text as rt
+    from nanosoc_rm.quality.findings import BULK_KINDS, BULK_RULE, bulk_rules, is_bulk
     f = obs["fact"]
     shown = rt.rank(selected_findings(f["findings"], sel))
-    n_banner = sum(1 for x in f["findings"] if x["kind"] == "banner")
+    n_banner = sum(1 for x in f["findings"] if is_bulk(x))
+    rule = (f.get("bulk_rules") or bulk_rules(f["findings"]) or [{}])[0]
     try:
         source = rt.local_source(config, target, f)
     except Exception:                                         # noqa: BLE001 - no local copy: line numbers only
@@ -354,10 +401,11 @@ def comments_view(config, target: str, obs: dict, sel: str = "", limit: int = 50
         if diff and not read:
             unread += 1
         rows.append({"f": x, "severity": rt.severity(x), "diff": diff})
-    counts = [(k, n) for k, n in f.get("counts", {}).items() if k != "banner"]
+    counts = [(k, n) for k, n in f.get("counts", {}).items() if k not in BULK_KINDS]
     return {"rows": rows, "n_shown": len(shown), "n_edits": sum(1 for x in shown if x.get("edit")),
             "n_banner": n_banner, "worth": f["total"] - n_banner, "kind_counts": counts, "unread": unread,
-            "limit": limit}
+            "limit": limit, "bulk_rule": BULK_RULE, "bulk_by_kind": rule.get("by_kind") or {},
+            "bulk_files": rule.get("files") or 0}
 
 
 def _diff_response(text: str, name: str) -> Response:

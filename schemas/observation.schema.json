@@ -3505,7 +3505,46 @@
               },
               "identifier": {
                 "type": "string"
+              },
+              "did_you_mean": {
+                "type": "string",
+                "description": "unknown_identifier only: the close name in the same file (a guess for a person to judge, never an edit)."
+              },
+              "severity": {
+                "enum": ["High", "Medium", "Check", "Low"],
+                "description": "CR-WD-Q2: one level per finding kind (quality.findings.SEVERITY_BY_KIND): stale_todo High, commented_out_code Medium, unknown_identifier Check, restates_code, banner and boilerplate Low. Absent on facts stored before the field existed (pages derive it from the kind)."
+              },
+              "bulk": {
+                "const": "decoration",
+                "description": "CR-WD-Q1: set on banner and boilerplate findings, the one bulk rule per repository that pages count, hide and patch as a group."
+              },
+              "context": {
+                "type": "object",
+                "required": ["start", "lines"],
+                "additionalProperties": false,
+                "description": "CR-W4: the analysed lines around the finding and its whole edit (3 lines either side; only the edit's lines, up to 8, for a bulk finding; absent when that span is over 60 lines), so a page shows the real deleted text without reading git.",
+                "properties": {
+                  "start": { "type": "integer", "minimum": 1 },
+                  "lines": { "type": "array", "items": { "type": "string" } }
+                }
               }
+            }
+          }
+        },
+        "bulk_rules": {
+          "type": "array",
+          "description": "CR-WD-Q1: the bulk rule summary: at most one entry (rule decoration: kinds banner and boilerplate) with its finding count, files, mechanical edits and count per kind.",
+          "items": {
+            "type": "object",
+            "required": ["rule", "kinds", "count", "files", "edits"],
+            "additionalProperties": false,
+            "properties": {
+              "rule": { "const": "decoration" },
+              "kinds": { "type": "array", "items": { "enum": ["banner", "boilerplate"] } },
+              "count": { "type": "integer", "minimum": 0 },
+              "files": { "type": "integer", "minimum": 0 },
+              "edits": { "type": "integer", "minimum": 0 },
+              "by_kind": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
             }
           }
         },

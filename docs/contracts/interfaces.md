@@ -948,6 +948,37 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
 - **CLI:** `nanosoc-rm quality density|comments|readme|docs|all [TARGET] [--ref R] [--path DIR] [--store] [--json]`,
   `comments --kind K --patch OUT`, `readme --docs --patch OUT`, `docs --rewrite --patch OUT`, `quality trend KIND
   TARGET`. Exit 0 clean, 1 findings, 2 could not answer, 3 usage or config error.
+9. **Precision (Wave D, CR-WD-Q1..Q5; additive).**
+   - *Decoration rule (Q1).* `banner` and `boilerplate` are one bulk rule per repository: each such finding
+     carries `bulk: "decoration"` and the fact `bulk_rules: [{rule, kinds, count, files, edits, by_kind}]`. The
+     review queue, the default comments table, `comments.diff` and the Inbox count leave the rule out;
+     `?kind=decoration` lists it (or `?kind=banner|boilerplate`), `?banners=1` and the review basket flag
+     `banner` add all of its edits to the patch at once (off by default).
+   - *Severity (Q2).* `severity` per finding, one level per kind (`quality.findings.SEVERITY_BY_KIND`):
+     stale_todo High, commented_out_code Medium, unknown_identifier Check, restates_code/banner/boilerplate Low.
+     README rows: missing Medium, others Check. A fact stored without the field gets the same level by kind.
+   - *Review order (Q3).* Findings with a suggested `edit` first, then High, Medium, Check, Low, then path and
+     line (`quality.review_text.rank`), in the review queue, the comments table and the Inbox card.
+   - *Context (CR-W4, now written).* `context: {start, lines}` per finding: the finding and its whole edit, plus
+     3 lines either side (a bulk finding: the edit's lines only, up to 8; none when the span exceeds 60 lines). Previews
+     show the real deleted text from it; "line N" only for an older fact with no context and no local blob.
+   - *Fewer false findings (Q4).* `unknown_identifier` needs a code-shaped name (`a_b`, `aB`, `f()`) or a
+     code-like comment line, and skips plurals, case variants, expansion fragments (`{m,s}_x`, `x_`, `_x`),
+     naming-convention variants of a close name (`x`/`u_x`/`x_i`, digits, a placeholder letter `x_N_y`) and
+     short-word siblings (`u_tx_x`/`u_rx_x`). `commented_out_code` treats as prose: `VAR=1 means ...`, option
+     lists (`A=1 / B=1`), a command name followed by a function word, hyphenated words, HDL bit ranges and
+     `name (words)` in Python, a line ending an unfinished sentence, a one-line label naming what the next code
+     line uses, lines a TODO introduces, and indented examples under a `label:` line. `restates_code` ignores
+     string literals and a noun-phrase heading that the next two code lines both match. README check: in a shell
+     block with prompts only prompted lines are commands; `console`/`shell-session` blocks need a prompt; an
+     untagged block needs a known command or `./x` first; URLs, host names, branch names and commit ids on a
+     submodule line, home and absolute paths, `.venv*` paths and `NN_x` placeholders are not checked; build
+     outputs (`.bin .bit .xsa .hwh .elf .rpt .log` and waveform/checkpoint files) are `ignored`; link targets
+     inside a submodule are `ignored`; in a repository with submodules a bare HDL/IP file name (`x.sv`,
+     `x.flist`, `x.lib`) and a bare name on a submodule line are `unverified`.
+   - *Overview filter (Q5).* `GET /quality/?scope=mine|all`: `mine` (the default whenever any repo is in a
+     configuration) keeps targets that are a registered configuration's component or a child in a stored
+     `pin_state` tree (`quality.web.my_components`); a chip row links each scope with its count.
 
 ## 14b. Versions, change classes and tool releases (CR-VER; Wave B, build-vs-enable per CR-15)
 
