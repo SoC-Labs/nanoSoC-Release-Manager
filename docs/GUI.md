@@ -54,15 +54,17 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 
 | Page | What it is for |
 |---|---|
-| Dashboard | per configuration: last local compat verdict and age, CI T0 (if any), red pins, errata, host drift; **Run** |
-| Configuration | pins with states per host, B7 splits, silicon protection, T0 waivers, compat and CI history; **Walk now** |
-| Compat | move pins to any tag or branch in the mirror, choose T1/T2, run; live log; per-gate and per-pin table |
-| Branches | branch verdicts with filters; the delete list to copy (the tool never deletes); **Re-read mirror** |
+| Shell | every page: the left rail (inbox count, each configuration with its deciding gate and a text chip, flagged components, alert lines, Tools), the command bar (`/` focuses it; `GET /search` finds configurations, components and commits), breadcrumbs, one data age, light and dark themes |
+| Inbox (`/`) | ranked cards built from stored facts, one cause and one action each (a failing configuration names the gate that decides it); **Mark done** (comes back when the facts change), **Snooze** 1, 7 or 30 days, **Undo**; the configuration board (last compat or CI T0 verdict, red pins, errata, host drift, **Run**) under it |
+| Configuration workspace | `/configurations/{id}` tabs: Overview (gates with the deciding rows first, pins, waivers), Submodule tree (`?show=uncovered`, a node aside), What-if (pick a component and a target, **Run what-if** as a job, then Now vs After per gate), Matrix, Silicon (uncovered rows first, errata), History (jobs and runs); **Walk now** |
+| Compat | move pins to any tag or branch in the mirror, choose T1/T2, run; live log; per-gate and per-pin table. `/compat?job=N` and `?configuration=` open the workspace's What-if tab |
+| Component workspace | `/components/{id}` tabs: Overview, Branches (every copy by default; the delete list to copy comes first and follows the ticks; the tool never deletes; **Re-read mirror**), Quality, Versions, Review (one comment finding at a time: **Accept**, **Edit**, **Skip**, **Not a finding**; accepted edits go to a per-login patch basket, downloaded as `patch.diff`) |
+| Branches | `/branches` across components; `?component=` opens that component's Branches tab |
 | Hosts | canonical vs copy relation; **Compare now** (a POST: a link can never start one) |
 | Contains, Silicon | containment of a commit; silicon-protection rows |
 | Registry | components, defects, errata |
 | Mirrors | fetch status and age; **Sync** one component or all |
-| Alerts | open and cleared alerts; **Clear** (logged with your login) |
+| Alerts | open alerts grouped by cause (messages redacted); **Clear all** of a group after fixing it (refused with 409 if the group changed since the page was drawn) and **Clear** one; each clear is logged with your login |
 | Matrix | per configuration: a row per component, columns pinned / latest tag in range / latest tag / default-branch head; each cell's verdict (text and colour), age and stale flag; **Run cell**, **Run row**, **Run column**, **Run all** queue local jobs (a T0 run each, about 3 minutes); a cell page with every attempt, the D4 provenance and the comparison with the same night's pinned run; the D8 quarantine list. The nightly matrix is disabled until the Phase 2 gate |
 | Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; a page with no stored result queues a quality job and says "analysing, refresh" (about a minute on a large repository) |
 | Versions | per component: current tag, Unreleased entries by class, change class and next version, changelog lint, manifest and API.md, tag check; **Refresh** (a job); per component the signals, findings, manifest patch and **Draft release** (a job writing a draft folder for a person; nothing is pushed) |

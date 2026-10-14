@@ -90,7 +90,7 @@ If your SSH config multiplexes connections (`ControlMaster`), the forward is add
 | Reinstall | `VIRTUAL_ENV=~/nanosoc-rm/venv uv pip install --reinstall-package nanosoc-rm ~/nanosoc-rm/app` (the version string does not change, so a plain install would skip it) |
 | Update the registry | `git -C ~/nanosoc-rm/registry pull` (the next poll reads it) |
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
-| Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
+| Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` (rm, jobs, sessions, bumps, gui) and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
 
 ## Wave B pages (built per CR-15; their automation stays off)
 
@@ -118,6 +118,18 @@ nanosoc-rm release draft <configuration> <version>      # a folder under release
 nanosoc-rm version refresh
 nanosoc-rm phase-gates --repo ~/nanosoc-rm/app           # exit 0: no later-phase automation enabled
 ```
+
+## Wave C pages (the merged GUI)
+
+The same service serves the Inbox at `/`, the configuration and component workspaces and the command bar
+(`docs/GUI.md`, Pages). The Inbox, alert-group clears and the review queue keep per-user state (done and snoozed
+cards, review decisions, the patch basket) in `<data_dir>/gui.sqlite`, created mode 0600. It is not a fact store
+and cannot be rebuilt from the mirrors: back it up with the other `.sqlite` files. Its POST routes exist only in a
+local deployment; a GitHub+CI deployment still serves exactly the two Run routes as writes.
+
+A quick check after an update, signed in: `/`, `/configurations/<configuration>/whatif` (pick a component and a
+target, **Run what-if**, wait for Now vs After), `/components/<component>/branches` and
+`/components/<component>/review` (Accept one finding, then download `patch.diff`) all answer 200.
 
 ## What this host can and cannot run
 
