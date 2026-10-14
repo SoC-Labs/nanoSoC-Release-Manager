@@ -1,6 +1,6 @@
 {% include "_rstyle.html" %}{% include "_rnav.html" %}
 <table class="kv">
-  <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}" data-verdict="{{ f.verdict }}">{{ f.verdict }}</span> {{ 'Ready for the person steps.' if f.ready else 'Not ready: clear the checks below.' }} <span class="note">Published: no (the tool never publishes).</span></td></tr>
+  <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}" data-verdict="{{ f.verdict }}">{{ f.verdict }}</span> {{ 'Ready for the person steps.' if f.ready else 'Not ready: clear the checks below.' }} <span class="note">Published: see <a href="/publish/release/{{ configuration }}/{{ version }}" data-publish-link>Publish</a> (a person's confirmed step; the tool never tags or pushes).</span></td></tr>
   <tr><th>Release</th><td>{{ f.component }} {{ f.version }}, tag <code>{{ f.tag }}</code> on <code>{{ f.commit }}</code>, kind {{ f.kind }}{{ ', silicon' if f.silicon }}</td></tr>
   <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a></td></tr>
   <tr><th>Lock</th><td><a href="{{ rurl(configuration, version, 'files/' ~ f.lock.file) }}">{{ f.lock.file }}</a>: {{ f.lock.pins }} pins, {{ 'complete' if f.lock.complete else 'NOT complete' }}{% if f.lock.unprotected %}; unprotected: {{ f.lock.unprotected|join(', ') }}{% endif %}{% for p in f.lock.pending %}<br><span class="note">pending: {{ p }}</span>{% endfor %}</td></tr>

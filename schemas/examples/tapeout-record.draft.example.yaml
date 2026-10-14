@@ -1,0 +1,25 @@
+# A tapeout draft as kept in the PRIVATE registry's tapeouts/<id>.tapeout.yaml (tapeout-record#/$defs/tapeout_draft).
+# Every value here is fictional: real tapeout facts never enter this public repo.
+schema: 1
+kind: tapeout
+status: draft
+record:
+  tapeout_id: examplechip-r0
+  project: examplechip
+  chip: example-chip
+  silicon_revision: r0p0
+  configuration: example-r0
+  status: accepted
+  tapeout_status: accepted-by-foundry
+  release: {project: examplechip, version: "1.0.0"}
+  foundry: {foundry: ExampleFab, node: nn, shuttle: MPW-0000}
+  pdk: {name: example-pdk, version: null}
+  submission: {submitted_on: "2026-01-02", foundry_graded_on: "2026-01-05"}
+  source:
+    repo: {host: github, path: SoC-Labs/example-soc}
+    tags: [v1.0.0]
+    tag_commit: "4813494d137e1631bba301d5acab6e7bb7aa74ce"
+    pins: {ip: "bb9af5d1915da1fbc132ced081325efcd2e63e48", gen: "3b6a765ede676559e0f261b5b9e339c9f36819c7"}
+  gds: {file: example.gds, raw_md5: "8261e1a4f86abe76f7a1e8a66ae713e3", canonical_sha256: "1dc5ae5b68174891b6aa9850aa05ee0d9ae8a20468d9517259951a2dd9e9c0f0", store_path: asic-candidate/examplechip/run1/stream/example.gds.zst}
+sources: {T1: "fictional"}
+citations: [{field: /record/tapeout_id, source: T1, confidence: high}]

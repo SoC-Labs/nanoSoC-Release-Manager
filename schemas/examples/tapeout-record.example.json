@@ -1,0 +1,102 @@
+{
+  "block": "example_pads",
+  "chip": "example-chip",
+  "configuration": "example-r0",
+  "dates": {
+    "foundry_graded_on": "2026-01-05"
+  },
+  "documents": [
+    {
+      "kind": "reference-manual",
+      "store_path": "asic-record/examplechip/run1/docs/manual.tar.zst"
+    }
+  ],
+  "errata": {
+    "configuration": "example-r0",
+    "ids": [
+      "EXAMPLE-R0P0-ERR-001"
+    ],
+    "revision": 1
+  },
+  "foundry": {
+    "foundry": "ExampleFab",
+    "node": "nn",
+    "shuttle": "MPW-0000"
+  },
+  "foundry_returns": [
+    {
+      "archive": "Archive_example",
+      "cites_raw_md5": "8261e1a4f86abe76f7a1e8a66ae713e3"
+    }
+  ],
+  "foundry_verdict": {
+    "cites_raw_md5": "8261e1a4f86abe76f7a1e8a66ae713e3",
+    "date": "2026-01-05",
+    "note": null,
+    "report_md5": "ca27e538f3b183aad14e8076310781ed",
+    "verdict": "accepted"
+  },
+  "gds": {
+    "bytes": 300,
+    "file": "example.gds",
+    "layout_hash": "1dc5ae5b68174891b6aa9850aa05ee0d9ae8a20468d9517259951a2dd9e9c0f0",
+    "layout_method": "example",
+    "raw_md5": "8261e1a4f86abe76f7a1e8a66ae713e3",
+    "raw_md5_from": "property",
+    "raw_sha256": null,
+    "store_path": "asic-candidate/examplechip/run1/stream/example.gds.zst",
+    "stored_sha256": "70cefe41641688a7c2959b2d9c5783763b26f9fb40f4d151228a8fbda09726e8"
+  },
+  "generated_by": {
+    "tool": "nanosoc-release-manager",
+    "version": "0.1.0"
+  },
+  "kind": "tapeout-record",
+  "libraries": [
+    {
+      "name": "example-stdcells",
+      "version": "1"
+    }
+  ],
+  "pdk": {
+    "name": "example-pdk",
+    "version": null
+  },
+  "project": "examplechip",
+  "release": {
+    "manifest_sha256": null,
+    "project": "examplechip",
+    "version": "1.0.0"
+  },
+  "schema": 1,
+  "signoff": [
+    {
+      "name": "evidence_report",
+      "path": "asic-record/examplechip/run1/evidence_report.json",
+      "verdict": null
+    }
+  ],
+  "silicon_revision": "r0p0",
+  "source": {
+    "build": null,
+    "commit": "4813494d137e1631bba301d5acab6e7bb7aa74ce",
+    "pins": {
+      "gen": "3b6a765ede676559e0f261b5b9e339c9f36819c7",
+      "ip": "bb9af5d1915da1fbc132ced081325efcd2e63e48"
+    },
+    "repo": {
+      "host": "github",
+      "path": "SoC-Labs/example-soc"
+    },
+    "silicon_equivalent": [],
+    "tags": [
+      "v1.0.0",
+      "silicon/example-chip-r0p0"
+    ]
+  },
+  "status": "accepted",
+  "submission_date": "2026-01-02",
+  "tapeout_id": "examplechip-r0",
+  "toolkit": null,
+  "version": "1.0.0"
+}

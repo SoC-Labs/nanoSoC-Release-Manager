@@ -43,7 +43,8 @@ def test_every_valid_example_observation_is_stored(rm_config):
         + examples("observation.t0-result-waived.example.jsonl") + examples("observation.compat-result.example.jsonl") \
         + examples("observation.quality.example.jsonl") + examples("observation.versioning.example.jsonl") \
         + examples("observation.release.example.jsonl") + examples("observation.regen.example.jsonl") \
-        + examples("observation.store.example.jsonl")
+        + examples("observation.store.example.jsonl") \
+        + examples("observation.publication.example.jsonl")                      # CR-ART-publish
     for d in docs:
         db.put(d)
     counts = {k: len(db.latest(k)) for k in db.SET_KINDS + db.EVENT_KINDS}
@@ -56,7 +57,8 @@ def test_every_valid_example_observation_is_stored(rm_config):
                       "manifest_proposal": 1, "tool_release_draft": 1, "yank_proposal": 1, "defect_trailers": 1,
                       "release_draft": 1, "release_verify": 1, "fork_status": 1,     # CR-R1
                       "regen_class": 3,                                                # section 20
-                      "store_index": 1}                                                # section 22
+                      "store_index": 1,                                                # section 22
+                      "release_publication": 1}                                       # CR-ART-publish
     assert db.latest("silicon_protection", "silicon_protection:eth-rc4:ahb_qspi:")[0]["fact"]["state"] == "PROTECTED_BY_TAG"  # CR-2
     assert rows(rm_config, "PRAGMA journal_mode")[0][0] == "wal"
 

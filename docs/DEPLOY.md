@@ -202,6 +202,37 @@ private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-rea
   `/alerts`.
 - The credential is never logged, stored or shown: not in commands, observations, alerts or pages.
 
+## Publishing to the release store (optional; CR-ART-publish)
+
+Off until configured: the Publish page then says why. On the tool host the store is
+`http://localhost:8082/artifactory` (the TLS proxy is not reachable from elsewhere).
+
+1. Token: the tool's own Artifactory access token (one year, revocable), minted once by the admin. Put it in a 0600
+   file, never in the config:
+   `umask 077; cat > ~/.config/nanosoc-rm/artifactory.token` (paste, then Ctrl-D). The tool sends it as a Bearer
+   header only. Never use Basic auth against `/access/api`: each failure locks the admin out for seconds.
+2. Signing key (RSA: this host's OpenSSH 8.0 has no `ssh-keygen -Y`, so the tool signs RSA keys itself):
+   `ssh-keygen -t rsa -b 4096 -N '' -C nanosoc-rm -f ~/.config/nanosoc-rm/release-signing.key`. Keep a copy of the
+   `.pub` with the people who verify; `ssh-keygen -Y verify` (OpenSSH 8.1+) checks a `.sig` with an allowed_signers
+   line `nanosoc-rm namespaces="nanosoc-rm" ssh-rsa AAAA...`.
+3. Config:
+   ```toml
+   [stores.artifactory]
+   url = "http://localhost:8082/artifactory"
+   token_file = "~/.config/nanosoc-rm/artifactory.token"
+   token_expires = "YYYY-MM-DD"
+   signing_key = "~/.config/nanosoc-rm/release-signing.key"
+   publishers = ["<login>"]          # who may press Publish
+   shared_logins = ["<shared login>"] # never publishes, even if listed above (a config error)
+   projects = { <component> = "<store project>" }   # optional: the folder under asic-release/
+   ```
+4. Restart. `/publish/` lists drafts; Preview, then Publish. From the shell: `nanosoc-rm publish-release C/V --dry-run`.
+
+What it writes, only on a confirmed Publish: new files under `asic-release/<project>/<version>/` (the record, its
+`.sig`, the draft's documents), a build record `rm-release-<project>` or `rm-tapeout-<project>`, and a status
+promotion. It refuses when any of those paths already holds other bytes. Ledger: `rm.sqlite` (`release_publication`,
+`actions`) and `<data_dir>/publish/`.
+
 ## Regenerator (Wave D, interfaces.md section 20)
 
 Optional. To class generator moves by regeneration on this host:

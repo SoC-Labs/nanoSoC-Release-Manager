@@ -1,0 +1,608 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/tapeout-record.schema.json",
+  "title": "Tapeout record: the signed record of one tapeout",
+  "description": "CR-ART-publish (G8, G3): `asic-release/<project>/<version>/tapeout-<id>.json` with its `.sig` beside it, built by `nanosoc-rm register-tapeout` from a tapeout draft (`$defs/tapeout_draft`, kept in the private registry's `tapeouts/` folder: real tapeout facts never enter this public repo). It names the tapeout, the foundry run, the PDK and library versions, the GDS by raw md5 (what the foundry cites) and layout hash (with the store's checksum of the stored object beside them), the submission date, the foundry's verdict, the source commit and every submodule pin, sign-off reports, errata and documents. `status` is draft, submitted, accepted or fabricated; a tapeout at submitted or later is promoted TAPED-OUT in the store's build record. Deterministic bytes like the release manifest. Foundry and shuttle fields are free text in the private store.",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "tapeout_id",
+    "project",
+    "version",
+    "chip",
+    "silicon_revision",
+    "configuration",
+    "status",
+    "foundry",
+    "pdk",
+    "libraries",
+    "submission_date",
+    "foundry_verdict",
+    "source",
+    "gds",
+    "signoff",
+    "errata",
+    "documents",
+    "generated_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "tapeout-record"
+    },
+    "tapeout_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+    },
+    "version": {
+      "$ref": "defs.schema.json#/$defs/semver",
+      "description": "The release folder this record sits in: asic-release/<project>/<version>/."
+    },
+    "block": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "chip": {
+      "type": "string",
+      "minLength": 1
+    },
+    "silicon_revision": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^r[0-9]+p[0-9]+$"
+        }
+      ]
+    },
+    "configuration": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "submitted",
+        "accepted",
+        "fabricated"
+      ]
+    },
+    "foundry": {
+      "type": "object",
+      "required": [
+        "foundry",
+        "shuttle"
+      ],
+      "properties": {
+        "foundry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shuttle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "pdk": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "libraries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "submission_date": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "defs.schema.json#/$defs/date"
+        }
+      ]
+    },
+    "dates": {
+      "type": "object",
+      "description": "Other dated events (released_on, foundry_graded_on, accepted_on, ...).",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$ref": "defs.schema.json#/$defs/date"
+          }
+        ]
+      }
+    },
+    "foundry_verdict": {
+      "type": "object",
+      "required": [
+        "verdict"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "enum": [
+            "accepted",
+            "accepted-with-findings",
+            "rejected",
+            "pending",
+            "unknown"
+          ]
+        },
+        "date": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/date"
+            }
+          ]
+        },
+        "report_md5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/md5"
+            }
+          ]
+        },
+        "cites_raw_md5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/md5"
+            }
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "repo",
+        "tags",
+        "commit",
+        "pins"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        },
+        "pins": {
+          "type": "object",
+          "description": "tree path -> full commit of every submodule pin",
+          "additionalProperties": {
+            "$ref": "defs.schema.json#/$defs/sha"
+          }
+        },
+        "build": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "silicon_equivalent": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "toolkit": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "gds": {
+      "type": "object",
+      "required": [
+        "raw_md5",
+        "layout_hash",
+        "store_path",
+        "stored_sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "raw_md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "raw_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "release-manifest.schema.json#/$defs/sha256"
+            }
+          ]
+        },
+        "bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "layout_hash": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "release-manifest.schema.json#/$defs/sha256"
+            }
+          ]
+        },
+        "layout_method": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "store_path": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "release-manifest.schema.json#/$defs/store_path"
+            }
+          ]
+        },
+        "stored_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "release-manifest.schema.json#/$defs/sha256"
+            }
+          ]
+        },
+        "raw_md5_from": {
+          "enum": [
+            "stored",
+            "property",
+            null
+          ]
+        }
+      }
+    },
+    "signoff": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verdict": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stored_sha256": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "release-manifest.schema.json#/$defs/sha256"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "foundry_returns": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "errata": {
+      "type": "object",
+      "required": [
+        "ids",
+        "revision"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "release": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "project",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "project": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+            },
+            "version": {
+              "$ref": "defs.schema.json#/$defs/semver"
+            },
+            "manifest_sha256": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "release-manifest.schema.json#/$defs/sha256"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "generated_by": {
+      "type": "object",
+      "required": [
+        "tool",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "const": "nanosoc-release-manager"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "submitted",
+              "accepted",
+              "fabricated"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "gds": {
+            "properties": {
+              "store_path": {
+                "type": "string"
+              },
+              "stored_sha256": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "tapeout_draft": {
+      "description": "The input `register-tapeout` reads: `<registry>/tapeouts/<id>.tapeout.yaml` (private). The Phase 3 backfill's draft shape: `{schema: 1, kind: tapeout, status: draft, record: {...}, sources: {...}, citations: [...]}`. `record` carries the facts with `null` for an unknown; `register-tapeout` maps it to a tapeout record, and refuses when a required fact is null or the stored GDS disagrees. `record.status` (draft/submitted/accepted/fabricated) wins over the backfill's free-text `tapeout_status`; `record.release` ({project, version}) names the release folder.",
+      "type": "object",
+      "required": [
+        "schema",
+        "kind",
+        "record"
+      ],
+      "properties": {
+        "schema": {
+          "const": 1
+        },
+        "kind": {
+          "const": "tapeout"
+        },
+        "status": {
+          "type": "string"
+        },
+        "record": {
+          "type": "object",
+          "required": [
+            "tapeout_id",
+            "project",
+            "chip"
+          ],
+          "properties": {
+            "tapeout_id": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            },
+            "project": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+            },
+            "chip": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "enum": [
+                "draft",
+                "submitted",
+                "accepted",
+                "fabricated"
+              ]
+            },
+            "tapeout_status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "release": {
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "gds": {
+              "type": "object"
+            },
+            "source": {
+              "type": "object"
+            }
+          }
+        },
+        "sources": {
+          "type": "object"
+        },
+        "citations": {
+          "type": "array"
+        }
+      }
+    }
+  }
+}

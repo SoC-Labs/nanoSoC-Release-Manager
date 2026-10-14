@@ -1,0 +1,50 @@
+{% include "_pstyle.html" %}
+{% include "_blocked.html" %}
+{% set cli = ('nanosoc-rm publish-release ' if kind == 'release' else 'nanosoc-rm register-tapeout ') ~ key %}
+{% if summary %}
+<table class="kv">
+  <tr><th>Draft</th><td><a href="/releases/{{ key }}">{{ key }}</a>: {{ summary.component }} {{ summary.version }}, tag <code>{{ summary.tag }}</code> on <code>{{ summary.commit }}</code></td></tr>
+  <tr><th>Verdict</th><td><span class="pill {{ VERDICT_CLASS.get(summary.verdict, '') }}">{{ summary.verdict }}</span> {{ 'ready' if summary.ready else 'NOT ready: a draft that is not ready is refused' }}; lock {{ 'complete' if summary.lock.complete else 'NOT complete' }}</td></tr>
+</table>
+{% endif %}
+{% for r in published %}{% set f = r.fact %}
+<p class="banner info" data-published="{{ f.store_path }}">Published: <code>{{ f.store_path }}</code> (sha256 <code>{{ f.manifest_sha256 }}</code>) by {{ f.published_by }}, {{ fact(r, f.published_at) }}; signature verified, key <code>{{ f.signature.fingerprint }}</code>; build {{ f.build.name }}/{{ f.build.number }} {{ f.build.status or '' }}.</p>
+{% endfor %}
+<h2>1. Preview</h2>
+{% if actions and not blocked %}
+<form method="post" action="{{ purl(kind, key, 'preview') }}" class="panel" data-preview-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  {% if kind == 'release' %}<label>Stored artefacts this release references (one <code>ROLE=REPO/PATH</code> per line; roles archive, gds, netlist, bitstream, logs, flists, signoff, foundry-return, doc, other)<br><textarea name="artefacts" rows="3" cols="90">{% if preview %}{% for a in preview.artefacts %}{{ a[0] }}={{ a[1] }}
+{% endfor %}{% endif %}</textarea></label><br>{% endif %}
+  <button type="submit">Preview</button>
+  <span class="note">A job: builds the record, reads the store (GET and HEAD only), about 5 s. Same as <code>{{ cli }} --dry-run</code>.</span>
+</form>
+{% else %}<p class="note">Preview with <code>{{ cli }} --dry-run</code>.</p>{% endif %}
+{% if job_html %}{{ job_html }}{% endif %}
+{% if preview %}
+<table class="kv" data-preview="{{ preview.sha256 }}">
+  <tr><th>Record</th><td><code>{{ preview.store_path }}</code></td></tr>
+  <tr><th>sha256</th><td><code>{{ preview.sha256 }}</code></td></tr>
+  <tr><th>Previewed</th><td>{{ age_text(preview.previewed_at) }} ago by {{ preview.previewed_by }}</td></tr>
+  <tr><th>Targets</th><td>{% for t in preview.targets %}<div data-target="{{ t.path }}" data-state="{{ t.state }}"><span class="pill {{ 'state-red' if t.state == 'differs' else ('state-green' if t.state == 'absent' else 'state-grey') }}">{{ t.state }}</span> <code>{{ t.path }}</code></div>{% endfor %}</td></tr>
+  {% if preview.build %}<tr><th>Build record</th><td>{{ preview.build.name }}/{{ preview.build.number }}: {{ preview.build.state }}; promotion {{ preview.build.status or 'none (a draft tapeout)' }}</td></tr>{% endif %}
+</table>
+{% for p in preview.problems %}<p class="banner problem" data-preview-problem>{{ p }}</p>{% endfor %}
+<h3>Changes since the last {{ kind }} of {{ preview.project }} this tool published</h3>
+<pre class="diff" data-diff>{% for line in preview.diff %}{{ line }}
+{% endfor %}</pre>
+<details><summary>The record ({{ preview.name }})</summary><pre class="record">{{ preview.record|tojson(indent=2) }}</pre></details>
+<h2>2. Publish</h2>
+{% set can = actions and not blocked and not preview.problems %}
+<form method="post" action="{{ purl(kind, key, 'confirm') }}" class="panel" data-confirm-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="sha256" value="{{ preview.sha256 }}">
+  <label><input type="checkbox" name="ack" value="1" required{% if not can %} disabled{% endif %}> I have read this preview; publish exactly record <code>{{ preview.sha256[:16] }}…</code></label>
+  <button type="submit" class="primary"{% if not can %} disabled title="{{ (blocked + preview.problems)|join('; ') if (blocked or preview.problems) else 'local deployment only' }}"{% endif %} data-publish-button>Publish</button>
+  <span class="note">Signs, uploads, reads back, verifies, records a build and its status, logs your login. Same as <code>{{ cli }} --confirm {{ preview.sha256 }}</code>.</span>
+</form>
+{% else %}
+<h2>2. Publish</h2>
+<p class="note">Publish appears once a preview exists.</p>
+<button type="button" disabled data-publish-button title="preview first">Publish</button>
+{% endif %}

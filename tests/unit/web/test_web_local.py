@@ -480,7 +480,12 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               ("POST", "/releases/jobs"), ("POST", "/releases/forks/jobs"),
               ("POST", "/releases/{configuration}/{version}/verify"), ("POST", "/versions/refresh"),
               ("POST", "/versions/{component}/draft"), ("POST", "/versions/{component}/drafts/{version}/approve"),
-              ("POST", "/store/index")}                                   # CR-WE-index: queue the store index job
+              ("POST", "/store/index"),                                   # CR-WE-index: queue the store index job
+              # CR-ART-publish: the Publish pages' preview and confirm (each queues a job; confirm is the one GUI
+              # path to a store write, David 2026-10-14)
+              ("POST", "/publish/release/{configuration}/{version}/preview"),
+              ("POST", "/publish/release/{configuration}/{version}/confirm"),
+              ("POST", "/publish/tapeout/{tapeout_id}/preview"), ("POST", "/publish/tapeout/{tapeout_id}/confirm")}
     assert base | plugin <= writes, sorted(base | plugin - writes)
     assert writes <= base | plugin | routers.WAVE_C_POSTS, sorted(writes - base - plugin - routers.WAVE_C_POSTS)
 

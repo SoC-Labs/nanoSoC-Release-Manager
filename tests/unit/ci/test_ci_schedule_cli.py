@@ -151,14 +151,22 @@ def test_the_census_finds_exactly_one_write_and_it_is_the_trigger(sw):
     # On the integrated tree the web's OAuth code exchange and (CR-14) the quality rewrite's Messages API call
     # are the other POSTs; both are declared read-post (interfaces.md section 17.5), so the trigger is still the
     # only write.
+    # CR-ART-publish: the release store's PUT and POST are declared `publish` (a person's confirmed publish,
+    # confined to nanosoc_rm/publish/), never `write`: the trigger stays the only `write`.
     assert sorted((c["file"], c["method"]) for c in posts) == [("nanosoc_rm/auth.py", "POST"),
                                                                ("nanosoc_rm/ci/client.py", "POST"),
+                                                               ("nanosoc_rm/publish/client.py", "POST"),
+                                                               ("nanosoc_rm/publish/client.py", "PUT"),
+                                                               ("nanosoc_rm/publish/client.py", "PUT"),
                                                                ("nanosoc_rm/quality/rewrite.py", "POST"),
                                                                ("nanosoc_rm/store/client.py", "POST")]   # CR-WE-aql
     aql = [c for c in posts if c["file"] == "nanosoc_rm/store/client.py"]
     assert aql[0]["target"] == "api/search/aql"
     assert sw.allowed(aql[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
     assert not sw.allowed(aql[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
+    for c in [c for c in posts if c["file"] == "nanosoc_rm/publish/client.py"]:
+        assert sw.allowed(c, [w for w in WRITE_CALLS if w["effect"] == "publish"])
+        assert not sw.allowed(c, [w for w in WRITE_CALLS if w["effect"] == "write"])
     rewrite = [c for c in posts if c["file"] == "nanosoc_rm/quality/rewrite.py"]
     assert sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
     assert not sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "write"])

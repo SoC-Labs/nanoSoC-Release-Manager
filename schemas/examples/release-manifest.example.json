@@ -1,0 +1,111 @@
+{
+  "artefacts": [
+    {
+      "bytes": 120,
+      "path": "asic-candidate/examplechip/run1/stream/example.gds.zst",
+      "raw_md5": "8261e1a4f86abe76f7a1e8a66ae713e3",
+      "raw_md5_from": "property",
+      "role": "gds",
+      "stored_md5": "70cefe41641688a7c2959b2d9c578376",
+      "stored_sha256": "70cefe41641688a7c2959b2d9c5783763b26f9fb40f4d151228a8fbda09726e8"
+    }
+  ],
+  "commit": "4813494d137e1631bba301d5acab6e7bb7aa74ce",
+  "component": "example-soc",
+  "configuration": "example-r0",
+  "documents": [
+    {
+      "bytes": 900,
+      "md5": "3f79bb7b435b05321651daefd374cdc6",
+      "name": "ERRATA.md",
+      "sha256": "3f79bb7b435b05321651daefd374cdc681dc06faa65e374e38337b88ca046dea"
+    },
+    {
+      "bytes": 4096,
+      "md5": "0c030586945fe504b604ecc2e875c38e",
+      "name": "release.lock.yaml",
+      "sha256": "0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+    }
+  ],
+  "draft": {
+    "generated_at": "2026-10-14T10:00:00Z",
+    "observed_at": "2026-10-14T09:59:30Z"
+  },
+  "errata": {
+    "digest": "0d0838668315bb2a467097ac6a308b22",
+    "records": 1,
+    "revision": 1
+  },
+  "gates": {
+    "checks": [
+      {
+        "id": "lock.pins-tagged",
+        "verdict": "WAIVED"
+      },
+      {
+        "id": "tier.t6",
+        "verdict": "UNVERIFIED"
+      }
+    ],
+    "ready": true,
+    "verdict": "UNVERIFIED"
+  },
+  "generated_by": {
+    "tool": "nanosoc-release-manager",
+    "version": "0.1.0"
+  },
+  "kind": "release-manifest",
+  "lock": {
+    "bytes": 4096,
+    "file": "release.lock.yaml",
+    "md5": "0c030586945fe504b604ecc2e875c38e",
+    "sha256": "0c030586945fe504b604ecc2e875c38ede400cd5cd73da9730302162e6b02c6f"
+  },
+  "outputs": {
+    "gds": {
+      "bytes": 300,
+      "file": "example.gds",
+      "md5": "8261e1a4f86abe76f7a1e8a66ae713e3"
+    },
+    "pnr_netlist": {
+      "bytes": 23,
+      "file": "example.pnr.v",
+      "md5": "a08a0fcbdeafd3c1b3a4b495b9a9c9d9"
+    }
+  },
+  "pins": [
+    {
+      "commit": "bb9af5d1915da1fbc132ced081325efcd2e63e48",
+      "component": "example-ip",
+      "repo": {
+        "host": "github",
+        "path": "SoC-Labs/example-ip"
+      },
+      "tree_path": "ip"
+    },
+    {
+      "commit": "3b6a765ede676559e0f261b5b9e339c9f36819c7",
+      "component": "nanosoc_gen",
+      "repo": {
+        "host": "gitlab",
+        "path": "soclabs/nanosoc_gen"
+      },
+      "tree_path": "gen"
+    }
+  ],
+  "pins_md5": "150a56eebec8129d689eda9abebbc681",
+  "project": "examplechip",
+  "release_kind": "tapeout",
+  "repo": {
+    "host": "github",
+    "path": "SoC-Labs/example-soc"
+  },
+  "schema": 1,
+  "silicon": {
+    "chip": "example-chip",
+    "revision": "r0p0",
+    "tag": "silicon/example-chip-r0p0"
+  },
+  "tag": "v1.0.0",
+  "version": "1.0.0"
+}

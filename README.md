@@ -150,6 +150,20 @@ nanosoc-rm store search 1a2b3c4d   # a stored artefact by path, name, run tag, c
 nanosoc-rm store findings          # mismatches, silicon not archived, shipped streams no configuration covers
 ```
 
+## Publishing release and tapeout records (CR-ART-publish; G8, D12)
+
+A person's confirmed step, never scheduled: a signed record goes to the release store
+(`asic-release/<project>/<version>/`), never over an existing file, then is read back and verified.
+
+```
+nanosoc-rm publish-release eth-rc4/1.0.0 --dry-run           # preview: the record, its sha256, every target path
+nanosoc-rm publish-release eth-rc4/1.0.0 --confirm <sha256>  # publish exactly what the preview showed
+nanosoc-rm register-tapeout <tapeout id> --dry-run           # from <registry>/tapeouts/<id>.tapeout.yaml
+```
+
+The GUI's Publish page (`/publish/`) does the same as jobs, for a login listed in `[stores.artifactory]
+publishers`. Set-up (token, signing key): `docs/DEPLOY.md`; contract: `docs/contracts/interfaces.md` section 21.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

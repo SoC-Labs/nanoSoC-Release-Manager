@@ -104,6 +104,9 @@ def register(main: click.Group) -> None:
         if why:
             click.echo("nanosoc-rm serve: " + why, err=True)
             return EXIT_USAGE
+        # CR-ART-publish: this process only queues publish jobs; a store write here is refused (the job is a child).
+        from nanosoc_rm.publish.client import refuse_writes_here
+        refuse_writes_here("the web process")
         stop = threading.Event()
         if not no_schedule:
             threading.Thread(target=_ticker, args=(stop,), name="rm-schedule", daemon=True).start()

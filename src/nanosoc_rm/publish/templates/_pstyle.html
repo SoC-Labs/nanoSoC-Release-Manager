@@ -1,0 +1,11 @@
+<style>
+  .pnav { display: flex; flex-wrap: wrap; gap: .75rem; margin: 0 0 1rem; }
+  .kv th { width: 14rem; }
+  .scroll { overflow-x: auto; max-width: 100%; }
+  .diff { font-size: 12px; max-height: 24rem; overflow: auto; }
+  .record { font-size: 12px; max-height: 32rem; overflow: auto; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  button[disabled] { cursor: not-allowed; opacity: .6; }
+</style>
+<nav class="pnav"><a href="/publish/">Published and ready</a><a href="/releases/">Release drafts</a></nav>
+<p class="banner info" data-publish-scope>Publishing writes a signed record to the release store ({{ repo or 'asic-release' }}/&lt;project&gt;/&lt;version&gt;/), never over an existing file. It always takes two steps: <strong>Preview</strong> (reads the store) and <strong>Publish</strong> (exactly what the preview showed). Nothing here is scheduled.</p>

@@ -31,14 +31,16 @@ def _target(name):
         return "regen", "/$defs/regen_class"
     if name.startswith("store.index"):                           # section 22: the store_index fact
         return "store", "/$defs/store_index"
+    if name.startswith("tapeout-record.draft"):                  # CR-ART-publish: registry tapeouts/ draft
+        return "tapeout-record", "/$defs/tapeout_draft"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
-        "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "result-bundle",
-        "store", "tool-release"])
+        "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "release-manifest",
+        "result-bundle", "store", "tapeout-record", "tool-release"])         # CR-WE-index, CR-ART-publish
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 
