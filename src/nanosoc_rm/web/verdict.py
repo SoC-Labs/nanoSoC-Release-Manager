@@ -304,15 +304,21 @@ def next_action(decision: Decision | None, cid: str, https_url: str | None = Non
 def unused_waivers(doc: dict | None, record: dict | None) -> list[dict]:
     """Registry waivers (a frozen record's t0_waivers) that covered nothing: no gate the waiver applies to (its own,
     plus the foundry gate for an arm-gate `not-reached` waiver: `t0.gates._waiver_gates`) names its tree_path in
-    `waived[].covered_by`. Keyed on (gate, tree_path) as `t0.gates.apply_waivers` is, so the GUI and the CLI's
-    unused count agree (ROB-mutation-2)."""
+    `waived[].covered_by`, and no pin at its tree_path has that gate's item at its result. Keyed on (gate,
+    tree_path) as `t0.gates.apply_waivers` is, which counts a waiver used when it names an item even if another,
+    unwaived item keeps the gate FAIL (so no `waived` list is stored), so the GUI and the CLI's unused count agree
+    (ROB-mutation-2; CR-ROB-int)."""
     from nanosoc_rm.t0.gates import _waiver_gates
     rec = ((record or {}).get("fact") or {}).get("record") or {}
     waivers = list(rec.get("t0_waivers") or []) if rec.get("frozen") else []
-    used = {(g.get("id"), w.get("covered_by")) for g in ((doc or {}).get("fact") or {}).get("gates") or []
-            for w in g.get("waived") or []}
+    fact = (doc or {}).get("fact") or {}
+    used = {(g.get("id"), w.get("covered_by")) for g in fact.get("gates") or [] for w in g.get("waived") or []}
+    named = {(gid, tp, res) for p in fact.get("pins") or [] for tp in p.get("tree_paths") or [p.get("tree_path")]
+             for gid, col in GATE_ITEM.items() for res in [(p.get("items") or {}).get(col)]
+             if res is not None and res != "pass"}
     return [w for w in waivers
-            if not any((gid, w.get("tree_path")) in used for gid in _waiver_gates(w))]
+            if not any((gid, w.get("tree_path")) in used or (gid, w.get("tree_path"), w.get("result")) in named
+                       for gid in _waiver_gates(w))]
 
 
 def https_url(config: Any, component: str) -> str | None:

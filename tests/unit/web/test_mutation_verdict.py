@@ -233,3 +233,26 @@ def test_an_arm_not_reached_waiver_used_by_the_foundry_gate_is_not_unused():
                        waived=[{"tree_path": "tidelink", "result": "not-reached", "covered_by": "tidelink"}])],
             [pin("tidelink")], verdict="WAIVED")
     assert V.unused_waivers(d, rec) == []
+
+
+def test_a_waiver_naming_an_item_of_a_gate_that_stays_red_is_used_as_the_cli_counts_it():
+    """CR-ROB-int (integration of ROB-mutation-2): t0.gates.apply_waivers counts a waiver used when it names an item,
+    even when another, unwaived item keeps the gate FAIL and so no `waived` list is stored. The GUI must agree:
+    test_inbox's rc4 fixture (the arm gate red on nanosoc-multicore-system, TideLink not-reached and waived)
+    showed '2 waivers on eth-rc4 cover nothing' while the CLI counted 0."""
+    from nanosoc_rm.t0.gates import apply_waivers
+    w = {"gate": "t0.vendor.no-arm-ip", "tree_path": "tidelink", "result": "not-reached", "reason": "r",
+         "approved_by": "a"}
+    items = {"t0.vendor.no-arm-ip": [{"tree_path": "tidelink", "result": "not-reached"},
+                                     {"tree_path": "nanosoc-multicore-system", "result": "fail"}]}
+    gates = [{"id": "t0.vendor.no-arm-ip", "verdict": "FAIL", "control": "fired"}]
+    out, cli_unused = apply_waivers(gates, items, [w])
+    assert out[0]["verdict"] == "FAIL" and cli_unused == []
+    rec = {"fact": {"record": {"frozen": True, "t0_waivers": [w]}}}
+    d = doc("x", [gate("t0.vendor.no-arm-ip", "FAIL")],
+            [pin("tidelink", vendor="not-reached"), pin("nanosoc-multicore-system", vendor="fail")])
+    assert V.unused_waivers(d, rec) == cli_unused
+    # the control: a waiver naming a result the pin does not have is still unused, as the CLI says
+    w2 = dict(w, result="fail")
+    assert apply_waivers(gates, items, [w2])[1] == [w2]
+    assert V.unused_waivers(d, {"fact": {"record": {"frozen": True, "t0_waivers": [w2]}}}) == [w2]
