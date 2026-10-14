@@ -12,6 +12,8 @@ commits, pushes or opens a pull request.
 """
 from __future__ import annotations
 
+from nanosoc_rm.gitquote import quote_path
+
 __all__ = ["patch_text", "commit_message", "person_commands"]
 
 
@@ -76,6 +78,7 @@ def patch_text(f: dict) -> str:
     head += ["    " + ln if ln else "" for ln in commit_message(f).splitlines()]
     head.append("")
     p, a, b = f["path"], f["from"]["commit"], f["to"]["commit"]
-    diff = ["diff --git a/%s b/%s" % (p, p), "index %s..%s 160000" % (a, b), "--- a/%s" % p, "+++ b/%s" % p,
+    qa, qb = quote_path("a/" + p), quote_path("b/" + p)          # git's C quoting (ROB-property-13)
+    diff = ["diff --git %s %s" % (qa, qb), "index %s..%s 160000" % (a, b), "--- %s" % qa, "+++ %s" % qb,
             "@@ -1 +1 @@", "-Subproject commit %s" % a, "+Subproject commit %s" % b]
     return "\n".join(head + diff) + "\n"
