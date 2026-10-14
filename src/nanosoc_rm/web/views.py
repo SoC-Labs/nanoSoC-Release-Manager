@@ -225,17 +225,23 @@ def dashboard(config: Config, now=None) -> dict:
     all_runs = runs(config)
     all_compat = compat_results(config)
     active = _active_jobs(config)
+    # One read per kind for every configuration, not one per configuration (ROB-load-6): pins() and errata() of
+    # each configuration, grouped here with the same filter and order they apply.
+    all_pins: dict[str, list[dict]] = {}
+    for d in db.latest("pin_state", "pin_state:", config=config):
+        all_pins.setdefault(d["subject"].split(":", 2)[1], []).append(d)
+    all_errata = errata(config)
     rows = []
     for rec in configurations(config):
         cid = rec["fact"]["id"]
         frozen = is_frozen(rec)
-        p = pins(config, cid)
+        p = sorted(all_pins.get(cid, []), key=lambda d: d["fact"]["tree_paths"][0])
         r = [d for d in all_runs if d["fact"]["configuration"] == cid]
         last = latest_run(r)
         pend = pending_runs(r)
         tree = {d["fact"]["child"]["component"] for d in p if d["fact"].get("child", {}).get("component")}
         drifting, unknown, in_tree = drift(compares, tree)
-        er = errata(config, cid)
+        er = [d for d in all_errata if d["fact"]["record"].get("configuration") == cid]
         op = [d for d in er if d["fact"]["record"].get("status") in OPEN_ERRATUM_STATUSES]
         compat = next((d for d in all_compat if d["fact"]["configuration"] == cid), None)
         row_facts = [rec] + p + r[:1] + in_tree + er + runners + ([compat] if compat else [])

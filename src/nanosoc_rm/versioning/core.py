@@ -389,17 +389,33 @@ def stored(kind: str, target: str, *, config=None) -> list[dict]:
                    if d["subject"] == "%s:%s" % (kind, target)], key=lambda d: d["observed_at"])
 
 
+def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
+    """{target: stored(kind, target)} for every target with a stored observation of `kind`, in ONE store read
+    (ROB-load-7: an overview must not read the store once per component and kind). Same documents and order as
+    stored(): a subject `kind:target` or `kind:target:...`."""
+    from nanosoc_rm import db
+    out: dict[str, list[dict]] = {}
+    for d in db.latest(kind, "%s:" % kind, config=config):
+        target = d["subject"][len(kind) + 1:].split(":", 1)[0]
+        out.setdefault(target, []).append(d)
+    for docs in out.values():
+        docs.sort(key=lambda d: d["observed_at"])
+    return out
+
+
 def overview(config) -> list[dict]:
-    """One row per catalogue component: its latest stored version_plan, changelog_lint and tag_check (or None)."""
+    """One row per catalogue component: its latest stored version_plan, changelog_lint and tag_check (or None).
+    Each kind is read once for all components (ROB-load-7)."""
     from nanosoc_rm.analysis import _inputs as inp
     reg = inp.registry(config)
+    by_kind = {k: stored_by_target(k, config=config) for k in ("version_plan", "changelog_lint", "tag_check")}
     rows = []
     for c in reg.catalogue["components"]:
         if c.get("class") == "legacy":
             continue
         # a plan of a local checkout (`--path ... --store`, fact.worktree) is never the component's current answer:
         # only one read from the mirror is (review item 5); worktree results stay in the page's history, marked
-        latest = lambda k: ([d for d in stored(k, c["id"], config=config)
+        latest = lambda k: ([d for d in by_kind[k].get(c["id"], [])
                              if not (d.get("fact") or {}).get("worktree")] or [None])[-1]
         rows.append({"component": c["id"], "class": c.get("class"), "plan": latest("version_plan"),
                      "lint": latest("changelog_lint"), "tags": latest("tag_check")})

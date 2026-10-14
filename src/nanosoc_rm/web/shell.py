@@ -58,24 +58,40 @@ def _quote(s: str) -> str:
 # ---------------------------------------------------------------------------------------------------------
 # Flags and the rail
 # ---------------------------------------------------------------------------------------------------------
+def _by_configuration(docs: Iterable[dict]) -> dict[str, list[dict]]:
+    """Group `<kind>:<configuration>:...` documents by the configuration in their subject (the same split the
+    per-configuration subject prefix makes), keeping their order."""
+    out: dict[str, list[dict]] = {}
+    for d in docs:
+        parts = d["subject"].split(":", 2)
+        if len(parts) == 3:
+            out.setdefault(parts[1], []).append(d)
+    return out
+
+
 def _decisions(config) -> dict[str, tuple[dict | None, V.Decision]]:
+    """{configuration: (its newest compat_result or None, the deciding gate)}. One read of every stored
+    compat_result for all configurations, not one per configuration (ROB-load-6)."""
+    results = _by_configuration(views.compat_results(config))      # newest first, as compat_results(config, cid)
     out = {}
     for rec in views.configurations(config):
         cid = rec["fact"]["id"]
-        docs = views.compat_results(config, cid)
+        docs = results.get(cid) or []
         doc = docs[0] if docs else None
         out[cid] = (doc, V.deciding(doc, rec))
     return out
 
 
-def component_flags(config, decisions: dict | None = None) -> dict[str, list[tuple[str, str]]]:
-    """{component: [(text, tone)]} from stored data only, in FLAG_ORDER (spec 1.3)."""
+def component_flags(config, decisions: dict | None = None,
+                    pins: list[dict] | None = None) -> dict[str, list[tuple[str, str]]]:
+    """{component: [(text, tone)]} from stored data only, in FLAG_ORDER (spec 1.3). `decisions` and `pins` (every
+    configuration's current pin_state) when the caller has already read them."""
     found: dict[str, set[str]] = {}
 
     def add(comp: str | None, flag: str) -> None:
         if comp:
             found.setdefault(comp, set()).add(flag)
-    for d in db.latest("pin_state", "pin_state:", config=config):
+    for d in (pins if pins is not None else db.latest("pin_state", "pin_state:", config=config)):
         f = d["fact"]
         comp = (f.get("child") or {}).get("component")
         if f.get("url_kind") == "ssh":
@@ -112,12 +128,14 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
     except Exception:                                            # noqa: BLE001 - the rail never breaks a page
         open_n = 0
     decisions = _decisions(config)
+    all_pins = db.latest("pin_state", "pin_state:", config=config)   # one read for every configuration (ROB-load-6)
+    pin_count = {cid: len(ps) for cid, ps in _by_configuration(all_pins).items()}
     configs = []
     for rec in views.configurations(config):
         cid = rec["fact"]["id"]
         doc, dec = decisions[cid]
         if doc is None:
-            cause = "never checked · %d pins" % len(views.pins(config, cid))
+            cause = "never checked · %d pins" % pin_count.get(cid, 0)
             dot = "d-notrun"
         else:
             cause = dec.label if dec.gate else ("frozen" if views.is_frozen(rec) else "no red gate")
@@ -128,9 +146,9 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
                         "current": path == href or path.startswith(href + "/")})
     nav = list(nav)
     has_matrix = any(href.rstrip("/") == "/matrix" for _, href, _ in nav)
-    flags = component_flags(config, decisions)
+    flags = component_flags(config, decisions, all_pins)
     in_tree: dict[str, int] = {}
-    for d in db.latest("pin_state", "pin_state:", config=config):
+    for d in all_pins:
         comp = (d["fact"].get("child") or {}).get("component")
         if comp:
             in_tree[comp] = in_tree.get(comp, 0) + 1

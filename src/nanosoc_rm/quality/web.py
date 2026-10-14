@@ -169,12 +169,17 @@ def _result(config, kind: str, target: str, ref: str | None, analyse: bool, logi
     raise Pending(_queue(config, target, ref, login))
 
 
-def _targets(config) -> list[dict]:
-    """Configured targets plus any target with stored results (a --path run stored from the CLI)."""
+def _targets(config, by_kind: dict[str, dict[str, list[dict]]] | None = None) -> list[dict]:
+    """Configured targets plus any target with stored results (a --path run stored from the CLI). `by_kind`:
+    {kind: q.stored_by_target(kind)} when the caller has already read it."""
     rows = {t["target"]: dict(t) for t in q.targets(config)}
     for kind in q.KINDS:
-        for d in q.stored(kind, config=config):
-            rows.setdefault(d["fact"]["target"], {"target": d["fact"]["target"], "origin": "stored", "where": ""})
+        if by_kind is not None:
+            stored_targets = list(by_kind[kind])
+        else:
+            stored_targets = [d["fact"]["target"] for d in q.stored(kind, config=config)]
+        for target in stored_targets:
+            rows.setdefault(target, {"target": target, "origin": "stored", "where": ""})
     return [rows[k] for k in sorted(rows)]
 
 
@@ -216,13 +221,14 @@ def overview_model(config, scope: str | None = None) -> dict:
 
 
 def _overview_rows(config) -> list[dict]:
+    by_kind = {kind: q.stored_by_target(kind, config=config) for kind in q.KINDS}   # one read per kind (ROB-load-7)
     out = []
-    for t in _targets(config):
+    for t in _targets(config, by_kind):
         row = dict(t)
         for kind in q.KINDS:
-            hist = q.stored(kind, t["target"], config=config)
+            hist = by_kind[kind].get(t["target"], [])
             row[kind] = hist[-1] if hist else None
-            row[kind + "_trend"] = [p["value"] for p in q.trend(kind, t["target"], config=config)] if hist else []
+            row[kind + "_trend"] = [p["value"] for p in q.trend(kind, t["target"], docs=hist)] if hist else []
         out.append(row)
     return out
 
