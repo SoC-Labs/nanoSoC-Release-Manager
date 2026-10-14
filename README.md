@@ -64,12 +64,17 @@ nanosoc-rm matrix eth-rc4 --component tidelink --component nanosoc_gen     # the
 nanosoc-rm matrix eth-rc4 --component tidelink --run --wait                # queue its cells as local jobs, run them
 nanosoc-rm matrix cell eth-rc4 --column head --component nanosoc_gen       # one cell in the foreground
 nanosoc-rm matrix quarantine eth-rc4                                       # D8: FLAKY twice in 14 days
+nanosoc-rm matrix eth-main --tiers t1 --component tidelink                 # add a "+ t1" (lint) cell per cell
+nanosoc-rm matrix cell eth-main --column pinned --tier t1 [--force-tier]   # T0, then tiers.yaml t1, in a checkout
 ```
 
 Each cell is a local T0 compat run with one component moved to that column's commit: a FAIL re-runs once (FLAKY when
 green the second time), host failures are INFRA, a run that read other commits than it asked for is UNVERIFIED,
 and every cell is compared with the same night's pinned run. The nightly matrix is not scheduled: it waits for the
-Phase 2 entry gate. Contract: `docs/contracts/interfaces.md` section 18; pages under `/matrix/`.
+Phase 2 entry gate. A t1 cell runs the registry's tiers.yaml t1 command after T0; a host without the tool says
+INFRA "tool not on this host" and runs nothing; a pin the command moved in its checkout makes the cell UNVERIFIED;
+a tier that declares `ip_files` gets an IP hash. Contract: `docs/contracts/interfaces.md` section 18; pages under
+`/matrix/`.
 
 ## Versions, change classes and tool releases (Phase 3, built per CR-15)
 

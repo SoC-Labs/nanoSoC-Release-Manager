@@ -561,7 +561,9 @@ Registry.tiers(configuration) -> dict; configs.tiers(configuration, config=None)
    (so git in the command is anonymous), `TREE` (the checkout root), `NANOSOC_RM_TIER`, `NANOSOC_RM_VERDICTS` (absolute, when declared),
    then `env` in file order, where `${NAME}` expands a name already set (an unknown name is exit 3), then
    `NANOSOC_GEN_OK=1` only for `regenerates: true`. Nothing else is inherited: `ARM_IP_LIBRARY_PATH` is absent unless
-   `env` names it. The declared verdicts file is deleted before the run. `needs: [vcs-seat]` takes a host-local
+   `env` names it. The declared verdicts file is deleted before the run, and so is a declared `ip_files` list
+   (CR-WD-matrix-t1: optional tree-relative path of a file list the command writes, one path per line, naming the
+   files it read; a matrix cell hashes them, section 18 item 8). `needs: [vcs-seat]` takes a host-local
    lock (`$TMPDIR/nanosoc-rm-vcs-seat.lock`) for the run; held elsewhere = INFRA, not run. An absolute path in the
    tier's own `env` (any `:`-separated part) that does not exist on this host, outside the sandbox, is INFRA, not
    run, with reason `tool not on this host: VAR=path does not exist`. The command runs in its
@@ -1468,7 +1470,53 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
   with `data-verdict` and `data-status`, `data-matrix-run="<scope>"`, `data-quarantine`, `data-nightly`, and on the
   cell page `data-attempt`, `data-baseline`, `data-change`. Colours: README section 6 with FLAKY amber, always with
   the verdict as text.
-- **Not built here:** T1/T2 cells (the matrix runs T0; `compat --tier` stays per run), CI-run cells (needs gate 3).
+8. **Tier cells (CR-WD-matrix-t1; D3, D4, D7).** A view or a cell may add tier t1 (`matrix(..., tiers=["t1"])`,
+   `queue(..., tiers=)`, `run_cell(..., tier="t1", force_tier=False)`; package `nanosoc_rm.matrix.tiers`, `TIERS =
+   ("t1",)`). A tier cell is a separate stored cell of the same (component, column): `fact.tier` = "t1",
+   `fact.force_tier`; T0-only cells carry no `tier` and read as before (`cells.latest_cells(configuration, config,
+   tier=None)` returns T0-only cells; `bump_cell` reads only T0-only cells). The run is `analysis.compat(...,
+   tier="t1", force_tier=...)` (section 9a "Tiers"): T0, then the registry's tiers.yaml t1 command in a sandbox
+   checkout of the same tree; a T0 FAIL skips the tier unless `force_tier` (a person's `--force-tier`; the job param
+   `force_tier`; never from the grid's Run), and the cell then stays FAIL. Per attempt: the tier rows join `gates`
+   (`tier.t1`, `tier.t1.<gate>`; SKIP read as NOT-RUN), `tier` holds the tier's run (verdict, reason, forced,
+   seconds, exit code, killed, over_budget, missing paths, the last 20 log lines), and the attempt verdict is
+   compat's `run_verdict`. D7 applies to the tier rows as to the T0 gates.
+   - **Preflight** (`tiers.preflight(configuration, tier, *, config, environ=None) -> Ready`), before anything
+     runs, in the view too (it reads tiers.yaml and stats paths; it queues nothing): no t1 command, or one
+     `tierrun.check_spec` refuses, is NOT-RUN with the reason (a registry fact, not the host's; counted neither
+     way); a tool the spec names that this host lacks is INFRA with reason `tool not on this host: ...` and one
+     attempt that ran nothing (not even T0): an absolute path in the tier's own `env` that does not exist
+     (`tierrun.missing_tools`), or the command's program (argv[0], or a shell string's first plain word that is
+     not a shell builtin) not found on the tier's clean PATH or not executable. The view shows such cells with
+     status `no-command` or `no-tool` and the reason; `cell_requests`/Run never queue them.
+   - **D4 moved pins.** After the command, the tier's working checkout is re-read
+     (`provenance.capture_checkout(tree, root_commit, requested)`): per requested tree path the commit checked out
+     there (`rev-parse HEAD`); when that equals the request, the parent's index gitlink is compared with the
+     gitlink the parent's own commit records, and a differing index entry (re-pointed by the command) is what is
+     captured. The superproject is the repo at the tree root. A path with no repo (not laid out: the tier's `pins`
+     did not need it) is null, not read. Recorded as `attempt.checkout` and `provenance.checkout`; a moved pin
+     from either capture is in `moved` and makes the attempt and the cell UNVERIFIED (the schema rule of item 3).
+   - **IP hash (D4).** When the tier declares `ip_files` and the run wrote it, `provenance.ip_hash` = sha256 over
+     the sorted lines `<sha256 of the file>  <path>` of the listed files (tree-relative, or absolute outside the
+     tree); `attempt.ip` = {hash, note, files}. Otherwise null with the reason in `ip_hash_note`: no list declared,
+     not written by this run, empty, more than `provenance.IP_LIST_MAX` entries, or a listed file unreadable (a
+     hash of part of the inputs is not a hash of the inputs). A T0-only cell keeps `ip_hash` null ("T0 reads no IP
+     file list").
+   - **D9.** A tier cell's baseline is the pinned cell of the same tier and the same night.
+   - **Job.** Params gain optional `tier` and `force_tier`; the worker runs `matrix cell ... --tier t1
+     [--force-tier] --store --json`; ceiling 3600 s + 2 x the tier's kill limit (budget x 1.5).
+   - **CLI / pages.** `matrix CONFIG --tiers t1` (a "+ t1" line under each row; the tier's preflight is printed;
+     exit codes count tier cells like any other); `matrix cell CONFIG --column COL [--component C] --tier t1
+     [--force-tier]` (3 for `--force-tier` without `--tier`). `GET /matrix/{configuration}?tiers=t1` adds a row
+     `data-tier-row="t1"` per component with cells `data-cell="<component or ->/<column>@t1"` `data-tier="t1"`
+     and a `data-tier-preflight="t1"` banner (`data-ready`); `GET .../cell?...&tier=t1` (400 for another tier);
+     `POST .../run` takes `tier` (scope cell) and `filter_tiers` (row, column, all).
+   - **Schema** (additive, `schema` stays 1): `matrix.schema.json` `$defs/tier`, `$defs/tier_run`, `$defs/ip_read`;
+     optional `attempt.tier|checkout|ip`, `matrix_cell.tier|force_tier`, `provenance.checkout`; `cell_view.status`
+     gains `no-tool`, `no-command` and optional `reason`; `matrix_view` optional `tiers`, `pinned_tiers`,
+     `rows[].tier_cells`. `eligibility.schema.json` `tier_command.ip_files`. Examples
+     `matrix.cell-t1.example.json`, invalid `matrix.cell-t1-checkout-moved-fails.yaml`.
+- **Not built here:** T2 cells (the matrix adds only t1), CI-run cells (needs gate 3).
 ## 19. Bump proposals in shadow mode (Phase 4 E1-E7; Wave B, built per CR-15)
 
 Requirements: E1, E2, E3, E5, E7 (Phase 4), H3; CR-15 and CR-WB-bumps (`docs/CHANGES.md`). Built and usable by

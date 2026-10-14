@@ -14,6 +14,11 @@ job runner (`nanosoc_rm.jobs`, kind `matrix-cell`), never run inside a web reque
 latest stored result, its age, the job queued or running for it, whether the result is for the column's current
 commit (`stale` when the mirror moved since), and its gate-by-gate comparison with the same night's pinned run (D9).
 
+A view may add tier t1 (`tiers=["t1"]`, CR-WD-matrix-t1): every shown cell gets a t1 cell beside it, a separate
+stored cell of the same (component, column) whose run adds the registry's t1 command (`cells`, `tiers`). The
+view runs the tier's preflight for this host: no command is NOT-RUN, a missing tool INFRA "tool not on this host",
+and neither is queued by Run.
+
 Building and using this locally is allowed now (CR-15). ENABLING the nightly matrix is not: it is automation and
 waits for the Phase 2 entry gate (docs/phase-gates.yaml). `NIGHTLY.enabled` is False and the schedule module does
 not list it; `nightly_plan` only says what it would queue.
@@ -27,17 +32,26 @@ from typing import Sequence
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.matrix import cells as K
 from nanosoc_rm.matrix import columns as C
+from nanosoc_rm.matrix import tiers as TI
 from nanosoc_rm.matrix.cells import run_cell, set_owner          # noqa: F401 - the package's public functions
 
 __all__ = ["matrix", "run_cell", "set_owner", "queue", "nightly_plan", "NIGHTLY", "COLUMNS", "parse_columns",
-           "MatrixUsage", "JOB_KIND", "bump_cell"]
+           "MatrixUsage", "JOB_KIND", "bump_cell", "parse_tiers", "TIERS"]
 
 COLUMNS = C.COLUMNS
+TIERS = TI.TIERS
 JOB_KIND = "matrix-cell"
 
 
 class MatrixUsage(ValueError):
-    """Exit 3: an unknown column."""
+    """Exit 3: an unknown column or tier."""
+
+
+def parse_tiers(text: str | Sequence[str] | None) -> list[str]:
+    try:
+        return TI.parse_tiers(text)
+    except ValueError as e:
+        raise MatrixUsage(str(e)) from None
 
 
 @dataclass(frozen=True)
@@ -66,12 +80,13 @@ def parse_columns(text: str | Sequence[str] | None) -> list[str]:
     return [c for c in COLUMNS if c in parts]
 
 
-def _jobs_by_cell(configuration: str, config) -> dict[tuple[str | None, str], dict]:
-    """The newest job for each cell (queued, running, or finished without a stored cell)."""
+def _jobs_by_cell(configuration: str, config) -> dict[tuple[str | None, str, str | None], dict]:
+    """The newest job for each cell (queued, running, or finished without a stored cell), by (component,
+    column, tier); tier None is the T0-only cell."""
     from nanosoc_rm import jobs
-    out: dict[tuple[str | None, str], dict] = {}
+    out: dict[tuple[str | None, str, str | None], dict] = {}
     for j in reversed(jobs.jobs(config, limit=2000, kind=JOB_KIND, configuration=configuration)):
-        out[(j["params"].get("component"), j["params"]["column"])] = j
+        out[(j["params"].get("component"), j["params"]["column"], j["params"].get("tier") or None)] = j
     return out
 
 
@@ -108,13 +123,23 @@ def _cell_view(doc: dict | None, job: dict | None, target: C.Target, row: C.Row 
     return v
 
 
+def _preflight_view(cv: dict, ready: "TI.Ready") -> dict:
+    """A tier cell this host cannot run, with no stored result and no live job: say so (no-tool INFRA, or
+    no-command NOT-RUN) instead of "not run"."""
+    if not ready.ready and cv["status"] in ("not-run",):
+        cv.update(status="no-tool" if ready.verdict == "INFRA" else "no-command", verdict=ready.verdict,
+                  reason=ready.reason)
+    return cv
+
+
 def matrix(configuration: str, *, columns: Sequence[str] | None = None, components: Sequence[str] | None = None,
-           config=None, now: dt.datetime | None = None) -> dict:
+           config=None, now: dt.datetime | None = None, tiers: Sequence[str] | None = None) -> dict:
     """One matrix_view observation (module docstring). Reads stored data only: the latest walk, the mirrors,
     stored cells, the job records. Raises analysis UsageProblem (exit 3) or CannotAnswer (exit 2)."""
     from nanosoc_rm.analysis import _inputs as I
     cfg = I.config_of(config)
     cols = parse_columns(columns)
+    tier_list = parse_tiers(tiers)
     now = now or clock.now()
     rws, tree = C.rows(configuration, cfg, components)
     croot = I.registry(cfg).configuration(configuration)
@@ -123,8 +148,16 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
     by_job = _jobs_by_cell(configuration, cfg)
     q_entries = K.quarantine(configuration, cfg)
     active = K.active_quarantine(q_entries, now)
-    pinned = _cell_view(latest.get((None, C.PINNED)), by_job.get((None, C.PINNED)), C.Target(C.PINNED, None), None,
-                        now, stored, set(active))
+    pinned = _cell_view(latest.get((None, C.PINNED)), by_job.get((None, C.PINNED, None)), C.Target(C.PINNED, None),
+                        None, now, stored, set(active))
+    readies = {t: TI.preflight(configuration, t, config=cfg) for t in tier_list}
+    latest_t = {t: K.latest_cells(configuration, cfg, tier=t) for t in tier_list}
+    pinned_t = {}
+    for t in tier_list:
+        pv = _cell_view(latest_t[t].get((None, C.PINNED)), by_job.get((None, C.PINNED, t)), C.Target(C.PINNED, None),
+                        None, now, stored, set(active))
+        pv["reason"] = (latest_t[t].get((None, C.PINNED)) or {}).get("fact", {}).get("reason")
+        pinned_t[t] = _preflight_view(pv, readies[t])
     rows_out, sources = [], []
     for r in rws:
         cells_out = {}
@@ -133,21 +166,43 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
                 cells_out[c] = dict(pinned, target={"column": C.PINNED, "commit": None, "ref": None, "why": None,
                                                     "range": None})
                 continue
-            cv = _cell_view(latest.get((r.component, c)), by_job.get((r.component, c)), r.targets[c], r, now,
+            cv = _cell_view(latest.get((r.component, c)), by_job.get((r.component, c, None)), r.targets[c], r, now,
                             stored, set(active))
             if cv["same_as_pinned"] and cv["status"] in ("not-run", "no-target"):
                 cv.update(status="same-as-pinned", verdict=pinned["verdict"], subject=pinned["subject"],
                           finished_at=pinned["finished_at"], age_s=pinned["age_s"])
             cells_out[c] = cv
             sources += r.targets[c].sources
-        rows_out.append({"component": r.component, "split": r.split, "catalogued": r.catalogued,
-                         "pins": C.pinned_commits(r), "mirror_synced_at": r.mirror_at, "cells": cells_out})
-    shown = [d for d in latest.values() if any(
-        cv["subject"] == d["subject"] for row in rows_out for cv in row["cells"].values())]
+        row_out = {"component": r.component, "split": r.split, "catalogued": r.catalogued,
+                   "pins": C.pinned_commits(r), "mirror_synced_at": r.mirror_at, "cells": cells_out}
+        if tier_list:
+            row_out["tier_cells"] = {}
+            for t in tier_list:
+                tc = {}
+                for c in cols:
+                    p_t = pinned_t[t]
+                    if c == C.PINNED:
+                        tc[c] = dict(p_t, target={"column": C.PINNED, "commit": None, "ref": None, "why": None,
+                                                  "range": None})
+                        continue
+                    doc = latest_t[t].get((r.component, c))
+                    cv = _cell_view(doc, by_job.get((r.component, c, t)), r.targets[c], r, now, stored, set(active))
+                    cv["reason"] = (doc or {}).get("fact", {}).get("reason")
+                    if cv["same_as_pinned"] and cv["status"] in ("not-run", "no-target"):
+                        cv.update(status="same-as-pinned", verdict=p_t["verdict"], subject=p_t["subject"],
+                                  finished_at=p_t["finished_at"], age_s=p_t["age_s"])
+                    tc[c] = _preflight_view(cv, readies[t])
+                row_out["tier_cells"][t] = tc
+        rows_out.append(row_out)
+    shown_subjects = {cv["subject"] for row in rows_out for cv in row["cells"].values()} | {
+        cv["subject"] for row in rows_out for tc in (row.get("tier_cells") or {}).values() for cv in tc.values()}
+    shown = [d for d in list(latest.values()) + [d for lt in latest_t.values() for d in lt.values()]
+             if d["subject"] in shown_subjects]
     times = [d["observed_at"] for d in tree] + [d["observed_at"] for d in shown] or [clock.iso(now)]
-    srcs = [{"kind": "derived", "command": "nanosoc-rm matrix %s%s%s" % (
+    srcs = [{"kind": "derived", "command": "nanosoc-rm matrix %s%s%s%s" % (
         configuration, " --columns %s" % ",".join(cols) if list(cols) != list(COLUMNS) else "",
-        "".join(" --component %s" % c for c in components or []))}]
+        "".join(" --component %s" % c for c in components or []),
+        " --tiers %s" % ",".join(tier_list) if tier_list else "")}]
     seen = set()
     for s in sources:
         if s["command"] not in seen and len(srcs) < 60:
@@ -162,41 +217,70 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
                                         active=e["fact"]["test"] in active) for e in q_entries],
                     "nightly": {"name": NIGHTLY.name, "enabled": NIGHTLY.enabled, "gate": NIGHTLY.gate,
                                 "covers": NIGHTLY.covers}}}
+    if tier_list:
+        doc["fact"]["tiers"] = [readies[t].as_dict() for t in tier_list]
+        doc["fact"]["pinned_tiers"] = pinned_t
     problems = contracts.validate_observation(doc)
     if problems:
         raise contracts.SchemaError("observation", problems)
     return doc
 
 
-def cell_requests(view: dict, *, rerun_results: bool = True) -> list[tuple[str | None, str]]:
+_NOT_QUEUED = ("queued", "running", "same-as-pinned", "no-target", "no-tool", "no-command")
+
+
+def cell_requests(view: dict, *, rerun_results: bool = True) -> list[tuple]:
     """(component, column) of every cell in a view that a Run would queue: the pinned run first, then each cell
-    with a target that is not the pinned tree and has no job queued or running."""
-    out: list[tuple[str | None, str]] = []
+    with a target that is not the pinned tree and has no job queued or running. A view with tiers adds
+    (component, column, tier) for each tier cell that this host can run (preflight ready), after the T0 cells."""
+    out: list[tuple] = []
     f = view["fact"]
     if C.PINNED in f["columns"] and f["pinned"]["status"] not in ("queued", "running"):
         out.append((None, C.PINNED))
     for r in f["rows"]:
         for c, cv in r["cells"].items():
-            if c == C.PINNED or cv["status"] in ("queued", "running", "same-as-pinned", "no-target"):
+            if c == C.PINNED or cv["status"] in _NOT_QUEUED:
                 continue
             if cv["status"] == "result" and not rerun_results and not cv["stale"]:
                 continue
             out.append((r["component"], c))
+    for t, pv in (f.get("pinned_tiers") or {}).items():
+        if C.PINNED in f["columns"] and pv["status"] not in _NOT_QUEUED:
+            out.append((None, C.PINNED, t))
+    for r in f["rows"]:
+        for t, tc in (r.get("tier_cells") or {}).items():
+            for c, cv in tc.items():
+                if c == C.PINNED or cv["status"] in _NOT_QUEUED:
+                    continue
+                if cv["status"] == "result" and not rerun_results and not cv["stale"]:
+                    continue
+                out.append((r["component"], c, t))
     return out
 
 
+def _key(cell: Sequence) -> tuple:
+    return (cell[0], cell[1], cell[2] if len(cell) > 2 else None)
+
+
 def queue(configuration: str, *, columns: Sequence[str] | None = None, components: Sequence[str] | None = None,
-          cells: Sequence[tuple[str | None, str]] | None = None, by: str, config=None) -> list[dict]:
+          cells: Sequence[tuple] | None = None, by: str, config=None, tiers: Sequence[str] | None = None) -> list[dict]:
     """Queue cells as local jobs (pinned first) and return the job records. `cells` picks exact (component,
-    column) pairs from the view; otherwise every runnable cell of the filtered view."""
+    column) pairs, or (component, column, tier) triples, from the view; otherwise every runnable cell of the
+    filtered view. `tiers` adds the tier cells (only those this host can run)."""
     from nanosoc_rm import jobs
     from nanosoc_rm.analysis import _inputs as I
     cfg = I.config_of(config)
-    view = matrix(configuration, columns=columns, components=components, config=cfg)
+    view = matrix(configuration, columns=columns, components=components, config=cfg, tiers=tiers)
     runnable = cell_requests(view)
-    want = runnable if cells is None else [c for c in runnable if c in set(map(tuple, cells))]
-    return [jobs.submit(cfg, JOB_KIND, {"configuration": configuration, "component": comp, "column": col}, by)
-            for comp, col in want]
+    want = runnable if cells is None else [c for c in runnable if _key(c) in {_key(x) for x in cells}]
+    out = []
+    for cell in want:
+        comp, col, tier = _key(cell)
+        params = {"configuration": configuration, "component": comp, "column": col}
+        if tier:
+            params["tier"] = tier
+        out.append(jobs.submit(cfg, JOB_KIND, params, by))
+    return out
 
 
 def nightly_plan(configuration: str, now: dt.datetime, *, config=None, weekly_day: int = 6) -> list[tuple]:
@@ -229,8 +313,8 @@ def bump_cell(configuration: str, overrides: dict[str, str], *, config=None) -> 
         return None
     for d in reversed(K.cells(configuration, cfg)):                 # newest first
         f = d["fact"]
-        if f["column"] == C.PINNED or f["verdict"] == "NOT-RUN":
-            continue
+        if f["column"] == C.PINNED or f["verdict"] == "NOT-RUN" or K.tier_of(f):
+            continue                                                  # a tier cell is not the T0 cell of a move
         if {o["tree_path"]: o["commit"] for o in f["overrides"]} != want:
             continue
         verdict = "UNVERIFIED" if f["verdict"] == "FLAKY" else f["verdict"]

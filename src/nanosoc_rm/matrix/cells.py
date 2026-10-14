@@ -26,6 +26,16 @@
 
 Stored (event kind `matrix_cell`) when `store`; the job always stores. A what-if is not involved: every cell's
 inputs are registered refs, so its result is a fact about them.
+
+**Tier cells (CR-WD-matrix-t1).** `tier="t1"` makes a separate cell of the same (component, column): the run is
+`compat(..., tier="t1")`, T0 then the registry's t1 command in a sandbox checkout of the same tree, and the
+attempt's verdict is compat's `run_verdict` (T0 and the tier). Before anything runs, `tiers.preflight`: no t1
+command (or a refused one) is NOT-RUN; a tool the spec names that this host lacks is INFRA "tool not on this host"
+with one attempt that ran nothing (no T0 either). After the command, D4 re-reads the tier's working checkout
+(`provenance.capture_checkout`): a pin checked out, or recorded in its parent's index, at another commit than
+requested is MOVED and the attempt UNVERIFIED. The D4 IP hash is the hash of the file list the tier declares
+(`ip_files`) and wrote, else null with the reason. A tier cell's D9 baseline is the pinned cell of the same tier.
+`force_tier` (a person's `--force-tier`) runs the tier past a T0 FAIL; the cell stays FAIL.
 """
 from __future__ import annotations
 
@@ -43,7 +53,7 @@ from nanosoc_rm.matrix import provenance as P
 
 __all__ = ["run_cell", "compare", "baseline_for", "classify_infra", "cells", "latest_cells", "quarantine",
            "set_owner", "active_quarantine", "INFRA_SIGNATURES", "FLAKY_WINDOW", "QUARANTINE_FOR", "NIGHT_WINDOW",
-           "CELL_VERDICTS", "GREEN", "subject_of_cell", "exit_for", "CellUsage", "why_not_comparable"]
+           "CELL_VERDICTS", "GREEN", "subject_of_cell", "exit_for", "CellUsage", "why_not_comparable", "tier_of"]
 
 GREEN = ("PASS", "WARN", "WAIVED")
 CELL_VERDICTS = ("PASS", "WARN", "WAIVED", "FAIL", "FLAKY", "UNVERIFIED", "INFRA", "NOT-RUN")
@@ -73,6 +83,11 @@ class CellUsage(ValueError):
 def subject_of_cell(fact: Mapping) -> str:
     return "matrix_cell:%s:%s:%s:%s" % (fact["configuration"], fact["component"] or "-", fact["column"],
                                         fact["nonce"])
+
+
+def tier_of(fact: Mapping) -> str | None:
+    """The tier a stored cell added to its T0 run (None for a T0-only cell)."""
+    return fact.get("tier") or None
 
 
 def exit_for(verdict: str) -> int:
@@ -105,21 +120,26 @@ def cells(configuration: str, config) -> list[dict]:
     return sorted(docs, key=lambda d: clock.parse(d["fact"]["finished_at"]))
 
 
-def latest_cells(configuration: str, config) -> dict[tuple[str | None, str], dict]:
-    """{(component, column): newest stored cell}."""
+def latest_cells(configuration: str, config, tier: str | None = None) -> dict[tuple[str | None, str], dict]:
+    """{(component, column): newest stored cell} of one tier (None: the T0-only cells, as before tier cells)."""
     out: dict[tuple[str | None, str], dict] = {}
     for d in cells(configuration, config):
+        if tier_of(d["fact"]) != tier:
+            continue
         out[(d["fact"]["component"], d["fact"]["column"])] = d
     return out
 
 
 def baseline_for(cell_fact: Mapping, stored: list[dict]) -> dict | None:
     """D9: the pinned cell of the same configuration commit nearest in time within NIGHT_WINDOW of the cell's
-    start (the same night's pinned run), or None. Never an older run outside the window."""
+    start (the same night's pinned run), or None. Never an older run outside the window. A tier cell's baseline
+    is the pinned cell of the same tier (its gates include the tier's rows)."""
     if cell_fact["column"] == C.PINNED:
         return None
     t = clock.parse(cell_fact["started_at"])
+    tier = tier_of(cell_fact)
     cands = [d for d in stored if d["fact"]["column"] == C.PINNED and d["fact"]["verdict"] != "NOT-RUN"
+             and tier_of(d["fact"]) == tier
              and d["fact"]["configuration_commit"] == cell_fact["configuration_commit"]
              and abs(clock.parse(d["fact"]["started_at"]) - t) <= NIGHT_WINDOW]
     if not cands:
@@ -208,9 +228,10 @@ def _update_quarantine(cell: dict, stored: list[dict], config, store: bool) -> l
         hits = [d["subject"] for d in recent if test in d["fact"]["flaky_gates"]]
         if len(hits) >= 2 and test not in active:
             doc = _quarantine_doc(f["configuration"], test, f["finished_at"], f["by"], hits, "matrix (automatic)",
-                                  "nanosoc-rm matrix cell %s --column %s%s" % (
+                                  "nanosoc-rm matrix cell %s --column %s%s%s" % (
                                       f["configuration"], f["column"],
-                                      " --component %s" % f["component"] if f["component"] else ""))
+                                      " --component %s" % f["component"] if f["component"] else "",
+                                      " --tier %s" % tier_of(f) if tier_of(f) else ""))
             _validate(doc)
             if store:
                 from nanosoc_rm import db
@@ -243,9 +264,45 @@ def _validate(doc: dict) -> None:
         raise contracts.SchemaError("observation", problems)
 
 
+_TIER_STATUS = {"SKIP": "NOT-RUN"}            # verdicts.tsv statuses that are not gate verdicts
+
+
+def _tier_part(td: Mapping) -> dict:
+    return {"tier": td["tier"], "verdict": td["verdict"], "reason": (td.get("reason") or None) and td["reason"][:500],
+            "forced": bool(td.get("forced")), "seconds": td.get("seconds"), "exit_code": td.get("exit_code"),
+            "killed": bool(td.get("killed")), "over_budget": bool(td.get("over_budget")),
+            "missing_paths": list(td.get("missing_paths") or []), "log_tail": list(td.get("log_tail") or [])[-20:]}
+
+
+def _merge_moved(*lists: list[dict]) -> list[dict]:
+    out, seen = [], set()
+    for lst in lists:
+        for m in lst:
+            k = (m["tree_path"], m["captured"])
+            if k not in seen:
+                seen.add(k)
+                out.append(m)
+    return out
+
+
+def _no_tool_attempt(reason: str) -> dict:
+    """D7: the tier's tool is not on this host. Nothing ran (no T0 either): one attempt that records the host and
+    the reason, so the cell is INFRA (schema: every verdict but NOT-RUN has an attempt)."""
+    now = clock.iso()
+    h = P.host_load()
+    host = {"cpus": h["cpus"], "load_start": h["load"], "load_end": h["load"]}
+    host["overloaded"] = P.overloaded(host)
+    return {"nonce": secrets.token_hex(16), "started_at": now, "finished_at": now, "verdict": "INFRA",
+            "reason": "INFRA (D7): %s" % reason, "gates": [], "compat_subject": None, "not_run": 0,
+            "over_budget": False, "unjudged_overrides": [], "requested": None, "captured": None, "moved": [],
+            "host": host, "tier": None, "checkout": None,
+            "ip": {"hash": None, "note": "nothing ran: no IP hash", "files": 0}}
+
+
 def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capture_fn: Callable,
-             url_map) -> dict:
-    """One compat run with its D4 capture. Never raises for the host's failures: they become INFRA (D7)."""
+             url_map, tier: str | None = None, force_tier: bool = False, spec: Mapping | None = None) -> dict:
+    """One compat run with its D4 capture. Never raises for the host's failures: they become INFRA (D7).
+    With `tier`, the run adds that tier and the capture also re-reads the tier's checkout (module docstring)."""
     from nanosoc_rm.analysis.compat import CompatUsage
     from nanosoc_rm.walker import OverrideError, UnknownConfiguration
     nonce = secrets.token_hex(16)
@@ -257,11 +314,16 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
                            "reason": None, "gates": [], "compat_subject": None, "not_run": 0, "over_budget": False,
                            "unjudged_overrides": [], "requested": None, "captured": None, "moved": [],
                            "host": {"cpus": load_start["cpus"], "load_start": load_start["load"], "load_end": None}}
+    tier_kw: dict[str, Any] = {}
+    if tier:
+        tier_kw = {"tier": tier, "force_tier": bool(force_tier)}
+        att.update(tier=None, checkout=None, ip={"hash": None, "note": "the %s command did not run: no IP hash" % tier,
+                                                 "files": 0})
     try:
         try:
             res = compat_fn(configuration, overrides or None, config=cfg, keep_work=keep, nonce=nonce,
-                            url_map=url_map)
-        except (UnknownConfiguration, OverrideError, CompatUsage) as e:
+                            url_map=url_map, **tier_kw)
+        except (UnknownConfiguration, OverrideError, CompatUsage, _tier_usage()) as e:
             att["reason"] = "the cell's request is not a tree: %s" % e
             return att
         except _INFRA_EXC as e:
@@ -281,6 +343,18 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
         requested = [{"tree_path": tp, "commit": p["commit"]} for p in f["pins"] for tp in p["tree_paths"]]
         att["requested"] = {"superproject_commit": f["commit"],
                             "pins": sorted(requested, key=lambda r: r["tree_path"])}
+        td = f.get("tier") if tier else None
+        if td is not None:
+            att["tier"] = _tier_part(td)
+            att["gates"] += [{"id": r["gate"], "verdict": _TIER_STATUS.get(r["status"], r["status"]),
+                              "detail": (r.get("detail") or "")[:300]} for r in td.get("rows") or []]
+            att["verdict"] = f.get("run_verdict") or f["verdict"]
+            if td["verdict"] != "PASS":
+                att["reason"] = "; ".join(x for x in (f.get("reason"), "tier %s %s: %s" % (
+                    tier, td["verdict"], td.get("reason") or "")) if x)[:600]
+            if td.get("seconds") is not None:
+                h, note, n = P.ip_hash(keep / "tree", (spec or {}).get("ip_files"))
+                att["ip"] = {"hash": h, "note": note, "files": n}
         try:
             cap = capture_fn(keep / "run", f["commit"], requested, overrides, work)
         except Exception as e:                                    # noqa: BLE001 - an unreadable capture
@@ -288,17 +362,37 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
             att["verdict"] = "UNVERIFIED" if att["verdict"] != "INFRA" else "INFRA"
             att["reason"] = "D4: the run's inputs could not be captured: %s" % e
         att["captured"] = cap
-        if cap is not None:
-            mv = P.moved(requested, cap)
-            att["moved"] = mv
-            if cap["superproject_commit"] not in (None, f["commit"]):
+        co_moved: list[dict] = []
+        if tier and (keep / "tree").is_dir():
+            try:
+                co = P.capture_checkout(keep / "tree", f["commit"], requested)
+            except Exception as e:                                # noqa: BLE001 - an unreadable checkout
+                co = None
+                if att["verdict"] != "INFRA":
+                    att["verdict"] = "UNVERIFIED"
+                att["reason"] = "D4: the tier's checkout could not be re-read after the run: %s" % e
+            att["checkout"] = co
+            if co is not None:
+                co_moved = P.moved(requested, co)
+                if co["superproject_commit"] not in (None, f["commit"]):
+                    co_moved.insert(0, {"tree_path": "", "requested": f["commit"],
+                                        "captured": co["superproject_commit"]})
+        if cap is not None or co_moved:
+            mv = P.moved(requested, cap) if cap is not None else []
+            if cap is not None and cap["superproject_commit"] not in (None, f["commit"]):
                 mv.insert(0, {"tree_path": "", "requested": f["commit"], "captured": cap["superproject_commit"]})
+            mv = _merge_moved(mv, co_moved)
+            att["moved"] = mv
             if mv and att["verdict"] != "INFRA":
                 att["verdict"] = "UNVERIFIED"
-                att["reason"] = "D4: the run read %d pin(s) at commits other than requested: %s" % (
-                    len(mv), ", ".join("%s %s != %s" % (m["tree_path"] or "(superproject)", m["captured"][:7],
-                                                        m["requested"][:7]) for m in mv[:5]))
-        infra = classify_infra(res) if att["verdict"] == "FAIL" else None
+                att["reason"] = "D4: the run read %d pin(s) at commits other than requested%s: %s" % (
+                    len(mv), " (the %s checkout, re-read after its command)" % tier if co_moved else "",
+                    ", ".join("%s %s != %s" % (m["tree_path"] or "(superproject)", m["captured"][:7],
+                                               m["requested"][:7]) for m in mv[:5]))
+        # D7 over the T0 gates as compat reported them; a tier cell also over its tier rows
+        judged = {"fact": {"verdict": att["verdict"], "gates": list(f["gates"]) + att["gates"][len(f["gates"]):]}} \
+            if tier else res
+        infra = classify_infra(judged) if att["verdict"] == "FAIL" else None
         if infra:
             att.update(verdict="INFRA", reason=infra)
         return att
@@ -312,10 +406,13 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
 def run_cell(configuration: str, column: str, component: str | None = None, *, config=None, store: bool = False,
              by: str = "cli", job: int | None = None, compat_fn: Callable | None = None,
              capture_fn: Callable | None = None, url_map: Mapping[str, str] | None = None,
-             policy=None) -> list[dict]:
+             policy=None, tier: str | None = None, force_tier: bool = False,
+             environ: Mapping[str, str] | None = None) -> list[dict]:
     """[the matrix_cell observation, then any matrix_quarantine entry it caused] (module docstring).
     `compat_fn`, `capture_fn` and `url_map` are test seams
-    (url_map is compat's own `Context.for_local` seam, refused in a CI job)."""
+    (url_map is compat's own `Context.for_local` seam, refused in a CI job). `tier` adds a tier run (t1);
+    `force_tier` runs it past a T0 FAIL (a person's override); `environ` is the preflight's environment."""
+    from nanosoc_rm.matrix import tiers as TI
     from nanosoc_rm.analysis import _inputs as I
     from nanosoc_rm.analysis.compat import compat as default_compat
     from nanosoc_rm.config import load_config
@@ -324,6 +421,10 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         raise CellUsage("unknown column %r (columns: %s)" % (column, ", ".join(C.COLUMNS)))
     if (column == C.PINNED) != (component is None):
         raise CellUsage("the pinned column takes no --component; every other column needs one")
+    if tier is not None and tier not in TI.TIERS:
+        raise CellUsage("unknown tier %r (a matrix cell may add: %s)" % (tier, ", ".join(TI.TIERS)))
+    if force_tier and not tier:
+        raise CellUsage("--force-tier needs --tier")
     compat_fn = compat_fn or default_compat
     capture_fn = capture_fn or P.capture
     reg = I.registry(cfg)
@@ -341,12 +442,23 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
             verdict, reason = "NOT-RUN", "same as pinned: %s is the commit the tree already pins" % target.commit[:12]
         else:
             overrides = C.overrides_for(row, target.commit)
+    spec = None
+    if verdict is None and tier:
+        ready = TI.preflight(configuration, tier, config=cfg, environ=environ)
+        if ready.verdict == "NOT-RUN":
+            verdict, reason = "NOT-RUN", ready.reason
+        elif ready.verdict == "INFRA":
+            attempts.append(_no_tool_attempt(ready.reason))
+            verdict, reason = "INFRA", attempts[0]["reason"]
+        else:
+            spec = TI.spec_of(configuration, tier, cfg)
+    run_kw = {"tier": tier, "force_tier": force_tier, "spec": spec} if tier else {}
     if verdict is None:
-        first = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map)
+        first = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map, **run_kw)
         attempts.append(first)
         verdict, reason = first["verdict"], first["reason"]
         if verdict == "FAIL":                                     # D8: once more, alone
-            second = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map)
+            second = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map, **run_kw)
             attempts.append(second)
             hot = [i + 1 for i, a in enumerate(attempts) if a["host"].get("overloaded")]
             if second["verdict"] == "FAIL":
@@ -389,6 +501,7 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         "blocks_auto_merge": verdict in ("FLAKY", "FAIL", "UNVERIFIED", "INFRA"),
         "provenance": {"tools": P.tools(), "harness": P.HARNESS, "ip_hash": None,
                        "ip_hash_note": "T0 reads no IP file list, so there is no IP hash to record",
+                       **_tier_provenance(tier, last),
                        "requested": last["requested"] if last else None,
                        "captured": last["captured"] if last else None,
                        "moved": last["moved"] if last else [],
@@ -396,6 +509,8 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         "by": by, "job": job, "started_at": started, "finished_at": clock.iso(),
         "baseline": None, "comparison": None,
     }
+    if tier:
+        fact["tier"], fact["force_tier"] = tier, bool(force_tier)
     stored = cells(configuration, cfg)
     if column != C.PINNED:
         base = baseline_for(fact, stored)
@@ -403,8 +518,9 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         cmp_ = compare(fact, base, q)
         fact["baseline"], fact["comparison"] = cmp_["baseline"], {"rows": cmp_["rows"], "note": cmp_["note"]}
     times = [started] + [d["observed_at"] for d in tree]
-    srcs = [{"kind": "derived", "command": "nanosoc-rm matrix cell %s --column %s%s" % (
-        configuration, column, " --component %s" % component if component else "")}]
+    srcs = [{"kind": "derived", "command": "nanosoc-rm matrix cell %s --column %s%s%s" % (
+        configuration, column, " --component %s" % component if component else "",
+        (" --tier %s%s" % (tier, " --force-tier" if force_tier else "")) if tier else "")}]
     srcs += [s for s in (target.sources if row else [])][:20]
     doc = {"schema": 1, "kind": "matrix_cell", "subject": subject_of_cell(fact),
            "observed_at": min(times, key=clock.parse), "sources": srcs, "fact": fact}
@@ -413,3 +529,17 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         from nanosoc_rm import db
         db.put(doc, config=cfg)
     return [doc] + _update_quarantine(doc, stored, cfg, store)
+
+
+def _tier_usage():
+    from nanosoc_rm.analysis.tierrun import TierUsage
+    return TierUsage
+
+
+def _tier_provenance(tier: str | None, last: Mapping | None) -> dict:
+    """The provenance fields a tier cell overrides: its harness, its IP hash and the tier checkout's capture."""
+    if not tier:
+        return {}
+    ip = (last or {}).get("ip") or {"hash": None, "note": "nothing ran: no IP hash", "files": 0}
+    return {"harness": "nanosoc-rm %s compat (T0 + %s, run mode local)" % (P.__version__, tier),
+            "ip_hash": ip["hash"], "ip_hash_note": ip["note"], "checkout": (last or {}).get("checkout")}

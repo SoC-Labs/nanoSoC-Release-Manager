@@ -178,7 +178,7 @@
       }
     },
     "attempt": {
-      "description": "One local compat T0 run of the cell's tree (analysis.compat), with its D4 capture.",
+      "description": "One local compat T0 run of the cell's tree (analysis.compat), with its D4 capture. With a tier (CR-WD-matrix-t1): `tier` is the tier's run, `checkout` the tier's working checkout re-read after its command (D4: a moved pin there is MOVED too), `ip` the D4 IP hash; the attempt's verdict is the run verdict (T0 and the tier, compat's `run_verdict`).",
       "type": "object",
       "required": [
         "nonce",
@@ -294,6 +294,36 @@
         },
         "host": {
           "$ref": "#/$defs/host"
+        },
+        "tier": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/tier_run"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checkout": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/tree_commits"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ip": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ip_read"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "allOf": [
@@ -599,6 +629,16 @@
                   "type": "null"
                 }
               ]
+            },
+            "checkout": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/tree_commits"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         },
@@ -649,6 +689,21 @@
               }
             }
           ]
+        },
+        "tier": {
+          "description": "CR-WD-matrix-t1: the tier this cell adds to its T0 run, or null (absent) for a T0-only cell. A tier cell is a separate cell of the same (component, column): its baseline is the pinned cell of the same tier.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/tier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "force_tier": {
+          "description": "A person ran the tier past a T0 FAIL (compat --force-tier); the cell stays FAIL and is UNVERIFIED for release.",
+          "type": "boolean"
         }
       },
       "allOf": [
@@ -911,7 +966,9 @@
             "job-done",
             "job-failed",
             "job-cancelled",
-            "job-infra"
+            "job-infra",
+            "no-tool",
+            "no-command"
           ]
         },
         "verdict": {
@@ -1001,6 +1058,13 @@
           "items": {
             "type": "string"
           }
+        },
+        "reason": {
+          "description": "Why the cell cannot run here (status no-tool: INFRA \"tool not on this host\"; no-command: NOT-RUN), or the stored result's reason.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -1072,6 +1136,22 @@
                 },
                 "additionalProperties": {
                   "$ref": "#/$defs/cell_view"
+                }
+              },
+              "tier_cells": {
+                "description": "CR-WD-matrix-t1: per added tier, a cell per column.",
+                "type": "object",
+                "propertyNames": {
+                  "$ref": "#/$defs/tier"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "$ref": "#/$defs/column"
+                  },
+                  "additionalProperties": {
+                    "$ref": "#/$defs/cell_view"
+                  }
                 }
               }
             }
@@ -1186,6 +1266,175 @@
               "type": "string"
             }
           }
+        },
+        "tiers": {
+          "description": "CR-WD-matrix-t1: the tiers this view adds, each with this host's preflight (ready, or why not).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tier",
+              "ready",
+              "verdict",
+              "reason",
+              "command",
+              "budget_s"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tier": {
+                "$ref": "#/$defs/tier"
+              },
+              "ready": {
+                "type": "boolean"
+              },
+              "verdict": {
+                "enum": [
+                  "NOT-RUN",
+                  "INFRA",
+                  null
+                ]
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "command": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "budget_s": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "pinned_tiers": {
+          "description": "CR-WD-matrix-t1: the pinned cell of each added tier.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/tier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/cell_view"
+          }
+        }
+      }
+    },
+    "tier": {
+      "description": "A tier a matrix cell may add to its T0 run (CR-WD-matrix-t1; interfaces.md section 18 item 8). Only t1 (lint) is built.",
+      "enum": [
+        "t1"
+      ]
+    },
+    "tier_run": {
+      "description": "The tier part of one attempt (CR-WD-matrix-t1): the compat_tier the run produced, cut down. Its rows are also in the attempt's `gates` as tier.<tier>[.<gate>] (SKIP read as NOT-RUN).",
+      "type": "object",
+      "required": [
+        "tier",
+        "verdict",
+        "reason",
+        "forced",
+        "seconds",
+        "exit_code",
+        "killed",
+        "over_budget",
+        "missing_paths",
+        "log_tail"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "$ref": "#/$defs/tier"
+        },
+        "verdict": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "UNVERIFIED",
+            "INFRA",
+            "WARN",
+            "NOT-RUN"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "forced": {
+          "type": "boolean"
+        },
+        "seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "killed": {
+          "type": "boolean"
+        },
+        "over_budget": {
+          "type": "boolean"
+        },
+        "missing_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "log_tail": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ip_read": {
+      "description": "D4 ip_hash of one attempt: the sha256 of the files the tier listed in its declared `ip_files` (tiers.yaml), or null with the reason.",
+      "type": "object",
+      "required": [
+        "hash",
+        "note",
+        "files"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

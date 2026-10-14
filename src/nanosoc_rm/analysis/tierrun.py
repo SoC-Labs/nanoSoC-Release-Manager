@@ -7,8 +7,8 @@
 
 1. **Spec.** The registry's `tiers.yaml` (eligibility#/$defs/tiers_file, loader rule 14) gives, per configuration
    and tier, `command` (argv list or shell string), tree-relative `cwd`, explicit `env`, `budget_s`, `needs`,
-   optional `verdicts` (a toolkit-format verdicts.tsv the command writes), `pins` (the pins it needs) and
-   `regenerates`. A command that sources a set_env.sh is refused (schema and here); `regenerates: true` is refused
+   optional `verdicts` (a toolkit-format verdicts.tsv the command writes), `pins` (the pins it needs),
+   `regenerates` and `ip_files` (a file list the command writes; removed before the run like `verdicts`). A command that sources a set_env.sh is refused (schema and here); `regenerates: true` is refused
    unless the caller's environment has NANOSOC_GEN_OK=1.
 2. **Sandbox tree.** Every pin of the walked tree (the T0 gates' own walk, overrides applied) is checked out at
    its commit at its tree path: a fresh repo per pin borrowing the objects of the T0 run's anonymous fetch
@@ -328,6 +328,9 @@ def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, la
     vfile = tree / spec["verdicts"] if spec.get("verdicts") else None
     if vfile is not None and vfile.exists():
         vfile.unlink()                     # a committed or stale file is never read as this run's evidence
+    ifile = tree / spec["ip_files"] if spec.get("ip_files") else None
+    if ifile is not None and (ifile.is_file() or ifile.is_symlink()):
+        ifile.unlink()                     # the same for the declared IP file list (D4 ip_hash, matrix section 18)
     absent = missing_tools(spec, env, tree, work)
     if absent:
         return _doc(spec, tier, verdict="INFRA", reason="tool not on this host: %s; the tier was not run"

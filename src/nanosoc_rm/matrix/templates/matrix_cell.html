@@ -1,7 +1,8 @@
 {% include '_mstyle.html' %}
 <p><a href="{{ murl(configuration) }}">Back to the {{ configuration }} matrix</a></p>
 <table class="kv">
-  <tr><th>Cell</th><td>{{ component or 'the registered tree' }} / {{ COLUMN_LABEL[column] }}</td></tr>
+  <tr><th>Cell</th><td>{{ component or 'the registered tree' }} / {{ COLUMN_LABEL[column] }}{% if tier %} + tier <span data-tier="{{ tier }}">{{ tier }}</span>{% endif %}</td></tr>
+  {% if tier_info %}<tr><th>Tier {{ tier }}</th><td data-tier-preflight="{{ tier }}" data-ready="{{ 'yes' if tier_info.ready else 'no' }}">{% if tier_info.command %}<code>{{ tier_info.command }}</code> (budget {{ tier_info.budget_s }} s): {% endif %}{% if tier_info.ready %}ready on this host{% else %}<span class="pill {{ CELL_CLASS.get(tier_info.verdict, '') }}">{{ tier_info.verdict }}</span> {{ tier_info.reason }}{% endif %}</td></tr>{% endif %}
   {% if column != 'pinned' %}
   <tr><th>Column commit now</th><td>{% if cv.target.commit %}{{ cv.target.ref or '' }} <code>{{ cv.target.commit }}</code>{% else %}none: {{ cv.target.why }}{% endif %}{% if cv.target.range %} (range <code>{{ cv.target.range }}</code>){% endif %}</td></tr>
   {% endif %}
@@ -9,8 +10,8 @@
   <tr><th>Latest verdict</th><td>{% if cv.verdict %}<span class="pill {{ CELL_CLASS.get(cv.verdict, '') }}" data-verdict="{{ cv.verdict }}">{{ cv.verdict }}</span>{% else %}<span class="pill state-grey">{{ cv.status }}</span>{% endif %}
     {% if cv.stale %}<span class="warn">stale: the column's commit moved since this run</span>{% endif %}</td></tr>
   <tr><th>Run</th><td>{% if local and cv.status not in ('queued', 'running', 'same-as-pinned', 'no-target') %}
-    <form method="post" action="{{ murl(configuration, 'run') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="scope" value="cell">{% if component %}<input type="hidden" name="component" value="{{ component }}">{% endif %}<input type="hidden" name="column" value="{{ column }}"><button type="submit" class="primary">Run cell</button></form>
-    {% else %}<code>nanosoc-rm matrix cell {{ configuration }} --column {{ column }}{% if component %} --component {{ component }}{% endif %} --store</code>{% endif %}</td></tr>
+    <form method="post" action="{{ murl(configuration, 'run') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="scope" value="cell">{% if component %}<input type="hidden" name="component" value="{{ component }}">{% endif %}<input type="hidden" name="column" value="{{ column }}">{% if tier %}<input type="hidden" name="tier" value="{{ tier }}">{% endif %}<button type="submit" class="primary">Run cell</button></form>
+    {% else %}<code>nanosoc-rm matrix cell {{ configuration }} --column {{ column }}{% if component %} --component {{ component }}{% endif %}{% if tier %} --tier {{ tier }}{% endif %} --store</code>{% endif %}</td></tr>
 </table>
 
 {% if job %}
@@ -41,6 +42,8 @@
 {% for a in f.attempts %}
 <div class="panel" data-attempt="{{ loop.index }}">
   <p><strong>Attempt {{ loop.index }}</strong> <code>{{ a.nonce }}</code>: <span class="pill {{ CELL_CLASS.get(a.verdict, '') }}">{{ a.verdict }}</span> {{ a.started_at }} to {{ a.finished_at }}{% if a.over_budget %} <span class="warn">over the 120 s T0 budget</span>{% endif %}{% if a.reason %}<br>{{ a.reason }}{% endif %}</p>
+  {% if a.tier %}<p data-attempt-tier="{{ a.tier.tier }}">Tier {{ a.tier.tier }}: <span class="pill {{ CELL_CLASS.get(a.tier.verdict, '') }}">{{ a.tier.verdict }}</span>{% if a.tier.seconds is not none %} in {{ '%.1f'|format(a.tier.seconds) }} s{% endif %}{% if a.tier.forced %} <span class="warn">forced past a T0 FAIL</span>{% endif %}{% if a.tier.reason %}: {{ a.tier.reason }}{% endif %}</p>
+  {% if a.tier.log_tail %}<details><summary>Last lines of the tier's log</summary><pre>{{ a.tier.log_tail|join('\n') }}</pre></details>{% endif %}{% endif %}
   <p class="note">Host: {{ a.host.cpus }} CPUs, load {{ a.host.load_start }} at start, {{ a.host.load_end }} at end.{% if a.host.overloaded %} <strong class="warn">Overloaded host (D7)</strong>{% endif %}</p>
   <table><thead><tr><th>Gate</th><th>Verdict</th><th>Detail</th></tr></thead><tbody>
   {% for g in a.gates %}<tr data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}"><td><code>{{ g.id }}</code></td><td><span class="pill {{ CELL_CLASS.get(g.verdict, '') }}">{{ g.verdict }}</span></td><td>{{ g.detail }}</td></tr>{% endfor %}
@@ -57,6 +60,14 @@
   <tr><th>IP hash</th><td>{{ pv.ip_hash or 'none' }}{% if pv.ip_hash_note %} <span class="note">({{ pv.ip_hash_note }})</span>{% endif %}</td></tr>
   <tr><th>Moved pins</th><td>{% if pv.moved %}<span class="pill state-red">UNVERIFIED</span> {% for m in pv.moved %}<code>{{ m.tree_path or '(superproject)' }}</code> requested {{ short(m.requested) }}, read {{ short(m.captured) }}{{ '; ' if not loop.last }}{% endfor %}{% else %}{% set unread = (pv.captured.pins|selectattr('commit', 'none')|list|length) if pv.captured else 0 %}none among the pins the run read{% if unread %}; <span data-unread="{{ unread }}">{{ unread }} pin(s) not read</span>{% endif %}{% endif %}{% if pv.captured and pv.captured.note %}<br><span class="note" data-capture-note>{{ pv.captured.note }}</span>{% endif %}</td></tr>
 </table>
+{% if pv.checkout and pv.requested %}
+{% set co = {} %}{% for p in pv.checkout.pins %}{% set _ = co.update({p.tree_path: p.commit}) %}{% endfor %}
+<details data-checkout><summary>The {{ f.tier }} checkout, re-read after its command ({{ pv.checkout.pins|selectattr('commit')|list|length }} of {{ pv.checkout.pins|length }} pins laid out)</summary>
+<p class="note">{{ pv.checkout.note }}</p>
+<table><thead><tr><th>Tree path</th><th>Requested</th><th>Checked out after the command</th></tr></thead><tbody>
+{% for p in pv.requested.pins %}<tr><td><code>{{ p.tree_path }}</code></td><td><code>{{ short(p.commit, 12) }}</code></td><td>{% set c = co.get(p.tree_path) %}{% if c %}<code>{{ short(c, 12) }}</code>{% else %}<span class="note">not laid out</span>{% endif %}</td></tr>{% endfor %}
+</tbody></table></details>
+{% endif %}
 {% if pv.requested and pv.captured %}
 {% set cap = {} %}{% for p in pv.captured.pins %}{% set _ = cap.update({p.tree_path: p.commit}) %}{% endfor %}
 <details><summary>Requested and captured commits ({{ pv.requested.pins|length }} pins)</summary>
