@@ -131,6 +131,7 @@ OPEN_DEFECTS_CANDIDATES = 9   # the 6 numbered + 2 "found in passing" + 1 in the
 CONFIG_GATES = (
     "t0.infra.probe", "t0.runner.hardened", "t0.pins.fetchable", "t0.pins.reachable",
     "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-arm-ip",
+    "t0.vendor.no-foundry-data",          # CR-6: the vendor gate split
 )
 REGISTRY_GATES = ("t0.registry.schema", "t0.registry.refs-resolve")
 
@@ -148,6 +149,7 @@ EXPECTED_RC4_ROLLUP = {
     "t0.manifest.valid": ("NOT-RUN", NOT_RUN_CONTROL),
     "t0.clone.upgrade-path": ("NOT-RUN", NOT_RUN_CONTROL),
     "t0.vendor.no-arm-ip": ("UNVERIFIED", "fired"),
+    "t0.vendor.no-foundry-data": ("NOT-RUN", NOT_RUN_CONTROL),   # CR-6: no foundry rule set in the example run
 }
 
 # GATE2 Q1 (decided 2026-10-01): with the 7 t0_waivers of eligibility.example.yaml (8 until CR-2), rc4's four non-pass
@@ -682,7 +684,7 @@ def hermetic_gate_fixtures(root, arm_specimen):
 # Reference oracles (README section 6, interfaces.md section 10 Verify). They share no tool code:
 # the self-checks use them to prove each negative control's input is what the AT claims.
 # --------------------------------------------------------------------------------------------
-MAY_SKIP = frozenset({"t0.manifest.valid", "t0.clone.upgrade-path"})
+MAY_SKIP = frozenset({"t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-foundry-data"})   # CR-6
 
 
 def reference_rollup(rows, declared):
@@ -727,7 +729,8 @@ def reference_run_verdict(items):
 def reference_apply_waivers(rolled, items, waivers):
     """README section 6 "T0 waivers" on reference_rollup output: ({gate: (verdict, control)}, unused).
     An item is covered by a waiver naming its gate, tree path and result, or, when `not-reached`, by a
-    covered item above it. Only a FAIL or UNVERIFIED gate whose control fired, with at least one non-pass
+    covered item above it. A t0.vendor.no-arm-ip waiver of a not-reached item also names it in
+    t0.vendor.no-foundry-data (CR-6: one scan). Only a FAIL or UNVERIFIED gate whose control fired, with at least one non-pass
     item and every one covered, becomes WAIVED. A waiver matching no item at all is unused."""
     out, used = dict(rolled), set()
     for gid, (verdict, control) in rolled.items():
@@ -735,7 +738,10 @@ def reference_apply_waivers(rolled, items, waivers):
         direct = {}
         for n, w in enumerate(waivers):
             for i in bad:
-                if (w["gate"], w["tree_path"], w["result"]) == (gid, i["tree_path"], i["result"]):
+                # CR-6 / review VS-3: an arm-gate not-reached waiver also names the foundry gate's same item
+                wg = {w["gate"]} | ({"t0.vendor.no-foundry-data"} if (w["gate"], w["result"]) == (
+                    "t0.vendor.no-arm-ip", "not-reached") else set())
+                if gid in wg and (w["tree_path"], w["result"]) == (i["tree_path"], i["result"]):
                     direct[i["tree_path"]] = n
         used.update(direct.values())
         covered = 0
@@ -1289,7 +1295,7 @@ def test_AT_D6(tmp_path, monkeypatch):
     assert {k: (v["verdict"], v["control"]) for k, v in items.items()} == EXPECTED_RC4_ROLLUP
     assert all(v["control"] == "fired" for v in items.values() if v["verdict"] == "PASS")
     assert all(v["detail"].strip() for v in items.values() if v["verdict"] == "NOT-RUN")  # README 6
-    assert gates.run_verdict(list(items.values())) == ("FAIL", 2)
+    assert gates.run_verdict(list(items.values())) == ("FAIL", 3)   # CR-6: + no-foundry-data NOT-RUN
 
     # GATE2 Q1: rc4's waivers applied to the same roll-up and rc4's items. Only the four known
     # gates change, each keeps its raw verdict, and the inputs are untouched.
@@ -1302,7 +1308,7 @@ def test_AT_D6(tmp_path, monkeypatch):
         assert wv[gid]["raw_verdict"] == EXPECTED_RC4_ROLLUP[gid][0]
         assert sorted(w["tree_path"] for w in wv[gid]["waived"]) == sorted(
             i["tree_path"] for i in rc4_items[gid] if i["result"] != "pass")
-    assert gates.run_verdict(waived) == ("WAIVED", 2)
+    assert gates.run_verdict(waived) == ("WAIVED", 3)   # CR-6: + no-foundry-data NOT-RUN
     assert {k: (v["verdict"], v["control"]) for k, v in items.items()} == EXPECTED_RC4_ROLLUP
 
     # The golden example carries the t0.runner.hardened rows (G6 fixed); without them the gate is
@@ -2128,7 +2134,7 @@ def test_selfcheck_D6_rollup_oracle():
     rows = parse_rows(example_verdicts())
     items = reference_rollup(rows, CONFIG_GATES)
     assert items == EXPECTED_RC4_ROLLUP
-    assert reference_run_verdict(items) == ("FAIL", 2)
+    assert reference_run_verdict(items) == ("FAIL", 3)   # CR-6: + no-foundry-data NOT-RUN
     no_ctl = [r for r in rows if r["gate"] != "t0.infra.probe.negctl"]
     assert reference_rollup(no_ctl, CONFIG_GATES)["t0.infra.probe"] == ("UNVERIFIED", "missing")
     unfired = copy.deepcopy(rows)
@@ -2165,8 +2171,8 @@ def test_selfcheck_D6_waiver_oracle():
     assert sorted(items) == sorted(RC4_WAIVED_GATES) and len(waivers) == 7
     waived, unused = reference_apply_waivers(raw, items, waivers)
     assert waived == EXPECTED_RC4_WAIVED_ROLLUP and unused == []
-    assert reference_run_verdict(waived) == ("WAIVED", 2)
-    assert reference_run_verdict(raw) == ("FAIL", 2)
+    assert reference_run_verdict(waived) == ("WAIVED", 3)   # CR-6: + no-foundry-data NOT-RUN
+    assert reference_run_verdict(raw) == ("FAIL", 3)   # CR-6: + no-foundry-data NOT-RUN
     # The stored example is the same roll-up, item for item
     ex = json.loads((EX / "observation.t0-result-waived.example.jsonl").read_text())
     assert _errors("observation", ex) == []

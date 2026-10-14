@@ -693,7 +693,8 @@ def _gates_table(ctx: Ctx) -> list[dict]:
     deciding = set(ctx.decision.same_cause_gates)
     rank = {v: i for i, v in enumerate(GATE_ROW_ORDER)}
     rows = sorted(rows, key=lambda g: (g["id"] not in deciding, rank.get(g.get("verdict"), len(rank))))
-    return [dict(g, deciding=g["id"] in deciding, tone=shell.tone(g.get("verdict"))) for g in rows]
+    return [dict(g, deciding=g["id"] in deciding, tone=shell.tone(g.get("verdict")), help=V.GATE_HELP.get(g["id"]))
+            for g in rows]
 
 
 def _waived_line(ctx: Ctx) -> str | None:

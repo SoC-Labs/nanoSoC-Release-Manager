@@ -21,7 +21,8 @@ __all__ = ["Docs", "check_all", "WAIVABLE_GATES", "CONFIGURATION_GATES", "SOC_CL
 # Rule 13 reads the declared set from here so the registry loads without importing the T0 package; a unit test
 # holds this tuple equal to t0.gates.GATES once that module exists.
 CONFIGURATION_GATES = ("t0.infra.probe", "t0.runner.hardened", "t0.pins.fetchable", "t0.pins.reachable",
-                       "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-arm-ip")
+                       "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-arm-ip",
+                       "t0.vendor.no-foundry-data")
 # The schema already refuses a waiver on these two (they judge the job, not the frozen tree).
 _JOB_GATES = ("t0.infra.probe", "t0.runner.hardened")
 WAIVABLE_GATES = tuple(g for g in CONFIGURATION_GATES if g not in _JOB_GATES)

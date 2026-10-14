@@ -12,3 +12,4 @@
 2026-10-01T02:04:37Z	SKIP	t0.clone.upgrade-path	configuration eth-rc4 declares no upgrade_from	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:04:58Z	UNVERIFIED	t0.vendor.no-arm-ip	37 of 44 trees scanned, 0 findings; 7 not fetched, so not scanned	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
 2026-10-01T02:04:59Z	PASS	t0.vendor.no-arm-ip.negctl	planted Arm banner file was found	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c
+2026-10-01T02:04:59Z	SKIP	t0.vendor.no-foundry-data	no foundry rule on this host: no toolkit scanner ($RM_SCAN_TOOLKIT) and no private rule outside arm.* ($RM_SCAN_RULES)	9c1e4f7a2b6d4e0f8a3c5b7d9e1f2a4c

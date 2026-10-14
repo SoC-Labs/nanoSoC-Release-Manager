@@ -63,7 +63,8 @@ def test_configuration_run_writes_a_valid_bundle(tree, tmp_path, runner):
                       "t0.pins.fetchable": ("FAIL", "fired"), "t0.pins.reachable": ("FAIL", "fired"),
                       "t0.urls.no-ssh-public": ("FAIL", "fired"), "t0.manifest.valid": ("NOT-RUN", "not-applicable"),
                       "t0.clone.upgrade-path": ("NOT-RUN", "not-applicable"),
-                      "t0.vendor.no-arm-ip": ("UNVERIFIED", "fired")}
+                      "t0.vendor.no-arm-ip": ("UNVERIFIED", "fired"),
+                      "t0.vendor.no-foundry-data": ("NOT-RUN", "not-applicable")}     # CR-6: no foundry rule here
     assert all(validate_gate_item(i) == [] for its in items.values() for i in its)
     assert len(items["t0.pins.reachable"]) == 4
     # the scrub ran before any git call, and no credential reached the bundle or stayed in the environment

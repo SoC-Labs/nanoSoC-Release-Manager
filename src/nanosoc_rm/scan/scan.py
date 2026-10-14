@@ -17,7 +17,7 @@ Two engines, one result:
 
 - this package's own (`arm.banner`, plus any private regex rule file; nanosoc_rm.scan.rules), which reads a
   directory (`scan_dir`, a bundle), files in place (`scan_paths`, read-only), and a commit's tree in a local repo
-  (`scan_tree`, the T0 gate `t0.vendor.no-arm-ip`), through the one git runner;
+  (`scan_tree`, the T0 gates `t0.vendor.no-arm-ip` and `t0.vendor.no-foundry-data`), through the one git runner;
 - the toolkit's `check-vendor-collateral.sh` (the lab's rule set, private: GATE2 Q4), when a pinned copy is named
   by `toolkit=` or $RM_SCAN_TOOLKIT (nanosoc_rm.scan.toolkit). It runs on a throwaway git repo over a directory
   and on a fetched tree in place, and its findings are merged in. It is armed as `armed["toolkit"]`; when it
@@ -231,16 +231,17 @@ def _tree_items(repo: str | os.PathLike, commit: str, prefix: str, env: dict | N
 
 def scan_tree(repo: str | os.PathLike, commit: str, rules: RuleSet | None = None, prefix: str = "",
               env: dict | None = None, isolate: bool = True, toolkit=_FROM_ENV, allowlist=(),
-              component: str | None = None) -> ScanResult:
+              component: str | None = None, shas: dict[str, str] | None = None) -> ScanResult:
     """Scan the tree of `commit` in local repo `repo` (blobs must be present: a depth-1 fetch without a filter;
     the toolkit scanner also needs a non-bare repo). Finding paths are `prefix/<path in the tree>`. Reads
     objects only; writes nothing in `repo`.
 
     `allowlist` (CR-6a): the catalogue's vendor_allowlist entries (scan.allowlist.VendorAllow), applied after
     every engine has reported, with `component` as the tree's catalogue component: covered findings move to
-    `warnings` or `allowed`; the rest stay findings."""
+    `warnings` or `allowed`; the rest stay findings. `shas` (CR-6), when given, is filled with each scanned
+    file's blob id, so a caller can apply the allowlist itself per rule family (t0 gates)."""
     from nanosoc_rm.scan.allowlist import apply_allowlist
-    shas: dict[str, str] = {}
+    shas = shas if shas is not None else {}
     res = scan_texts(_tree_items(repo, commit, prefix, env, isolate, shas), rules)
     tk, broken = _toolkit_or_why(toolkit)
     if broken or (tk is not None and res.files_scanned):

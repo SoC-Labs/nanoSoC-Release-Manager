@@ -53,7 +53,7 @@ def test_the_rail_shows_the_deciding_gate_once_a_result_is_stored(site):
     text = site["client"].get("/configurations/eth-rc4").text
     row = re.search(r'data-rail-configuration="eth-rc4">(.*?)</a>', text, re.S).group(1)
     assert '<span class="chip c-fail">FAIL</span>' in row
-    assert "pins not reachable" in row or "vendor scan on" in row or "pinned by ssh URL" in row, row
+    assert "pins not reachable" in row or "Arm source in" in row or "pinned by ssh URL" in row, row
     assert re.search(r'class="rail-item is-cur" href="/configurations/eth-rc4" aria-current="page"', text)
 
 

@@ -61,3 +61,9 @@ vendor_allowlist:
      reason: "Arm-banner tree found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
   - {rule: arm.banner, match: {component: sldma350_tech, path_glob: "*config*"}, severity: warn,
      reason: "Arm-banner files in the DMA-350 config tree, found 2026-10-02; visible, not blocking (U1)", approved_by: David, approved_on: "2026-10-10"}
+# CR-6 (the vendor gate split): t0.vendor.no-foundry-data reports foundry and site-inventory findings as WARN
+# (amber) unless a rule is listed here with `severity: fail`. The entry below is an EXAMPLE of the shape, not a
+# decision: the registry owner names the rules that block.
+foundry_rules:
+  - {rule: value.example, severity: fail,
+     reason: "example only: a transcribed foundry value is blocking", approved_by: David, approved_on: "2026-10-14"}

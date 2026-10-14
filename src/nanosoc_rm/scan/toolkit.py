@@ -11,7 +11,8 @@ How it runs (section 11): the toolkit scanner reads git trees.
 - A bundle directory becomes a throwaway git repo: one commit over every file (ignored ones too), made under a
   temporary directory that is deleted afterwards, and censused against the native engine's file count. The
   scanner runs on it with `--rev HEAD --fast`.
-- A tree T0 fetched (t0.vendor.no-arm-ip) is scanned in place with `--rev <commit> --fast`. A tree's own
+- A tree T0 fetched (t0.vendor.no-arm-ip and t0.vendor.no-foundry-data, which split its findings by rule family:
+  nanosoc_rm.scan.families) is scanned in place with `--rev <commit> --fast`. A tree's own
   `VENDOR_ALLOWLIST` at that commit (the toolkit's project waivers, each with a reason and an owner) is handed to
   the scanner, as the project's own CI would read it from its checkout. A bundle never waives itself: its
   throwaway repo has no checkout, so the scanner finds no project allowlist.

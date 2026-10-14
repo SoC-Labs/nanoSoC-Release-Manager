@@ -1,0 +1,8 @@
+# expect-error: not at /foundry_rules/0/rule
+# CR-6: foundry_rules sets the severity of foundry-family rules only. An arm.* rule (and file.sha,
+# scan.unscannable) belongs to t0.vendor.no-arm-ip, where an uncovered finding is always FAIL.
+schema: 1
+components:
+  - {id: tidechart, class: ip_tech, canonical: {host: gitlab, path: soclabs/tidechart}}
+foundry_rules:
+  - {rule: arm.banner, severity: warn, reason: "never allowed", approved_by: David, approved_on: "2026-10-14"}

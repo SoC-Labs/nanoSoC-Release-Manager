@@ -850,7 +850,8 @@
                   "reachable": { "$ref": "#/$defs/compat_item" },
                   "no_ssh": { "$ref": "#/$defs/compat_item" },
                   "manifest": { "$ref": "#/$defs/compat_item" },
-                  "vendor": { "$ref": "#/$defs/compat_item" }
+                  "vendor": { "$ref": "#/$defs/compat_item" },
+                  "foundry": { "$ref": "#/$defs/compat_item", "description": "CR-6: the pin's t0.vendor.no-foundry-data item. Optional; added without a schema bump (README section 2 rule 4)." }
                 }
               }
             },

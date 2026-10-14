@@ -117,7 +117,7 @@ def test_clean_tree_passes_with_runner_hardened_not_run(scene):
     assert {k for k, x in g.items() if x["verdict"] == "PASS"} == {
         "t0.infra.probe", "t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public", "t0.vendor.no-arm-ip"}
     assert all(x["control"] == "fired" for x in g.values() if x["verdict"] == "PASS")
-    assert f["not_run"] == 3 and f["mode"] == "local" and f["overrides"] == [] and f["splits"] == []
+    assert f["not_run"] == 4 and f["mode"] == "local"          # CR-6: + no-foundry-data, no foundry rule here and f["overrides"] == [] and f["splits"] == []
     p = pins_of(doc)
     assert sorted(p) == ["a", "b", "b/deps/gamma"]
     assert p["b/deps/gamma"]["items"] == {"fetchable": "pass", "reachable": "pass", "no_ssh": "pass", "vendor": "pass"}

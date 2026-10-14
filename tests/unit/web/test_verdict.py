@@ -68,8 +68,8 @@ def eth_rc4():
 def test_eth_rc4_is_decided_by_the_vendor_scan_and_waived_gates_never_decide():
     d = V.deciding(eth_rc4())
     assert (d.verdict, d.gate, d.kind) == ("FAIL", "t0.vendor.no-arm-ip", "vendor")
-    assert d.label == "vendor scan on nanosoc-multicore-system"
-    assert d.sentence == "FAIL: vendor scan on nanosoc-multicore-system"
+    assert d.label == "Arm source in nanosoc-multicore-system"
+    assert d.sentence == "FAIL: Arm source in nanosoc-multicore-system"
     assert not {"t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public"} & set(d.same_cause_gates + d.separate_gates)
     assert d.infra is False
     a = V.next_action(d, "eth-rc4")
@@ -165,3 +165,27 @@ def test_the_upgrade_path_label_names_the_registry_tag_not_a_dict():
     assert "upgrade path from v1.0.0 does not clone anonymously" in labels, labels
     rec = {"fact": {"record": {"upgrade_from": {"commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e"}}}}
     assert "upgrade path from ab73e40 does not clone anonymously" in [c.label for c in V.causes(eth_main(), rec)]
+
+
+def test_a_vendor_gate_red_only_for_unfetched_trees_does_not_claim_a_finding():
+    """Review VS-1: an UNVERIFIED vendor gate whose items are all pass or not-reached found nothing. Its label
+    names the trees it could not scan, never "Arm source in the tree"."""
+    pins = [pin("."), pin("tidelink", url_kind="ssh", fetchable="fail", no_ssh="fail", vendor="not-reached",
+                          foundry="not-reached")]
+    pins += [pin(p, fetchable="not-reached", vendor="not-reached", foundry="not-reached") for p in BELOW]
+    for gid in ("t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data"):
+        d = doc("eth-main", [gate(gid, "UNVERIFIED", "38 of 45 trees scanned; 6 not fetched")], pins,
+                verdict="UNVERIFIED")
+        (c,) = V.causes(d)
+        assert c.verdict == "UNVERIFIED" and c.kind == "vendor"
+        assert "Arm source" not in c.label and "marked blocking" not in c.label, c.label
+        assert c.label == "%d trees not scanned (not fetched)" % (1 + len(BELOW)), c.label
+
+
+def test_a_vendor_gate_label_says_unverified_when_no_item_failed():
+    pins = [pin("."), pin("nanosoc-multicore-system", vendor="unverified")]
+    (c,) = V.causes(doc("x", [gate("t0.vendor.no-arm-ip", "UNVERIFIED")], pins, verdict="UNVERIFIED"))
+    assert c.label == "Arm source scan unverified in nanosoc-multicore-system", c.label
+    pins = [pin("."), pin("a", vendor="fail"), pin("b", vendor="unverified")]
+    (c,) = V.causes(doc("x", [gate("t0.vendor.no-arm-ip", "FAIL")], pins))
+    assert c.label == "Arm source in a", c.label

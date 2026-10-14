@@ -16,7 +16,9 @@ Rules (spec 2.2):
    cause, "{path} pinned by ssh URL" (fetchable + no-ssh is the known pair). Its not-reached count is the pins with
    a `not-reached` item below that path.
 5. The deciding cause has the most gates; a tie goes to the most not-reached pins, then to GATES order.
-6. Labels from GATE_LABEL; an unknown gate falls back to its id.
+6. Labels from GATE_LABEL; an unknown gate falls back to its id. A vendor gate's label follows its items: a
+   finding names the trees, an unscannable tree says "scan unverified", and a gate red only on unfetched trees
+   says "{n} trees not scanned (not fetched)" (review VS-1).
 7. `infra`: the tier row or a gate is INFRA ("This host cannot run {tier}. Nothing to fix in the design.").
 """
 from __future__ import annotations
@@ -25,23 +27,42 @@ import dataclasses
 import re
 from typing import Any
 
-__all__ = ["Decision", "Cause", "GATE_ITEM", "GATE_LABEL", "GATE_ORDER", "deciding", "causes", "next_action",
+__all__ = ["Decision", "Cause", "GATE_ITEM", "GATE_LABEL", "GATE_HELP", "GATE_ORDER", "deciding", "causes", "next_action",
            "unused_waivers", "https_url", "verdict_of", "NO_RESULT"]
 
 # t0.gates.GATES order (configuration gates; registry gates never appear in a configuration's compat result).
 GATE_ORDER = ("t0.infra.probe", "t0.runner.hardened", "t0.pins.fetchable", "t0.pins.reachable",
               "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-arm-ip",
-              "t0.registry.schema", "t0.registry.refs-resolve")
+              "t0.vendor.no-foundry-data", "t0.registry.schema", "t0.registry.refs-resolve")
 # A gate's per-pin item column (analysis.compat.GATE_COLUMNS).
 GATE_ITEM = {"t0.pins.fetchable": "fetchable", "t0.pins.reachable": "reachable", "t0.urls.no-ssh-public": "no_ssh",
-             "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor"}
+             "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor",
+             "t0.vendor.no-foundry-data": "foundry"}
 GATE_LABEL = {
-    "t0.vendor.no-arm-ip": "vendor scan on {paths}",
+    "t0.vendor.no-arm-ip": "Arm source in {paths}",
+    "t0.vendor.no-foundry-data": "foundry data marked blocking in {paths}",
     "ssh-pin": "{path} pinned by ssh URL",
     "t0.clone.upgrade-path": "upgrade path from {upgrade_from} does not clone anonymously",
     "t0.pins.reachable": "{n} pins not reachable",
     "t0.manifest.valid": "manifest invalid in {paths}",
     "t0.infra.probe": "anonymous git does not work on this host",
+}
+# Review VS-1: a vendor gate red with no finding (only unscannable or unfetched trees) never says "Arm source in".
+GATE_LABEL_UNVERIFIED = {
+    "t0.vendor.no-arm-ip": "Arm source scan unverified in {paths}",
+    "t0.vendor.no-foundry-data": "foundry data scan unverified in {paths}",
+}
+# CR-6: what each vendor gate means, and what its amber says (the overview's gate table shows it).
+GATE_HELP = {
+    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner, a known vendor file by hash, or a "
+                           "revision-coded release name (the toolkit's ident rule, which covers Arm product codes "
+                           "and Artisan library stems as well as foundry release names, so it fails here). An "
+                           "uncovered finding fails; catalogue vendor_allowlist entries make it clean (allow) or "
+                           "amber (warn).",
+    "t0.vendor.no-foundry-data": "Foundry data and site inventory: foundry file types, transcribed values, site "
+                                 "paths, licence servers, big files. Amber (WARN) by default, never a failure, "
+                                 "unless the catalogue's foundry_rules marks a rule severity fail. NOT-RUN on a "
+                                 "host with no foundry rule set (no toolkit scanner).",
 }
 RED = ("FAIL", "UNVERIFIED")
 GREEN = ("PASS", "WARN", "WAIVED")
@@ -135,12 +156,30 @@ def _upgrade_from(f: dict, record: dict | None) -> str | None:
     return None
 
 
+def _vendor_label(gid: str, f: dict) -> str:
+    """Review VS-1: a vendor gate's label says only what its items show. A finding (item fail): GATE_LABEL. No
+    finding but an unscannable tree (item unverified): "... scan unverified in {paths}". Neither (the gate is red
+    only because trees were not fetched): "{n} trees not scanned (not fetched)"."""
+    col = GATE_ITEM[gid]
+    by: dict[str, list[str]] = {}
+    for p in f.get("pins") or []:
+        by.setdefault((p.get("items") or {}).get(col), []).append(p["tree_path"])
+    if by.get("fail"):
+        return GATE_LABEL[gid].format(paths=_join(by["fail"]))
+    if by.get("unverified"):
+        return GATE_LABEL_UNVERIFIED[gid].format(paths=_join(by["unverified"]))
+    n = len(by.get("not-reached") or [])
+    if n:
+        return "%d tree%s not scanned (not fetched)" % (n, "" if n == 1 else "s")
+    return GATE_LABEL_UNVERIFIED[gid].format(paths="the tree")
+
+
 def _label(gid: str, paths: list[str], f: dict, record: dict | None) -> tuple[str, str]:
     """(kind, label) of a single-gate cause."""
     if gid.startswith("tier."):
         return "tier", "%s is %s" % (gid.split(".", 1)[1].upper(), "red")
-    if gid == "t0.vendor.no-arm-ip":
-        return "vendor", GATE_LABEL[gid].format(paths=_join(paths) or "the tree")
+    if gid in ("t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data"):
+        return "vendor", _vendor_label(gid, f)
     if gid == "t0.clone.upgrade-path":
         frm = _upgrade_from(f, record)
         return "upgrade-path", (GATE_LABEL[gid].format(upgrade_from=frm) if frm

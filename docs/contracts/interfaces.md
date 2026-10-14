@@ -436,7 +436,8 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 | `t0.urls.no-ssh-public` | no | no public parent (one that is fetchable anonymously) pins by an ssh URL (`git@…`, `ssh://…`) | a synthetic public parent with a `git@` URL | D2 |
 | `t0.manifest.valid` | yes | every `nanosoc-component.yaml` at every pinned commit validates against component-manifest v1. None anywhere → SKIP | the example manifest with `version: "1.0"` | D2, C11 |
 | `t0.clone.upgrade-path` | yes | if `upgrade_from`: anonymous recursive clone of it, check out `commit`, `git submodule update --init --recursive` **without** sync must resolve every pin; then `git submodule sync --recursive` and update again. No `upgrade_from` → SKIP | a synthetic pair where the second commit moves a submodule to a new URL and pins a commit the old URL does not serve (a host move whose old host was frozen: breaking under C8) | D2 |
-| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11). A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). **CR-9:** README section 6 rolls a WARN row with its control fired up as gate verdict **WARN** (amber); a warn-only run is WARN, never PASS and never FAIL. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
+| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11) and judge the **arm** rule family (CR-6: `arm.banner` and any private `arm.*` rule, the toolkit's `file.sha` known-vendor-file hash, the toolkit's `ident` release-name rule (one rule id for Arm product codes, Arm/Artisan library stems and foundry release names, so fail-closed here; a foundry release name FAILs this gate unless the allowlist covers it), `scan.unscannable`; `nanosoc_rm.scan.families`). Findings of every other rule belong to `t0.vendor.no-foundry-data` and are not reported here. A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). **CR-9:** README section 6 rolls a WARN row with its control fired up as gate verdict **WARN** (amber); a warn-only run is WARN, never PASS and never FAIL. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
+| `t0.vendor.no-foundry-data` | yes | **CR-6.** The same scans (one scan per tree per run, shared with no-arm-ip), cut to the **foundry** rule family: every rule that is not arm-family, in practice the toolkit scanner's foundry and site-inventory rules (foundry file types, transcribed layer values, site paths, licence servers, big files) and any private rule not named `arm.*`. The catalogue `vendor_allowlist` applies first (`allow` clean, `warn` amber). An uncovered finding takes its rule's severity from the catalogue's optional `foundry_rules` (component-catalogue `$defs/foundry_rule`): `fail` makes the item `fail` and the row FAIL; any other rule is **WARN by default** (item `pass`, `why` starting `WARN:`; the row WARN, amber, never FAIL). Trees not fetched make it UNVERIFIED, as for no-arm-ip; a frozen configuration's no-arm-ip `not-reached` waiver covers the same tree here (README section 6, T0 waivers). No foundry rule on the host (no toolkit scanner and no private non-arm rule): SKIP `no foundry rule on this host: ...`, so NOT-RUN | a scratch copy holding a committed `negctl/planted.lef` (invented text; the toolkit's file-type rule) and each private foundry rule's specimen, judged with every foundry rule at severity `fail` (`Context.foundry_fail_all`): WARN is the policy, the control proves the detection can go red | D2, D11 |
 
 **Registry job** (`configuration: "@registry"`, `repo` = the registry repo, `commit` = its `main` head):
 
@@ -452,7 +453,9 @@ The registry is private, so this job needs read access to it from compat-ci (que
   - `t0.pins.fetchable`: TideLink and ASIC-Toolkit use ssh URLs (and ASIC-Toolkit is private); the 5 pins below TideLink are `not-reached`;
   - `t0.urls.no-ssh-public`: same two URLs;
   - `t0.pins.reachable`: on the example catalogue only ASIC/asic-toolkit is `unverified` (private), so the gate is UNVERIFIED: ahb_qspi `e908ac8` is on GitHub since the 2026-10-01 keep tag (CR-2). On the live registry (DEC6) ethernet-mac-ahb `44ff8b7` and socdebug_tech `50359ee` fail until decision R1 is carried out;
-  - `t0.vendor.no-arm-ip`: UNVERIFIED, the 7 trees that were never fetched are `not-reached`.
+  - `t0.vendor.no-arm-ip`: UNVERIFIED, the 7 trees that were never fetched are `not-reached`;
+  - `t0.vendor.no-foundry-data` (CR-6): NOT-RUN where no foundry rule is configured (the local GUI host); with the
+    toolkit scanner, UNVERIFIED for the same 7 trees, and every foundry finding WARN unless `foundry_rules` says fail.
 - With the 7 `t0_waivers` of `eligibility.example.yaml` registered, every one of those items is covered, so the
   four gates and the run roll up **WAIVED** (`observation.t0-result-waived.example.jsonl`). The eighth waiver, for
   ahb_qspi `e908ac8`, covered nothing once that commit was on GitHub (`waiver_unused`) and was retired (CR-2).
@@ -485,7 +488,7 @@ def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict
 2. **Request.** Exactly what the trigger builds (`ci.trigger.build_request`, section 10), canonical_urls from this
    walk, minus `schema` and `nonce`, plus the local-only `pin_overrides` ({tree path: sha}). RM_REQUEST and its
    schema are unchanged; `gitwork.GitWork.walk` applies `pin_overrides` the same way as the walker, so every gate
-   that walks the tree (fetchable, reachable, no-ssh, manifest, vendor) judges the overridden pins. The controls'
+   that walks the tree (fetchable, reachable, no-ssh, manifest, both vendor gates) judges the overridden pins. The controls'
    scratch superprojects drop `pin_overrides`. An override the gates' anonymous walk does not reach (below a tree
    no anonymous fetch can read) is listed in `unjudged_overrides` and makes the run UNVERIFIED.
 3. **Local run mode.** `Context.for_local`: allowed off CI (no `CI_JOB_ID` needed); every git call isolated and
@@ -687,8 +690,16 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
      and `allowed`, each covered one naming its entry; the verdict is `finding` > `warn` > `clean`, and `unverified`
      is never changed by the allowlist. `scan_dir` (bundles) takes no allowlist: a bundle is deleted or kept, never
      warned about. An `allow` entry wins over a `warn` entry for one finding.
+  5. **CR-6, rule families** (`nanosoc_rm.scan.families`): `family(rule_id)` is `arm` for `arm.banner`, any
+     `arm.*` rule, `file.sha`, `ident` and `scan.unscannable`, else `foundry`; `split(res, family)` gives one family's view
+     of a raw ScanResult (an `unverified` scan stays unverified in both). `scan_tree(..., shas=dict)` fills the
+     blob id of each scanned file so the T0 gates apply the allowlist per family. `apply_allowlist(...,
+     uncovered=fn)` takes the severity of an uncovered finding (`fn(rule) -> (severity, by)`; `warn` moves it to
+     `warnings`); the arm gate passes none (uncovered = finding). Catalogue `foundry_rules`
+     (`scan.allowlist.load_foundry_rules`) gives a foundry rule `severity: fail|warn`; the default is warn.
 - **Rules:**
-  - the toolkit scanner's rule set: foundry file, value and inventory shapes, and Arm product codes;
+  - the toolkit scanner's rule set: foundry file, value and inventory shapes, and Arm product codes (CR-6: its
+    `file.sha` and `ident` are arm-family; the rest are foundry-family);
   - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header. The toolkit scanner has no such rule. D11's done-when plants exactly this banner. Its specimen is invented; no vendor text is ever written into this repo.
 - **How it runs:** the toolkit scanner reads git trees. For a bundle directory, the tool builds a throwaway git repo over the extracted files and runs the scanner with `--rev HEAD`.
 

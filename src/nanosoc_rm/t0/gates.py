@@ -8,7 +8,7 @@ module never imports the runner.
   on the broken one, in one run with one nonce; the control's row `<gate>.negctl` is PASS only when the check
   went red (FAIL) on the broken input. So a check that cannot fail has a control that does not fire, and the
   gate rolls up UNVERIFIED (D6). The controls of the gates that walk the pinned tree (fetchable, reachable,
-  no-ssh, manifest, vendor) build a scratch superproject holding the defect and hand it to the gate as its
+  no-ssh, manifest, both vendor gates) build a scratch superproject holding the defect and hand it to the gate as its
   request, so the broken input goes through the same walk, parser and scanner as the real one. Those walks also
   census themselves: a .gitmodules that declares submodules under which no gitlink pin was found is `unverified`.
 - `rollup(rows, scope)`: README section 6, one gate item per declared gate of the scope.
@@ -49,7 +49,7 @@ MODES = ("ci", "local")
 LOCAL_NOT_RUN = {"t0.runner.hardened": "local run"}
 # Gates that need a host to answer: when t0.infra.probe cannot reach one, the runner records them INFRA.
 HOST_DEPENDENT = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public", "t0.manifest.valid",
-                  "t0.clone.upgrade-path", "t0.vendor.no-arm-ip")
+                  "t0.clone.upgrade-path", "t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data")
 
 
 def clean_detail(text: Any) -> str:
@@ -131,6 +131,7 @@ class Context:
         self._items: dict[str, list[dict]] = {}
         self._shared: dict[str, Any] = {}          # the walk, shared with derived contexts of the same request
         self.citations_override: list[dict] | None = None
+        self.foundry_fail_all = False              # CR-6: the foundry gate's control judges every rule as fail
 
     @classmethod
     def for_tests(cls, *, nonce, workdir, request=None, parents=None, env=None, service_account=None,
@@ -777,7 +778,7 @@ def _upgrade_control(ctx: Context) -> Context:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# t0.vendor.no-arm-ip (D2, D11; CR-6a)
+# t0.vendor.no-arm-ip and t0.vendor.no-foundry-data (D2, D11; CR-6a, CR-6 split)
 # ---------------------------------------------------------------------------------------------------------
 def _catalogue_index(registry_dir: Path | None) -> dict[tuple[str, str], str]:
     """(host, casefolded path) -> component or external id, for every catalogue repo (canonical, copies,
@@ -813,41 +814,21 @@ def _locs(findings: list[dict], limit: int = 5) -> str:
     return "; ".join(out) + ("; and %d more" % more if more > 0 else "")
 
 
-def _vendor_check(ctx: Context) -> tuple[str, str]:
-    """Scan every fetched tree at its pinned commit (interfaces.md sections 9 and 11).
+def _some(paths: list[str], limit: int = 8) -> str:
+    return ", ".join(paths[:limit]) + (" and %d more" % (len(paths) - limit) if len(paths) > limit else "")
 
-    CR-6a (catalogue `vendor_allowlist`, David's U1 decision 2026-10-10): a finding an `allow` entry covers is
-    clean and is recorded as allowed in the item's `why`; a finding a `warn` entry covers keeps its item `pass`
-    (the gate_item result enum has no warn) with a `why` starting "WARN:", and makes the ROW status WARN when,
-    and only when, every finding in the run is warn-covered and every tree was scanned. An uncovered finding is
-    FAIL as before; a tree that was not fetched is UNVERIFIED as before (FAIL > UNVERIFIED > WARN > PASS).
 
-    Roll-up note (CR-9): README section 6 maps a WARN row with a fired control to gate verdict WARN (amber), so a
-    run whose only non-pass gate is this warn-only row rolls up WARN: not PASS and not FAIL.
-    The allowlist is read from the registry checkout the runner fetched (`ctx.registry_dir`); without one, no
-    entry applies. The negative control plants its banner in a scratch superproject served at a reserved URL
-    that names no catalogue component, so a `component` entry never covers it; a path-only entry wide enough to
-    cover the planted file (`path_glob: "*"`) also stops the control firing, and the gate then reports
-    UNVERIFIED rather than a PASS the allowlist bought."""
+def _scan_pins(ctx: Context, root: Pin, rules, tk, index: Mapping[tuple[str, str], str]) -> list[tuple]:
+    """Scan every fetched tree of the walk ONCE per request and rule set, for both vendor gates (CR-6): a list of
+    (item, kind, result, shas) with kind `not-reached`, `error` (result: the message) or `scanned` (result: the
+    raw ScanResult, no catalogue entry applied; shas: file -> blob id). Cached in the request's shared state, keyed
+    by the rule set and the toolkit copy, so the second gate reads the first gate's scans."""
     from nanosoc_rm.scan import scan as scanmod
-    from nanosoc_rm.scan.allowlist import load_vendor_allowlist
-    from nanosoc_rm.scan.rules import RulesError, rule_set
-    from nanosoc_rm.scan.toolkit import toolkit
-    items = ctx._begin("t0.vendor.no-arm-ip")
-    try:
-        rules, tk = rule_set(), toolkit()       # $RM_SCAN_RULES, $RM_SCAN_TOOLKIT: compat-ci's pinned copies
-    except RulesError as e:
-        return "UNVERIFIED", "scanner rules unusable: %s" % e
-    try:
-        allowlist = load_vendor_allowlist(ctx.registry_dir)
-        index = _catalogue_index(ctx.registry_dir)
-    except Exception as e:                      # a catalogue that does not parse: the registry job says why
-        return "UNVERIFIED", "catalogue.yaml unreadable, vendor_allowlist unknown: %s" % str(e).splitlines()[0][:200]
-    root = ctx.walk()
-    if root is None:
-        return "UNVERIFIED", "no request: nothing to scan"
-    cache: dict[str, Any] = {}
-    found, warned, allowed_n = [], [], 0
+    key = "vendor-scans:%s:%s:%s" % (rules.describe(), ",".join(r.id for r in rules.rules), tk.sha256 if tk else "-")
+    if key in ctx._shared:
+        return ctx._shared[key]
+    cache: dict[str, tuple] = {}
+    out: list[tuple] = []
     for p in [root] + list(iter_pins(root)):
         tp = p.tree_path or "."
         component = _component_of(ctx, index, p.canonical or p.resolved or p.url)
@@ -855,21 +836,96 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
                 "host": ctx.git.host_of(p.resolved or p.url)}
         up = None if p is root else ctx.unfetched_ancestor(p)
         if up is not None or not ctx.pinned_ok(p):
-            ctx._add(items, dict(item, result="not-reached", why="not fetched (t0.pins.fetchable), so not scanned"))
+            out.append((item, "not-reached", None, None))
             continue
         try:
             if p.commit not in cache:           # same commit, same tree, whichever URL served it
                 f = ctx.git.fetch_commit(p.resolved or p.url, p.commit)
-                cache[p.commit] = scanmod.scan_tree(f.repo, p.commit, rules, env=ctx.git.env, toolkit=tk,
-                                                    allowlist=allowlist, component=component)
-            res = cache[p.commit]
+                shas: dict[str, str] = {}
+                cache[p.commit] = (scanmod.scan_tree(f.repo, p.commit, rules, env=ctx.git.env, toolkit=tk,
+                                                     shas=shas), shas)
+            res, shas = cache[p.commit]
         except Exception as e:                  # one tree's problem stays that tree's item
             msg = str(e).splitlines()[0] if str(e) else ""
-            ctx._add(items, dict(item, result="unverified", why="scan raised %s: %s" % (type(e).__name__, msg[:200])))
+            out.append((item, "error", "scan raised %s: %s" % (type(e).__name__, msg[:200]), None))
             continue
+        out.append((item, "scanned", res, shas))
+    ctx._shared[key] = out
+    return out
+
+
+def _has_foundry_rules(rules, tk) -> bool:
+    from nanosoc_rm.scan.families import FOUNDRY, family
+    return tk is not None or any(family(r.id) == FOUNDRY for r in rules.rules)
+
+
+NO_FOUNDRY_RULES = ("no foundry rule on this host: no toolkit scanner ($RM_SCAN_TOOLKIT) and no private rule "
+                    "outside arm.* ($RM_SCAN_RULES)")
+
+
+def _family_check(ctx: Context, gate_id: str, fam: str) -> tuple[str, str]:
+    """One vendor gate (CR-6): the scans of `_scan_pins`, cut to rule family `fam` (nanosoc_rm.scan.families),
+    judged with the catalogue. Shared by `t0.vendor.no-arm-ip` (fam `arm`) and `t0.vendor.no-foundry-data`
+    (fam `foundry`).
+
+    CR-6a (catalogue `vendor_allowlist`, David's U1 decision 2026-10-10), both gates: a finding an `allow` entry
+    covers is clean and is recorded as allowed in the item's `why`; a finding a `warn` entry covers keeps its item
+    `pass` (the gate_item result enum has no warn) with a `why` starting "WARN:", and makes the ROW status WARN
+    when, and only when, no finding is left and every tree was scanned. A tree that was not fetched is UNVERIFIED
+    (FAIL > UNVERIFIED > WARN > PASS).
+
+    Arm family: an uncovered finding is FAIL. Foundry family: an uncovered finding is WARN by default (amber,
+    never FAIL), and FAIL only when the catalogue's `foundry_rules` gives its rule `severity: fail`; with no
+    foundry rule on this host (no toolkit scanner, no private non-arm rule) the gate SKIPs with that reason
+    (NOT-RUN). Roll-up (CR-9): a WARN row with a fired control is gate verdict WARN. The negative controls plant
+    a specimen in a scratch superproject served at a reserved URL that names no catalogue component, so a
+    `component` entry never covers it; a path-only entry wide enough to cover the planted file (`path_glob: "*"`)
+    stops the control firing, and the gate is then UNVERIFIED rather than a PASS the allowlist bought."""
+    from nanosoc_rm.scan.allowlist import (DEFAULT_FOUNDRY_SEVERITY, apply_allowlist, load_foundry_rules,
+                                           load_vendor_allowlist)
+    from nanosoc_rm.scan.families import ARM, split
+    from nanosoc_rm.scan.rules import RulesError, rule_set
+    from nanosoc_rm.scan.toolkit import toolkit
+    items = ctx._begin(gate_id)
+    try:
+        rules, tk = rule_set(), toolkit()       # $RM_SCAN_RULES, $RM_SCAN_TOOLKIT: compat-ci's pinned copies
+    except RulesError as e:
+        return "UNVERIFIED", "scanner rules unusable: %s" % e
+    try:
+        allowlist = load_vendor_allowlist(ctx.registry_dir)
+        severities = load_foundry_rules(ctx.registry_dir)
+        index = _catalogue_index(ctx.registry_dir)
+    except Exception as e:                      # a catalogue that does not parse: the registry job says why
+        return "UNVERIFIED", "catalogue.yaml unreadable, vendor_allowlist unknown: %s" % str(e).splitlines()[0][:200]
+    if fam != ARM and not _has_foundry_rules(rules, tk):
+        return "SKIP", NO_FOUNDRY_RULES
+    root = ctx.walk()
+    if root is None:
+        return "UNVERIFIED", "no request: nothing to scan"
+
+    def uncovered(rule: str) -> tuple[str, str]:
+        if ctx.foundry_fail_all:                # the control's broken input: every foundry rule at severity fail
+            return "fail", ""
+        e = severities.get(rule)
+        if e is not None and e.severity == "fail":
+            return "fail", ""
+        return "warn", e.describe() if e is not None else "severity %s by default" % DEFAULT_FOUNDRY_SEVERITY
+
+    found, warned, allowed_n = [], [], 0
+    for item, kind, res, shas in _scan_pins(ctx, root, rules, tk, index):
+        tp = item["tree_path"]
+        if kind == "not-reached":
+            ctx._add(items, dict(item, result="not-reached", why="not fetched (t0.pins.fetchable), so not scanned"))
+            continue
+        if kind == "error":
+            ctx._add(items, dict(item, result="unverified", why=res))
+            continue
+        res = apply_allowlist(split(res, fam), allowlist, item["component"], shas,
+                              uncovered=None if fam == ARM else uncovered)
         covered = ""
         if res.warnings:
-            covered += "; %d warn-covered by vendor_allowlist: %s" % (len(res.warnings), _locs(res.warnings))
+            covered += "; %d %s: %s" % (len(res.warnings), "warn-covered by vendor_allowlist" if fam == ARM
+                                        else "at severity warn", _locs(res.warnings))
         if res.allowed:
             covered += "; %d allowed by vendor_allowlist: %s" % (len(res.allowed), _locs(res.allowed))
             allowed_n += len(res.allowed)
@@ -878,18 +934,22 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
             ctx._add(items, dict(item, result="fail", why="%d finding(s): %s%s" % (len(res.findings), _locs(res.findings), covered)))
         elif res.verdict == "warn":
             warned.append(tp)
-            ctx._add(items, dict(item, result="pass", why="WARN: 0 uncovered findings%s" % covered))
+            ctx._add(items, dict(item, result="pass", why="WARN: 0 %s%s" % (
+                "uncovered findings" if fam == ARM else "findings at severity fail", covered)))
         elif res.verdict == "unverified":
             ctx._add(items, dict(item, result="unverified", why="scan unverified: %s" % res.why))
         else:
             ctx._add(items, dict(item, result="pass", why="%d files scanned, 0 findings%s" % (res.files_scanned, covered)))
     scanned = sum(1 for i in items if i["result"] in ("pass", "fail"))
     detail = "%d of %d trees scanned, %d with findings" % (scanned, len(items), len(found))
+    if fam != ARM:
+        detail += " at severity fail"
     if found:                       # the list belongs to "with findings", never to the not-fetched count after it
-        detail += ": " + ", ".join(found[:8]) + (" and %d more" % (len(found) - 8) if len(found) > 8 else "")
+        detail += ": " + _some(found)
     if warned:
-        detail += "; %d with warn-covered findings only (vendor_allowlist): %s" % (
-            len(warned), ", ".join(warned[:8]) + (" and %d more" % (len(warned) - 8) if len(warned) > 8 else ""))
+        detail += "; %d with %s: %s" % (len(warned), "warn-covered findings only (vendor_allowlist)" if fam == ARM
+                                        else "foundry findings at severity warn only (amber, not blocking)",
+                                        _some(warned))
     if allowed_n:
         detail += "; %d finding(s) allowed by vendor_allowlist" % allowed_n
     nr = sum(1 for i in items if i["result"] == "not-reached")
@@ -904,12 +964,44 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
     return "PASS", detail
 
 
+def _vendor_check(ctx: Context) -> tuple[str, str]:
+    """t0.vendor.no-arm-ip: the arm family (Arm banner, known vendor file by hash, unscannable file); see
+    `_family_check`."""
+    return _family_check(ctx, "t0.vendor.no-arm-ip", "arm")
+
+
+def _foundry_check(ctx: Context) -> tuple[str, str]:
+    """t0.vendor.no-foundry-data (CR-6): the foundry family (foundry file types, values, site inventory, big
+    files); WARN by default; see `_family_check`."""
+    return _family_check(ctx, "t0.vendor.no-foundry-data", "foundry")
+
+
 def _vendor_control(ctx: Context) -> Context:
     """A scratch superproject with the arm.banner specimen planted in a committed file: fetched by the walk and
     scanned by scan_tree (and the toolkit scanner, in place) like every real tree."""
     from nanosoc_rm.scan.rules import specimen
     return _scratch_superproject(ctx, "vendor",
                                  files={"rtl/planted.v": specimen("arm.banner") + "\nmodule planted; endmodule\n"})
+
+
+FOUNDRY_PLANT = "negctl/planted.lef"        # a foundry file type by name; its content is invented
+
+
+def _foundry_control(ctx: Context) -> Context:
+    """A scratch superproject holding a foundry-shaped input for every foundry rule this host has: each private
+    non-arm rule's own specimen, and (with the toolkit scanner) a committed `.lef` file of invented text, which the
+    toolkit's file-type rule flags by name. Judged with every foundry rule at severity fail (`foundry_fail_all`):
+    WARN is the policy, and the control proves the detection under it can go red. A host without foundry rules
+    SKIPs on the control too, and the gate rolls up NOT-RUN."""
+    from nanosoc_rm.scan.families import FOUNDRY, family
+    from nanosoc_rm.scan.rules import rule_set
+    files = {FOUNDRY_PLANT: "nanosoc-rm negative control: invented text, not foundry data\n"}
+    for r in rule_set().rules:
+        if family(r.id) == FOUNDRY:
+            files["negctl/%s.txt" % r.id] = r.specimen + "\n"
+    broken = _scratch_superproject(ctx, "foundry", files=files)
+    broken.foundry_fail_all = True
+    return broken
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -1114,6 +1206,7 @@ GATES: dict[str, Gate] = {g.id: g for g in (
     Gate("t0.manifest.valid", "configuration", ("D2", "C11"), True, _manifest_check, _manifest_control),
     Gate("t0.clone.upgrade-path", "configuration", ("D2",), True, _upgrade_check, _upgrade_control),
     Gate("t0.vendor.no-arm-ip", "configuration", ("D2", "D11"), False, _vendor_check, _vendor_control),
+    Gate("t0.vendor.no-foundry-data", "configuration", ("D2", "D11"), True, _foundry_check, _foundry_control),
     Gate("t0.registry.schema", "registry", ("D2", "PR3"), False, _schema_check, _schema_control),
     Gate("t0.registry.refs-resolve", "registry", ("D2", "F3"), False, _refs_check, _refs_control),
 )}
@@ -1229,11 +1322,24 @@ def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
     return out
 
 
+# Review VS-3 (CR-6): the two vendor gates judge one scan, so a tree that was never fetched is unscanned for both.
+# A waiver of a `not-reached` item in the arm gate covers the same item in the foundry gate (never a `fail` or
+# `unverified` item: those are findings of one family only).
+_SHARED_NOT_REACHED = {"t0.vendor.no-arm-ip": ("t0.vendor.no-foundry-data",)}
+
+
+def _waiver_gates(w: Mapping) -> tuple:
+    """The gates a waiver applies to: its own, plus the foundry gate for an arm-gate `not-reached` waiver."""
+    gid = w.get("gate")
+    return (gid,) + (_SHARED_NOT_REACHED.get(gid, ()) if w.get("result") == "not-reached" else ())
+
+
 def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: list[dict]) -> tuple[list[dict], list[dict]]:
     """GATE2 Q1 (README section 6): (gates with WAIVED, raw_verdict and waived set where every non-pass item is
     covered, the waivers that covered nothing). An item is covered by a waiver naming its gate, tree path and
     result, or, when it is `not-reached`, by a directly covered item above it in the same gate (the superproject's
-    item, tree path '.', is above every other). A gate becomes
+    item, tree path '.', is above every other). A `t0.vendor.no-arm-ip` waiver of a `not-reached` item also names
+    that item in `t0.vendor.no-foundry-data` (one scan, so one unscanned tree; review VS-3). A gate becomes
     WAIVED only when its verdict is FAIL or UNVERIFIED, its control fired, it has at least one non-pass item and
     every one is covered. Pure: the inputs are never changed."""
     out, used = [], set()
@@ -1243,7 +1349,7 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
         bad = [i for i in (items.get(gid) or []) if i.get("result") != "pass"]
         direct: dict[tuple[str, str], int] = {}          # (tree path, result) -> the waiver naming that item
         for n, w in enumerate(waivers):
-            if w.get("gate") != gid:
+            if gid not in _waiver_gates(w):
                 continue
             for i in bad:
                 if i.get("tree_path") is not None and (w.get("tree_path"), w.get("result")) == (i["tree_path"], i["result"]):

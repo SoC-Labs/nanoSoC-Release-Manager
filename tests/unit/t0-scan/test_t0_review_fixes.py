@@ -323,4 +323,4 @@ def test_cli_t0_run_json_prints_the_rows(tree, tmp_path, runner_module):
     assert p.returncode == 1, p.stderr
     docs = [json.loads(x) for x in p.stdout.splitlines()]
     tsv = [parse_verdict_row(x) for x in (tmp_path / "b" / "verdicts.tsv").read_text().splitlines()]
-    assert docs == tsv and len(docs) == 16 and all(d["nonce"] == NONCE for d in docs)
+    assert docs == tsv and len(docs) == 18 and all(d["nonce"] == NONCE for d in docs)
