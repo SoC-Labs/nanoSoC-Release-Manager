@@ -66,10 +66,7 @@ def short(sha: str | None, n: int = 7) -> str:
     return (sha or "")[:n]
 
 
-def human_age(seconds: float | None) -> str:
-    if seconds is None:
-        return "no facts shown"
-    s = int(seconds)
+def _span(s: int) -> str:
     if s < 120:
         return "%d s" % s
     if s < 7200:
@@ -77,6 +74,17 @@ def human_age(seconds: float | None) -> str:
     if s < 172800:
         return "%d h" % (s // 3600)
     return "%d days" % (s // 86400)
+
+
+def human_age(seconds: float | None) -> str:
+    """An age for a page. A negative age (a fact stamped after now: clock skew between hosts, or a clock that
+    stepped back) is shown as clock skew, never as a fresh-looking "-3600 s" (ROB-faults-7)."""
+    if seconds is None:
+        return "no facts shown"
+    s = int(seconds)
+    if s < 0:
+        return "clock skew: %s in the future" % _span(-s)
+    return _span(s)
 
 
 class Page:

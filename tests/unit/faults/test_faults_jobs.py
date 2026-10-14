@@ -83,9 +83,6 @@ def test_a_compat_verdict_is_never_greener_than_its_exit_code(printed, rc, want)
 
 
 # ----- the worker cannot record the result -------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-faults-2: a store error while the worker records a job's end (a locked or "
-                                       "full jobs.sqlite) escapes Worker.step and leaves the job `running` until the "
-                                       "service restarts; cancel can no longer stop it")
 def test_a_failed_final_write_never_leaves_the_job_running(cfg, monkeypatch):
     monkeypatch.setenv("FAULT_MODE", "ok")
     job = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
@@ -104,6 +101,50 @@ def test_a_failed_final_write_never_leaves_the_job_running(cfg, monkeypatch):
         pass                                                 # _loop would log this and carry on
     assert calls["n"] == 1
     assert jobs.get(cfg, job["id"])["state"] != "running"
+
+
+def test_a_final_write_that_fails_every_retry_is_written_before_the_next_claim(cfg, monkeypatch):
+    """Every attempt to record the end fails: the worker keeps the fields and writes them on its next step, before
+    it claims another job (ROB-faults-2; review: the kept-fields path had no test)."""
+    monkeypatch.setenv("FAULT_MODE", "ok")
+    monkeypatch.setattr(jobs.Worker, "FINISH_RETRY_S", (0, 0))
+    job = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
+    real = jobs._update
+    broken = {"on": True}
+
+    def flaky(config, job_id, **fields):
+        if "finished_at" in fields and broken["on"]:
+            raise sqlite3.OperationalError("database is locked")
+        return real(config, job_id, **fields)
+    monkeypatch.setattr(jobs, "_update", flaky)
+    worker = jobs.Worker(cfg.path, argv_prefix=CHILD)
+    with pytest.raises(sqlite3.OperationalError):
+        worker.step()
+    assert jobs.get(cfg, job["id"])["state"] == "running"     # the store refused every attempt
+    broken["on"] = False
+    assert worker.step() is None                              # nothing else queued; the kept end is written first
+    got = jobs.get(cfg, job["id"])
+    assert got["state"] != "running" and got["finished_at"], got
+
+
+def test_a_job_row_that_cannot_be_updated_does_not_stop_recovery_of_the_others(cfg, monkeypatch):
+    """recover(): one job whose row update fails is logged and skipped; the next job still becomes INFRA
+    (ROB-faults-3; review: only the log-write half had a test)."""
+    a = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
+    b = jobs.submit(cfg, "walk", {"configuration": "eth-rc4"}, by="alice")
+    for j in (a, b):
+        jobs._update(cfg, j["id"], state="running", started_at="2026-10-14T08:00:00Z")
+    real = jobs._update
+
+    def refuse_a(config, job_id, **fields):
+        if job_id == a["id"]:
+            raise sqlite3.OperationalError("disk I/O error")
+        return real(config, job_id, **fields)
+    monkeypatch.setattr(jobs, "_update", refuse_a)
+    said = []
+    assert jobs.recover(cfg, said.append) == [b["id"]]
+    assert jobs.get(cfg, b["id"])["state"] == "infra"
+    assert any("job %d could not be recovered" % a["id"] in m for m in said), said
 
 
 def test_a_job_dir_that_cannot_be_made_is_infra_with_the_reason(cfg, monkeypatch):
@@ -145,8 +186,6 @@ def test_a_corrupt_jobs_store_refuses_a_submit_loudly(cfg):
         jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-3: Worker.start() raises on a corrupt jobs.sqlite (recover() reads "
-                                       "it unguarded), so `nanosoc-rm serve` exits before serving any page")
 def test_a_corrupt_jobs_store_does_not_stop_the_worker_from_starting(cfg):
     _corrupt(cfg.data_dir / "jobs.sqlite")
     w = jobs.Worker(cfg.path, argv_prefix=CHILD, poll_s=60)
@@ -179,9 +218,6 @@ def test_a_restart_marks_every_running_job_infra_even_with_no_pid(cfg):
     assert jobs.recover(cfg) == []                            # idempotent: a second start finds nothing running
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-3: recover() stops at the first job whose log cannot be written "
-                                       "(PermissionError escapes), so later running jobs stay `running` and "
-                                       "Worker.start(), hence `serve`, fails")
 def test_an_unwritable_job_log_does_not_stop_recovery(cfg):
     a = jobs.submit(cfg, "walk", {"configuration": "eth-main"}, by="alice")
     b = jobs.submit(cfg, "walk", {"configuration": "eth-rc4"}, by="alice")

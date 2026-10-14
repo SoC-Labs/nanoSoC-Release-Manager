@@ -48,10 +48,13 @@ CAUSES: tuple[tuple[str, re.Pattern], ...] = tuple((c, re.compile(p, re.I)) for 
     ("ssh-host", r"host key verification failed|no matching host key"),
     ("auth", r"could not read (username|password)|terminal prompts disabled|authentication failed"
              r"|http basic: access denied|\b40[13]\b|invalid username or password"),
+    # A transport failure before not-found: over ssh git always ends with "Could not read from remote repository",
+    # so a DNS, refused or unreachable failure would otherwise read as "private or missing" (ROB-faults-10).
+    ("network", r"could not resolve host(name)?|connection (refused|reset|timed out)|network is unreachable"
+                r"|no route to host|operation timed out|failed to connect to"),
     ("not-found", r"repository .*not found|not found|does not exist|does not appear to be a git repository"
                   r"|could not read from remote repository"),
-    ("network", r"could not resolve host|connection (refused|reset|timed out)|unable to access|network is unreachable"
-                r"|operation timed out"),
+    ("network", r"unable to access"),
 ))
 # Anonymous failures a private repo gives: GitHub and GitLab answer 401 over https ("could not read Username"), and
 # some hosts answer "not found" for a project the caller may not see.

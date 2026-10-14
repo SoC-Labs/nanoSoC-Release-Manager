@@ -52,30 +52,40 @@ def _problem_text(p) -> str:
     return str(p)
 
 
+def _fallback(config: Config, last: str = "good") -> str:
+    """What the pages show instead: the last good records, or, when none were ever stored, say so (a banner
+    must not promise records that do not exist; ROB-faults-12)."""
+    try:
+        have = bool(db.latest(KIND, config=config))
+    except Exception:                                            # noqa: BLE001 - a banner, never a 500
+        have = True
+    return ("showing the last %s records" % last if have
+            else "no registry has ever loaded here, so there are no records to show")
+
+
 def refresh(config: Config) -> list[str]:
     """Bring the stored registry records up to the checkout's HEAD. Returns the problems (empty = the
     stored records are the checkout's current, validated content)."""
     path = (config.get("registry") or {}).get("path")
     if not path:
-        return ["no registry checkout configured ([registry] path): showing the last stored records"]
+        return ["no registry checkout configured ([registry] path): %s" % _fallback(config, "stored")]
     with _lock:
         try:
             head = _head(path)
         except Exception as e:                                   # noqa: BLE001 - a banner, never a 500
-            return ["%s: showing the last stored records" % e]
+            return ["%s: %s" % (e, _fallback(config, "stored"))]
         if stored_commit(config) == head:
             return []
         try:
             reg = load_registry(Path(path))
         except RegistryError as e:
             return (["registry problem: %s" % _problem_text(p) for p in (e.problems or [e])]
-                    + ["the registry at %s was not loaded: showing the last good records" % head[:12]])
+                    + ["the registry at %s was not loaded: %s" % (head[:12], _fallback(config))])
         except Exception as e:                                   # noqa: BLE001
             return ["reading the registry at %s failed: %s" % (head[:12], e)]
         if not reg.commit:
             return ["the registry checkout has changes that are not committed (or untracked files), so no "
-                    "`git show <commit>:<file>` reproduces what was validated: not loaded, showing the last "
-                    "good records"]
+                    "`git show <commit>:<file>` reproduces what was validated: not loaded, %s" % _fallback(config)]
         if stored_commit(config) == reg.commit:
             return []
         try:

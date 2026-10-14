@@ -70,18 +70,21 @@ def test_a_corrupt_store_never_shows_a_traceback(gui):
         assert r.status_code != 200 or "could not be read" in r.text or "Problem" in r.text, p
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-11: with rm.sqlite unreadable (corrupt, locked past the timeout, "
-                                       "read-only) most pages answer a bare 500 'Internal Server Error' with no word "
-                                       "of which store failed; there is no app-wide exception handler")
 @pytest.mark.parametrize("page", STORE_PAGES)
 def test_a_corrupt_store_page_names_the_store_not_a_bare_500(gui, page):
     corrupt(gui["data"] / "rm.sqlite")
     r = gui["client"].get(page)
     assert not bare_500(r), (page, r.status_code, r.text[:200])
+    assert r.status_code == 503 and "rm.sqlite" in r.text, (page, r.status_code, r.text[:200])
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-11: a corrupt sessions.sqlite turns every signed-in page and the "
-                                       "sign-in itself into a bare 500 'Internal Server Error'")
+def test_a_corrupt_store_api_answer_is_json_naming_the_store(gui):
+    corrupt(gui["data"] / "rm.sqlite")
+    r = gui["client"].get("/api/v1/configurations")
+    assert r.status_code == 503, (r.status_code, r.text[:200])
+    assert "rm.sqlite" in r.json()["error"], r.text[:200]
+
+
 def test_a_corrupt_session_store_is_not_a_bare_500(gui):
     corrupt(gui["data"] / "sessions.sqlite")
     fresh = TestClient(gui["client"].app, raise_server_exceptions=False)
@@ -125,9 +128,6 @@ def _empty_registry(reg):
     _git("commit", "-qm", "empty catalogue", cwd=reg)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-12: when the registry has never loaded (here: an empty catalogue, "
-                                       "refused by the schema) the inbox still says 'Inbox clear. Nothing needs you "
-                                       "right now.' and 'showing the last good records' when there are none")
 def test_a_registry_that_never_loaded_is_not_an_inbox_clear(tmp_path, monkeypatch):
     reg = make_registry(tmp_path / "registry")
     _empty_registry(reg)
@@ -139,3 +139,4 @@ def test_a_registry_that_never_loaded_is_not_an_inbox_clear(tmp_path, monkeypatc
     text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", client.get("/").text))
     assert "registry problem" in text                               # the banner is there either way
     assert "Nothing needs you" not in text, text[:600]
+    assert "last good records" not in text and "last stored records" not in text, text[:600]
