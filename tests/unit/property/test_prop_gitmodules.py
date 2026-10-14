@@ -7,6 +7,8 @@ sections, CRLF). Divergences found are recorded as xfail(strict) tests named ROB
 """
 from __future__ import annotations
 
+import pytest
+
 from prop_helpers import (as_set, assume, budget, example, git_config_modules, git_config_write, given,
                           st)
 
@@ -99,3 +101,13 @@ def test_rob_property_3_backslash_before_newline(text):
 def test_rob_property_4_legacy_section_name_is_lower_cased():
     text = "[submodule.Ethernet]\n\tpath = eth\n"
     assert as_set(parse_gitmodules(text)) == as_set(git_config_modules(text))
+
+
+@pytest.mark.parametrize("text", ['[]\n[submodule "a"]\n\tpath = x\n', '[submodule\n"a"]\n\tpath = x\n',
+                                  '[submodule \n "a"]\n\tpath = x\n'])
+def test_a_section_header_git_refuses_ends_the_read(text):
+    """git refuses an empty `[]` and a newline between the section name and its quoted subsection (config.c
+    get_base_var / get_extended_base_var), so nothing after it is read (review of ROB-property-1..4: the raw
+    property skips every file git refuses, so these two cases were never compared)."""
+    assert git_config_modules(text) is None
+    assert parse_gitmodules(text) == []

@@ -61,17 +61,22 @@ class _Reader:
             if self.eof:
                 raise _Refused
             if c == "]":
+                if not name:                        # `[]`: git refuses an empty section name
+                    raise _Refused
                 return "".join(name)
             if c in _SPACE:
-                return self._extended("".join(name))
+                return self._extended("".join(name), c)
             if not _keychar(c) and c != ".":
                 raise _Refused
             name.append(c.lower())
 
-    def _extended(self, base: str) -> str:
-        c = self.next()
-        while c in _SPACE and not self.eof:
+    def _extended(self, base: str, c: str) -> str:
+        while True:                                 # get_extended_base_var: a newline before the quote refuses
+            if c == "\n":
+                raise _Refused
             c = self.next()
+            if c not in _SPACE:
+                break
         if c != '"':
             raise _Refused
         sub = []
