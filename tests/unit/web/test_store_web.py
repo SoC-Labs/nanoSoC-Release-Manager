@@ -103,9 +103,10 @@ def test_taped_out_panel_and_timeline(store_app):
 
 def test_inbox_search_and_releases_show_store_facts(store_app):
     c = store_app["client"]
-    inbox = c.get("/").text
+    inbox = c.get("/inbox").text                    # CR-WF-gui: the cards moved from / to /inbox
     assert "Store project chipb holds 1 shipped stream" in inbox
     assert "eth-rc4" in inbox
+    assert "Store project chipb holds 1 shipped stream" in c.get("/notifications").text   # and behind the bell
     hits = c.get("/search?q=b.gds").text
     assert "store ·" in hits and "b.gds.zst" in hits
     rel = c.get("/releases/").text
@@ -140,7 +141,8 @@ def test_an_unsigned_record_shows_unverified_never_in_store(tmp_path, monkeypatc
     assert sign_in(client).status_code == 303
     s = client.get("/configurations/eth-rc4/silicon").text
     assert 'data-signature="invalid"' in s and "UNVERIFIED" in s and ">IN STORE<" not in s
-    assert "has no verified manifest" in client.get("/").text
+    assert "has no verified manifest" in client.get("/inbox").text          # CR-WF-gui: cards at /inbox
+    assert "has no verified manifest" in client.get("/notifications").text
     h = client.get("/configurations/eth-rc4/history").text                # SR-3: marked, no commit link from it
     assert 'data-event="unverified manifest"' in h and 'data-event="tapeout"' not in h and "not trusted" in h
 
