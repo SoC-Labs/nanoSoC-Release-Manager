@@ -227,11 +227,12 @@ def taped_out(config: Any, cid: str) -> dict:
         store, lock = _untrusted(store, m), _untrusted(lock, m)
         repo = m.get("repo") or comp_repo
         out["rows"].append({"manifest": m, "store": store, "lock": lock, "trusted": trusted(m),
-                            "link": commit_link(config, repo, m.get("commit")),
+                            # an untrusted manifest's own repo and commit are not followed: anyone could write them
+                            "link": commit_link(config, repo, m.get("commit")) if trusted(m) else None,
                             "repo_from": "manifest" if m.get("repo") else ("registry" if comp_repo else None)})
     # Streams of this configuration's store projects (`[stores.artifactory] projects`), newest first
     projects = set(out["projects"])
-    manifest_raw = {r["manifest"].get("gds_raw_md5") for r in out["rows"] if r["trusted"]}
+    manifest_raw = {r["manifest"].get("gds_raw_md5") for r in out["rows"] if r["trusted"]} - {None}
     for a in fact.get("artefacts") or []:
         if a["role"] == "stream" and a.get("project") in projects:
             out["streams"].append({"a": a, "registered": a.get("raw_md5") in manifest_raw,
@@ -340,11 +341,15 @@ def timeline(config: Any, cid: str, limit: int = 60) -> dict:
     if doc is not None:
         fact = doc["fact"]
         for m in _manifests_for(config, fact, cid):
-            events.append({"at": m.get("created") or doc["observed_at"], "what": m.get("kind") or "manifest",
+            ok = trusted(m)
+            events.append({"at": m.get("created") or doc["observed_at"],
+                           "what": (m.get("kind") or "manifest") if ok else "unverified manifest",
                            "label": m.get("version") or m.get("name"), "doc": doc,
-                           "detail": "%s manifest %s%s" % (m.get("kind"), m["path"],
-                                                           (", foundry %s" % m["foundry"]) if m.get("foundry") else ""),
-                           "link": commit_link(config, m.get("repo") or repo, m.get("commit"))})
+                           "detail": "%s manifest %s%s%s" % (m.get("kind"), m["path"],
+                                                             (", foundry %s" % m["foundry"]) if m.get("foundry") else "",
+                                                             "" if ok else " (not trusted: %s)" % _distrust(m)),
+                           # an untrusted manifest's own repo and commit are not followed: anyone could write them
+                           "link": commit_link(config, m.get("repo") or repo, m.get("commit")) if ok else None})
         for a in fact.get("artefacts") or []:
             if a.get("project") in projects and a["role"] in ("stream", "source", "doc") and a.get("created"):
                 events.append({"at": a["created"], "what": "upload", "label": a["name"], "doc": doc,
@@ -404,26 +409,44 @@ def component_versions(config: Any, comp: str) -> dict:
 # ---------------------------------------------------------------------------------------------------------
 # Releases page
 # ---------------------------------------------------------------------------------------------------------
+_SEVERITY = {"c-fail": 3, "c-warn": 2, "c-pass": 1}
+
+
 def release_rows(config: Any) -> dict:
-    """{(configuration, version): {published, manifest, store}} for every manifest of the shown index, and the
-    index doc under key None."""
+    """{(configuration, version): {published, manifest, store, trusted, count}} for the manifests of the shown
+    index, and the index doc under key None.
+
+    One configuration and version can have several manifests (a release manifest and a tapeout record, or a file
+    any token holder planted). The row is decided by the trusted ones whenever there is one, so an untrusted file
+    can neither hide a trusted manifest's red nor stand in for it: `store` is the worst verdict over them, and
+    `manifest` prefers a trusted release manifest, then the newest. `published` is set only by a trusted manifest;
+    a row with only untrusted manifests has published None and says why it is not trusted."""
     doc, new = shown(config)
     out: dict[Any, Any] = {None: {"doc": doc, "latest": new}}
     if doc is None:
         return out
     fact = doc["fact"]
     by_raw = _streams_by_raw(fact)
+    groups: dict[Any, list[dict]] = {}
     for m in fact.get("manifests") or []:
-        key = (m.get("configuration"), m.get("version"))
-        raw = m.get("gds_raw_md5")
-        if raw is None:
-            store = ("-", "c-notrun", "no GDS in this manifest")
-        elif by_raw.get(raw):
-            store = ("MATCH", "c-pass", "raw md5 %s in the store" % raw)
-        else:
-            store = ("NOT IN STORE", "c-fail", "no stream carries raw md5 %s" % raw)
-        out[key] = {"published": m.get("created"), "manifest": m, "store": _untrusted(store, m),
-                    "trusted": trusted(m)}
+        groups.setdefault((m.get("configuration"), m.get("version")), []).append(m)
+    for key, mans in groups.items():
+        pool = [m for m in mans if trusted(m)] or mans
+        verdicts = []
+        for m in pool:
+            raw = m.get("gds_raw_md5")
+            if raw is None:
+                store = ("-", "c-notrun", "no GDS in this manifest")
+            elif by_raw.get(raw):
+                store = ("MATCH", "c-pass", "raw md5 %s in the store" % raw)
+            else:
+                store = ("NOT IN STORE", "c-fail", "no stream carries raw md5 %s" % raw)
+            verdicts.append(_untrusted(store, m))
+        store = max(verdicts, key=lambda v: _SEVERITY.get(v[1], 0))
+        m = sorted(pool, key=lambda x: (x.get("kind") == "release", x.get("created") or ""), reverse=True)[0]
+        ok = trusted(m)
+        out[key] = {"published": m.get("created") if ok else None, "manifest": m, "store": store, "trusted": ok,
+                    "count": len(mans), "why": None if ok else _distrust(m)}
     return out
 
 
@@ -511,7 +534,7 @@ def findings(config: Any) -> list[dict]:
                                      "verified signature" % (fact["release_repo"], len(fact.get("manifests") or []))]})
     # tapeout_unregistered: a stream the store marks shipped that no registered tapeout manifest covers
     registered_raw = {m.get("gds_raw_md5") for m in fact.get("manifests") or []
-                      if m.get("kind") == "tapeout" and m.get("configuration") in silicon and trusted(m)}
+                      if m.get("kind") == "tapeout" and m.get("configuration") in silicon and trusted(m)} - {None}
     groups: dict[str, list[dict]] = {}
     for a in fact.get("artefacts") or []:
         shipped = (a.get("ships") or "").lower() in SHIPPED
