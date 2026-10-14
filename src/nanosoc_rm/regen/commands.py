@@ -10,6 +10,7 @@ a move (C3 3/3, C7). Exit: 0 PASS, 1 FAIL (the generator failed), 2 INFRA or UNV
 """
 from __future__ import annotations
 
+import importlib
 import re
 from pathlib import Path
 
@@ -59,7 +60,7 @@ def _print_render(r: dict) -> None:
 
 
 def register(main: click.Group) -> None:
-    from nanosoc_rm.regen import jobkind  # noqa: F401 - registers the regen-class job kind
+    importlib.import_module("nanosoc_rm.regen.jobkind")      # registers the regen-class job kind
     regen = subgroup(main, "regen", help="Regenerate a configuration's generated output in a sandbox; class a "
                                          "move by the diff (C3, C7; section 20).")
 
