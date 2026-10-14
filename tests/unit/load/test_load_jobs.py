@@ -67,13 +67,22 @@ def test_listing_recent_jobs_does_not_read_the_whole_history(cfg, monkeypatch):
     assert len(decoded) <= 100, len(decoded)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-5: jobs.submit queues identical compat jobs without limit (no "
-                                       "coalescing as quality and matrix do; jobs.py submit)")
 def test_a_second_identical_run_while_one_is_queued_is_not_a_second_job(cfg):
-    """Run on a configuration that already has the same compat job queued gives back that job, as the quality
+    """ROB-load-5 (fixed). Run on a configuration that already has the same compat job queued gives back that job, as the quality
     pages (quality/web.py _queue) and the matrix (cell_requests skips queued cells) do. Today 200 clicks on Run
     queue 200 T0 runs: about 10 hours of the single worker at 3 minutes each, ahead of anything else."""
     first = jobs.submit(cfg, "compat", {"configuration": "eth-rc4"}, "alice")
     second = jobs.submit(cfg, "compat", {"configuration": "eth-rc4"}, "bob")
     assert second["id"] == first["id"]
     assert len(jobs.jobs(cfg, limit=50, states=("queued",))) == 1
+
+
+def test_an_identical_run_after_the_queued_one_started_is_a_new_job(cfg):
+    """ROB-load-5 boundary: only a QUEUED compat job is reused; once it is running (it may have read the tree before
+    the change being asked about), or for different params, Run queues a fresh job."""
+    first = jobs.submit(cfg, "compat", {"configuration": "eth-rc4"}, "alice")
+    other = jobs.submit(cfg, "compat", {"configuration": "eth-rc4", "tier": "t1"}, "alice")
+    assert other["id"] != first["id"]
+    assert jobs.Worker(cfg.path)._claim(cfg)["id"] == first["id"]
+    again = jobs.submit(cfg, "compat", {"configuration": "eth-rc4"}, "alice")
+    assert again["id"] not in (first["id"], other["id"])
