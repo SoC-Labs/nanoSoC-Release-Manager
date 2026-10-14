@@ -101,9 +101,6 @@ def test_the_healthy_tree_walks_two_pins(at_pins, h):
     assert sorted(d["fact"]["tree_paths"][0] for d in docs) == ["a", "a/deps/leaf"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-9: a root commit whose tree object is missing (corrupt pack) walks "
-                                       "as a tree with NO pins: walker._read_node returns silently when "
-                                       "`ls-tree <c> -- .gitmodules` fails, and the empty walk is stored as current")
 def test_a_root_tree_missing_from_the_mirror_is_walkerror_not_no_pins(at_pins, h):
     fx = build(at_pins, h)
     env = fx["env"]
@@ -117,8 +114,6 @@ def test_a_root_tree_missing_from_the_mirror_is_walkerror_not_no_pins(at_pins, h
     assert walk_rows(env) == {"a", "a/deps/leaf"}                 # the last good walk is still the current one
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-9: a child commit whose tree object is missing (corrupt pack in "
-                                       "its mirror) silently drops every pin below it; the walk is stored complete")
 def test_a_child_tree_missing_from_its_mirror_never_drops_the_pins_below_it(at_pins, h):
     fx = build(at_pins, h)
     env = fx["env"]
