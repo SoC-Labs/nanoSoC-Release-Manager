@@ -483,6 +483,18 @@ def _summary(kind: str, docs: list[dict]) -> dict:
     return out
 
 
+# interfaces.md section 0.2 (analysis.compat.exit_for): the exit code each compat verdict gives.
+_COMPAT_EXIT = {"PASS": 0, "WAIVED": 0, "WARN": 0, "FAIL": 1, "UNVERIFIED": 2, "INFRA": 2}
+# README section 6 ladder (t0.gates.run_verdict): worst first.
+_LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
+
+
+def _worse(a: str, b: str) -> str:
+    """The worse of two run verdicts on the README section 6 ladder (an unknown verdict counts as UNVERIFIED)."""
+    rank = {v: n for n, v in enumerate(_LADDER)}
+    return min(a, b, key=lambda v: rank.get(v, rank["UNVERIFIED"]))
+
+
 def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
     """The job's final fields from the child's exit code and output (exit codes: interfaces.md section 0.2)."""
     last = (log_tail.strip().splitlines() or [""])[-1][:500]
@@ -508,8 +520,14 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
         if doc is None:
             return {"state": "done", "verdict": "UNVERIFIED", "reason": last or "compat printed no result"}
         f = doc["fact"]
-        return {"state": "done", "verdict": f.get("run_verdict") or f["verdict"], "reason": f.get("reason"),
-                "result": doc}
+        printed = f.get("run_verdict") or f["verdict"]
+        verdict, reason = printed, f.get("reason")
+        if _COMPAT_EXIT.get(printed, 2) != rc:
+            # The exit code and the printed verdict disagree (the child failed after printing, or printed a stale
+            # line): never greener than either (ROB-faults-1). rc 1 reads FAIL, rc 2 UNVERIFIED.
+            verdict = _worse(printed, {0: "PASS", 1: "FAIL", 2: "UNVERIFIED"}[rc])
+            reason = "compat printed %s but exited %s%s" % (printed, rc, ": " + last if last else "")
+        return {"state": "done", "verdict": verdict, "reason": reason, "result": doc}
     verdict = {0: "PASS", 1: "FAIL", 2: "UNVERIFIED"}[rc]
     return {"state": "done", "verdict": verdict, "reason": None if rc == 0 else last or None,
             "result": _summary(job["kind"], docs)}
