@@ -32,8 +32,8 @@ UrlKind = Literal["https", "ssh", "local", "relative", "other"]
 HostTable = Mapping[str, Mapping[str, Any]]
 
 # defs.schema.json#/$defs/repo path
-REPO_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+$")
-_SCP = re.compile(r"^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[^:/\s]+):(?P<path>.*)$")
+REPO_PATH = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+\Z")
+_SCP = re.compile(r"^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[^:/\s]+):(?P<path>.*)\Z")
 
 
 @dataclass(frozen=True)

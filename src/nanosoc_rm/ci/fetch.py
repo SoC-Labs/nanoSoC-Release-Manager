@@ -52,7 +52,7 @@ INFRA_FAILURES = ("runner_system_failure", "stuck_or_timeout_failure", "job_exec
 _UNFINISHED = ("created", "pending", "running", "waiting_for_resource", "preparing", "scheduled", "manual")
 _ENDED_WITH_BUNDLE = ("success", "failed")
 MAX_BUNDLE_BYTES = 256 * 1024 * 1024
-_GATE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+_GATE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+\Z")
 
 
 class FetchErrors(RuntimeError):

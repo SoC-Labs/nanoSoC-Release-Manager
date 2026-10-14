@@ -17,7 +17,7 @@ from typing import Iterable
 __all__ = ["Version", "parse", "parse_tag", "is_release_tag", "bump", "implied_class", "CLASSES", "CLASS_RANK", "max_class",
            "Range", "RangeError", "SEMVER_RX"]
 
-SEMVER_RX = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$")
+SEMVER_RX = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?\Z")
 CLASSES = ("none", "fix", "feature", "breaking")                 # C2, least to most severe
 CLASS_RANK = {c: i for i, c in enumerate(CLASSES)}
 
@@ -141,7 +141,7 @@ class RangeError(ValueError):
     """A range the Cargo syntax does not allow."""
 
 
-_COMPARATOR = re.compile(r"^\s*(\^|~|=|<=|>=|<|>)?\s*v?(\*|\d+)(?:\.(\*|\d+))?(?:\.(\*|\d+))?(?:-([0-9A-Za-z.-]+))?\s*$")
+_COMPARATOR = re.compile(r"^\s*(\^|~|=|<=|>=|<|>)?\s*v?(\*|\d+)(?:\.(\*|\d+))?(?:\.(\*|\d+))?(?:-([0-9A-Za-z.-]+))?\s*\Z")
 
 
 def _bounds(op: str, parts: list[str | None], pre: str | None) -> list[tuple[str, Version]]:

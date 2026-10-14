@@ -211,9 +211,6 @@ def test_an_unreadable_lock_reads_as_no_lock(tmp_path, text):
     (lock or {}).get("pins")                                      # what _notes and verify do with it
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-5: SEMVER and the id patterns end in `$`, which matches before a "
-                                       "trailing newline: version '1.0.0\\n' and configuration 'eth\\n' are accepted "
-                                       "(releases/core.py SEMVER/_ID; jobs._ID; release-draft job params)")
 @pytest.mark.parametrize("what", ["parse_version", "is_safe_id", "draft_job", "job_id"])
 def test_a_trailing_newline_is_not_a_version_or_an_id(cfg, what):
     from nanosoc_rm import jobs

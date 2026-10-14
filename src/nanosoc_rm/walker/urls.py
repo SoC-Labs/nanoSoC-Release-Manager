@@ -19,7 +19,7 @@ import urllib.parse
 
 __all__ = ["classify", "host_names", "join_relative", "repo_url"]
 
-_SCP = re.compile(r"^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[^:/]+):(?P<path>.+)$")
+_SCP = re.compile(r"^(?P<user>[A-Za-z0-9._-]+)@(?P<host>[^:/]+):(?P<path>.+)\Z")
 
 
 def _strip(path: str) -> str:

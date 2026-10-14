@@ -8,8 +8,8 @@ from nanosoc_rm.jobs import JobUsage, register_kind
 
 __all__ = ["params", "args"]
 
-_TARGET = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
-_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./@+-]{0,199}$")
+_TARGET = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
+_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./@+-]{0,199}\Z")
 
 
 def params(p: dict) -> dict:

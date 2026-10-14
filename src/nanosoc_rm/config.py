@@ -34,8 +34,8 @@ HOST_KEYS = ("github", "gitlab")                      # defs.schema.json#/$defs/
 
 _STR, _INT, _BOOL = "str", "int", "bool"
 _STRS, _INTS, _TABLE = "list[str]", "list[int]", "table"
-_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-_HHMM = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
+_HHMM = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]\Z")
 
 # section -> key -> type. Sections with free keys (hosts, credentials, stores, roles) are checked below.
 _SECTIONS: dict[str, dict[str, str]] = {
@@ -57,7 +57,7 @@ _KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth"}
 AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
 _AUTH = {"mode": _STR, "users": "list[table]"}
 _AUTH_USER = {"login": _STR, "hash": _STR, "roles": _STRS}
-_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 # Keys holding a filesystem path, resolved against the config file's directory.
 _PATH_KEYS = (("service", "data_dir"), ("registry", "path"), ("session", "secret_file"), ("paths", "quarantine"),
               ("quality", "api_key_file"), ("regen", "work_dir"))

@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterator
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError, validators
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
@@ -47,6 +48,53 @@ def schemas_dir() -> Path:
         if (d / "defs.schema.json").is_file():
             return d
     raise FileNotFoundError("contract schemas not found in %s or %s" % (_PACKAGED, _IN_REPO))
+
+
+def ecma_anchors(pattern: str) -> str:
+    """`pattern` with every `$` anchor (outside a character class, unescaped) written as `\\Z`. JSON Schema
+    patterns are ECMA-262, where `$` matches only at the end of the string; Python's `$` also matches before a
+    final newline, so `^[0-9]+$` would accept "1\\n" (ROB-coverage-5)."""
+    out, i, in_class = [], 0, False
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            out.append(pattern[i:i + 2])
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+            if pattern[i + 1:i + 2] == "^":
+                out.append("[^")
+                i += 2
+                if pattern[i:i + 1] == "]":
+                    out.append("]")
+                    i += 1
+                continue
+            if pattern[i + 1:i + 2] == "]":
+                out.append("[]")
+                i += 2
+                continue
+        elif c == "$":
+            c = r"\Z"
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+@functools.lru_cache(maxsize=None)
+def _ecma(pattern: str) -> re.Pattern:
+    return re.compile(ecma_anchors(pattern))
+
+
+def _pattern(validator, pattern, instance, schema):
+    if validator.is_type(instance, "string") and not _ecma(pattern).search(instance):
+        yield ValidationError("%r does not match %r" % (instance, pattern))
+
+
+# Draft 2020-12 with the `pattern` keyword read with ECMA-262 anchors (see ecma_anchors).
+_Validator = validators.extend(Draft202012Validator, {"pattern": _pattern})
 
 
 @functools.lru_cache(maxsize=1)
@@ -78,7 +126,7 @@ def validator(schema_name: str, pointer: str | None = None) -> Draft202012Valida
     schema = schemas[schema_name]
     if pointer:
         schema = {"$ref": schema["$id"] + "#" + pointer}
-    return Draft202012Validator(schema, registry=registry)
+    return _Validator(schema, registry=registry)
 
 
 def validate(schema_name: str, doc: Any, pointer: str | None = None) -> list[str]:

@@ -54,8 +54,8 @@ STAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?")
 _ERROR = re.compile(r"\b(error|fatal|traceback|unrecognized)\b", re.I)
 _COVERAGE = re.compile(r"(skipping|skipped|not set|not installed|not found)", re.I)
 _CACHE_VERSION = 2
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 # A host-environment failure, not the generator's verdict on the consumer: a module or a tool missing here
 _HOST_ENV = re.compile(r"(ModuleNotFoundError|No module named|ImportError|command not found|"
                        r"cannot execute binary file)")

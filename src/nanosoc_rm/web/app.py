@@ -347,7 +347,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         if c is None:
             return not_found(request, "configuration")
         q = request.query_params
-        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(q.get("job"))) is not None else None
         return page(request, "configuration.html", "Configuration %s" % id, problems=problems, c=c,
                     job_html=job_fragment(request, job).body.decode() if job else "")
 
@@ -528,8 +528,8 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         problems = registry_problems(config)
         q = request.query_params
         job = None
-        if (q.get("job") or "").isdigit():
-            job = jobs.get(config, int(q["job"]))
+        if (n := jobs.parse_id(q.get("job"))) is not None:
+            job = jobs.get(config, n)
             if job is None:
                 return not_found(request, "job")
         cid = q.get("configuration") or (job["params"].get("configuration") if job else None)
@@ -565,21 +565,21 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
 
     def job_fragment_route(request: Request, id: str) -> Response:
         config, _ = _ctx(request)
-        job = jobs.get(config, int(id)) if id.isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(id)) is not None else None
         if job is None:
             return PlainTextResponse("404 Not Found: no such job", 404)
         return job_fragment(request, job)
 
     def job_log(request: Request, id: str) -> Response:
         config, _ = _ctx(request)
-        job = jobs.get(config, int(id)) if id.isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(id)) is not None else None
         if job is None:
             return PlainTextResponse("404 Not Found: no such job", 404)
         return PlainTextResponse(jobs.log_text(config, job["id"]) or "(no output yet)")
 
     async def post_cancel(request: Request, id: str) -> Response:
         config, ident = _ctx(request)
-        job = jobs.get(config, int(id)) if id.isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(id)) is not None else None
         if job is None:
             return PlainTextResponse("404 Not Found: no such job", 404)
         job = await run_in_threadpool(jobs.cancel, config, job["id"], ident.login)
@@ -650,7 +650,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
     def mirrors_page(request: Request) -> HTMLResponse:
         config, _ = _ctx(request)
         q = request.query_params
-        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(q.get("job"))) is not None else None
         rows = views.mirrors(config)
         return page(request, "mirrors.html", "Mirrors", rows=rows, summary=views.mirror_summary(rows),
                     job=job, job_html=job_fragment(request, job).body.decode() if job else "",

@@ -28,7 +28,7 @@ from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, EXIT_USAG
 __all__ = ["register", "JOB_KINDS", "ensure_job_kinds"]
 
 _EXIT = {"PASS": EXIT_OK, "WARN": EXIT_OK, "FAIL": EXIT_FINDING, "UNVERIFIED": EXIT_UNVERIFIED}
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
 
 
 def _guard(fn):

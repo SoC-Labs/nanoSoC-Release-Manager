@@ -13,9 +13,9 @@ __all__ = ["ReleaseUsage", "ReleaseError", "LADDER", "ladder", "exit_for", "rele
            "check", "md5_file", "md5_bytes", "SEMVER", "RELEASE_TAG", "parse_version", "is_safe_id",
            "read_json", "DRAFT_FILE", "PUBLISH_NOTE"]
 
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-RELEASE_TAG = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
-_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+RELEASE_TAG = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
+_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")
 LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
 DRAFT_FILE = "draft.json"
 # Every page and every generated file says this (hard rule: the tool never pushes, tags or publishes).

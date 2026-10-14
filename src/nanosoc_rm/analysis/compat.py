@@ -39,7 +39,7 @@ from nanosoc_rm import clock
 __all__ = ["compat", "parse_pins", "CompatUsage", "exit_for", "ladder", "GATE_COLUMNS", "UPGRADE_NOT_RUN",
            "FORCED_NOTE"]
 
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 # per-pin item columns: gate id -> short column name
 GATE_COLUMNS = {"t0.pins.fetchable": "fetchable", "t0.pins.reachable": "reachable", "t0.urls.no-ssh-public": "no_ssh",
                 "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor",

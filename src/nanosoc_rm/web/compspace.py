@@ -18,6 +18,7 @@ Pure helpers (unit-tested): `sentence`, `branch_why`, `branch_view`, `pin_meanin
 """
 from __future__ import annotations
 
+import re
 import urllib.parse
 from typing import Any
 
@@ -544,7 +545,7 @@ def _review_page(request: Request, id: str) -> Response:
     if bad is not None:
         return bad
     q = request.query_params
-    i = int(q["i"]) if (q.get("i") or "").isdigit() else None
+    i = int(q["i"]) if re.fullmatch(r"[0-9]{1,9}", q.get("i") or "") else None   # ASCII digits only
     obs, st, _ = _review_model(request, comp, i, q.get("commit") or None)
     return _workspace(request, comp, "review", "comp_review.html", obs=obs, st=st)
 

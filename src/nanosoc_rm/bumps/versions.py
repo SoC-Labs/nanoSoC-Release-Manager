@@ -19,8 +19,8 @@ from dataclasses import dataclass
 __all__ = ["Version", "RangeError", "parse_tag", "parse_version", "allows", "TAG_RX"]
 
 TAG_RX = re.compile(r"^(?P<v>[vV]?)(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)(?:\.(?P<patch>0|[1-9][0-9]*))?"
-                    r"(?P<pre>-[0-9A-Za-z.-]+)?$")
-_PART = re.compile(r"^(0|[1-9][0-9]*|\*|x|X)$")
+                    r"(?P<pre>-[0-9A-Za-z.-]+)?\Z")
+_PART = re.compile(r"^(0|[1-9][0-9]*|\*|x|X)\Z")
 
 
 class RangeError(ValueError):
@@ -124,7 +124,7 @@ def _bounds(op: str, nums: list[int | None]) -> list[tuple[str, tuple[int, int, 
     raise RangeError("unknown operator %r" % op)
 
 
-_CMP = re.compile(r"^\s*(\^|~|=|>=|<=|>|<)?\s*([0-9vV*xX][0-9A-Za-z.*+-]*)\s*$")
+_CMP = re.compile(r"^\s*(\^|~|=|>=|<=|>|<)?\s*([0-9vV*xX][0-9A-Za-z.*+-]*)\s*\Z")
 
 
 def comparators(range_text: str) -> list[tuple[str, list[int | None], str]]:

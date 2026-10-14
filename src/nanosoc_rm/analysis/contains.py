@@ -35,7 +35,7 @@ from nanosoc_rm.gitrun import run_git
 __all__ = ["contains", "resolve_commit", "ANSWERS"]
 
 ANSWERS = ("yes", "partial", "no", "absent", "unknown")
-_HEX = re.compile(r"^[0-9a-f]{4,40}$")
+_HEX = re.compile(r"^[0-9a-f]{4,40}\Z")
 
 
 def _commits_in(mirror: Path, prefix: str) -> tuple[list[str], dict]:

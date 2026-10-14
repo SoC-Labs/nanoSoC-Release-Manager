@@ -20,7 +20,7 @@ __all__ = ["params", "cli_args", "outcome", "limit_s", "LIMIT_S", "ACTION"]
 ACTION = "run_t0"                 # a matrix cell is a T0 run: submitting one is logged like Run (H2)
 
 LIMIT_S = 3600                    # two compat T0 runs (the D8 re-run) at the worker's 30-minute ceiling each
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
 
 
 def params(p: dict) -> dict:

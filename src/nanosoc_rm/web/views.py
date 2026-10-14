@@ -29,8 +29,8 @@ RED_STATES = {"LOCAL_URL", "NO_GITLINK", "UNREADABLE", "REWRITTEN", "PR_ONLY", "
 PIN_LEVEL_RED = {"LOCAL_URL", "NO_GITLINK"}
 # Section 13 "host drift": AHEAD, BEHIND, DIVERGED or UNRELATED. UNKNOWN is shown as unknown, not as drift.
 DRIFT_RELATIONS = {"AHEAD", "BEHIND", "DIVERGED", "UNRELATED"}
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
-_SHA_PREFIX = re.compile(r"^[0-9a-f]{4,40}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
+_SHA_PREFIX = re.compile(r"^[0-9a-f]{4,40}\Z")
 
 
 def is_valid_id(s: str) -> bool:

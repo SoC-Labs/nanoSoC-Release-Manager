@@ -22,7 +22,7 @@ from nanosoc_rm.gitrun import GitResult, run_git
 __all__ = ["FileEntry", "Source", "GitSource", "WorktreeSource", "SourceError", "parse_gitmodules"]
 
 GIT_TIMEOUT_S = 300
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 
 
 class SourceError(LookupError):
