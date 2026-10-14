@@ -302,6 +302,12 @@ def test_the_page_shows_words_and_the_post_queues_a_job(estate, tmp_path, monkey
     assert page.status_code == 200
     row = re.search(r'<tr data-configuration="top-v1" data-verdict="frozen">.*?</tr>', page.text, re.S).group(0)
     assert ">Frozen<" in row and "would be outdated if live; not counted" in row
+    assert len(re.findall(r'class="pill ', row)) == 1, "a frozen tree's age gets no Fresh/Aging/Stale pill"
+    assert re.search(r"Frozen \d+ d ago", row), "a frozen tree's age is how long ago it was frozen"
+    head = page.text[:page.text.index("<table data-freshness")]
+    head = head[head.index('data-freshness-scan'):]
+    assert 'class="note"' not in head and 'class="panel"' not in head.split("<details")[0], \
+        "one compact toolbar; the explanations live behind How is this judged?"
     assert 'data-subject="freshness:top-main"' in page.text and "data-age-seconds" in page.text
     for m in re.finditer(r'<span class="pill (state-\w+)">([^<]*)<', page.text):
         assert m.group(2).strip(), "a state pill without its word"
@@ -315,3 +321,66 @@ def test_the_page_shows_words_and_the_post_queues_a_job(estate, tmp_path, monkey
     from nanosoc_rm.config import load_config
     q = jobs.jobs(load_config(shadow.config), kind="freshness-scan")
     assert [j["params"] for j in q] == [{"configuration": None}]
+
+
+# ----- a frozen tree never reads as lagging; the registry decides what is listed (review F1-F4) --------------------
+def test_a_frozen_tree_keeps_its_lag_only_under_would_be():
+    pins = [_pin(12, 200, path="a"), _pin(1, 5, path="b"), _pin(30, 300, depth=2, path="a/deep")]
+    j = rules.judge_tree(True, pins, TODAY)
+    assert set(j["counts"].values()) == {0}, "a frozen tree counts no pin in any state"
+    assert j["would_be_counts"]["outdated"] == 2 and j["would_be_counts"]["behind"] == 1
+    assert j["worst_lagging"] is None and j["stalest_lagging"] is None
+    assert j["would_be_worst_lagging"]["tree_path"] == "a/deep" and j["would_be_stalest_lagging"]["days"] == 300
+    assert j["age"] is None and j["updated_days"] == 5, "frozen on purpose: no Fresh/Aging/Stale grade"
+    live = rules.judge_tree(False, pins, TODAY)
+    assert live["would_be_counts"] is None and live["would_be_worst_lagging"] is None and live["age"] == "fresh"
+
+
+def test_every_node_of_a_frozen_tree_rolls_up_frozen(estate):
+    from nanosoc_rm.freshness import view
+    with estate["env"].active():
+        t = view.tree("top-v1", today=TODAY)
+        later = {s["configuration"]: s for s in view.trees(today=TODAY + D(days=400))}
+    assert {n["rollup"] for n in t["nodes"]} == {"frozen"} and {n["rollup_word"] for n in t["nodes"]} == {"Frozen"}
+    mid = next(n for n in t["nodes"] if n["tree_path"] == "mid")
+    assert mid["would_be_rollup"] == "outdated" and mid["rollup_behind"] == 11
+    assert later["top-v1"]["age"] is None and later["top-v1"]["age_word"] is None
+    assert later["top-main"]["age_word"] == "Stale"
+    p = estate["env"].cli("freshness", "show", "top-v1", "--tree", "--today", TODAY.isoformat())
+    assert p.returncode == 0, p.stderr
+    assert "Outdated" not in p.stdout and "Behind" not in p.stdout, p.stdout
+
+
+def test_the_registry_decides_which_trees_are_listed_and_which_are_frozen(estate, tmp_path):
+    import shutil
+    import subprocess
+    import yaml
+    from nanosoc_rm.freshness import view
+    reg = tmp_path / "registry"
+    shutil.copytree(estate["fx"]["registry"], reg)
+    el = yaml.safe_load((reg / "eligibility.yaml").read_text())
+    el["configurations"] = [c for c in el["configurations"] if c["id"] != "calm-main"]
+    for c in el["configurations"]:
+        if c["id"] == "top-main":
+            c.update(frozen=True, commit=estate["fx"]["c2"])
+    (reg / "eligibility.yaml").write_text(yaml.safe_dump(el, sort_keys=False))
+    subprocess.run(["git", "init", "-q", "-b", "main", str(reg)], check=True)
+    subprocess.run(["git", "-C", str(reg), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(reg), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm",
+                    "registry"], check=True)
+    shadow = at_pins().make_shadow(estate["env"], tmp_path / "shadow")
+    env = at_pins().ToolEnv(tmp_path / "env", at_pins().service_config(registry=reg, data_dir=shadow.data_dir,
+                                                                      base=shadow.cfg), shadow.data_dir, reg)
+    with env.active():
+        from nanosoc_rm.config import load_config
+        from nanosoc_rm.web import registry_facts
+        before = [s["configuration"] for s in view.trees(today=TODAY)]       # the registry never read: as stored
+        assert registry_facts.refresh(load_config()) == []                    # what every page GET does first
+        names = [s["configuration"] for s in view.trees(today=TODAY)]
+        g = view.grid(today=TODAY)
+        top = view.tree("top-main", today=TODAY)
+        gone = view.tree("calm-main", today=TODAY)
+    assert "calm-main" in before
+    assert "calm-main" not in names and "calm-main" not in g["configurations"] and gone is None
+    assert top["tree"]["state"] == "frozen" and top["tree"]["would_be"] == "outdated"
+    assert {n["state"] for n in top["nodes"]} == {"frozen"} and g["cells"]["lib"]["top-main"]["counted"] is False

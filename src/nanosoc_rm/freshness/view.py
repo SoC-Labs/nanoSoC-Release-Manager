@@ -30,11 +30,38 @@ def _today(today: dt.date | None) -> dt.date:
     return today or clock.now().date()
 
 
+def _registered(config: Config) -> dict[str, tuple[bool, bool]] | None:
+    """{configuration id: (frozen, silicon)} from the stored registry records (`registry_record`, kept current by
+    the pages' registry refresh), frozen as scan.py decides it (frozen or silicon). None when no configuration
+    registry record is stored at all (the registry was never read): then the stored scans are shown as they are."""
+    docs = db.latest("registry_record", config=config)
+    if not docs:
+        return None
+    recs = [d["fact"]["record"] for d in docs if d["fact"].get("record_kind") == "configuration"]
+    return {c["id"]: (bool(c.get("frozen") or c.get("silicon")), bool(c.get("silicon"))) for c in recs}
+
+
 def stored(*, config: Config | str | Path | None = None) -> dict[str, list[dict]]:
-    """The current freshness documents per configuration: the tree document first, then its pins by tree path."""
+    """The current freshness documents per configuration: the tree document first, then its pins by tree path.
+
+    Only configurations in the stored registry records are listed (a configuration dropped from eligibility.yaml
+    leaves the pages once the registry is re-read, though its scan snapshot stays), and `frozen` / `silicon` come
+    from those records, so marking a configuration frozen shows on the next page draw, not after the next scan.
+    With no stored registry record at all, every stored scan is listed as stored."""
+    registered = _registered(config)
     out: dict[str, list[dict]] = {}
     for d in db.latest(KIND, config=config):
-        out.setdefault(d["fact"]["configuration"], []).append(d)
+        cid = d["fact"]["configuration"]
+        if registered is not None and cid not in registered:
+            continue
+        frozen, silicon = registered[cid] if registered is not None else (d["fact"]["frozen"], None)
+        if d["fact"].get("frozen") != frozen or (d["fact"]["level"] == "tree" and silicon is not None
+                                                 and d["fact"].get("silicon") != silicon):
+            fact = dict(d["fact"], frozen=frozen)
+            if fact["level"] == "tree" and silicon is not None:
+                fact["silicon"] = silicon
+            d = dict(d, fact=fact)
+        out.setdefault(cid, []).append(d)
     for cid, docs in out.items():
         docs.sort(key=lambda d: (d["fact"]["level"] != "tree", d["fact"].get("tree_path") or ""))
     return out
@@ -107,19 +134,22 @@ def _nodes(docs: list[dict], today: dt.date) -> list[dict]:
         return 1 if not r["parent_path"] else 1 + depth(by[r["parent_path"]])
 
     def roll(r):
-        if "rollup" in r:
-            return r["rollup"], r["rollup_behind"]
+        if "_live_rollup" in r:
+            return r["_live_rollup"], r["rollup_behind"]
         states, most = [r["live"]], r["behind"] or 0
         for c in r["children"]:
             s, b = roll(by[c])
             states.append(s)
             most = max(most, b)
-        r["rollup"], r["rollup_behind"] = rules.worst(states), most
-        return r["rollup"], most
+        r["_live_rollup"], r["rollup_behind"] = rules.worst(states), most
+        return r["_live_rollup"], most
 
     for r in rows:
         r["display_depth"] = depth(r)
         roll(r)
+    for r in rows:                     # a frozen tree's nodes roll up Frozen; the live answer is would_be_rollup
+        live = r.pop("_live_rollup")
+        r["rollup"], r["would_be_rollup"] = ("frozen", live) if r["frozen"] else (live, None)
         r["rollup_word"] = rules.WORDS[r["rollup"]]
     order: list[dict] = []
 
@@ -140,7 +170,8 @@ def tree(configuration: str, *, today: dt.date | None = None,
     behind, ahead, lower_bound, on_default, diverged, unmerged, reachable, unpushed, branches, branches_more,
     upstream {repo, default_branch, head, head_date}, bump {commit, date, author, subject, total}, not_measured,
     caveat, state / would_be / live / lagging / days_since_bump / pin_age_days (rules.judge_pin), word,
-    would_be_word, rollup (worst live state at or under it) and rollup_word, rollup_behind, subject, observed_at."""
+    would_be_word, rollup (worst live state at or under it; `frozen` on every node of a frozen tree, which carries
+    the live answer as would_be_rollup, else None) and rollup_word, rollup_behind, subject, observed_at."""
     docs = stored(config=config).get(configuration)
     if not docs or docs[0]["fact"]["level"] != "tree":
         return None

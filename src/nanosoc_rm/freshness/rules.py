@@ -111,8 +111,14 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
     state      `frozen` for a frozen configuration, else the worst direct pin (`not_measured` with no pins)
     would_be   a frozen configuration's live verdict (never counted), else None
     counts     pins per live state over the whole tree; `lagging`/`direct_lagging` count unpushed, outdated and
-               behind pins, and are 0 for a frozen configuration (`would_be_lagging` keeps its numbers)
+               behind pins
+    worst_lagging / stalest_lagging   the lagging pin most behind, and the one waiting longest
     updated_days / age   days since the newest bump in the whole tree, and its Fresh/Aging/Stale word
+
+    A frozen configuration is old on purpose and never reads as lagging: its counts are all 0, worst_lagging,
+    stalest_lagging and age are None, and the live numbers sit under would_be_counts, would_be_lagging,
+    would_be_direct_lagging, would_be_worst_lagging and would_be_stalest_lagging (None for a live one).
+    updated_days stays as a fact.
     """
     judged = [(p, judge_pin(p, today)) for p in pins]
     direct = [(p, j) for p, j in judged if p.get("depth") == 1]
@@ -135,13 +141,17 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
                   key=lambda r: (r[1]["days_since_bump"], r[0].get("behind") or 0), default=None)
     worst_lag = max(lag_all, key=lambda r: (SEVERITY[r[1]["live"]], r[0].get("behind") or 0), default=None)
     nb = newest(bumped)
+    stalest_fact = dict(_pick(*stalest, "behind"), days=stalest[1]["days_since_bump"],
+                        state=stalest[1]["live"]) if stalest else None
+    worst_fact = dict(_pick(*worst_lag, "behind", "lower_bound"), state=worst_lag[1]["live"]) if worst_lag else None
     return {
         "state": "frozen" if frozen else live_verdict,
         "would_be": live_verdict if frozen else None,
         "counted": not frozen,
         "pins": len(pins),
         "direct": len(direct),
-        "counts": counts,
+        "counts": {k: 0 for k in counts} if frozen else counts,
+        "would_be_counts": counts if frozen else None,
         "lagging": 0 if frozen else len(lag_all),
         "direct_lagging": 0 if frozen else len(lag_direct),
         "would_be_lagging": len(lag_all) if frozen else None,
@@ -151,10 +161,10 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
         "newest_bump": nb,
         "newest_direct_bump": newest(bumped_direct),
         "updated_days": nb["days"] if nb else None,
-        "age": age_word(nb["days"] if nb else None),
-        "stalest_lagging": dict(_pick(*stalest, "behind"), days=stalest[1]["days_since_bump"],
-                                state=stalest[1]["live"]) if stalest else None,
-        "worst_lagging": dict(_pick(*worst_lag, "behind", "lower_bound"), state=worst_lag[1]["live"])
-        if worst_lag else None,
+        "age": None if frozen else age_word(nb["days"] if nb else None),
+        "stalest_lagging": None if frozen else stalest_fact,
+        "worst_lagging": None if frozen else worst_fact,
+        "would_be_stalest_lagging": stalest_fact if frozen else None,
+        "would_be_worst_lagging": worst_fact if frozen else None,
     }
 
