@@ -128,6 +128,21 @@ def test_a_child_tree_missing_from_its_mirror_never_drops_the_pins_below_it(at_p
         d["fact"]["tree_paths"] for d in docs]
 
 
+def test_a_subtree_missing_under_a_readable_root_is_walkerror_not_absent(at_pins, h):
+    """Review of ROB-faults-9: mid's root tree (and its .gitmodules) reads, but the `deps` tree that holds the
+    leaf's gitlink is gone. The per-path `ls-tree` fails; that is WalkError, never "the pin is absent"."""
+    fx = build(at_pins, h)
+    env = fx["env"]
+    with env.active():
+        at_pins.rm("walker.walk")("top-main")                     # a good walk is stored first
+    sub = git("--git-dir", env.mirror("mid"), "rev-parse", fx["mid"] + ":deps", env=h.env)
+    explode_and_drop(env.mirror("mid"), sub, h, h.bare(GL, "soclabs/mid"))
+    with env.active():
+        with pytest.raises(WalkError, match="cannot read deps/leaf"):
+            at_pins.rm("walker.walk")("top-main")
+    assert walk_rows(env) == {"a", "a/deps/leaf"}                 # the last good walk is still the current one
+
+
 def test_a_gitmodules_blob_with_its_host_down_is_walkerror_and_stores_nothing(at_pins, h):
     """The mirror is blobless (filter=blob:none): .gitmodules arrives by lazy fetch. With the host gone that fetch
     fails, and the walk must say so (exit 2) instead of reading the tree as having no submodules."""

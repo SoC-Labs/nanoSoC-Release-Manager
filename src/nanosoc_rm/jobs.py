@@ -492,7 +492,7 @@ _LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
 def _worse(a: str, b: str) -> str:
     """The worse of two run verdicts on the README section 6 ladder (an unknown verdict counts as UNVERIFIED)."""
     rank = {v: n for n, v in enumerate(_LADDER)}
-    return min(a, b, key=lambda v: rank.get(v, rank["UNVERIFIED"]))
+    return min((v if v in rank else "UNVERIFIED" for v in (a, b)), key=rank.__getitem__)
 
 
 def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:

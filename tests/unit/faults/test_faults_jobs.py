@@ -72,7 +72,8 @@ def test_a_compat_job_that_exits_1_after_printing_pass_is_not_pass(cfg, monkeypa
 
 
 @pytest.mark.parametrize("printed, rc, want", [("FAIL", 0, "FAIL"), ("INFRA", 0, "INFRA"), ("WARN", 2, "UNVERIFIED"),
-                                                ("UNVERIFIED", 1, "FAIL"), ("WAIVED", 0, "WAIVED"), ("FAIL", 1, "FAIL")])
+                                                ("UNVERIFIED", 1, "FAIL"), ("WAIVED", 0, "WAIVED"), ("FAIL", 1, "FAIL"),
+                                                ("NOT-A-VERDICT", 0, "UNVERIFIED")])
 def test_a_compat_verdict_is_never_greener_than_its_exit_code(printed, rc, want):
     """ROB-faults-1, the rule: when the exit code and the printed verdict disagree the worse one stands; when they
     agree the printed verdict stands unchanged."""

@@ -155,3 +155,18 @@ def test_non_json_200_for_commit_is_not_orphan(monkeypatch):
                         "/repository/commits/%s/merge_requests" % COMMIT: (200, [], {})})
     with pytest.raises(WalkError):
         _judge()._ask_host(GL_REPO, COMMIT, [])
+
+
+# Each rate-limit signal on its own (review of ROB-soak-1/2): RATE_LIMITED above carries several at once, so a fix
+# that read only one of them would still pass the tests above.
+@pytest.mark.parametrize("status, body, headers", [
+    (429, None, {}),                                                         # any 429 (GitLab, GitHub secondary)
+    (403, None, {"retry-after": "60"}),                                      # GitHub secondary limit
+    (403, {"message": "You have exceeded a secondary rate limit."}, {}),     # message only
+    (429, {"message": "Retry later"}, {"ratelimit-remaining": "0"}),         # GitLab header
+    (403, None, {"ratelimit-remaining": "0"}),                               # GitLab header on a 403
+], ids=["429", "retry-after", "message", "gitlab-429", "gitlab-header"])
+def test_each_rate_limit_signal_alone_is_could_not_answer(monkeypatch, status, body, headers):
+    _stub(monkeypatch, {"/repository/commits/" + COMMIT: (status, body, headers)})
+    with pytest.raises(WalkError, match="rate limit"):
+        _judge()._ask_host(GL_REPO, COMMIT, [])
