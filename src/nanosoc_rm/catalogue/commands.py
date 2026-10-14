@@ -3,7 +3,8 @@
     catalogue show     [PATH] [--group G]... [--gaps] [--unconfirmed] [--json]
                        one row per component: group, type, role, wraps, wrapped_by, unconfirmed fields, the open
                        question; `--gaps` keeps the SoCs no forkable project wraps. Exit 0; 1 with --gaps when
-                       any gap exists.
+                       any gap exists; 2 with --gaps when a soc_ref entry has no stated group (the check cannot
+                       see an uncharacterised SoC, so "no gap" is UNVERIFIED).
     catalogue org-scan [--host github|gitlab]... [--store] [--json]
                        anonymous listing of the org and the group; one repo_seen per repo not in the catalogue.
                        Exit 0 nothing new, 1 new repos seen, 2 a host could not be listed.
@@ -57,7 +58,7 @@ def register(main: click.Group) -> None:
     @json_option
     def show_cmd(path: Path | None, groups: tuple[str, ...], gaps: bool, unconfirmed: bool, as_json: bool) -> int:
         """Every component as the front page groups it (section 23.1)."""
-        from nanosoc_rm.catalogue.model import GROUPS, socs_without_forkable_project
+        from nanosoc_rm.catalogue.model import GROUPS, gap_unverified, socs_without_forkable_project
         bad = [g for g in groups if g not in GROUPS]
         if bad:
             raise click.UsageError("--group %s is not one of %s" % (bad[0], ", ".join(GROUPS)))
@@ -68,6 +69,13 @@ def register(main: click.Group) -> None:
                 and (not unconfirmed or ch.unconfirmed)]
         emit(docs, as_json, ("id", "group", "type", "role", "wraps", "inside", "unconfirmed", "gap", "question"),
              _show_row)
+        if gaps:
+            blind = gap_unverified(chars)
+            if blind:
+                click.echo("catalogue show: gap check UNVERIFIED: %d soc_ref entr%s with no stated group (%s); "
+                           "an uncharacterised SoC reads as a project" % (
+                               len(blind), "y" if len(blind) == 1 else "ies", ", ".join(blind)), err=True)
+                return EXIT_UNVERIFIED
         return EXIT_FINDING if gaps and docs else EXIT_OK
 
     @group.command("org-scan")

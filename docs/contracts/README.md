@@ -121,8 +121,10 @@ JSON Schema checks one document. The registry loader (interfaces.md section 2) a
     already refuses a tier command that sources a set_env.sh. (D1)
 
 15. **Characterisation** (CR-WF-catalogue). A `wraps` id that is not another catalogue component, or whose group
-    the wrapper may not wrap (a project wraps a soc or subsystem; a soc wraps a subsystem or component; the
-    target's group explicit or derived from its class); `group: legacy` without `class: legacy`, or the reverse;
+    the wrapper may not wrap (a project wraps a soc, a subsystem or its own project-level component; a soc wraps
+    a subsystem or component; the target's group explicit or derived from its class); a stated `group` with a
+    class that group may not carry (`model.GROUP_CLASSES`: so `group: legacy` exactly with `class: legacy`, and
+    group and class never drift apart);
     a `guessed` field the entry does not have (`type`/`role` off the ladder groups, `wraps` without wraps,
     `inside` off soc and subsystem). The schema already ties `type`/`role` to the ladder groups and refuses a
     `question` without `guessed`. (A1, B1)
