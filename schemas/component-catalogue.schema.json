@@ -37,7 +37,7 @@
       "items": { "$ref": "#/$defs/vendor_allow" }
     },
     "foundry_rules": {
-      "description": "CR-6 (the vendor gate split; David 2026-10-13, chat: work autonomously): the severity of a foundry-family scanner rule (every rule but arm.*, file.sha, ident and scan.unscannable: foundry file types, values, site paths, licence servers, big files; ident is arm-family because it also reports Arm product codes). t0.vendor.no-foundry-data reports an uncovered finding of a rule listed here with `severity: fail` as FAIL; any other foundry finding is WARN (amber, never FAIL). vendor_allowlist entries still apply first (`allow` clean, `warn` amber). Two entries for one rule: `fail` wins. Optional; added without a schema bump (README section 2 rule 4).",
+      "description": "CR-6 (the vendor gate split; David 2026-10-13, chat: work autonomously): the severity of a foundry-family scanner rule (every rule but arm.*, file.sha and scan.unscannable: foundry file types, values, site paths, licence servers, big files, and, CR-19 (David 2026-10-14, interactive), the toolkit's ident release/bundle-code rule). t0.vendor.no-foundry-data reports an uncovered finding of a rule listed here with `severity: fail` as FAIL; any other foundry finding is WARN (amber, never FAIL). vendor_allowlist entries still apply first (`allow` clean, `warn` amber). Two entries for one rule: `fail` wins. Optional; added without a schema bump (README section 2 rule 4).",
       "type": "array",
       "items": { "$ref": "#/$defs/foundry_rule" }
     }
@@ -52,7 +52,7 @@
           "description": "The scanner rule id as the scanner reports it (the toolkit's ids may have no dot).",
           "type": "string",
           "pattern": "^[a-z0-9][a-z0-9_-]*(\\.[a-z0-9][a-z0-9_-]*)*$",
-          "not": { "pattern": "^(arm\\..*|file\\.sha|ident|scan\\.unscannable)$" }
+          "not": { "pattern": "^(arm\\..*|file\\.sha|scan\\.unscannable)$" }
         },
         "severity": {
           "description": "`fail`: an uncovered finding of this rule FAILs the gate. `warn`: the default, written down.",

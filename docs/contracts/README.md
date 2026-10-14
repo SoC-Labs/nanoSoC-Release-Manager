@@ -236,10 +236,10 @@ the host, so nothing could judge foundry data) may skip.
 
 **The two vendor gates (CR-6).** One scan per tree feeds both; each rule belongs to one gate
 (`nanosoc_rm.scan.families`). `t0.vendor.no-arm-ip` judges Arm source (the Arm banner, a known vendor file by
-hash, a revision-coded release name, a file that could not be read): an uncovered finding is FAIL. The toolkit's
-`ident` rule is here because one rule id reports Arm product codes and Artisan library stems as well as foundry
-release names; so a foundry release name fails this gate unless the allowlist covers it. `t0.vendor.no-foundry-data`
-judges foundry data and site inventory (foundry file types, values, site paths, licence servers, big files): an uncovered finding
+hash, a file that could not be read): an uncovered finding is FAIL. `t0.vendor.no-foundry-data`
+judges foundry data and site inventory (foundry file types, values, site paths, licence servers, big files, and,
+CR-19, the toolkit's `ident` rule: release/bundle codes and product numbers in flists, tcl and CI files, which name
+a product but are not Arm source): an uncovered finding
 is WARN unless the catalogue's `foundry_rules` gives its rule `severity: fail`. So foundry and site-inventory
 findings show amber on every run that has them and stop no run, unless the registry owner marks a rule blocking.
 Both rows need a fired control like any other (D6); a foundry WARN row rolls up WARN by the table above.

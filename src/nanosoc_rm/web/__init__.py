@@ -14,7 +14,7 @@ from typing import Any
 __all__ = ["create_app"]
 
 
-def create_app(config_path: Any = None, auth: Any = None):
+def create_app(config_path: Any = None, auth: Any = None, *, tls: bool = False):
     """The FastAPI app. See nanosoc_rm.web.app.create_app."""
     from nanosoc_rm.web.app import create_app as _create_app
-    return _create_app(config_path, auth=auth)
+    return _create_app(config_path, auth=auth, tls=tls)

@@ -67,3 +67,5 @@ vendor_allowlist:
 foundry_rules:
   - {rule: value.example, severity: fail,
      reason: "example only: a transcribed foundry value is blocking", approved_by: David, approved_on: "2026-10-14"}
+  - {rule: ident, severity: warn,
+     reason: "CR-19: release/bundle codes in flists and tcl are amber, written down", approved_by: David, approved_on: "2026-10-14"}

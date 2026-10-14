@@ -466,7 +466,7 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 | `t0.urls.no-ssh-public` | no | no public parent (one that is fetchable anonymously) pins by an ssh URL (`git@…`, `ssh://…`) | a synthetic public parent with a `git@` URL | D2 |
 | `t0.manifest.valid` | yes | every `nanosoc-component.yaml` at every pinned commit validates against component-manifest v1. None anywhere → SKIP | the example manifest with `version: "1.0"` | D2, C11 |
 | `t0.clone.upgrade-path` | yes | if `upgrade_from`: anonymous recursive clone of it, check out `commit`, `git submodule update --init --recursive` **without** sync must resolve every pin; then `git submodule sync --recursive` and update again. No `upgrade_from` → SKIP | a synthetic pair where the second commit moves a submodule to a new URL and pins a commit the old URL does not serve (a host move whose old host was frozen: breaking under C8) | D2 |
-| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11) and judge the **arm** rule family (CR-6: `arm.banner` and any private `arm.*` rule, the toolkit's `file.sha` known-vendor-file hash, the toolkit's `ident` release-name rule (one rule id for Arm product codes, Arm/Artisan library stems and foundry release names, so fail-closed here; a foundry release name FAILs this gate unless the allowlist covers it), `scan.unscannable`; `nanosoc_rm.scan.families`). Findings of every other rule belong to `t0.vendor.no-foundry-data` and are not reported here. A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). **CR-9:** README section 6 rolls a WARN row with its control fired up as gate verdict **WARN** (amber); a warn-only run is WARN, never PASS and never FAIL. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
+| `t0.vendor.no-arm-ip` | no | scan every fetched tree at its pinned commit with the scanner (section 11) and judge the **arm** rule family (CR-6: `arm.banner` and any private `arm.*` rule, the toolkit's `file.sha` known-vendor-file hash, `scan.unscannable`; CR-19: the toolkit's `ident` release/bundle-code rule is foundry-family, so amber in `t0.vendor.no-foundry-data`, never red here; `nanosoc_rm.scan.families`). Findings of every other rule belong to `t0.vendor.no-foundry-data` and are not reported here. A tree that was not fetched is not scanned, so the gate is UNVERIFIED. **CR-6a:** a finding the catalogue `vendor_allowlist` covers with `allow` is clean (recorded as allowed in the item's `why`); one covered with `warn` keeps its item `pass` with a `why` starting `WARN:` and makes the row **WARN** when every finding in the run is warn-covered and every tree was scanned (FAIL > UNVERIFIED > WARN > PASS). **CR-9:** README section 6 rolls a WARN row with its control fired up as gate verdict **WARN** (amber); a warn-only run is WARN, never PASS and never FAIL. The allowlist comes from the registry checkout the job fetched; the item's `component` is the catalogue component of the pin's canonical repo | a scratch copy with a planted Arm banner file (its reserved URL names no catalogue component, so a `component` entry never covers it) | D2, D11 |
 | `t0.vendor.no-foundry-data` | yes | **CR-6.** The same scans (one scan per tree per run, shared with no-arm-ip), cut to the **foundry** rule family: every rule that is not arm-family, in practice the toolkit scanner's foundry and site-inventory rules (foundry file types, transcribed layer values, site paths, licence servers, big files) and any private rule not named `arm.*`. The catalogue `vendor_allowlist` applies first (`allow` clean, `warn` amber). An uncovered finding takes its rule's severity from the catalogue's optional `foundry_rules` (component-catalogue `$defs/foundry_rule`): `fail` makes the item `fail` and the row FAIL; any other rule is **WARN by default** (item `pass`, `why` starting `WARN:`; the row WARN, amber, never FAIL). Trees not fetched make it UNVERIFIED, as for no-arm-ip; a frozen configuration's no-arm-ip `not-reached` waiver covers the same tree here (README section 6, T0 waivers). No foundry rule on the host (no toolkit scanner and no private non-arm rule): SKIP `no foundry rule on this host: ...`, so NOT-RUN | a scratch copy holding a committed `negctl/planted.lef` (invented text; the toolkit's file-type rule) and each private foundry rule's specimen, judged with every foundry rule at severity `fail` (`Context.foundry_fail_all`): WARN is the policy, the control proves the detection can go red | D2, D11 |
 
 **Registry job** (`configuration: "@registry"`, `repo` = the registry repo, `commit` = its `main` head):
@@ -723,7 +723,7 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
      is never changed by the allowlist. `scan_dir` (bundles) takes no allowlist: a bundle is deleted or kept, never
      warned about. An `allow` entry wins over a `warn` entry for one finding.
   5. **CR-6, rule families** (`nanosoc_rm.scan.families`): `family(rule_id)` is `arm` for `arm.banner`, any
-     `arm.*` rule, `file.sha`, `ident` and `scan.unscannable`, else `foundry`; `split(res, family)` gives one family's view
+     `arm.*` rule, `file.sha` and `scan.unscannable`, else `foundry` (CR-19: `ident` is foundry); `split(res, family)` gives one family's view
      of a raw ScanResult (an `unverified` scan stays unverified in both). `scan_tree(..., shas=dict)` fills the
      blob id of each scanned file so the T0 gates apply the allowlist per family. `apply_allowlist(...,
      uncovered=fn)` takes the severity of an uncovered finding (`fn(rule) -> (severity, by)`; `warn` moves it to
@@ -731,7 +731,7 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
      (`scan.allowlist.load_foundry_rules`) gives a foundry rule `severity: fail|warn`; the default is warn.
 - **Rules:**
   - the toolkit scanner's rule set: foundry file, value and inventory shapes, and Arm product codes (CR-6: its
-    `file.sha` and `ident` are arm-family; the rest are foundry-family);
+    `file.sha` is arm-family; the rest, `ident` included (CR-19), are foundry-family);
   - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header. The toolkit scanner has no such rule. D11's done-when plants exactly this banner. Its specimen is invented; no vendor text is ever written into this repo.
 - **How it runs:** the toolkit scanner reads git trees. For a bundle directory, the tool builds a throwaway git repo over the extracted files and runs the scanner with `--rev HEAD`.
 
@@ -928,7 +928,11 @@ Requirements: A5, H2.
   removed from the config is signed out on its next request. Without `[session] secret_file` the secret is created
   once in `<data_dir>/session.secret` (0600). `/auth/logout` also takes a POST; `/auth/callback` is 404.
   `serve` refuses a non-loopback `--host` in local mode (exit 3) unless `--i-know-this-is-exposed`: the service is
-  reached through an SSH tunnel. GitHub mode (`mode = "github"`, the default) is unchanged.
+  reached through an SSH tunnel. **CR-20 (team access):** `serve --tls-cert PATH --tls-key PATH` serves HTTPS
+  (uvicorn `ssl_certfile`/`ssl_keyfile`); exit 3 when only one is given or either is not a readable file. A
+  non-loopback `--host` in local mode with `--i-know-this-is-exposed` is still refused (exit 3) without TLS unless
+  `--allow-plain-http` is given. With TLS on, every cookie the app sets is `Secure` (as for an https request).
+  Deployment: `docs/DEPLOY.md`, Team access over HTTPS. GitHub mode (`mode = "github"`, the default) is unchanged.
 
 ## 14a. Code and documentation quality (CR-14)
 
@@ -1325,7 +1329,8 @@ credential may exist before the Phase 4 entry gate is met.
 when unreadable. Drift raises a `runner_drift` alert.
 
 `nanosoc-rm user add LOGIN [--generate] [--role R]...` (CR-16): prints an `[[auth.users]]` stanza; exit 3 for a bad
-login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-know-this-is-exposed]` (section 13a).
+login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-know-this-is-exposed] [--tls-cert PATH --tls-key PATH] [--allow-plain-http]`
+(section 13a).
 
 `nanosoc-rm trace [--json]` (PR7): requirement → tests → commits, from the `requirement` markers and the
 `Requirements:` commit trailers.

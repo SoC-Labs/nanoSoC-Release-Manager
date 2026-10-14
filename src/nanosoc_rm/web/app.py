@@ -63,8 +63,9 @@ def _safe_next(value: str | None) -> str:
     return value
 
 
-def _cookie_secure(request: Request) -> bool:
-    return request.url.scheme == "https"
+def _cookie_secure(request: Request, state: "_State") -> bool:
+    """Cookies are `Secure` when this process serves TLS (CR-20, `serve --tls-cert`) or the request is https."""
+    return state.tls or request.url.scheme == "https"
 
 
 class _State:
@@ -76,6 +77,7 @@ class _State:
         self.page: Callable[..., HTMLResponse] | None = None
         self.throttle = authmod.Throttle()
         self.local_routes = False                         # CR-16/CR-17 POST routes registered (create_app)
+        self.tls = False                                  # CR-20: serve terminates TLS itself (create_app)
 
     def config(self) -> Config:
         return load_config(self.config_path)
@@ -133,7 +135,8 @@ class Guard:
             resp = PlainTextResponse("403 Forbidden: this service is open to active SoC-Labs members with a role "
                                      "in its configuration only", 403)
             if ident.refreshed:
-                _set_session(resp, self.state.sessions(config), ident.refreshed, secure=request.url.scheme == "https")
+                _set_session(resp, self.state.sessions(config), ident.refreshed,
+                             secure=_cookie_secure(request, self.state))
             await resp(scope, receive, send)
             return
         scope.setdefault("state", {})
@@ -153,7 +156,7 @@ class Guard:
             receive = _replay(body, receive)
         if ident.refreshed:
             sessions = self.state.sessions(config)
-            cookie = _session_header(sessions, ident.refreshed, secure=request.url.scheme == "https")
+            cookie = _session_header(sessions, ident.refreshed, secure=_cookie_secure(request, self.state))
 
             async def send_with_cookie(message: dict) -> None:
                 if message["type"] == "http.response.start" and cookie:
@@ -262,10 +265,12 @@ def _ndjson(docs: list[dict], status: int = 200) -> Response:
     return Response(body, status_code=status, media_type=NDJSON)
 
 
-def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -> FastAPI:
+def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *, tls: bool = False) -> FastAPI:
     """The web app (interfaces.md sections 13, 14). `config_path` None means `$NANOSOC_RM_CONFIG`, read per
-    request. `auth`: the authenticator; None is GitHub sign-in, `FakeMembership(login=)` the test seam."""
+    request. `auth`: the authenticator; None is GitHub sign-in, `FakeMembership(login=)` the test seam. `tls`
+    (CR-20): this process serves HTTPS itself, so every cookie it sets is `Secure`."""
     state = _State(None if config_path is None else os.fspath(config_path), auth)
+    state.tls = tls
     # CR-16/CR-17 POST routes exist only in a deployment that needs them (local sign-in, or no CI project), so a
     # GitHub + CI deployment keeps section 13's two Run routes as its only writes (D5). Decided when the app is
     # built: changing [auth] mode or [ci] project needs a restart.
@@ -763,7 +768,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         resp = RedirectResponse(url, 302)
         resp.set_cookie(authmod.STATE_COOKIE, sessions.dump_state(st, _safe_next(request.query_params.get("next"))),
                         max_age=authmod.STATE_MAX_AGE_S, httponly=True, samesite="lax",
-                        secure=_cookie_secure(request), path=authmod.AUTH_PREFIX)
+                        secure=_cookie_secure(request, state), path=authmod.AUTH_PREFIX)
         return resp
 
     def _login_form(request: Request, message: str = "", status: int = 200, login: str = "") -> Response:
@@ -775,7 +780,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
             token=token, next=_safe_next(request.query_params.get("next")), message=message, login=login)
         resp = HTMLResponse(html, status_code=status)
         resp.set_cookie(authmod.LOGIN_CSRF_COOKIE, token, max_age=3600, httponly=True, samesite="strict",
-                        secure=_cookie_secure(request), path=authmod.AUTH_PREFIX)
+                        secure=_cookie_secure(request, state), path=authmod.AUTH_PREFIX)
         return resp
 
     async def login_post(request: Request) -> Response:
@@ -804,7 +809,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         user = authmod.local_users(config)[login]
         _set_session(resp, sessions, {"login": login, "status": "member", "checked_at": clock.iso(),
                                       "hash_tag": authmod.hash_tag(user["hash"])},
-                     secure=_cookie_secure(request), same_site="strict")
+                     secure=_cookie_secure(request, state), same_site="strict")
         resp.delete_cookie(authmod.LOGIN_CSRF_COOKIE, path=authmod.AUTH_PREFIX)
         return resp
 
@@ -843,7 +848,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
             resp = PlainTextResponse("403 Forbidden: signed in to GitHub as %s, which is not an active SoC-Labs "
                                      "member with a role in this service" % who, 403)
         _set_session(resp, sessions, {"login": who, "status": "member" if member else "refused",
-                                      "checked_at": clock.iso()}, secure=_cookie_secure(request))
+                                      "checked_at": clock.iso()}, secure=_cookie_secure(request, state))
         resp.delete_cookie(authmod.STATE_COOKIE, path=authmod.AUTH_PREFIX)
         return resp
 

@@ -304,10 +304,75 @@ def test_serve_refuses_a_non_loopback_address_in_local_mode(local, monkeypatch):
     r = CliRunner().invoke(main, ["serve", "--host", "0.0.0.0", "--no-schedule", "--no-worker"])
     assert r.exit_code == 3 and "loopback only" in r.output and bound == []
     r = CliRunner().invoke(main, ["serve", "--host", "0.0.0.0", "--no-schedule", "--no-worker",
-                                  "--i-know-this-is-exposed"])
+                                  "--i-know-this-is-exposed", "--allow-plain-http"])
     assert r.exit_code == 0 and bound == [("0.0.0.0", 8000)]
     r = CliRunner().invoke(main, ["serve", "--no-schedule", "--no-worker"])
     assert r.exit_code == 0 and bound[-1] == ("127.0.0.1", 8000)
+
+
+def _tls_files(tmp_path):
+    cert, key = tmp_path / "rm.crt", tmp_path / "rm.key"
+    cert.write_text("invented cert\n")             # serve checks presence and readability; uvicorn is faked
+    key.write_text("invented key\n")
+    return str(cert), str(key)
+
+
+def test_serve_exposed_in_local_mode_refuses_without_tls(local, monkeypatch, tmp_path):
+    """CR-20: --i-know-this-is-exposed alone is not enough; TLS (or an explicit --allow-plain-http) is needed."""
+    import uvicorn
+    from nanosoc_rm.cli import main
+    bound = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, host, port, **kw: bound.append((host, port, kw)))
+    base = ["serve", "--host", "0.0.0.0", "--no-schedule", "--no-worker", "--i-know-this-is-exposed"]
+    r = CliRunner().invoke(main, base)
+    assert r.exit_code == 3 and "needs TLS" in r.output and bound == [], r.output
+    cert, key = _tls_files(tmp_path)
+    r = CliRunner().invoke(main, base + ["--tls-cert", cert, "--tls-key", key])
+    assert r.exit_code == 0 and "https://0.0.0.0:8000/" in r.output, r.output
+    assert bound == [("0.0.0.0", 8000, {"proxy_headers": True, "log_level": "info", "ssl_certfile": cert,
+                                         "ssl_keyfile": key})]
+    # TLS does not replace the exposure acknowledgement
+    r = CliRunner().invoke(main, ["serve", "--host", "0.0.0.0", "--no-schedule", "--no-worker",
+                                  "--tls-cert", cert, "--tls-key", key])
+    assert r.exit_code == 3 and "loopback only" in r.output and len(bound) == 1
+
+
+@pytest.mark.parametrize("case", ["cert-only", "key-only", "cert-missing", "key-unreadable"])
+def test_serve_refuses_unusable_tls_files(local, monkeypatch, tmp_path, case):
+    import os
+    import uvicorn
+    from nanosoc_rm.cli import main
+    bound = []
+    monkeypatch.setattr(uvicorn, "run", lambda app, host, port, **kw: bound.append(host))
+    cert, key = _tls_files(tmp_path)
+    args = {"cert-only": ["--tls-cert", cert], "key-only": ["--tls-key", key],
+            "cert-missing": ["--tls-cert", cert + ".absent", "--tls-key", key],
+            "key-unreadable": ["--tls-cert", cert, "--tls-key", key]}[case]
+    if case == "key-unreadable":
+        os.chmod(key, 0)
+        if os.access(key, os.R_OK):                   # root, or a filesystem that ignores modes
+            pytest.skip("cannot make a file unreadable here")
+    r = CliRunner().invoke(main, ["serve", "--host", "0.0.0.0", "--no-schedule", "--no-worker",
+                                  "--i-know-this-is-exposed"] + args)
+    assert r.exit_code == 3 and bound == [], r.output
+    assert ("go together" if case.endswith("only") else "is not a readable file") in r.output
+
+
+def test_session_cookie_is_secure_when_serving_tls(local):
+    """CR-20: with `serve --tls-cert` every cookie the app sets is Secure, even when the scheme it sees is http
+    (the test client); without TLS an http request gets none."""
+    for tls in (False, True):
+        c = TestClient(create_app(local["cfg"], tls=tls), base_url="http://testserver")
+        form = c.get("/auth/login")
+        assert ("; secure" in form.headers["set-cookie"].lower()) is tls
+        token = re.search(r'name="csrf_token" value="([^"]+)"', form.text).group(1)
+        c.cookies.clear()                             # a Secure cookie would not go back over http: send it by hand
+        r = c.post("/auth/login", data={"csrf_token": token, "login": "alice", "password": PASSWORDS["alice"],
+                                        "next": "/"}, headers={"cookie": "%s=%s" % (auth.LOGIN_CSRF_COOKIE, token)},
+                   follow_redirects=False)
+        assert r.status_code == 303, r.text
+        cookie = [v for k, v in r.headers.multi_items() if k == "set-cookie" and v.startswith(auth.SESSION_COOKIE)]
+        assert cookie and ("; secure" in cookie[0].lower()) is tls, cookie
 
 
 def test_serve_stops_the_worker_when_the_app_shuts_down(local, monkeypatch):

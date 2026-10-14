@@ -5,7 +5,9 @@
 Run, Sync and Walk on the pages queue jobs it runs one at a time. The config is `$NANOSOC_RM_CONFIG`, read per
 request and per tick. Bind to localhost: behind the lab's reverse proxy (GitHub sign-in) or, in local auth mode
 (CR-16), reached through an SSH tunnel. In local mode `serve` refuses a non-loopback address unless
-`--i-know-this-is-exposed` is given. The app sets its session cookie `Secure` when the request arrives over https.
+`--i-know-this-is-exposed` is given, and (CR-20) unless it serves TLS itself (`--tls-cert` and `--tls-key`, both
+readable) or `--allow-plain-http` is given. The app sets its session cookie `Secure` when it serves TLS or the
+request arrives over https.
 
 `user add LOGIN` (CR-16) prompts for a password (or generates one with `--generate`) and prints the
 `[[auth.users]]` stanza for the private config. It writes no file.
@@ -13,6 +15,7 @@ request and per tick. Bind to localhost: behind the lab's reverse proxy (GitHub 
 from __future__ import annotations
 
 import ipaddress
+import os
 import secrets
 import threading
 
@@ -34,6 +37,32 @@ def is_loopback(host: str) -> bool:
         return False
 
 
+def bind_refusal(auth_mode: str, host: str, exposed: bool, tls: bool, allow_plain_http: bool) -> str | None:
+    """Why `serve` must not bind `host`, or None (CR-16, CR-20). Only local auth mode is judged: a GitHub
+    deployment sits behind the reverse proxy, which owns sign-in and TLS."""
+    if auth_mode != "local" or is_loopback(host):
+        return None
+    if not exposed:
+        return ("[auth] mode = \"local\" serves on loopback only (passwords travel over the network). Use --host "
+                "127.0.0.1 and an SSH tunnel, or pass --i-know-this-is-exposed.")
+    if not tls and not allow_plain_http:
+        return ("a non-loopback --host in local auth mode needs TLS: pass --tls-cert and --tls-key (docs/DEPLOY.md, "
+                "Team access over HTTPS), or --allow-plain-http to send passwords in clear.")
+    return None
+
+
+def tls_problem(cert: str | None, key: str | None) -> str | None:
+    """Why `--tls-cert`/`--tls-key` cannot be used, or None (both absent, or both readable files)."""
+    if cert is None and key is None:
+        return None
+    if cert is None or key is None:
+        return "--tls-cert and --tls-key go together: give both"
+    for flag, path in (("--tls-cert", cert), ("--tls-key", key)):
+        if not os.path.isfile(path) or not os.access(path, os.R_OK):
+            return "%s %s is not a readable file" % (flag, path)
+    return None
+
+
 def _ticker(stop: threading.Event) -> None:
     from nanosoc_rm import clock
     from nanosoc_rm.schedule import tick
@@ -53,19 +82,27 @@ def register(main: click.Group) -> None:
     @click.option("--no-worker", is_flag=True, help="Do not run local jobs (Run, Sync and Walk stay queued).")
     @click.option("--i-know-this-is-exposed", "exposed", is_flag=True,
                   help="Local auth mode only: allow a non-loopback --host. Without it, serve refuses to bind one.")
-    def serve_cmd(host: str, port: int, no_schedule: bool, no_worker: bool, exposed: bool) -> int:
+    @click.option("--tls-cert", type=str, default=None, metavar="PATH",
+                  help="Serve HTTPS with this PEM certificate (CR-20). Needs --tls-key.")
+    @click.option("--tls-key", type=str, default=None, metavar="PATH",
+                  help="The private key for --tls-cert (PEM).")
+    @click.option("--allow-plain-http", is_flag=True,
+                  help="Local auth mode, non-loopback --host: serve without TLS (passwords in clear).")
+    def serve_cmd(host: str, port: int, no_schedule: bool, no_worker: bool, exposed: bool, tls_cert: str | None,
+                  tls_key: str | None, allow_plain_http: bool) -> int:
         """Serve the web pages and JSON API, run the schedules (poll, nightly T0, result fetch) and the local job
-        worker (CR-17). Exit 3 for a config error or a refused --host."""
+        worker (CR-17). Exit 3 for a config error, unusable TLS files or a refused --host."""
         import uvicorn
 
         from nanosoc_rm.config import load_config
         from nanosoc_rm.web import create_app
 
         config = load_config()                       # a config error is exit 3 before anything starts
-        if config.auth_mode == "local" and not is_loopback(host) and not exposed:
-            click.echo("nanosoc-rm serve: [auth] mode = \"local\" serves on loopback only (passwords travel over "
-                       "plain http). Use --host 127.0.0.1 and an SSH tunnel, or pass --i-know-this-is-exposed.",
-                       err=True)
+        why = tls_problem(tls_cert, tls_key)
+        tls = tls_cert is not None and why is None
+        why = why or bind_refusal(config.auth_mode, host, exposed, tls, allow_plain_http)
+        if why:
+            click.echo("nanosoc-rm serve: " + why, err=True)
             return EXIT_USAGE
         stop = threading.Event()
         if not no_schedule:
@@ -74,16 +111,17 @@ def register(main: click.Group) -> None:
         if not no_worker:
             from nanosoc_rm.jobs import Worker
             worker = Worker(None).start()
-        click.echo("nanosoc-rm serve: http://%s:%d/ (auth: %s%s)" % (
-            host if ":" not in host else "[%s]" % host, port, config.auth_mode,
+        click.echo("nanosoc-rm serve: %s://%s:%d/ (auth: %s%s)" % (
+            "https" if tls else "http", host if ":" not in host else "[%s]" % host, port, config.auth_mode,
             ", local jobs" if worker is not None else ""), err=True)
-        app = create_app(None)
+        app = create_app(None, tls=tls)
         if worker is not None:
             # uvicorn runs the app's shutdown handlers on SIGTERM and SIGINT, then re-raises the signal, so code after
             # uvicorn.run() may never run: stop the worker (and the job it runs) in the shutdown handler.
             app.router.on_shutdown.append(worker.stop)
         try:
-            uvicorn.run(app, host=host, port=port, proxy_headers=True, log_level="info")
+            ssl = {"ssl_certfile": tls_cert, "ssl_keyfile": tls_key} if tls else {}
+            uvicorn.run(app, host=host, port=port, proxy_headers=True, log_level="info", **ssl)
         finally:
             stop.set()
             if worker is not None:

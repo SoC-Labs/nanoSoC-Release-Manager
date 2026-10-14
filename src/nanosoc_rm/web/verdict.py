@@ -54,13 +54,12 @@ GATE_LABEL_UNVERIFIED = {
 }
 # CR-6: what each vendor gate means, and what its amber says (the overview's gate table shows it).
 GATE_HELP = {
-    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner, a known vendor file by hash, or a "
-                           "revision-coded release name (the toolkit's ident rule, which covers Arm product codes "
-                           "and Artisan library stems as well as foundry release names, so it fails here). An "
-                           "uncovered finding fails; catalogue vendor_allowlist entries make it clean (allow) or "
-                           "amber (warn).",
+    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner, a known vendor file by hash, or a file "
+                           "that could not be read. An uncovered finding fails; catalogue vendor_allowlist entries "
+                           "make it clean (allow) or amber (warn).",
     "t0.vendor.no-foundry-data": "Foundry data and site inventory: foundry file types, transcribed values, site "
-                                 "paths, licence servers, big files. Amber (WARN) by default, never a failure, "
+                                 "paths, licence servers, big files, and release/bundle codes and product numbers "
+                                 "in flists, tcl and CI files (the toolkit's ident rule). Amber (WARN) by default, never a failure, "
                                  "unless the catalogue's foundry_rules marks a rule severity fail. NOT-RUN on a "
                                  "host with no foundry rule set (no toolkit scanner).",
 }

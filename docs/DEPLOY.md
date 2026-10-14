@@ -1,8 +1,8 @@
 # Deploying the GUI on one host
 
 A single-user or small-team install: local sign-in (CR-16), local jobs (CR-17), served on loopback and reached
-through an SSH tunnel. What the pages do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free
-loopback port, `<login>` your user name.
+through an SSH tunnel, or (CR-20) served over HTTPS to the team (Team access over HTTPS, below). What the pages
+do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free port, `<login>` your user name.
 
 ## Layout on the host
 
@@ -77,6 +77,41 @@ Then open http://127.0.0.1:<port>/ and sign in as `<login>` with the password in
 
 If your SSH config multiplexes connections (`ControlMaster`), the forward is added to the master connection and
 `ssh -N` returns at once; the tunnel stays up until `ssh -O cancel -L <port>:127.0.0.1:<port> <host>`.
+
+## Team access over HTTPS (CR-20)
+
+To let a team open the pages without SSH tunnels, `serve` binds a non-loopback address and terminates TLS itself.
+In local auth mode it refuses (exit 3) a non-loopback `--host` without `--i-know-this-is-exposed`, and refuses one
+without `--tls-cert` and `--tls-key` (both readable) unless `--allow-plain-http` is given. With TLS on, every
+cookie the service sets is `Secure`.
+
+1. Make a self-signed certificate on the host (valid two years; browsers warn once, then remember the exception):
+   ```
+   umask 077; mkdir -p ~/.config/nanosoc-rm/tls
+   openssl req -x509 -newkey rsa:3072 -nodes -days 730 \
+       -keyout ~/.config/nanosoc-rm/tls/rm.key -out ~/.config/nanosoc-rm/tls/rm.crt \
+       -subj "/CN=<host>" -addext "subjectAltName=DNS:<host>"
+   ```
+   Give each team member the certificate's fingerprint so they can check the browser warning:
+   `openssl x509 -in ~/.config/nanosoc-rm/tls/rm.crt -noout -fingerprint -sha256`.
+2. Change `ExecStart` in `~/.config/systemd/user/nanosoc-rm.service` (install step 6), then
+   `systemctl --user daemon-reload && systemctl --user restart nanosoc-rm`:
+   ```ini
+   ExecStart=%h/nanosoc-rm/venv/bin/nanosoc-rm serve --host 0.0.0.0 --port <port> --tls-cert %h/.config/nanosoc-rm/tls/rm.crt --tls-key %h/.config/nanosoc-rm/tls/rm.key --i-know-this-is-exposed
+   ```
+3. Ask an admin to open the port in the host firewall:
+   ```
+   sudo firewall-cmd --permanent --add-port=<port>/tcp && sudo firewall-cmd --reload
+   ```
+4. Add the team's login (a shared user, or better one per person), append the stanza to the config, restart:
+   ```
+   ~/nanosoc-rm/venv/bin/nanosoc-rm user add <team-login> --generate
+   ```
+5. Open https://<host>:<port>/ and sign in.
+
+**A shared login hides who did what.** Every action (Run, Sync, Walk, cancel, ...) is recorded under the
+signed-in login, so with one shared team user the actions log shows the team user, not the person. Use one
+`user add` per person when you need to know who did something.
 
 ## Operate
 

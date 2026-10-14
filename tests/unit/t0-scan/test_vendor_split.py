@@ -40,11 +40,10 @@ RULES = {"schema": 1, "rules": [
 
 
 def test_family_of_each_rule():
-    # Review VS-2: the toolkit's one `ident` rule reports Arm product codes and Artisan library stems as well as
-    # foundry release names, under one id, so it stays in the arm family (fail-closed).
-    assert [family(r) for r in ("arm.banner", "arm.product-code", "file.sha", "scan.unscannable", "ident")] == [ARM] * 5
+    # CR-19 (David 2026-10-14): the toolkit's `ident` (release/bundle codes in flists, tcl, CI) is foundry-family.
+    assert [family(r) for r in ("arm.banner", "arm.product-code", "file.sha", "scan.unscannable")] == [ARM] * 4
     assert [family(r) for r in ("file.ext", "file.size", "path", "licence", "value.lef",
-                                "foundry.example", "armour.x")] == [FOUNDRY] * 7
+                                "foundry.example", "armour.x", "ident")] == [FOUNDRY] * 8
 
 
 def test_split_keeps_one_family_and_unverified_stays():
@@ -68,7 +67,7 @@ def test_foundry_rules_loader_fail_wins_and_bad_entries_are_skipped():
         {"rule": "licence", "severity": "block"}, {"severity": "fail"}, "junk",
         {"rule": "ident", "severity": "warn", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"}]}
     got = foundry_rules(cat)
-    assert {k: v.severity for k, v in got.items()} == {"path": "fail", "licence": "fail"}   # ident: arm family
+    assert {k: v.severity for k, v in got.items()} == {"path": "fail", "licence": "fail", "ident": "warn"}
 
 
 class Tree:
@@ -224,13 +223,29 @@ def test_the_arm_banner_still_fails_the_arm_gate_with_foundry_rules_on(at, tmp_p
     assert out[FOUNDRY_GATE][0]["status"] == "WARN"
 
 
-def test_foundry_rule_naming_ident_is_refused_by_the_schema():
+def test_an_ident_finding_is_amber_in_the_foundry_gate_never_red_in_the_arm_gate(at, tmp_path, engines):
+    """CR-19 (David 2026-10-14): a release/bundle code in a flist (the toolkit's `ident`) is not Arm source."""
+    tree = Tree(at, tmp_path / "t", {"flow/core.bundlecode": "invented\n", "rtl/ok.v": "module ok; endmodule\n"})
+    _, out = both(tree, tmp_path)
+    row, ctl, items = out[ARM_GATE]
+    assert (row["status"], ctl["status"]) == ("PASS", "PASS"), (row, ctl)
+    assert "ident" not in items["ip"]["why"]
+    row, ctl, items = out[FOUNDRY_GATE]
+    assert (row["status"], ctl["status"]) == ("WARN", "PASS"), (row, ctl)
+    assert items["ip"]["result"] == "pass" and "ident at flow/core.bundlecode:-" in items["ip"]["why"], items["ip"]
+    rolled = {g["id"]: g for g in gates.rollup([r for o in out.values() for r in o[:2]], "configuration")}
+    assert rolled[ARM_GATE]["verdict"] == "PASS" and rolled[FOUNDRY_GATE]["verdict"] == "WARN"
+
+
+def test_foundry_rule_naming_ident_is_accepted_and_arm_rules_refused_by_the_schema():
     def doc(rule):
         return {"schema": 1, "components": [{"id": "c", "class": "ip_tech", "canonical": {"host": "github", "path": "o/c"}}],
                 "foundry_rules": [{"rule": rule, "severity": "warn", "reason": "r", "approved_by": "D",
                                    "approved_on": "2026-10-14"}]}
     assert contracts.validate("component-catalogue", doc("licence"), None) == []
-    assert contracts.validate("component-catalogue", doc("ident"), None) != []
+    assert contracts.validate("component-catalogue", doc("ident"), None) == []          # CR-19
+    for rule in ("arm.banner", "file.sha", "scan.unscannable"):
+        assert contracts.validate("component-catalogue", doc(rule), None) != []
 
 
 RC4_WAIVERS = [

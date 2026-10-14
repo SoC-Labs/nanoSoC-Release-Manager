@@ -46,6 +46,7 @@ while IFS= read -r -d '' path; do
     n=$((n + 1))
     printf '%s\n' "$allow" | grep -qxF "$path" && continue          # the project waives this path
     case "$path" in *.lef) printf 'file.ext\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
+    case "$path" in *.bundlecode) printf 'ident\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
     case "$path" in *.knownvendor) printf 'file.sha\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
     git cat-file -p "$rev:$path" | grep -n 'FAKE-FOUNDRY-VALUE' | cut -d: -f1 | while read -r ln; do
         printf 'value.fake\t%s\t%s\t%s\n' "$path" "$ln" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT"
@@ -60,7 +61,8 @@ exit 0
 
 def fake_toolkit(d: Path, mode: str = "normal", envdump: Path | None = None, countfile: Path | None = None) -> Path:
     """The fake: `*.lef` is a file.ext finding (foundry family), `*.knownvendor` a file.sha finding (arm family,
-    CR-6), FAKE-FOUNDRY-VALUE a value.fake finding (foundry family). `countfile` gets one line per run."""
+    CR-6), `*.bundlecode` an ident finding (foundry family, CR-19), FAKE-FOUNDRY-VALUE a value.fake finding (foundry
+    family). `countfile` gets one line per run."""
     d.mkdir(parents=True, exist_ok=True)
     (d / "check-vendor-collateral.sh").write_text(FAKE)
     (d / "lib.sh").write_text("MODE=%s\n%s%s" % (mode, "ENVDUMP=%s\n" % envdump if envdump else "",

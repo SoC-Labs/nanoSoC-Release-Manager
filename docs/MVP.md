@@ -84,8 +84,8 @@ checks locally, with the same gate code CI uses:
 | `t0.urls.no-ssh-public` | no public parent pins a submodule by ssh URL |
 | `t0.manifest.valid` | component manifests validate (when present) |
 | `t0.clone.upgrade-path` | an anonymous clone of the previous release upgrades to this one |
-| `t0.vendor.no-arm-ip` | no Arm source (the Arm banner, a known vendor file by hash, a release name: the toolkit's `ident` also reports Arm product codes) outside the allowlist (`allow` = clean, `warn` = amber) |
-| `t0.vendor.no-foundry-data` | CR-6: foundry data and site inventory (file types, values, site paths, licence servers, big files) are WARN (amber), FAIL only for a rule the catalogue's `foundry_rules` marks `severity: fail`; NOT-RUN without the toolkit scanner or a private foundry rule |
+| `t0.vendor.no-arm-ip` | no Arm source (the Arm banner, a known vendor file by hash, an unreadable file) outside the allowlist (`allow` = clean, `warn` = amber) |
+| `t0.vendor.no-foundry-data` | CR-6: foundry data and site inventory (file types, values, site paths, licence servers, big files; CR-19: release/bundle codes, the toolkit's `ident`) are WARN (amber), FAIL only for a rule the catalogue's `foundry_rules` marks `severity: fail`; NOT-RUN without the toolkit scanner or a private foundry rule |
 | `t0.runner.hardened` | NOT-RUN locally (only meaningful in CI) |
 
 Every gate also runs its negative control in the same run; a gate whose control does not fire is UNVERIFIED,
@@ -112,8 +112,8 @@ keeps the sandbox for inspection.
   tree, nanosoc-multicore-system; 12 trees are WARN under the allowlist. Correction (CR-6, measured 2026-10-14): the
   FAIL is one Arm banner, `arm.banner` at `src/rtl/vendored/dma_250/cfg_min.yaml:2` (DMA-250 config, not covered by
   the DMA-230 allow entry), not site paths. Site paths and release names appear only with the toolkit scanner; CR-6
-  moved site paths to `t0.vendor.no-foundry-data`, amber by default, and kept release names (`ident`, which also
-  reports Arm product codes) in `t0.vendor.no-arm-ip`.
+  moved site paths to `t0.vendor.no-foundry-data`, amber by default. CR-19 (2026-10-14) moved release names (`ident`)
+  there too: amber, not red.
 - `compat eth-main --tier t2 --force-tier`: the D2D decode smoke benches PASS in 29 s; the run stays FAIL because
   eth-main pins TideLink by ssh.
 
