@@ -2022,7 +2022,10 @@ INFRA, 3 no `[stores.artifactory]` or no readable token file.
   manifest naming it (or in its component's store project): foundry, shuttle, date, GDS raw md5 IN STORE / NOT IN
   STORE / MISMATCH (against the stream at the manifest's store path), against the release lock's `outputs.gds.md5`
   MATCH / MISMATCH / NO LOCK, and the commit linked on its host (`hosts.<host>.web`, https only). The streams of the
-  mapped store projects follow, each with its git identity or "no git identity recorded".
+  mapped store projects follow, each with its git identity or "no git identity recorded". The registry's
+  unpublished tapeout drafts naming the configuration (`<registry>/tapeouts/<id>.tapeout.yaml`, a local read) are
+  listed under it with a link to `/publish/tapeout/<id>` (a draft that does not meet `$defs/tapeout_draft` says
+  why); with drafts the panel shows even without a store or an index (CR-WE-int).
 - Configuration > History, **Timeline**: release, candidate and silicon tags (stored `tag_check`), release drafts,
   manifests, and uploads in its component's store project, newest first.
 - Component > Versions (`/versions/{component}`), **Tags, commits and chips**: per tag its commit link and the

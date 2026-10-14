@@ -28,5 +28,6 @@
       <td>{% if s.identity.link %}<a href="{{ s.identity.link }}" rel="noopener">{{ s.identity.text }}</a>{% else %}<span class="note">{{ s.identity.text }}</span>{% endif %}</td><td>{{ a.created or '?' }}</td></tr>{% endfor %}</tbody>
   </table></div></details>
   {% elif taped.doc and not taped.projects %}<p class="note">No store project is mapped to {{ c.cid }} (<code>[stores.artifactory] projects</code>), so its uploads are not listed here; <a href="/store/">Store</a> lists every stream.</p>{% endif %}
+  {% if taped.drafts %}<p class="note" data-tapeout-drafts>Draft tapeout record{{ 's' if taped.drafts|length != 1 }} in the registry, not published: {% for d in taped.drafts %}<a href="/publish/tapeout/{{ d.id }}" data-tapeout-draft="{{ d.id }}">{{ d.id }}</a>{% if d.problem %} ({{ d.problem }}){% else %} ({{ d.draft_status or 'no status' }}{% if d.status %}, record status {{ d.status }}{% endif %}{% if d.tapeout_status %}, {{ d.tapeout_status }}{% endif %}{% if d.raw_md5 %}, GDS raw md5 <code>{{ d.raw_md5 }}</code>{% endif %}){% endif %}{{ '; ' if not loop.last }}{% endfor %}.</p>{% endif %}
   {% if taped.locks %}<p class="note">Release locks of {{ c.cid }}: {% for lk in taped.locks %}{{ lk.version }} GDS md5 <code>{{ lk.md5 }}</code>{{ '; ' if not loop.last }}{% endfor %}.</p>{% endif %}
 </section>

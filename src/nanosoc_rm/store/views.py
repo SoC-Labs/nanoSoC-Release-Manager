@@ -196,7 +196,8 @@ def taped_out(config: Any, cid: str) -> dict:
     out: dict[str, Any] = {"doc": doc, "latest": new, "silicon": rec.get("silicon") if isinstance(rec.get("silicon"),
                                                                                                dict) else None,
                            "rows": [], "streams": [], "projects": _projects_of_cfg(config, cid),
-                           "locks": _lock_gds(config, cid), "configured": bool(_settings(config))}
+                           "locks": _lock_gds(config, cid), "configured": bool(_settings(config)),
+                           "drafts": registry_tapeout_drafts(config, cid)}
     if doc is None:
         return out
     fact = doc["fact"]
@@ -236,6 +237,40 @@ def taped_out(config: Any, cid: str) -> dict:
             out["streams"].append({"a": a, "registered": a.get("raw_md5") in manifest_raw,
                                    "identity": _identity(config, a)})
     out["streams"].sort(key=lambda r: r["a"].get("created") or "", reverse=True)
+    return out
+
+
+_DRAFT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")          # the publish page's tapeout id rule
+
+
+def registry_tapeout_drafts(config: Any, cid: str) -> list[dict]:
+    """CR-WE-int: the registry's unpublished tapeout drafts (`<registry>/tapeouts/<id>.tapeout.yaml`, the publish
+    unit's input) whose record names configuration `cid`. A local file read, never the store. A draft that does not
+    read or does not meet `tapeout-record#/$defs/tapeout_draft` is listed with the reason, never dropped."""
+    from nanosoc_rm import contracts
+    reg = (config.get("registry") or {}).get("path") if isinstance(config, dict) else None
+    folder = Path(reg) / "tapeouts" if reg else None
+    if folder is None or not folder.is_dir():
+        return []
+    out = []
+    for f in sorted(folder.glob("*.tapeout.yaml")):
+        tid = f.name[:-len(".tapeout.yaml")]
+        if not _DRAFT_ID.match(tid):
+            continue
+        try:
+            doc = contracts.load_yaml(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            out.append({"id": tid, "problem": "does not read (%s)" % str(e)[:120]})
+            continue
+        rec = doc.get("record") if isinstance(doc, dict) else None
+        if not isinstance(rec, dict) or rec.get("configuration") != cid:
+            continue
+        problems = contracts.validate("tapeout-record", doc, "/$defs/tapeout_draft")
+        gds = rec.get("gds") if isinstance(rec.get("gds"), dict) else {}
+        out.append({"id": tid, "draft_status": doc.get("status"), "status": rec.get("status"),
+                    "tapeout_status": rec.get("tapeout_status"),
+                    "raw_md5": gds.get("raw_md5"),
+                    "problem": ("does not meet its contract: %s" % "; ".join(problems[:2])) if problems else None})
     return out
 
 

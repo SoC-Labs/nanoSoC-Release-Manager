@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from starlette.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "store"))
@@ -23,6 +24,7 @@ from test_web_local import local_config, page_csrf, sign_in  # noqa: E402
 from webfix import make_registry  # noqa: E402
 
 TOKEN = "s3cret-store-token"
+REPO = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture
@@ -139,3 +141,42 @@ def test_an_unsigned_record_shows_unverified_never_in_store(tmp_path, monkeypatc
     s = client.get("/configurations/eth-rc4/silicon").text
     assert 'data-signature="invalid"' in s and "UNVERIFIED" in s and ">IN STORE<" not in s
     assert "has no verified manifest" in client.get("/").text
+
+
+def test_taped_out_panel_lists_the_registry_tapeout_drafts_of_this_configuration(store_app, tmp_path):
+    """CR-WE-int: an unpublished tapeout draft in the registry's tapeouts/ shows on its configuration's Taped out
+    panel with a link to its Publish page; a draft of another configuration does not; a broken draft says why."""
+    from nanosoc_rm import contracts
+    reg = tmp_path / "registry"
+    (reg / "tapeouts").mkdir()
+    doc = contracts.load_yaml((REPO / "schemas" / "examples" / "tapeout-record.draft.example.yaml").read_text())
+    doc["record"]["configuration"] = "eth-rc4"
+    (reg / "tapeouts" / "demo-r0.tapeout.yaml").write_text(yaml.safe_dump(doc))
+    other = dict(doc, record=dict(doc["record"], configuration="eth-main"))
+    (reg / "tapeouts" / "other-r0.tapeout.yaml").write_text(yaml.safe_dump(other))
+    bad = dict(doc, record=dict(doc["record"], status="maybe"))
+    (reg / "tapeouts" / "bad-r0.tapeout.yaml").write_text(yaml.safe_dump(bad))
+    s = store_app["client"].get("/configurations/eth-rc4/silicon").text
+    assert "data-tapeout-drafts" in s and 'href="/publish/tapeout/demo-r0"' in s
+    assert "accepted-by-foundry" in s and doc["record"]["gds"]["raw_md5"] in s
+    assert "other-r0" not in s
+    assert 'data-tapeout-draft="bad-r0"' in s and "does not meet its contract" in s
+
+
+def test_a_tapeout_draft_shows_without_a_store(tmp_path, monkeypatch, seeded_db):
+    """CR-WE-int: with no [stores.artifactory] and no index, the Silicon tab still lists the registry's draft."""
+    from nanosoc_rm import contracts
+    reg = make_registry(tmp_path / "registry")
+    (reg / "tapeouts").mkdir()
+    doc = contracts.load_yaml((REPO / "schemas" / "examples" / "tapeout-record.draft.example.yaml").read_text())
+    doc["record"]["configuration"] = "eth-rc4"
+    (reg / "tapeouts" / "demo-r0.tapeout.yaml").write_text(yaml.safe_dump(doc))
+    (tmp_path / "data").mkdir()
+    shutil.copy(seeded_db, tmp_path / "data" / "rm.sqlite")
+    cfg = local_config(tmp_path / "rm.toml", tmp_path / "data", reg)
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    client = TestClient(create_app(cfg))
+    assert sign_in(client).status_code == 303
+    s = client.get("/configurations/eth-rc4/silicon").text
+    assert "data-taped-out" in s and 'href="/publish/tapeout/demo-r0"' in s
+    assert "No store index is stored" in s
