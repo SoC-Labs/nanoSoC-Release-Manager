@@ -14,7 +14,8 @@ What `put` enforces beyond the schema (README section 4):
 4. a set kind carries a `snapshot` whose scope starts with its kind; an event kind carries none.
 
 Snapshots (set kinds). The current value of a scope is its latest COMPLETE snapshot, so a fact that is no
-longer produced disappears. A producer writes a whole run with `put_snapshot(scope, docs)`: one transaction,
+longer produced disappears. "Latest" is the one that completed last, in commit order, never by the wall clock
+(table `current_snapshots`, kept by triggers; CR-ROB-store). A producer writes a whole run with `put_snapshot(scope, docs)`: one transaction,
 marked complete only at the end, so a run that fails midway never becomes current. `put(doc)` of a single
 set-kind document adds it to the snapshot it names and marks that snapshot complete: it is for documents that
 are complete on their own (fixtures, a one-row scope such as `runner_settings:<id>`). Producers of
@@ -35,13 +36,14 @@ import secrets
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc", "subject_of",
-           "check_observation", "database_path", "connect", "put", "put_snapshot", "new_snapshot_id", "latest", "history",
+           "check_observation", "database_path", "connect", "ensure_schema", "put", "put_snapshot", "new_snapshot_id",
+           "latest", "newest_per", "history",
            "data_age", "put_run", "get_run", "runs", "log_action", "actions", "raise_alert", "alerts",
            "clear_alert"]
 
@@ -62,24 +64,49 @@ EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
 ACTIONS = ("run_t0", "clear_alert", "publish_release", "register_tapeout")
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
-_DDL = """
-CREATE TABLE IF NOT EXISTS observations (
-    kind TEXT NOT NULL, subject TEXT NOT NULL, observed_at TEXT NOT NULL, snapshot_id TEXT, doc TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS observations_kind_subject ON observations (kind, subject);
-CREATE INDEX IF NOT EXISTS observations_snapshot ON observations (snapshot_id);
-CREATE TABLE IF NOT EXISTS snapshots (
-    id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, completed_at TEXT);
-CREATE INDEX IF NOT EXISTS snapshots_scope ON snapshots (scope);
-CREATE TABLE IF NOT EXISTS runs (
+SCHEMA_VERSION = 2
+# The schema, statement by statement (run once per store by `ensure_schema`, never on every connect: ROB-load-3).
+# Version 2 adds `current_snapshots`: the current (last completed) snapshot of each scope, kept by triggers so
+# every writer, including a direct INSERT, keeps it right (ROB-load-1). "Last" means last completed in commit order,
+# never the wall clock (ROB-faults-4).
+_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS observations (
+    kind TEXT NOT NULL, subject TEXT NOT NULL, observed_at TEXT NOT NULL, snapshot_id TEXT, doc TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS observations_kind_subject ON observations (kind, subject)",
+    "CREATE INDEX IF NOT EXISTS observations_snapshot ON observations (snapshot_id)",
+    """CREATE TABLE IF NOT EXISTS snapshots (
+    id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, completed_at TEXT)""",
+    "CREATE INDEX IF NOT EXISTS snapshots_scope ON snapshots (scope)",
+    """CREATE TABLE IF NOT EXISTS runs (
     nonce TEXT PRIMARY KEY, configuration TEXT NOT NULL, "commit" TEXT NOT NULL, request BLOB NOT NULL,
     "trigger" TEXT NOT NULL, triggered_by TEXT NOT NULL, triggered_at TEXT NOT NULL,
-    pipeline_id INTEGER, job_id INTEGER, state TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS actions (
-    at TEXT NOT NULL, login TEXT NOT NULL, action TEXT NOT NULL, target TEXT, result TEXT);
-CREATE TABLE IF NOT EXISTS alerts (
-    kind TEXT NOT NULL, subject TEXT PRIMARY KEY, raised_at TEXT NOT NULL, cleared_at TEXT, cleared_by TEXT);
-PRAGMA user_version = 1;
-"""
+    pipeline_id INTEGER, job_id INTEGER, state TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS actions (
+    at TEXT NOT NULL, login TEXT NOT NULL, action TEXT NOT NULL, target TEXT, result TEXT)""",
+    """CREATE TABLE IF NOT EXISTS alerts (
+    kind TEXT NOT NULL, subject TEXT PRIMARY KEY, raised_at TEXT NOT NULL, cleared_at TEXT, cleared_by TEXT)""",
+    # version 2
+    """CREATE TABLE IF NOT EXISTS current_snapshots (
+    scope TEXT PRIMARY KEY, kind TEXT NOT NULL, snapshot_id TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS current_snapshots_kind ON current_snapshots (kind)",
+    """CREATE TRIGGER IF NOT EXISTS snapshots_complete_on_insert AFTER INSERT ON snapshots
+    WHEN NEW.completed_at IS NOT NULL BEGIN
+    INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id) VALUES (NEW.scope, NEW.kind, NEW.id); END""",
+    """CREATE TRIGGER IF NOT EXISTS snapshots_complete_on_update AFTER UPDATE OF completed_at ON snapshots
+    WHEN NEW.completed_at IS NOT NULL AND OLD.completed_at IS NULL BEGIN
+    INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id) VALUES (NEW.scope, NEW.kind, NEW.id); END""",
+    # Deleting the current snapshot (pruning by hand) makes the newest remaining complete one current.
+    """CREATE TRIGGER IF NOT EXISTS snapshots_current_on_delete AFTER DELETE ON snapshots
+    WHEN OLD.id IN (SELECT snapshot_id FROM current_snapshots WHERE scope = OLD.scope) BEGIN
+    DELETE FROM current_snapshots WHERE scope = OLD.scope;
+    INSERT INTO current_snapshots (scope, kind, snapshot_id)
+        SELECT scope, kind, id FROM snapshots WHERE scope = OLD.scope AND completed_at IS NOT NULL
+        ORDER BY rowid DESC LIMIT 1; END""",
+    # Backfill from a version-1 store: the last stored complete snapshot of each scope (rows go in rowid order, so
+    # the last one of a scope replaces the earlier ones).
+    """INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id)
+    SELECT scope, kind, id FROM snapshots WHERE completed_at IS NOT NULL ORDER BY rowid""",
+)
 
 
 class ObservationRefused(ValueError):
@@ -217,16 +244,43 @@ def database_path(config: Config | str | Path | None = None) -> Path:
     return _config(config).db_path
 
 
+def ensure_schema(con: sqlite3.Connection, statements: Iterable[str], version: int) -> None:
+    """Put the store on WAL and `statements` (idempotent DDL) at `version`, only when it is not there yet.
+
+    The common case is two reads (`PRAGMA journal_mode`, `PRAGMA user_version`) and no write, so a reader never
+    queues for the write lock behind a poll or a quality run (ROB-load-3). Otherwise, under BEGIN IMMEDIATE: check
+    again, run the statements, set user_version. A store at a newer version is left as it is."""
+    if con.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+        con.execute("PRAGMA journal_mode=WAL")
+    if con.execute("PRAGMA user_version").fetchone()[0] >= version:
+        return
+    level = con.isolation_level
+    con.isolation_level = None                            # explicit transaction control for the migration
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        try:
+            if con.execute("PRAGMA user_version").fetchone()[0] < version:
+                for stmt in statements:
+                    con.execute(stmt)
+                con.execute("PRAGMA user_version = %d" % int(version))
+            con.execute("COMMIT")
+        except BaseException:
+            con.execute("ROLLBACK")
+            raise
+    finally:
+        con.isolation_level = level
+
+
 @contextmanager
 def connect(config: Config | str | Path | None = None) -> Iterator[sqlite3.Connection]:
     """A connection to the store (created on first use, WAL mode), closed on exit. For this package's
-    modules; prefer the functions below, which keep the README section 4 rules."""
+    modules; prefer the functions below, which keep the README section 4 rules. Opening it writes nothing once
+    the store is at SCHEMA_VERSION (ensure_schema)."""
     path = database_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(str(path), timeout=30)) as con:
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
-        con.executescript(_DDL)
+        ensure_schema(con, _SCHEMA, SCHEMA_VERSION)
         yield con
 
 
@@ -332,27 +386,61 @@ def _overlay_alerts(con: sqlite3.Connection, docs: list[dict]) -> list[dict]:
     return out
 
 
-def _latest(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[dict]:
-    if kind in SET_KINDS:
-        rows = con.execute(
-            """SELECT o.rowid AS rid, o.subject, o.doc FROM observations o
-               JOIN snapshots s ON o.snapshot_id = s.id
-               WHERE o.kind = ? AND substr(o.subject, 1, ?) = ? AND s.completed_at IS NOT NULL
-                 AND s.rowid = (SELECT s2.rowid FROM snapshots s2
-                                WHERE s2.scope = s.scope AND s2.completed_at IS NOT NULL
-                                ORDER BY s2.completed_at DESC, s2.rowid DESC LIMIT 1)
-               ORDER BY o.rowid""", (kind, len(subject_prefix), subject_prefix)).fetchall()
-        best = {r["subject"]: r for r in rows}                    # a subject put twice into one snapshot: last
-        return [json.loads(r["doc"]) for r in sorted(best.values(), key=lambda r: r["rid"])]
-    rows = con.execute("""SELECT rowid AS rid, subject, observed_at, doc FROM observations
-                          WHERE kind = ? AND substr(subject, 1, ?) = ? ORDER BY rowid""",
-                       (kind, len(subject_prefix), subject_prefix)).fetchall()
+def _prefix_range(subject_prefix: str) -> tuple[str, str]:
+    """SQL that keeps subjects starting with `subject_prefix`, as a range an index can seek (plus the exact test,
+    so the range only has to be wide enough), and its arguments."""
+    sql, args = "substr(o.subject, 1, ?) = ?", [len(subject_prefix), subject_prefix]
+    if subject_prefix:
+        last = ord(subject_prefix[-1])
+        sql += " AND o.subject >= ?"
+        args.append(subject_prefix)
+        if last < 0x10FFFF and not 0xD7FF <= last < 0xE000:     # the next code point, if it has a UTF-8 form
+            sql += " AND o.subject < ?"
+            args.append(subject_prefix[:-1] + chr(last + 1))
+    return sql, args
+
+
+def _newest_rows(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[sqlite3.Row]:
+    """An event kind's newest row per subject (newest observed_at; on a tie, the one stored last), in stored
+    order, read without the documents: only the rows chosen are decoded (ROB-load-2)."""
+    where, args = _prefix_range(subject_prefix)
     best: dict[str, Any] = {}
-    for r in rows:
+    for r in con.execute("SELECT o.rowid AS rid, o.subject, o.observed_at FROM observations o "
+                         "WHERE o.kind = ? AND %s ORDER BY o.rowid" % where, [kind] + args):
         cur = best.get(r["subject"])
         if cur is None or clock.parse(r["observed_at"]) >= clock.parse(cur["observed_at"]):
             best[r["subject"]] = r
-    docs = [json.loads(r["doc"]) for r in sorted(best.values(), key=lambda r: r["rid"])]
+    return sorted(best.values(), key=lambda r: r["rid"])
+
+
+def _docs(con: sqlite3.Connection, rids: list[int]) -> list[dict]:
+    """The stored documents of these observation rows, in the order given."""
+    docs: dict[int, dict] = {}
+    for i in range(0, len(rids), 500):
+        chunk = rids[i:i + 500]
+        for r in con.execute("SELECT rowid AS rid, doc FROM observations WHERE rowid IN (%s)"
+                             % ",".join("?" * len(chunk)), chunk):
+            docs[r["rid"]] = json.loads(r["doc"])
+    return [docs[i] for i in rids]
+
+
+def _latest(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[dict]:
+    if kind in SET_KINDS:
+        # The current snapshot of each scope comes from current_snapshots (kept by triggers), so the cost is the
+        # current rows, whatever the history (ROB-load-1), and "current" is the last completed run, whatever the
+        # wall clock said when it completed (ROB-faults-4).
+        where, args = _prefix_range(subject_prefix)
+        rows = con.execute(
+            # CROSS JOIN and INDEXED BY pin the plan: the current snapshots first, then their rows by snapshot id.
+            # Left to itself the planner walks the (kind, subject) index over every stored row of the prefix, so the
+            # cost grows with the history again.
+            """SELECT o.rowid AS rid, o.subject, o.doc FROM current_snapshots c
+               CROSS JOIN observations o INDEXED BY observations_snapshot ON o.snapshot_id = c.snapshot_id
+               WHERE c.kind = ? AND o.kind = ? AND %s
+               ORDER BY o.rowid""" % where, [kind, kind] + args).fetchall()
+        best = {r["subject"]: r for r in rows}                    # a subject put twice into one snapshot: last
+        return [json.loads(r["doc"]) for r in sorted(best.values(), key=lambda r: r["rid"])]
+    docs = _docs(con, [r["rid"] for r in _newest_rows(con, kind, subject_prefix)])
     return _overlay_alerts(con, docs) if kind == "alert" else docs
 
 
@@ -363,6 +451,24 @@ def latest(kind: str, subject_prefix: str = "", *, config: Config | str | Path |
         raise ValueError("unknown observation kind %r" % kind)
     with connect(config) as con:
         return _latest(con, kind, subject_prefix)
+
+
+def newest_per(kind: str, group: Callable[[str], str], subject_prefix: str = "", *,
+               config: Config | str | Path | None = None) -> list[dict]:
+    """For an event kind: the newest observation (newest observed_at; on a tie, the one stored last) in each group
+    of subjects, where `group(subject)` names the group; in stored order. Only the chosen documents are read, so a
+    caller that wants one per target does not decode every commit's document (ROB-load-2)."""
+    if kind not in EVENT_KINDS:
+        raise ValueError("newest_per reads event kinds, not %r" % kind)
+    with connect(config) as con:
+        best: dict[str, Any] = {}
+        for r in _newest_rows(con, kind, subject_prefix):
+            g = group(r["subject"])
+            cur = best.get(g)
+            if cur is None or clock.parse(r["observed_at"]) >= clock.parse(cur["observed_at"]):
+                best[g] = r
+        docs = _docs(con, sorted(r["rid"] for r in best.values()))
+        return _overlay_alerts(con, docs) if kind == "alert" else docs
 
 
 def history(subject: str, *, config: Config | str | Path | None = None) -> list[dict]:

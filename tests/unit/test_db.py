@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import json
 import datetime as dt
 import sqlite3
 
@@ -308,3 +309,100 @@ def test_config_keyword_needs_no_environment(tmp_path, monkeypatch):
     db.put(silicon()[0], config=cfg)
     assert len(db.latest("silicon_protection", config=cfg)) == 1
     assert (tmp_path / "d" / "rm.sqlite").is_file()
+
+
+# ----- schema version 2: current_snapshots (ROB-load-1, ROB-load-3, ROB-faults-4) ------------------------------------
+_V1_DDL = """
+CREATE TABLE observations (kind TEXT NOT NULL, subject TEXT NOT NULL, observed_at TEXT NOT NULL, snapshot_id TEXT,
+    doc TEXT NOT NULL);
+CREATE INDEX observations_kind_subject ON observations (kind, subject);
+CREATE INDEX observations_snapshot ON observations (snapshot_id);
+CREATE TABLE snapshots (id TEXT PRIMARY KEY, scope TEXT NOT NULL, kind TEXT NOT NULL, completed_at TEXT);
+CREATE INDEX snapshots_scope ON snapshots (scope);
+PRAGMA user_version = 1;
+"""
+
+
+def _v1_store(rm_config, snaps):
+    """A store as version 1 left it: `snaps` is [(snapshot id, completed_at)] of silicon(), stored in that order."""
+    path = rm_config.parent / "data" / "rm.sqlite"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(str(path))
+    try:
+        con.executescript(_V1_DDL)
+        for sid, done in snaps:
+            con.execute("INSERT INTO snapshots VALUES (?, 'silicon_protection:eth-rc4', 'silicon_protection', ?)",
+                        (sid, done))
+            for d in resnap(silicon(), sid):
+                con.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?)",
+                            (d["kind"], d["subject"], d["observed_at"], sid, json.dumps(d)))
+        con.commit()
+    finally:
+        con.close()
+
+
+def test_a_version_1_store_is_migrated_once_and_the_last_stored_snapshot_is_current(rm_config):
+    """The last stored complete snapshot is current even when its completed_at is older (the clock stepped back);
+    an incomplete one never is. After the one migration, a read commits nothing."""
+    _v1_store(rm_config, [("s1", "2026-10-14T09:00:00+00:00"), ("s2", "2026-10-14T08:00:00+00:00"), ("s3", None)])
+    assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s2"}
+    assert rows(rm_config, "PRAGMA user_version")[0][0] == db.SCHEMA_VERSION == 2
+    watcher = sqlite3.connect(str(rm_config.parent / "data" / "rm.sqlite"))
+    try:
+        before = watcher.execute("PRAGMA data_version").fetchone()[0]
+        db.latest("silicon_protection")
+        assert watcher.execute("PRAGMA data_version").fetchone()[0] == before
+    finally:
+        watcher.close()
+
+
+def test_deleting_the_current_snapshot_makes_the_previous_complete_one_current(rm_config):
+    """Pruning by hand keeps a current snapshot for the scope (the delete trigger): the newest remaining complete
+    one, never an older one (three runs, so "the previous" and "the oldest" differ)."""
+    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s0"))
+    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s1"))
+    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s2"))
+    with db.connect() as con, con:
+        con.execute("DELETE FROM observations WHERE snapshot_id = 's2'")
+        con.execute("DELETE FROM snapshots WHERE id = 's2'")
+    assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s1"}
+    with db.connect() as con, con:
+        con.execute("DELETE FROM observations WHERE snapshot_id = 's0'")
+        con.execute("DELETE FROM snapshots WHERE id = 's0'")
+    assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s1"}   # not current: no change
+    with db.connect() as con, con:
+        con.execute("DELETE FROM observations WHERE snapshot_id = 's1'")
+        con.execute("DELETE FROM snapshots WHERE id = 's1'")
+    assert db.latest("silicon_protection") == []
+    assert rows(rm_config, "SELECT count(*) FROM current_snapshots")[0][0] == 0
+
+
+def test_a_store_taken_off_wal_is_put_back_on_it(rm_config):
+    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s1"))
+    con = sqlite3.connect(str(rm_config.parent / "data" / "rm.sqlite"))
+    con.execute("PRAGMA journal_mode=DELETE")
+    con.close()
+    assert len(db.latest("silicon_protection")) == len(silicon())
+    assert rows(rm_config, "PRAGMA journal_mode")[0][0] == "wal"
+
+
+def test_newest_per_reads_only_the_newest_document_of_each_group(rm_config, monkeypatch):
+    """ROB-load-2: one quality_finding per target, newest observed_at, without decoding the older commits."""
+    base = [d for d in examples("observation.quality.example.jsonl") if d["kind"] == "quality_finding"][0]
+    for i, (target, at) in enumerate([("a", "2026-10-02T00:00:00Z"), ("a", "2026-10-03T00:00:00Z"),
+                                      ("a", "2026-10-01T00:00:00Z"), ("b", "2026-10-01T00:00:00Z")]):
+        d = copy.deepcopy(base)
+        d["fact"].update(target=target, commit="%040x" % (i + 1), worktree=False)
+        d["observed_at"] = at
+        d["subject"] = db.subject_of(d)
+        db.put(d)
+    decoded = []
+    real = db.json.loads
+    monkeypatch.setattr(db.json, "loads", lambda s, *a, **k: decoded.append(1) or real(s, *a, **k))
+    got = db.newest_per("quality_finding", lambda s: s.rsplit(":", 1)[0], "quality_finding:")
+    monkeypatch.undo()
+    assert [(d["fact"]["target"], d["observed_at"]) for d in got] == [("a", "2026-10-03T00:00:00Z"),
+                                                                       ("b", "2026-10-01T00:00:00Z")]
+    assert len(decoded) == 2
+    with pytest.raises(ValueError):
+        db.newest_per("pin_state", lambda s: s)

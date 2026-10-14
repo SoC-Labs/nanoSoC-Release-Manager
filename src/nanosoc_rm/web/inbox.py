@@ -571,7 +571,9 @@ def _rank_findings(findings: list[dict]) -> list[dict]:
 def _quality(ctx: _Ctx) -> list[Card]:
     w = WEIGHTS["quality_top"]
     newest: dict[str, dict] = {}
-    for d in db.latest("quality_finding", "quality_finding:", config=ctx.config):
+    # The newest document per target (subject minus its commit part), read without decoding the older commits'
+    # documents, which can be megabytes each (ROB-load-2).
+    for d in db.newest_per("quality_finding", lambda s: s.rsplit(":", 1)[0], "quality_finding:", config=ctx.config):
         t = d["fact"].get("target")
         if t and (t not in newest or clock.parse(d["observed_at"]) > clock.parse(newest[t]["observed_at"])):
             newest[t] = d

@@ -53,8 +53,6 @@ def test_200_queued_jobs_queue_in_order_and_quickly(cfg):
     assert jobs.queue_position(cfg, ids[-1]) == 199
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-4: jobs.jobs reads and decodes every job row, then applies the "
-                                       "limit and the configuration filter in Python (jobs.py jobs)")
 def test_listing_recent_jobs_does_not_read_the_whole_history(cfg, monkeypatch):
     """A configuration page asks for its 10 most recent jobs (views.configuration_view, jobs(limit=10,
     configuration=...)). With 2000 finished jobs that must not decode all 2000 rows."""

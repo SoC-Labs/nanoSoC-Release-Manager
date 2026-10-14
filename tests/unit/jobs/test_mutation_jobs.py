@@ -132,6 +132,8 @@ def test_jobs_filters_and_limit(cfg):
     jobs.cancel(cfg, ids[0], "alice")
     assert [j["id"] for j in jobs.jobs(cfg, states=("cancelled",))] == [ids[0]]
     assert len(jobs.jobs(cfg, states=("queued", "cancelled"), limit=1000)) == 53
+    # CR-ROB-store-3: the limit is SQL's; a zero or negative limit lists nothing (it used to slice from the end).
+    assert jobs.jobs(cfg, limit=0) == [] and jobs.jobs(cfg, limit=-1) == []
 
 
 def test_cancel_and_queue_position_by_state(cfg):

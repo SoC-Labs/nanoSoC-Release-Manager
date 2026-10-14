@@ -91,9 +91,6 @@ def test_a_snapshot_cut_short_never_becomes_current(cfg, monkeypatch):
 
 
 # ----- the wall clock steps backwards -------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-faults-4: the current snapshot is chosen by wall-clock completed_at "
-                                       "(db._latest ORDER BY completed_at); after the clock steps back, a newer run "
-                                       "(here a FAILED mirror fetch) stays hidden behind the older ok:true one")
 def test_the_newest_snapshot_is_current_even_after_the_clock_steps_back(cfg, monkeypatch):
     monkeypatch.setattr(db, "_now_exact", lambda: "2026-10-14T09:00:00.000000+00:00")
     db.put_snapshot("mirror_status:x", [status_doc("mirror_status:x@1", True, "2026-10-14T09:00:00Z")], config=cfg)

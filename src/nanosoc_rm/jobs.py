@@ -46,7 +46,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
 
-from nanosoc_rm import clock
+from nanosoc_rm import clock, db
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
@@ -69,13 +69,14 @@ JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus th
 LOG_TAIL_BYTES = 64 * 1024
 CLI_BOOT = "import sys; sys.argv[0] = 'nanosoc-rm'; from nanosoc_rm.cli import main; main()"
 _ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
-_DDL = """
-CREATE TABLE IF NOT EXISTS jobs (
+_SCHEMA_VERSION = 1
+_SCHEMA = (                     # run once per store (db.ensure_schema), not on every connect (ROB-load-3)
+    """CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, params TEXT NOT NULL, state TEXT NOT NULL,
     by TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, pid INTEGER, exit_code INTEGER,
-    verdict TEXT, reason TEXT, result TEXT, cancel_by TEXT, command TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state);
-"""
+    verdict TEXT, reason TEXT, result TEXT, cancel_by TEXT, command TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state)",
+)
 
 
 class JobUsage(ValueError):
@@ -175,8 +176,7 @@ def _connect(config: Config) -> Iterator[sqlite3.Connection]:
     con = sqlite3.connect(str(path), timeout=30, isolation_level=None)
     try:
         con.row_factory = sqlite3.Row
-        con.execute("PRAGMA journal_mode=WAL")
-        con.executescript(_DDL)
+        db.ensure_schema(con, _SCHEMA, _SCHEMA_VERSION)
         yield con
     finally:
         con.close()
@@ -208,7 +208,8 @@ def get(config: Config, job_id: int) -> dict | None:
 
 def jobs(config: Config, *, limit: int = 50, kind: str | None = None, configuration: str | None = None,
          states: Sequence[str] | None = None) -> list[dict]:
-    """Job records, newest first."""
+    """Job records, newest first, at most `limit`. The filters and the limit run in SQL, so only the rows returned
+    are decoded (ROB-load-4)."""
     where, args = [], []
     if kind:
         where.append("kind = ?")
@@ -216,12 +217,12 @@ def jobs(config: Config, *, limit: int = 50, kind: str | None = None, configurat
     if states:
         where.append("state IN (%s)" % ",".join("?" * len(states)))
         args += list(states)
-    with _connect(config) as con:
-        rows = [_row(r) for r in con.execute("SELECT * FROM jobs %s ORDER BY id DESC" % (
-            ("WHERE " + " AND ".join(where)) if where else ""), args)]
     if configuration:
-        rows = [r for r in rows if r["params"].get("configuration") == configuration]
-    return rows[:limit]
+        where.append("json_extract(params, '$.configuration') = ?")
+        args.append(configuration)
+    with _connect(config) as con:
+        return [_row(r) for r in con.execute("SELECT * FROM jobs %s ORDER BY id DESC LIMIT ?" % (
+            ("WHERE " + " AND ".join(where)) if where else ""), [*args, max(int(limit), 0)])]
 
 
 # ---------------------------------------------------------------------------------------------------------
