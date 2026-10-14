@@ -127,6 +127,48 @@ signed-in login, so with one shared team user the actions log shows the team use
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
 | Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` (rm, jobs, sessions, bumps, gui) and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
 
+### Store schema upgrade (CR-ROB-store)
+
+The first start after this update migrates `rm.sqlite` to schema version 2 (a new `current_snapshots` table, backfilled
+from the stored snapshots; measured 0.26 s for 100,000 snapshots) and stamps `jobs.sqlite` at version 1. It runs once,
+under a write lock; page reads continue meanwhile. Take the usual backup first. Do not run an older install of the CLI
+against the same data directory afterwards: it would stamp the store back to version 1, and every later connection
+of the new code would repeat the (harmless, but writing) backfill until the old install is gone.
+
+### Store growth and retention (proposal, not implemented)
+
+`rm.sqlite` grows by about 122 MB a day on the live host. Nearly all of it is set-kind history: every 15-minute poll
+stores a complete `pin_state` snapshot of each configuration and a `mirror_status` snapshot of each repo, whether or not
+anything changed, and interfaces.md section 12 keeps all history in v1. Since CR-ROB-store, reads no longer slow down as
+the history grows; only disk use and backup time do (about 3.7 GB a month, 45 GB a year).
+
+Two options, for David to choose (neither changes what a page shows as current):
+
+1. **Keep-on-change** (preferred; a code change and a CR). When a producer's new snapshot has the same facts as the
+   current one (the documents equal apart from `observed_at` and the snapshot id), record only that it was confirmed
+   (a `confirmed_at` on the current snapshot) instead of storing every row again. A3 data age would then read
+   `confirmed_at`. Expected effect: growth falls to the rate of real changes, a few MB a day.
+2. **Prune superseded snapshots** (an operator procedure; no code change). Keep every current snapshot and, for older
+   ones, one per scope per day beyond 30 days. `db.history(subject)` (the fact pages' history, release-draft history)
+   then shows the thinned history. Event kinds (alerts, T0 results, quality, releases) and the `runs` and `actions`
+   tables are never pruned: they cannot be rebuilt.
+
+Procedure for option 2, until it is automated (service stopped, backup taken; the `current_snapshots` delete trigger
+keeps a current snapshot for every scope even if one is deleted by mistake):
+
+```sql
+-- sqlite3 ~/nanosoc-rm/data/rm.sqlite
+CREATE TEMP TABLE doomed AS
+  SELECT id FROM snapshots s
+  WHERE completed_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', '-30 days')
+    AND id NOT IN (SELECT snapshot_id FROM current_snapshots)
+    AND rowid NOT IN (SELECT max(rowid) FROM snapshots WHERE completed_at IS NOT NULL
+                      GROUP BY scope, substr(completed_at, 1, 10));
+DELETE FROM observations WHERE snapshot_id IN (SELECT id FROM doomed);
+DELETE FROM snapshots WHERE id IN (SELECT id FROM doomed);
+VACUUM;   -- returns the space to the file system; needs free disk about the size of the store, and time
+```
+
 ## Wave B pages (built per CR-15; their automation stays off)
 
 The same service also serves Matrix (`/matrix/`), Bumps (`/bumps/`), Versions (`/versions/`) and Releases
