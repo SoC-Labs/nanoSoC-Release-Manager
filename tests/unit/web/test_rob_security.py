@@ -789,7 +789,7 @@ def test_a_job_log_carries_no_token_from_the_config(local, monkeypatch):
 def test_inbox_marks_are_per_login_through_real_sessions(local):
     from nanosoc_rm.web import uistate
     alice, carol = signed_in(local["app"], "alice"), signed_in(local["app"], "carol")
-    page = alice.get("/").text
+    page = alice.get("/inbox").text                           # CR-WF-gui: the card view is at /inbox
     forms = re.findall(r'<form[^>]*action="/inbox/done".*?</form>', page, re.S)
     assert forms, "the inbox shows no card with a Mark done form: nothing to isolate"
     card = re.search(r'name="card" value="([^"]+)"', forms[0]).group(1)
@@ -799,7 +799,7 @@ def test_inbox_marks_are_per_login_through_real_sessions(local):
     assert r.status_code == 303
     cfg = load_config(local["cfg"])
     assert card in uistate.card_state(cfg, "alice") and card not in uistate.card_state(cfg, "carol")
-    assert 'name="card" value="%s"' % card in carol.get("/").text            # carol still sees the card
+    assert 'name="card" value="%s"' % card in carol.get("/inbox").text            # carol still sees the card
     # carol's undo of alice's card changes nothing of alice's
     carol.post("/inbox/undo", data={"csrf_token": page_csrf(carol), "card": card}, follow_redirects=False)
     assert card in uistate.card_state(cfg, "alice")

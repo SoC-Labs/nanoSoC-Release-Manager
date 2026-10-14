@@ -56,7 +56,7 @@ def test_the_rails_pin_count_is_each_configurations_own(site):
     read the number)."""
     from nanosoc_rm.web import views
     config = _load_config(site)
-    text = site["client"].get("/").text
+    text = site["client"].get("/alerts").text                 # CR-WF-gui: the home page has no rail
     counts = dict(re.findall(r'data-rail-configuration="([^"]+)">.*?never checked · (\d+) pins', text, re.S))
     assert counts, text[:300]
     for cid, n in counts.items():

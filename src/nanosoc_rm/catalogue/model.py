@@ -103,7 +103,8 @@ def effective_group(component: dict) -> str | None:
     g = component.get("group")
     if isinstance(g, str) and g in GROUPS:
         return g
-    return DEFAULT_GROUP.get(component.get("class"))  # type: ignore[arg-type]
+    cls = component.get("class")
+    return DEFAULT_GROUP.get(cls) if isinstance(cls, str) else None     # a retyped class: no group, not a crash
 
 
 def class_for(group: str, role: str | None = None) -> str:

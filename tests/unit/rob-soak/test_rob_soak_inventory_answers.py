@@ -32,7 +32,7 @@ def cfg(tmp_path, monkeypatch):
 
 
 def _answer(monkeypatch, status, body, headers=None):
-    def fake(config, host, path, params=None, *, url=None, client=None):
+    def fake(config, host, path, params=None, *, url=None, client=None, **_kw):
         return ApiAnswer(status, body, headers or {}, {"kind": "gitlab_api", "command": "GET %s" % path})
     monkeypatch.setattr(inv, "api_get", fake)
 
