@@ -2,7 +2,7 @@
 <p class="note">Configuration <a href="/configurations/{{ v.configuration }}">{{ v.configuration }}</a> at <code>{{ short(v.commit, 12) }}</code>. Each cell is a local T0 compat run of this tree with that one component moved to the column's commit (every pin of a split component moves together). A FAIL runs again once, alone: red twice is FAIL, green the second time is FLAKY (D8). Infrastructure failures are INFRA, never FAIL (D7). A cell whose captured commits differ from the requested ones is UNVERIFIED (D4). Each cell is compared gate by gate with the same night's pinned run, which it names (D9).</p>
 <p class="banner info" data-nightly="{{ 'enabled' if v.nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if v.nightly.enabled else 'disabled' }}</strong> until the {{ v.nightly.gate }}. Cells run only when someone presses Run.</p>
 {% if queued == '0' %}<p class="banner info" role="status" data-queued="0">Nothing was queued: every cell in that scope is already queued or running, is the pinned tree, or has no commit to run (its reason is shown in the cell).</p>
-{% elif queued %}<p class="banner info" role="status">Queued {{ queued }} cell job(s). The worker runs one at a time (a T0 run takes about 3 minutes); this page shows them as queued, then running. <a href="{{ murl(v.configuration, component=components, columns=columns_q) }}">Refresh</a>.</p>{% endif %}
+{% elif queued %}<p class="banner info" role="status">Queued {{ queued }} cell job(s). The worker runs one at a time (a T0 run takes about 3 minutes); this page shows them as queued, then running. <a href="{{ murl(v.configuration, component=components, columns=columns_q, tiers=tiers_q) }}">Refresh</a>.</p>{% endif %}
 <p class="legend note">Verdicts: {% for k in ('PASS', 'WARN', 'WAIVED', 'FLAKY', 'INFRA', 'FAIL', 'UNVERIFIED', 'NOT-RUN') %}<span class="pill {{ CELL_CLASS[k] }}">{{ k }}</span>{% endfor %}</p>
 
 <form class="panel" method="get" action="{{ murl(v.configuration) }}">
@@ -15,10 +15,20 @@
     <label>Columns
       <input name="columns" value="{{ columns_q or '' }}" placeholder="pinned,in-range,latest-tag,head" size="34">
     </label>
+    <label>Tiers (T0 always runs)
+      <select name="tiers">
+        <option value=""{% if not tiers_q %} selected{% endif %}>T0 only</option>
+        {% for t in TIERS %}<option value="{{ t }}"{% if tiers_q == t %} selected{% endif %}>T0 + {{ t }}</option>{% endfor %}
+      </select>
+    </label>
     <button type="submit">Show</button>
-    {% if components or columns_q %}<a href="{{ murl(v.configuration) }}">all rows and columns</a>{% endif %}
+    {% if components or columns_q or tiers_q %}<a href="{{ murl(v.configuration) }}">all rows and columns</a>{% endif %}
   </div>
 </form>
+
+{% for t in v.tiers or [] %}
+<p class="banner {{ 'info' if t.ready else 'warn' }}" data-tier-preflight="{{ t.tier }}" data-ready="{{ 'yes' if t.ready else 'no' }}"><strong>Tier {{ t.tier }}{% if t.command %} (<code>{{ t.command }}</code>){% endif %}:</strong> {% if t.ready %}ready on this host. Each "+ {{ t.tier }}" cell runs T0, then this command in a sandbox checkout of the same tree; a T0 FAIL skips it. After the command the checkout is re-read: a moved pin makes the cell UNVERIFIED (D4).{% else %}<span class="pill {{ CELL_CLASS.get(t.verdict, '') }}">{{ t.verdict }}</span> {{ t.reason }}. Run does not queue these cells.{% endif %}</p>
+{% endfor %}
 
 <div class="row">
   {% if local %}
@@ -45,9 +55,17 @@
         {% if local %}{% with scope='row', label='Run row', component=r.component, column=None %}{% include '_run_form.html' %}{% endwith %}{% endif %}
       </th>
       {% for c in v.columns %}
-        <td class="cell">{% with cv=r.cells[c], component=(None if c == 'pinned' else r.component), column=c %}{% include '_cell.html' %}{% endwith %}</td>
+        <td class="cell">{% with cv=r.cells[c], component=(None if c == 'pinned' else r.component), column=c, tier=None %}{% include '_cell.html' %}{% endwith %}</td>
       {% endfor %}
     </tr>
+    {% for t, tc in (r.tier_cells or {}).items() %}
+    <tr data-component="{{ r.component }}" data-tier-row="{{ t }}">
+      <th scope="row" class="rowhead note">+ {{ t }}</th>
+      {% for c in v.columns %}
+        <td class="cell">{% with cv=tc[c], component=(None if c == 'pinned' else r.component), column=c, tier=t %}{% include '_cell.html' %}{% endwith %}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
   {% else %}
     <tr><td colspan="{{ v.columns|length + 1 }}" class="empty">No component rows: walk {{ v.configuration }} first (<code>nanosoc-rm walk {{ v.configuration }}</code>).</td></tr>
   {% endfor %}

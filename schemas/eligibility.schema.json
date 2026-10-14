@@ -69,7 +69,8 @@
         "budget_s": { "type": "integer", "minimum": 1, "description": "D1 budget for this command; over it = over_budget (a warning); killed at 1.5 x." },
         "needs": { "type": "array", "uniqueItems": true, "items": { "enum": ["vcs-seat", "network"] }, "description": "vcs-seat: one local tier run at a time holds the host's seat lock (busy = INFRA). network: the command reaches a network (recorded, not enforced)." },
         "verdicts": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$", "description": "Tree-relative path of the toolkit-format verdicts.tsv the command writes (removed before the run)." },
-        "regenerates": { "type": "boolean", "description": "The command regenerates build_soc: refused unless the caller sets NANOSOC_GEN_OK=1, which is then passed on." }
+        "regenerates": { "type": "boolean", "description": "The command regenerates build_soc: refused unless the caller sets NANOSOC_GEN_OK=1, which is then passed on." },
+        "ip_files": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$", "description": "D4 (CR-WD-matrix-t1): tree-relative path of a file list the command writes, one path per line (tree-relative, or absolute for a file outside the tree), naming the files it read. Removed before the run; a matrix cell hashes the listed files into provenance.ip_hash. Absent: ip_hash stays null with the reason." }
       }
     },
     "configuration": {

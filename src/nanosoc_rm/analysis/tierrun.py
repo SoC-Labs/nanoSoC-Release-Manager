@@ -7,8 +7,8 @@
 
 1. **Spec.** The registry's `tiers.yaml` (eligibility#/$defs/tiers_file, loader rule 14) gives, per configuration
    and tier, `command` (argv list or shell string), tree-relative `cwd`, explicit `env`, `budget_s`, `needs`,
-   optional `verdicts` (a toolkit-format verdicts.tsv the command writes), `pins` (the pins it needs) and
-   `regenerates`. A command that sources a set_env.sh is refused (schema and here); `regenerates: true` is refused
+   optional `verdicts` (a toolkit-format verdicts.tsv the command writes), `pins` (the pins it needs),
+   `regenerates` and `ip_files` (a file list the command writes; removed before the run like `verdicts`). A command that sources a set_env.sh is refused (schema and here); `regenerates: true` is refused
    unless the caller's environment has NANOSOC_GEN_OK=1.
 2. **Sandbox tree.** Every pin of the walked tree (the T0 gates' own walk, overrides applied) is checked out at
    its commit at its tree path: a fresh repo per pin borrowing the objects of the T0 run's anonymous fetch
@@ -20,6 +20,8 @@
    the whole process group is killed and the tier is FAIL. `needs: [vcs-seat]` holds a host-local lock for the
    run (busy: INFRA, not run). An absolute path in the tier's own `env` that does not exist on this host (outside
    the sandbox) is a missing tool: INFRA "tool not on this host: VAR=path does not exist", not run.
+   Just before the command, `<work>/tree-layout.json` records the laid-out tree paths and each one's tracked changes
+   (`worktree_changes`), so the matrix's re-read can tell a removed or rewritten input (interfaces section 18 item 8).
 4. **Rows.** `tier.<tier>`: PASS on exit 0, else FAIL. A declared verdicts file adds `tier.<tier>.<gate>` per row
    (status kept); a declared file that is missing or unreadable adds one UNVERIFIED row. Tier verdict: FAIL >
    UNVERIFIED > INFRA > WARN > PASS over the rows.
@@ -28,6 +30,8 @@ from __future__ import annotations
 
 import fcntl
 import getpass
+import hashlib
+import json
 import os
 import re
 import shlex
@@ -45,7 +49,8 @@ from nanosoc_rm.t0 import gates as G
 from nanosoc_rm.t0.gitwork import Pin, iter_pins, repo_key, url_kind
 
 __all__ = ["TierUsage", "RUNNABLE", "KILL_FACTOR", "check_spec", "materialise", "Layout", "run_tier", "skipped",
-           "tier_verdict", "parse_verdicts", "command_text", "missing_tools"]
+           "tier_verdict", "parse_verdicts", "command_text", "missing_tools", "worktree_changes", "LAYOUT_RECORD",
+           "read_layout_record"]
 
 RUNNABLE = ("t1", "t2")
 KILL_FACTOR = 1.5
@@ -55,6 +60,7 @@ RESERVED_ENV = ("TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_VERDICTS", "NANOSOC_GEN_O
 LOG_TAIL = 20
 _UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 _GATE_PART = re.compile(r"[^a-z0-9_.-]+")
+LAYOUT_RECORD = "tree-layout.json"  # in the work dir, beside the tree: what was laid out, as it stood before the command
 
 
 class TierUsage(ValueError):
@@ -164,6 +170,46 @@ def materialise(git, root: Pin, dest: Path, pins=None) -> Layout:
         out.missing += sorted(n for n in wanted if n not in out.laid_out and n not in out.missing
                               and not any(m == n or n.startswith(m + "/") for m in out.missing))
     return out
+
+
+def worktree_changes(repo: Path) -> dict[str, str | None] | None:
+    """Tracked files of the repo at `repo` that differ from its checked-out commit (`git diff HEAD`: index and
+    working file against HEAD; untracked files and submodules ignored): repo-relative path -> sha256 of the working
+    file (a symlink: its target text; None: deleted). None: not readable."""
+    from nanosoc_rm.gitrun import run_git
+    r = run_git("diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--ignore-submodules=all", "HEAD",
+                "--", cwd=repo)
+    if not r.ok:
+        return None
+    out: dict[str, str | None] = {}
+    for rel in (x for x in r.stdout.split("\0") if x):
+        f = Path(repo) / rel
+        try:
+            out[rel] = os.readlink(f) if f.is_symlink() else \
+                hashlib.sha256(f.read_bytes()).hexdigest() if f.is_file() else None
+        except OSError:
+            out[rel] = None
+    return out
+
+
+def _record_layout(work: Path, tree: Path, layout: Layout) -> None:
+    """D4 (matrix, CR-WD-matrix-t1): which tree paths were laid out, and their tracked changes just before the
+    command (after the declared output files were removed), so a re-read after the command can tell a repo the
+    command removed (not 'not laid out') and a tracked file it changed (not one the layout left changed)."""
+    before = {}
+    for tp in layout.laid_out:
+        ch = worktree_changes(tree / tp if tp else tree)
+        before[tp] = ch if ch is not None else {}
+    (work / LAYOUT_RECORD).write_text(json.dumps({"laid_out": list(layout.laid_out), "changes_before": before},
+                                                 sort_keys=True))
+
+
+def read_layout_record(work: Path) -> dict | None:
+    try:
+        d = json.loads((Path(work) / LAYOUT_RECORD).read_text())
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and isinstance(d.get("laid_out"), list) else None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -328,6 +374,9 @@ def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, la
     vfile = tree / spec["verdicts"] if spec.get("verdicts") else None
     if vfile is not None and vfile.exists():
         vfile.unlink()                     # a committed or stale file is never read as this run's evidence
+    ifile = tree / spec["ip_files"] if spec.get("ip_files") else None
+    if ifile is not None and (ifile.is_file() or ifile.is_symlink()):
+        ifile.unlink()                     # the same for the declared IP file list (D4 ip_hash, matrix section 18)
     absent = missing_tools(spec, env, tree, work)
     if absent:
         return _doc(spec, tier, verdict="INFRA", reason="tool not on this host: %s; the tier was not run"
@@ -336,6 +385,10 @@ def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, la
     if held is None:
         return _doc(spec, tier, verdict="INFRA", reason="the vcs-seat lock is held by another local tier run",
                     **base)
+    try:
+        _record_layout(work, tree, layout)
+    except Exception:                      # noqa: BLE001 - never fails the run; the re-read reports it
+        pass                               # no record: the matrix re-read says the layout is unknown (UNVERIFIED)
     cmd = spec["command"]
     argv = ["/bin/bash", "--noprofile", "--norc", "-c", cmd] if isinstance(cmd, str) else list(cmd)
     budget = int(spec["budget_s"])

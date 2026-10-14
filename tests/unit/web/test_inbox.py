@@ -620,3 +620,31 @@ def test_every_card_button_names_its_card(site):
         assert len(ctrls) == len(heads), label
         refs = [re.search(r'aria-describedby="([^"]+)"', a) for a in ctrls]
         assert all(refs) and {m.group(1) for m in refs} == heads, label
+
+
+def test_11_a_tier_cell_neither_hides_nor_poses_as_the_t0_cell(site):
+    """A newer t1 cell of the same (component, column) keeps the T0 FLAKY card; its own FLAKY card says t1."""
+    put_examples(site["cfg"], "observation.matrix.example.jsonl")
+    base = [d for d in example("observation.matrix.example.jsonl", "matrix_cell")][1]
+    t0 = copy.deepcopy(base)
+    t0["fact"].pop("tier", None)
+    t0["fact"]["verdict"] = "FLAKY"
+    t0["fact"]["attempts"][-1]["verdict"] = "PASS"
+    t0["fact"]["flaky_gates"] = ["t0.pins.reachable"]
+    t0["fact"]["nonce"] = "f" * 32
+    t0["subject"] = db.subject_of(t0)
+    db.put(t0, config=site["cfg"])
+    t1 = copy.deepcopy(t0)
+    t1["fact"].update(tier="t1", force_tier=False, verdict="PASS", flaky_gates=[], nonce="e" * 32,
+                      finished_at="2099-01-01T00:00:00Z", attempts=t1["fact"]["attempts"][-1:])
+    t1["subject"] = db.subject_of(t1)
+    db.put(t1, config=site["cfg"])
+    flaky = [c for c in of(inbox.cards(site["config"]), "matrix_flaky") if ":quarantine:" not in c.id]
+    assert [c.primary["href"] for c in flaky] == ["/matrix/eth-rc4/cell?component=tidelink&column=latest-tag"]
+    t1["fact"].update(verdict="FLAKY", flaky_gates=["t0.pins.reachable"], attempts=t0["fact"]["attempts"])
+    db.put(t1, config=site["cfg"])
+    flaky = [c for c in of(inbox.cards(site["config"]), "matrix_flaky") if ":quarantine:" not in c.id]
+    hrefs = sorted(c.primary["href"] for c in flaky)
+    assert hrefs == ["/matrix/eth-rc4/cell?component=tidelink&column=latest-tag",
+                     "/matrix/eth-rc4/cell?component=tidelink&column=latest-tag&tier=t1"], hrefs
+    assert len({c.id for c in flaky}) == 2 and any("(t1)" in c.title for c in flaky)

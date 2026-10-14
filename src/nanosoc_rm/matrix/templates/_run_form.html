@@ -1,9 +1,11 @@
-{# One Run button: queue cells as local jobs. Args: scope, component, column, label #}
+{# One Run button: queue cells as local jobs. Args: scope, component, column, label, tier (optional) #}
 <form method="post" action="{{ murl(v.configuration, 'run') }}" data-matrix-run="{{ scope }}">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <input type="hidden" name="scope" value="{{ scope }}">
   {% if component %}<input type="hidden" name="component" value="{{ component }}">{% endif %}
   {% if column %}<input type="hidden" name="column" value="{{ column }}">{% endif %}
+  {% if tier %}<input type="hidden" name="tier" value="{{ tier }}">{% endif %}
+  {% if tiers_q %}<input type="hidden" name="filter_tiers" value="{{ tiers_q }}">{% endif %}
   {% for c in components %}<input type="hidden" name="filter_component" value="{{ c }}">{% endfor %}
   {% if columns_q %}<input type="hidden" name="filter_columns" value="{{ columns_q }}">{% endif %}
   <button type="submit" class="runbtn{{ ' primary' if scope == 'all' else '' }}">{{ label }}</button>

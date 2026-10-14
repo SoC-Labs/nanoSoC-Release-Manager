@@ -1,7 +1,8 @@
 """`nanosoc-rm matrix` (D3, D4, D7, D8, D9, B7; interfaces.md section 18).
 
-    nanosoc-rm matrix CONFIG [--columns pinned,in-range,latest-tag,head] [--component C]... [--run [--wait]] [--json]
-    nanosoc-rm matrix cell CONFIG --column COL [--component C] [--store] [--json]      one cell, in the foreground
+    nanosoc-rm matrix CONFIG [--columns pinned,in-range,latest-tag,head] [--component C]... [--tiers t1]
+                             [--run [--wait]] [--json]
+    nanosoc-rm matrix cell CONFIG --column COL [--component C] [--tier t1 [--force-tier]] [--store] [--json]
     nanosoc-rm matrix quarantine CONFIG [--owner GATE=LOGIN] [--json]                 D8 quarantine list
     nanosoc-rm matrix nightly CONFIG [--json]                                 what the DISABLED nightly would queue
 
@@ -71,6 +72,8 @@ def _cell_text(cv: dict) -> str:
     st = cv["status"]
     if st == "no-target":
         return "-- (%s)" % (t.get("why") or "no target")[:40]
+    if st in ("no-tool", "no-command"):
+        return "%s (%s)" % (_SHORT.get(cv["verdict"] or "", cv["verdict"] or ""), st)
     if st == "same-as-pinned":
         return "= pinned %s" % (cv["verdict"] or "")
     if st in ("queued", "running"):
@@ -93,9 +96,21 @@ def _print_view(doc: dict) -> None:
     for r in f["rows"]:
         name = r["component"] + (" [split]" if r["split"] else "")
         rows.append([name] + [_cell_text(r["cells"][c]) for c in cols])
-    widths = [max(len(x[i]) for x in [head] + rows) for i in range(len(head))]
+    for t in f.get("tiers") or []:
+        tp = (f.get("pinned_tiers") or {}).get(t["tier"])
+        click.echo("tier %s: %s%s" % (t["tier"], "ready on this host" if t["ready"] else "%s: %s" % (
+            t["verdict"], t["reason"]), " (command: %s)" % t["command"] if t["command"] else ""))
+        if tp is not None:
+            click.echo("pinned run + %s: %s" % (t["tier"], _cell_text(tp) if tp["status"] != "not-run"
+                                                   else "not run yet"))
+    lines = []
+    for r, x in zip(f["rows"], rows):
+        lines.append(x)
+        for tname, tc in (r.get("tier_cells") or {}).items():
+            lines.append(["  + %s" % tname] + [_cell_text(tc[c]) for c in cols])
+    widths = [max(len(x[i]) for x in [head] + lines) for i in range(len(head))]
     click.echo("  ".join(h.upper().ljust(w) for h, w in zip(head, widths)))
-    for x in rows:
+    for x in lines:
         click.echo("  ".join(v.ljust(w) for v, w in zip(x, widths)).rstrip())
     for s in f["splits"]:
         click.echo("B7 split %s: %s" % (s["component"], ", ".join("%s@%s" % (p_["tree_path"], (p_["commit"] or "?")[:7])
@@ -120,7 +135,10 @@ K_GREEN = ("PASS", "WARN", "WAIVED")                      # cells.GREEN
 
 
 def _view_exit(doc: dict) -> int:
-    vs = [cv["verdict"] for r in doc["fact"]["rows"] for cv in r["cells"].values()] + [doc["fact"]["pinned"]["verdict"]]
+    f = doc["fact"]
+    vs = [cv["verdict"] for r in f["rows"] for cv in r["cells"].values()] + [f["pinned"]["verdict"]]
+    vs += [cv["verdict"] for r in f["rows"] for tc in (r.get("tier_cells") or {}).values() for cv in tc.values()]
+    vs += [cv["verdict"] for cv in (f.get("pinned_tiers") or {}).values()]
     # section 0.2: a finding wins over could-not-answer, which wins over a clean answer. UNVERIFIED (a moved pin,
     # D4) and INFRA (the host, D7) cells did not answer; NOT-RUN (no commit to run) is neither an answer nor a
     # failure to answer. Green needs at least one green cell.
@@ -166,10 +184,12 @@ def register(main: click.Group) -> None:
     @click.argument("configuration")
     @click.option("--columns", default=None, help="Comma list of pinned,in-range,latest-tag,head (default all).")
     @click.option("--component", "components", multiple=True, help="Restrict to these rows (repeatable).")
+    @click.option("--tiers", default=None, help="Add tier cells beside each T0 cell: t1 (lint). Needs the "
+                                                "registry's tiers.yaml t1 command and the tool on this host.")
     @click.option("--run", is_flag=True, help="Queue every runnable cell of this view as a local job.")
     @click.option("--wait", is_flag=True, help="With --run: work the queue here until the cells are done.")
     @json_option
-    def show(configuration, columns, components, run, wait, as_json):
+    def show(configuration, columns, components, tiers, run, wait, as_json):
         """One configuration's matrix: a row per component, a cell per column."""
         from nanosoc_rm import matrix as M
         from nanosoc_rm.config import load_config
@@ -179,12 +199,13 @@ def register(main: click.Group) -> None:
                 raise M.MatrixUsage("--wait needs --run")
             if run:
                 queued = M.queue(configuration, columns=M.parse_columns(columns), components=components,
-                                 by=_login(), config=config)
+                                 by=_login(), config=config, tiers=M.parse_tiers(tiers))
                 for j in queued:
                     click.echo("queued job %d: %s" % (j["id"], j["command"]), err=True)
                 if wait and queued:
                     _wait([j["id"] for j in queued], config)
-            doc = M.matrix(configuration, columns=M.parse_columns(columns), components=components, config=config)
+            doc = M.matrix(configuration, columns=M.parse_columns(columns), components=components, config=config,
+                           tiers=M.parse_tiers(tiers))
         except Exception as e:                                    # noqa: BLE001
             if isinstance(e, M.MatrixUsage):
                 click.echo("nanosoc-rm matrix: %s" % e, err=True)
@@ -200,10 +221,14 @@ def register(main: click.Group) -> None:
     @click.argument("configuration")
     @click.option("--column", required=True, type=click.Choice(["pinned", "in-range", "latest-tag", "head"]))
     @click.option("--component", default=None, help="The row (not with --column pinned).")
+    @click.option("--tier", default=None, type=click.Choice(["t1"]),
+                  help="Add the registry's tiers.yaml command of this tier (t1: lint) to the T0 run.")
+    @click.option("--force-tier", is_flag=True, help="Run the tier past a T0 FAIL (a person's override; the cell "
+                                                     "stays FAIL and is UNVERIFIED for release).")
     @click.option("--store", is_flag=True, help="Store the result (the job always does).")
     @json_option
-    def cell(configuration, column, component, store, as_json):
-        """Run one cell now, in the foreground: compat T0 with the component moved, D8 re-run on FAIL."""
+    def cell(configuration, column, component, tier, force_tier, store, as_json):
+        """Run one cell now, in the foreground: compat T0 (and a tier) with the component moved, D8 re-run on FAIL."""
         from nanosoc_rm import jobs
         from nanosoc_rm.config import load_config
         from nanosoc_rm.matrix import cells as K
@@ -212,7 +237,8 @@ def register(main: click.Group) -> None:
             job_id = os.environ.get("NANOSOC_RM_JOB")
             job = jobs.get(config, int(job_id)) if job_id and job_id.isdigit() else None
             docs = K.run_cell(configuration, column, component, config=config, store=store,
-                              by=job["by"] if job else _login(), job=job["id"] if job else None)
+                              by=job["by"] if job else _login(), job=job["id"] if job else None,
+                              tier=tier, force_tier=force_tier)
         except K.CellUsage as e:
             click.echo("nanosoc-rm matrix cell: %s" % e, err=True)
             sys.exit(EXIT_USAGE)
@@ -225,13 +251,19 @@ def register(main: click.Group) -> None:
                 click.echo(json.dumps(d, separators=(",", ":")))
         else:
             t = f["target"]
-            click.echo("%s %s/%s -> %s %s" % (configuration, component or "(tree)", column,
-                                             t.get("ref") or "", (t.get("commit") or "")[:12]))
+            click.echo("%s %s/%s%s -> %s %s" % (configuration, component or "(tree)", column,
+                                               " + %s%s" % (tier, " (forced)" if force_tier else "") if tier else "",
+                                               t.get("ref") or "", (t.get("commit") or "")[:12]))
             for a in f["attempts"]:
                 click.echo("  attempt %s: %s (%s .. %s, load %s -> %s on %s cpus)%s" % (
                     a["nonce"][:12], a["verdict"], a["started_at"], a["finished_at"], a["host"]["load_start"],
                     a["host"]["load_end"], a["host"]["cpus"],
                     (", OVERLOADED" if a["host"].get("overloaded") else "") + (": " + a["reason"] if a["reason"] else "")))
+                if a.get("tier"):
+                    ta = a["tier"]
+                    click.echo("    tier %s: %s%s%s" % (ta["tier"], ta["verdict"], " in %.1f s" % ta["seconds"]
+                                                       if ta["seconds"] is not None else "",
+                                                       ": " + ta["reason"] if ta["reason"] else ""))
             click.echo("verdict %s%s" % (f["verdict"], ": " + f["reason"] if f["reason"] else ""))
             cap = (f["provenance"] or {}).get("captured")
             if cap:
@@ -239,6 +271,14 @@ def register(main: click.Group) -> None:
                 click.echo("D4 capture: %d of %d pins read, %d moved, %d not read%s" % (
                     sum(1 for p in pins if p["commit"]), len(pins), len(f["provenance"]["moved"]),
                     sum(1 for p in pins if not p["commit"]), "\n  %s" % cap["note"] if cap.get("note") else ""))
+            co = (f["provenance"] or {}).get("checkout")
+            if co:
+                cpins = co.get("pins") or []
+                click.echo("D4 %s checkout, re-read after the command: %d of %d pins read, %d not laid out" % (
+                    tier, sum(1 for p in cpins if p["commit"]), len(cpins), sum(1 for p in cpins if not p["commit"])))
+            if tier:
+                pv = f["provenance"]
+                click.echo("D4 ip_hash: %s (%s)" % (pv["ip_hash"] or "null", pv.get("ip_hash_note") or ""))
             if f["comparison"]:
                 b = f["baseline"]
                 click.echo("D9 baseline: %s" % ("pinned run %s (%s)" % (b["nonce"], b["verdict"]) if b

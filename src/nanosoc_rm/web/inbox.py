@@ -669,24 +669,29 @@ def _matrix(ctx: _Ctx) -> list[Card]:
     latest: dict[str, dict] = {}
     for d in sorted(db.latest("matrix_cell", "matrix_cell:", config=ctx.config),
                     key=lambda d: clock.parse(d["fact"]["finished_at"])):
-        latest.setdefault(d["fact"]["configuration"], {})[(d["fact"]["component"], d["fact"]["column"])] = d
+        # keyed by tier too: a tier cell (CR-WD-matrix-t1) neither replaces nor poses as the T0 cell
+        latest.setdefault(d["fact"]["configuration"], {})[
+            (d["fact"]["component"], d["fact"]["column"], d["fact"].get("tier") or None)] = d
     quarantined: dict[str, list[dict]] = {}
     for q in db.latest("matrix_quarantine", "matrix_quarantine:", config=ctx.config):
         quarantined.setdefault(q["fact"]["configuration"], []).append(q)
     for rec in ctx.records:
         cid = rec["fact"]["id"]
-        for (comp, column), d in sorted(latest.get(cid, {}).items(), key=lambda kv: str(kv[0])):
+        for (comp, column, tier), d in sorted(latest.get(cid, {}).items(), key=lambda kv: str(kv[0])):
             if d["fact"].get("verdict") != "FLAKY":
                 continue
             out.append(Card(
-                id="matrix_flaky:%s:%s:%s" % (cid, comp or "-", column), kind="matrix_flaky", chip=("FLAKY", "c-warn"),
-                title="%s: %s at %s is FLAKY." % (cid, comp or "the pinned tree", column),
+                id="matrix_flaky:%s:%s:%s%s" % (cid, comp or "-", column, ":" + tier if tier else ""),
+                kind="matrix_flaky", chip=("FLAKY", "c-warn"),
+                title="%s: %s at %s%s is FLAKY." % (cid, comp or "the pinned tree", column,
+                                                    " (%s)" % tier if tier else ""),
                 why="FLAKY blocks auto-merge; a quarantined gate does not count until it expires.",
                 weight=w["base"], fact_at=d["observed_at"], frozen=ctx.frozen[cid], facts=[d],
                 meta="matrix cell %s · %s" % (str(d["fact"].get("nonce") or "")[:12], _age(d["observed_at"], ctx.now)),
                 evidence=[_evidence("FLAKY", "c-warn", g, "") for g in d["fact"].get("flaky_gates") or []],
                 primary={"label": "Open the cell", "method": "get", "fields": {},
-                         "href": "/matrix/%s/cell?component=%s&column=%s" % (_q(cid), _q(comp or ""), _q(column))},
+                         "href": "/matrix/%s/cell?component=%s&column=%s%s" % (
+                             _q(cid), _q(comp or ""), _q(column), "&tier=%s" % _q(tier) if tier else "")},
                 dest="opens the matrix cell", basis=d["fact"].get("nonce")))
         for test, q in sorted(cells.active_quarantine(quarantined.get(cid, []), ctx.now).items()):
             f = q["fact"]
