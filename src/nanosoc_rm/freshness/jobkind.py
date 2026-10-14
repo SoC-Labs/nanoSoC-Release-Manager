@@ -11,7 +11,7 @@ __all__ = ["KIND", "LIMIT_S", "params", "cli_args", "outcome", "limit_s"]
 
 KIND = "freshness-scan"
 LIMIT_S = 900                     # about 1,000 local git reads for four trees; minutes at most
-_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z")
 
 
 def params(p: dict) -> dict:

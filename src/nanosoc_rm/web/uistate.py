@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS pref (
     login TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (login, name));
 """
 # A preference name: the timeline toggle, or one muted notification kind or project (CR-WF-gui).
-PREF_NAME = re.compile(r"^(timeline|notify\.kind\.[a-z_]{1,40}|notify\.project\.[A-Za-z0-9_.-]{1,100})$")
+PREF_NAME = re.compile(r"^(timeline|notify\.kind\.[a-z_]{1,40}|notify\.project\.[A-Za-z0-9_.-]{1,100})\Z")
 
 
 def path(config) -> Path:

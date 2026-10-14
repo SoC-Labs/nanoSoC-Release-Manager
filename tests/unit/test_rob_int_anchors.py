@@ -1,4 +1,5 @@
-"""CR-ROB-int: the Wave E modules (publish, store, the store config) read whole-string ids, versions, digests and
+"""CR-ROB-int: the Wave E and F modules (publish, store, the store config, catalogue, freshness,
+notifications, ui preferences) read whole-string ids, versions, digests and
 paths with \\Z, as CR-ROB5-ids made every other module do (ROB-coverage-5): with `$`, a value with one trailing
 newline passed and reached a store path, a manifest or a page."""
 from __future__ import annotations
@@ -6,7 +7,10 @@ from __future__ import annotations
 import pytest
 
 from nanosoc_rm.publish import client as pclient, jobkinds, manifest, web as pweb
+from nanosoc_rm.catalogue import preview
+from nanosoc_rm.freshness import jobkind as fjobkind
 from nanosoc_rm.store import client as sclient, index, views
+from nanosoc_rm.web import notifications, uistate
 
 CASES = [
     (pclient.SAFE_SEGMENT, "nanosoc-releases"), (pclient.SAFE_NAME, "eth-rc4"), (pclient._PATH, "eth-rc4/1.0.0/a.zip"),
@@ -15,6 +19,9 @@ CASES = [
     (pweb._ID, "eth-rc4"), (pweb._SEMVER, "1.0.0"), (pweb._SHA256, "a" * 64),
     (sclient._REPO, "nanosoc-releases"), (index._SHA, "a" * 40), (index._MD5, "a" * 32),
     (views._HEX, "abcd"), (views._SHA, "a" * 7), (views._DRAFT_ID, "tapeout-1"),
+    # Wave F
+    (preview._ID, "tidelink"), (fjobkind._ID, "eth-rc4"), (notifications._CARD_ID, "compat_fail:eth-rc4"),
+    (notifications._FP, "ab12"), (uistate.PREF_NAME, "notify.kind.compat_fail"),
 ]
 
 

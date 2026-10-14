@@ -43,8 +43,8 @@ KINDS = (("compat", "A configuration check is red"), ("silicon", "Silicon, errat
 KIND_LABEL = dict(KINDS)
 NEW_REPOS_ID = "catalogue:new-repos"
 _TONE = {"c-fail": "act", "c-warn": "warn", "c-split": "warn"}
-_CARD_ID = re.compile(r"^[a-z_]+:[A-Za-z0-9_.@:/+-]{0,240}$")
-_FP = re.compile(r"^[0-9a-f]{0,64}$")
+_CARD_ID = re.compile(r"^[a-z_]+:[A-Za-z0-9_.@:/+-]{0,240}\Z")
+_FP = re.compile(r"^[0-9a-f]{0,64}\Z")
 
 
 @dataclasses.dataclass

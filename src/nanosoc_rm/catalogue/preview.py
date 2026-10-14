@@ -48,7 +48,7 @@ __all__ = ["preview", "Preview", "PreviewUsage", "SETTABLE", "entry_line"]
 SETTABLE = ("group", "type", "role", "wraps", "question")
 _CHAR_ORDER = ("group", "type", "role", "wraps", "guessed", "question")
 _LINE = re.compile(r"^(?P<lead>\s*-\s+)(?P<rest>\{.*)$")
-_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]*\Z")
 
 
 class PreviewUsage(ValueError):
