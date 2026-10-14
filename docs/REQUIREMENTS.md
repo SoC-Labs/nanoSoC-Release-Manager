@@ -408,6 +408,11 @@ Scan every result bundle and release file for vendor content before upload.
 
 Store result bundles in Artifactory (falling back to disk). Keep logs for 90 days and release evidence forever.
 
+*Amended 2026-10-14 by CR-ART-H3-D12:* the tool reads the store; it writes to it only to publish a signed release
+manifest or tapeout record to the release repository (`asic-release`), as a person's confirmed step (GUI Publish
+or `nanosoc-rm publish-release` / `register-tapeout`), never scheduled, never over an existing file. Producers set
+the `rm.*` properties at upload.
+
 - **Why:** Evidence must survive after scratch folders are cleaned.
 - **Done when:** A release's evidence can be fetched a year later.
 - **Source:** §4.7
@@ -586,6 +591,20 @@ Archive the exact generated RTL of every SoC release and silicon reference, with
 - **Done when:** Each release's archive reproduces its build_soc/ file for file.
 - **Source:** new (DEC10)
 
+### G8 · Must · Phase 5 *(added 2026-10-14 by CR-ART-G8)*
+
+Record each published release and tapeout: a signed manifest in the release store naming the tag, the full commit
+of the superproject and of every submodule pin, the configuration, the lock md5, the errata revision and the stored
+artefacts by path and checksum (a tapeout record adds foundry run, PDK, GDS raw md5 and layout hash, submission
+date, foundry verdict and status), read back and verified after upload, with the tool's ledger saying who
+published what and when.
+
+- **Why:** Artifactory OSS cannot add a property to a stored file, so the join between a release or tapeout and its
+  commit has to be a manifest, and nothing records publication today.
+- **Done when:** A release draft and a tapeout draft are published, each signature verifies on read-back, and the
+  ledger and the store's build record both show them.
+- **Source:** Artifactory design 2026-10-14 (phase 2)
+
 ## H · Web interface, hosting and security
 
 ### H1 · Must · v1 *(round 2)*
@@ -607,6 +626,12 @@ Sign in with GitHub, limited to SoC-Labs members. Roles come from the service's 
 ### H3 · Must · All *(amended per X1 a, confirmed 2026-09-30)*
 
 Split the credentials: the poller is read-only; the CI trigger is scoped to the CI project; the bump writer exists only on non-silicon repos; the bot's tag credential covers tool repos only; final tags of breaking tool releases and of every SoC release are made by people. Warn before any token expires.
+
+*Amended 2026-10-14 by CR-ART-H3-D12:* the release store's token is the tool's own (one year, revocable), kept as
+the store key `[stores.artifactory] token_file`, not a fifth credential. Artifactory OSS has no per-repository
+permissions, so the token is effectively admin: the tool's own method allow-list bounds it (GET/HEAD, new files under
+the release repository, a build record, a status-only promotion), it travels only as a Bearer header, and only the
+publish job uses it, never the web process.
 
 - **Why:** One leaked token cannot do everything.
 - **Done when:** Each credential's scope is recorded and checked.

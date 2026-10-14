@@ -201,11 +201,15 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 #   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (CR-14, Q4 rewrite)
 #   local       a call the census mistakes for HTTP, only in a file that imports no HTTP library (none yet)
 #   git-runner  at most one: nanosoc_rm.gitrun, which refuses push, send-pack and receive-pack at run time
+#   publish     CR-ART-publish (David 2026-10-14): the release store's PUT and POST, only in
+#               nanosoc_rm/publish/client.py, allow-listed there before any I/O (new files under
+#               <release_repo>/<project>/<version>/, a build-info record, a status-only promotion), refused in the
+#               web process, run only by a person's confirmed publish; never scheduled (A7: soc_release)
 #
 # `file` names where the contract layout (interfaces.md sections 0.5, 10, 14) puts the call. A builder who
 # puts the call in a different file moves the entry with it, in the same commit.
 # ---------------------------------------------------------------------------------------------------------
-WRITE_EFFECTS = ("write", "read-post", "local", "git-runner")
+WRITE_EFFECTS = ("write", "read-post", "local", "git-runner", "publish")
 
 WRITE_CALLS: list[dict[str, str]] = [
     {"file": "nanosoc_rm/ci/client.py", "kind": "http", "method": "POST", "target": "trigger/pipeline",
@@ -240,4 +244,28 @@ WRITE_CALLS: list[dict[str, str]] = [
               "person runs, under the same git runner and WRITE_CALLS",
      "reason": "CR-17: the service's local job worker runs `nanosoc-rm compat`, `mirror sync` and `walk` as a child "
                "process, so a cancel can stop the whole process tree and the service never imports the tier runner"},
+    {"file": "nanosoc_rm/publish/client.py", "kind": "http", "method": "PUT",
+     "target": "<release_repo>/<project>/<version>/<file> and api/build",
+     "effect": "publish",
+     "guard": "Store.check() allows a PUT only to a new file directly under [stores.artifactory] release_repo/<project>/"
+              "<version>/ (never a checksum name) or to api/build, before any network I/O; the service HEADs every "
+              "target first and refuses a path that holds other bytes (never overwrite); refused in the web process "
+              "(refuse_writes_here); run only by `publish-release`/`register-tapeout --confirm SHA256` after a "
+              "preview, from the CLI or a job a listed publisher queued; Bearer token from [stores.artifactory] "
+              "token_file only",
+     "reason": "CR-ART-publish (G8, D12; David 2026-10-14): upload a signed release manifest or tapeout record, the "
+               "documents beside it, and its build-info record to the release store"},
+    {"file": "nanosoc_rm/publish/client.py", "kind": "http", "method": "POST",
+     "target": "api/build/promote/<name>/<number>",
+     "effect": "publish",
+     "guard": "Store.check() allows a POST only to api/build/promote/<name>/<number>, and promote() refuses a body "
+              "with a target repo, copy or artifacts: a status-only promotion (RELEASED, TAPED-OUT); same run "
+              "conditions as the PUT",
+     "reason": "CR-ART-publish: mark the published release or tapeout in the store's own Builds view"},
+    {"file": "nanosoc_rm/publish/signing.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local",
+     "guard": "_run() starts only `<[stores.artifactory] ssh_keygen> -Y sign|verify` (refused otherwise), with a "
+              "minimal environment, no stdin but the bytes to verify, a 60 s limit; the file imports no HTTP client",
+     "reason": "CR-ART-publish: sign and verify a manifest with ssh-keygen -Y (OpenSSH 8.1+); it writes only a "
+               "temporary file"},
 ]

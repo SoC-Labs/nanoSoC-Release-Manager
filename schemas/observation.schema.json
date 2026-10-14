@@ -53,7 +53,8 @@
         "release_draft",
         "release_verify",
         "fork_status",
-        "regen_class"
+        "regen_class",
+        "release_publication"
       ]
     },
     "subject": {
@@ -466,6 +467,16 @@
         "properties": {
           "fact": { "$ref": "regen.schema.json#/$defs/regen_class" },
           "subject": { "pattern": "^regen_class:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "release_publication" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "release-manifest.schema.json#/$defs/publication" },
+          "subject": { "pattern": "^release_publication:" }
         },
         "not": { "required": ["snapshot"] }
       }

@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/release-manifest.schema.json",
+  "title": "Release manifest: the signed record of one published SoC release",
+  "description": "CR-ART-publish (G8, D12, G3): `asic-release/<project>/<version>/release-manifest.json`, with `release-manifest.json.sig` beside it (OpenSSH SSHSIG, namespace nanosoc-rm). Built by `nanosoc-rm publish-release` from a complete local release draft, byte-for-byte deterministic (sorted keys, two-space indent, one trailing newline), so a confirmed preview and the published file have the same sha256. It names the release, its tag, the full commit of the superproject and of every submodule pin, the configuration, the lock's md5, the errata revision, the gate verdicts, the stored artefacts it references (path, raw md5, the store's sha256) and the documents uploaded beside it. OSS Artifactory cannot add a property to a stored file, so this manifest IS the join between a release and its bytes: stored GDS joins by its raw-md5 property, never by the compressed object's checksum. No publish time or publisher is in it (they are in the build-info record and the tool's ledger, `$defs/publication`). Also holds `$defs/publication`, the ledger fact (observation kind `release_publication`).",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "project",
+    "component",
+    "configuration",
+    "version",
+    "tag",
+    "commit",
+    "release_kind",
+    "silicon",
+    "repo",
+    "pins",
+    "pins_md5",
+    "lock",
+    "errata",
+    "gates",
+    "artefacts",
+    "documents",
+    "generated_by",
+    "draft"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "kind": {
+      "const": "release-manifest"
+    },
+    "project": {
+      "$ref": "#/$defs/segment",
+      "description": "The store project folder: `[stores.artifactory] projects.<component>`, else the component id."
+    },
+    "component": {
+      "$ref": "defs.schema.json#/$defs/component_id"
+    },
+    "configuration": {
+      "$ref": "defs.schema.json#/$defs/configuration_id"
+    },
+    "version": {
+      "$ref": "defs.schema.json#/$defs/semver"
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "commit": {
+      "$ref": "defs.schema.json#/$defs/sha",
+      "description": "The superproject commit the tag names (full sha: a tag can move, a sha cannot)."
+    },
+    "release_kind": {
+      "enum": [
+        "fix",
+        "feature",
+        "tapeout"
+      ]
+    },
+    "silicon": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "chip",
+            "revision",
+            "tag"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "chip": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^r[0-9]+p[0-9]+$"
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^silicon/"
+            }
+          }
+        }
+      ]
+    },
+    "repo": {
+      "$ref": "defs.schema.json#/$defs/repo"
+    },
+    "pins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pin"
+      }
+    },
+    "pins_md5": {
+      "$ref": "defs.schema.json#/$defs/md5",
+      "description": "md5 of the pins as `<tree_path> <commit>` lines, sorted, newline-terminated: one joinable value (the producers' rm.pins_md5)."
+    },
+    "lock": {
+      "type": "object",
+      "required": [
+        "file",
+        "md5",
+        "sha256",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "const": "release.lock.yaml"
+        },
+        "md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "errata": {
+      "type": "object",
+      "required": [
+        "revision",
+        "records",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "ready",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "enum": [
+            "PASS",
+            "WARN",
+            "WAIVED",
+            "INFRA",
+            "UNVERIFIED",
+            "FAIL"
+          ]
+        },
+        "ready": {
+          "const": true,
+          "description": "Only a ready draft is published."
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "verdict"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "verdict": {
+                "enum": [
+                  "PASS",
+                  "WARN",
+                  "WAIVED",
+                  "INFRA",
+                  "UNVERIFIED",
+                  "FAIL",
+                  "NOT-RUN"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "description": "G3, silicon only: the raw (uncompressed) GDS and P&R netlist hashes from the lock.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "gds": {
+          "$ref": "#/$defs/raw_file"
+        },
+        "pnr_netlist": {
+          "$ref": "#/$defs/raw_file"
+        }
+      }
+    },
+    "artefacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artefact"
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/document"
+      }
+    },
+    "generated_by": {
+      "type": "object",
+      "required": [
+        "tool",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "const": "nanosoc-release-manager"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "draft": {
+      "type": "object",
+      "required": [
+        "generated_at",
+        "observed_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "observed_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "silicon": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "silicon"
+        ]
+      },
+      "then": {
+        "required": [
+          "outputs"
+        ],
+        "properties": {
+          "outputs": {
+            "required": [
+              "gds",
+              "pnr_netlist"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "segment": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+    },
+    "store_path": {
+      "description": "<repo>/<path> in the store. The store's URL lives in the private service config; no host appears here.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "pin": {
+      "type": "object",
+      "required": [
+        "tree_path",
+        "component",
+        "repo",
+        "commit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tree_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "component": {
+          "$ref": "defs.schema.json#/$defs/component_id"
+        },
+        "repo": {
+          "$ref": "defs.schema.json#/$defs/repo"
+        },
+        "commit": {
+          "$ref": "defs.schema.json#/$defs/sha"
+        }
+      }
+    },
+    "raw_file": {
+      "type": "object",
+      "required": [
+        "file",
+        "md5",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "artefact": {
+      "description": "A file already in the store that this release references (an archive, a GDS stream, logs, sign-off reports). `stored_*` are the store's own checksums of the stored object (a .zst stream's, not the GDS's); `raw_md5` is the payload's uncompressed md5 and `raw_md5_from` says how it was joined: `lock` (the stored object's md5 equals the lock's), `property` (the store's raw-md5 property equals the lock's: rm.raw_md5, pnr.raw_md5 or file.raw_md5), `stored` (no lock value: the object is the payload), or null when nothing names it.",
+      "type": "object",
+      "required": [
+        "role",
+        "path",
+        "stored_sha256",
+        "stored_md5",
+        "bytes",
+        "raw_md5",
+        "raw_md5_from"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "enum": [
+            "archive",
+            "gds",
+            "netlist",
+            "bitstream",
+            "logs",
+            "flists",
+            "signoff",
+            "foundry-return",
+            "doc",
+            "other"
+          ]
+        },
+        "path": {
+          "description": "<repo>/<path> in the store. The store's URL lives in the private service config; no host appears here.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+$"
+        },
+        "stored_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stored_md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw_md5": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/md5"
+            }
+          ]
+        },
+        "raw_md5_from": {
+          "enum": [
+            "lock",
+            "property",
+            "stored",
+            null
+          ]
+        }
+      }
+    },
+    "document": {
+      "description": "A file uploaded beside the manifest (the lock, ERRATA, notes, the gate ledger, the checklist, the generated-RTL md5 list), by name and checksum.",
+      "type": "object",
+      "required": [
+        "name",
+        "md5",
+        "sha256",
+        "bytes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+        },
+        "md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "publication": {
+      "description": "The tool's ledger of one publish (observation kind `release_publication`, event, subject `release_publication:<project>:<version>:<name>`): what was uploaded where, read back and verified, and who published it. `outcome` is `published` (this run uploaded) or `already-published` (every path held the same bytes: a retry).",
+      "type": "object",
+      "required": [
+        "kind",
+        "project",
+        "version",
+        "name",
+        "store_path",
+        "configuration",
+        "tapeout_id",
+        "manifest_sha256",
+        "manifest_md5",
+        "signature",
+        "files",
+        "build",
+        "published_by",
+        "published_at",
+        "verified",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "release",
+            "tapeout"
+          ]
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+        },
+        "version": {
+          "$ref": "defs.schema.json#/$defs/semver"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^(release-manifest|tapeout-[a-z0-9][a-z0-9._-]*)\\.json$"
+        },
+        "store_path": {
+          "description": "<repo>/<path> in the store. The store's URL lives in the private service config; no host appears here.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+$"
+        },
+        "configuration": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/configuration_id"
+            }
+          ]
+        },
+        "tapeout_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+            }
+          ]
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commit": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            }
+          ]
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "A tapeout record's status (draft, submitted, accepted, fabricated)."
+        },
+        "manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "manifest_md5": {
+          "$ref": "defs.schema.json#/$defs/md5"
+        },
+        "signature": {
+          "type": "object",
+          "required": [
+            "file",
+            "sha256",
+            "fingerprint",
+            "backend"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string",
+              "pattern": "\\.sig$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "fingerprint": {
+              "type": "string",
+              "pattern": "^SHA256:[A-Za-z0-9+/]{43}$"
+            },
+            "backend": {
+              "enum": [
+                "ssh-keygen",
+                "builtin"
+              ]
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "role",
+              "sha256",
+              "md5",
+              "bytes",
+              "uploaded"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "<repo>/<path> in the store. The store's URL lives in the private service config; no host appears here.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]*(/[A-Za-z0-9_.+@=-][A-Za-z0-9_.+@=-]*)+$"
+              },
+              "role": {
+                "enum": [
+                  "manifest",
+                  "signature",
+                  "document"
+                ]
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "md5": {
+                "$ref": "defs.schema.json#/$defs/md5"
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "uploaded": {
+                "type": "boolean",
+                "description": "false: the path already held these exact bytes (a retry)"
+              }
+            }
+          }
+        },
+        "build": {
+          "type": "object",
+          "required": [
+            "name",
+            "number",
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+            },
+            "number": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$"
+            },
+            "status": {
+              "enum": [
+                "RELEASED",
+                "TAPED-OUT",
+                null
+              ]
+            }
+          }
+        },
+        "published_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "published_at": {
+          "$ref": "defs.schema.json#/$defs/utc"
+        },
+        "verified": {
+          "type": "object",
+          "required": [
+            "checksums",
+            "signature",
+            "build"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "checksums": {
+              "const": true
+            },
+            "signature": {
+              "const": true
+            },
+            "build": {
+              "type": "boolean"
+            }
+          }
+        },
+        "outcome": {
+          "enum": [
+            "published",
+            "already-published"
+          ]
+        },
+        "notes": {
+          "description": "What the read-back could not confirm and did not refuse (a property that reads back changed, a promotion status the build record does not list).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -52,7 +52,14 @@ _SECTIONS: dict[str, dict[str, str]] = {
 }
 _HOST = {"web": _STR, "api": _STR, "ssh": _STR, "git": _STR, "org": _STR, "group": _STR}
 _CREDENTIAL = {"token_file": _STR, "scope": _STRS, "expires": _STR, "project": _STR, "client_id": _STR}
-_STORES = {"disk": {"path": _STR}, "artifactory": {"url": _STR, "repo": _STR}}
+# [stores.artifactory] (CR-ART-cfg): url and repo since gate 2; the rest for the publish unit (CR-ART-publish). The
+# token is a store key in the CR-PR1 pattern (a 0600 file, never logged), NOT a fifth [credentials] entry (AT-A2).
+_STORES = {"disk": {"path": _STR},
+           "artifactory": {"url": _STR, "repo": _STR, "token_file": _STR, "token_expires": _STR,
+                           "release_repo": _STR, "publishers": _STRS, "shared_logins": _STRS, "signing_key": _STR,
+                           "allowed_signers": _STR, "signer_identity": _STR, "ssh_keygen": _STR,
+                           "projects": _TABLE}}
+_ART_PATHS = ("token_file", "signing_key", "allowed_signers", "ssh_keygen")
 _KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth"}
 AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
 _AUTH = {"mode": _STR, "users": "list[table]"}
@@ -143,6 +150,8 @@ def validate(doc: dict) -> list[str]:
                 problems.append("[stores.%s] unknown store; known: %s" % (name, ", ".join(_STORES)))
             else:
                 _check_table("stores.%s" % name, table, _STORES[name], problems)
+                if name == "artifactory" and isinstance(table, dict):
+                    _check_artifactory(table, problems)
     _check_auth(doc.get("auth"), problems)
     roles = doc.get("roles", {})
     if not isinstance(roles, dict):
@@ -152,6 +161,30 @@ def validate(doc: dict) -> list[str]:
             if not _type_ok(value, _STRS):
                 problems.append("[roles] %s must be a list of role names" % login)
     return problems
+
+
+def _check_artifactory(table: dict, problems: list[str]) -> None:
+    """The publish unit's keys (CR-ART-publish): the store URL ends in /artifactory (so no call can reach the
+    Access API, where a failed login locks the admin out); a shared login is never a publisher."""
+    url = table.get("url")
+    if isinstance(url, str) and not re.match(r"^https?://[^/?#]+(/[^?#]*)?/artifactory$", url.rstrip("/")):
+        problems.append("[stores.artifactory] url must be http(s)://<host>[:port]/artifactory")
+    exp = table.get("token_expires")
+    if isinstance(exp, str) and exp and not _DATE.match(exp):
+        problems.append("[stores.artifactory] token_expires must be YYYY-MM-DD or empty")
+    shared = set(table.get("shared_logins") or []) if _type_ok(table.get("shared_logins", []), _STRS) else set()
+    pubs = table.get("publishers") or []
+    if _type_ok(pubs, _STRS):
+        for login in pubs:
+            if not _LOGIN.match(login):
+                problems.append("[stores.artifactory] publishers: %r is not a login" % login[:40])
+            elif login in shared:
+                problems.append("[stores.artifactory] publishers: %s is a shared login and may never publish" % login)
+    projects = table.get("projects")
+    if isinstance(projects, dict):
+        for k, v in projects.items():
+            if not isinstance(v, str) or not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", v):
+                problems.append("[stores.artifactory] projects.%s must be a store project name" % k)
 
 
 _PRIVATE_READ = {"method": _STR, "identity_file": _STR, "token_file": _STR, "username": _STR}
@@ -311,6 +344,10 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
             table["token_file"] = _resolve(base, table["token_file"])
     if "disk" in doc.get("stores", {}) and "path" in doc["stores"]["disk"]:
         doc["stores"]["disk"]["path"] = _resolve(base, doc["stores"]["disk"]["path"])
+    for key in _ART_PATHS:
+        art = doc.get("stores", {}).get("artifactory", {})
+        if key in art and (key != "ssh_keygen" or "/" in art[key]):
+            art[key] = _resolve(base, art[key])
     for table in doc.get("hosts", {}).values():
         if "web" in table:
             table.setdefault("git", table["web"])

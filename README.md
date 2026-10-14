@@ -139,6 +139,20 @@ revision (F4), release notes, CHECKLIST.md (tag commands, approvals), GATES.md (
 generated-RTL md5 manifest (G7). Exit 0 PASS/WARN/WAIVED, 1 FAIL, 2 UNVERIFIED (gate evidence or a person step
 still open), 3 usage. The pages are under `/releases/`; details: `docs/contracts/interfaces.md` section 14c.
 
+## Publishing release and tapeout records (CR-ART-publish; G8, D12)
+
+A person's confirmed step, never scheduled: a signed record goes to the release store
+(`asic-release/<project>/<version>/`), never over an existing file, then is read back and verified.
+
+```
+nanosoc-rm publish-release eth-rc4/1.0.0 --dry-run           # preview: the record, its sha256, every target path
+nanosoc-rm publish-release eth-rc4/1.0.0 --confirm <sha256>  # publish exactly what the preview showed
+nanosoc-rm register-tapeout <tapeout id> --dry-run           # from <registry>/tapeouts/<id>.tapeout.yaml
+```
+
+The GUI's Publish page (`/publish/`) does the same as jobs, for a login listed in `[stores.artifactory]
+publishers`. Set-up (token, signing key): `docs/DEPLOY.md`; contract: `docs/contracts/interfaces.md` section 21.
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).

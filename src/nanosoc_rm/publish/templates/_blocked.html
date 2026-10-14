@@ -1,0 +1,5 @@
+{% if blocked %}<div class="banner problem" data-publish-blocked>
+  <strong>Publishing is off for you here.</strong>
+  <ul>{% for b in blocked %}<li data-reason>{{ b }}</li>{% endfor %}</ul>
+  <span class="note">Set-up: docs/DEPLOY.md, "Publishing to the release store".</span>
+</div>{% endif %}

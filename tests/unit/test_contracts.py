@@ -29,14 +29,16 @@ def _target(name):
         return "release-lock", "/$defs/draft_lock"
     if name.startswith("regen.class"):                           # section 20: the regen_class fact
         return "regen", "/$defs/regen_class"
+    if name.startswith("tapeout-record.draft"):                  # CR-ART-publish: registry tapeouts/ draft
+        return "tapeout-record", "/$defs/tapeout_draft"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
-        "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "result-bundle",
-        "tool-release"])
+        "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "release-manifest",
+        "result-bundle", "tapeout-record", "tool-release"])                     # CR-ART-publish: the two records
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 

@@ -59,7 +59,8 @@ LATER_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
     "Phase 2": {"routes": ("/matrix",), "cli": ("matrix",)},
     "Phase 3": {"routes": (), "cli": ("release", "changelog", "version", "regen")},
     "Phase 4": {"routes": ("/bumps",), "cli": ("bump",)},
-    "Phase 5": {"routes": ("/releases", "/trains", "/forks"), "cli": ("lock", "forks")},
+    "Phase 5": {"routes": ("/releases", "/trains", "/forks", "/publish"),             # /publish: CR-ART-publish
+                "cli": ("lock", "forks", "publish-release", "register-tapeout")},
 }
 # CR-15 rule 5a: the words that make a scheduler job a later phase's automation, wherever they stand in its name.
 LATER_AUTOMATION: dict[str, tuple[str, ...]] = {
@@ -78,10 +79,14 @@ GOVERNED_AUTOMATION: dict[str, tuple[str, ...]] = {
 }
 # `modules`: importing one (or a submodule) runs it; `job_kinds`: queuing that local job kind runs it (the job
 # runner's own kind table, `kind_table`, names it without running it); `flag`: (module, attribute) whose
-# `.enabled` must stay False. Phases 3 to 5 have no code entry yet: their names are matched by 5a only.
+# `.enabled` must stay False. Phases 3 and 4 have no code entry yet: their names are matched by 5a only.
 AUTOMATION_CODE: dict[str, dict[str, Any]] = {
     "nightly_matrix": {"modules": ("nanosoc_rm.matrix",), "job_kinds": ("matrix-cell",),
                        "kind_table": "nanosoc_rm.jobs", "flag": ("nanosoc_rm.matrix", "NIGHTLY")},
+    # CR-ART-publish: publishing to the release store is a person's confirmed step; a scheduler job that reaches
+    # the publish package or queues its job kinds would be the Phase 5 automation.
+    "soc_release": {"modules": ("nanosoc_rm.publish",), "job_kinds": ("publish-release", "register-tapeout"),
+                    "kind_table": "nanosoc_rm.jobs"},
 }
 # CR-R8: a CLI group may be shared by two phases. A later phase can claim named subcommands of a group ("group sub");
 # the bare group name then counts for its own phase only when it has a subcommand no other phase claims.
@@ -462,7 +467,9 @@ def automation_reached(jobs: Sequence[Any] | None = None) -> dict[str, str]:
                 out[auto] = "scheduler %s reaches %s (%s)" % (_who(job, fn, start, start_name, code), hit[0],
                                                               " <- ".join(chain))
                 continue
-            own = tuple(code.get("modules", ())) + ((code["kind_table"],) if code.get("kind_table") else ())
+            # this register names every job kind (AUTOMATION_CODE) without queuing one (CR-ART-publish)
+            own = tuple(code.get("modules", ())) + ((code["kind_table"],) if code.get("kind_table") else ()) \
+                + ("nanosoc_rm.phasegates",)
             for mod, strings in reached_strings:
                 kinds = sorted(set(code.get("job_kinds", ())) & strings)
                 if kinds and not any(mod == p or mod.startswith(p + ".") for p in own):

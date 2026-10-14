@@ -1,0 +1,32 @@
+{% include "_pstyle.html" %}
+{% include "_blocked.html" %}
+<h2>Published ({{ rows|length }})</h2>
+{% if rows %}
+<div class="scroll"><table>
+  <thead><tr><th>Store path</th><th>Kind</th><th>Tag / status</th><th>Commit</th><th>sha256</th><th>Signed by key</th><th>Build</th><th>By</th><th>When</th></tr></thead>
+  <tbody>
+  {% for r in rows %}{% set f = r.fact %}
+    <tr data-published="{{ f.store_path }}" data-outcome="{{ f.outcome }}">
+      <td><code>{{ f.store_path }}</code></td><td>{{ f.kind }}</td><td>{{ f.tag or '' }}{% if f.status %} <span class="pill">{{ f.status }}</span>{% endif %}</td>
+      <td><code>{{ short(f.commit or '', 12) }}</code></td><td><code title="{{ f.manifest_sha256 }}">{{ f.manifest_sha256[:16] }}</code></td>
+      <td><code>{{ f.signature.fingerprint }}</code></td><td>{{ f.build.name }}/{{ f.build.number }} {{ f.build.status or '' }}{% if not f.verified.build %} <span class="pill state-amber">status not read back</span>{% endif %}</td>
+      <td>{{ f.published_by }}</td><td>{{ fact(r, f.published_at) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="note" data-none-published>Nothing has been published by this tool yet.</p>{% endif %}
+<h2>Release drafts</h2>
+{% if drafts %}
+<table><thead><tr><th>Draft</th><th>Verdict</th><th>Ready</th><th></th></tr></thead><tbody>
+{% for d in drafts %}{% set f = d.doc.fact %}
+<tr data-draft="{{ d.configuration }}/{{ d.version }}"><td>{{ d.configuration }} {{ d.version }}</td><td><span class="pill {{ VERDICT_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span></td><td>{{ 'yes' if f.ready and f.lock.complete else 'no' }}</td><td><a href="{{ purl('release', d.configuration ~ '/' ~ d.version) }}">Publish…</a></td></tr>
+{% endfor %}</tbody></table>
+{% else %}<p class="note">No release draft here: make one on the <a href="/releases/">Releases</a> page.</p>{% endif %}
+<h2>Tapeout drafts (registry tapeouts/)</h2>
+{% if tapeouts %}<ul>{% for t in tapeouts %}<li data-tapeout="{{ t }}"><a href="{{ purl('tapeout', t) }}">{{ t }}</a></li>{% endfor %}</ul>
+{% else %}<p class="note">No <code>tapeouts/&lt;id&gt;.tapeout.yaml</code> in the registry checkout.</p>{% endif %}
+{% if recent %}
+<details><summary>Recent publish jobs ({{ recent|length }})</summary>
+<table><thead><tr><th>Job</th><th>State</th><th>Command</th><th>By</th><th>Queued</th></tr></thead>
+<tbody>{% for j in recent %}<tr><td>{{ j.id }}</td><td><span class="pill {{ JOB_CLASS.get(j.state, '') }}">{{ j.state }}</span></td><td><code>{{ j.command }}</code></td><td>{{ j.by }}</td><td>{{ age_text(j.created_at) }} ago</td></tr>{% endfor %}</tbody></table>
+</details>{% endif %}

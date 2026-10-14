@@ -158,7 +158,8 @@ LATER_SURFACES = {
     "Phase 2": {"routes": ["/matrix"], "cli": ["matrix"]},
     "Phase 3": {"routes": [], "cli": ["release", "changelog", "version"]},
     "Phase 4": {"routes": ["/bumps"], "cli": ["bump"]},
-    "Phase 5": {"routes": ["/releases", "/trains", "/forks"], "cli": ["lock", "forks"]},
+    "Phase 5": {"routes": ["/releases", "/trains", "/forks", "/publish"],              # /publish: CR-ART-publish
+                "cli": ["lock", "forks", "publish-release", "register-tapeout"]},
 }
 
 # Allowed recorded scopes per v1 credential (A2, H3; interfaces.md §1).
@@ -1109,7 +1110,9 @@ def write_call_census(root):
 #   read-post   a POST that writes nothing; its target must be in READ_ONLY_POSTS (OAuth code exchange).
 #   local       a call the census mistakes for HTTP (sqlite .delete) in a file that imports no HTTP library.
 #   git-runner  the one dynamic git runner; its guard refuses GIT_WRITES at run time (AT-A6 proves it).
-EFFECTS = ("write", "read-post", "local", "git-runner")
+#   publish     CR-ART-publish: the release store's PUT/POST, in nanosoc_rm/publish/ only, guarded; a person's
+#               confirmed publish (never the CI trigger's "one write", never scheduled: AT-A7 soc_release).
+EFFECTS = ("write", "read-post", "local", "git-runner", "publish")
 
 
 def allowed(entry, allowlist):
@@ -1136,6 +1139,11 @@ def allowlist_problems(allowlist):
             probs.append("allowlist entry %s:%s %s gives no reason" % (a["file"], a["method"], a["target"]))
         if a.get("effect") == "read-post" and not any(t in a["target"] for t in READ_ONLY_POSTS):
             probs.append("read-post %s is not a known read-only POST %s" % (a["target"], list(READ_ONLY_POSTS)))
+    for a in allowlist:
+        if a.get("effect") == "publish" and (not a["file"].startswith("nanosoc_rm/publish/")
+                                             or a["method"] not in ("PUT", "POST") or not a.get("guard")):
+            probs.append("publish entry %s:%s is outside nanosoc_rm/publish/, not PUT/POST, or unguarded"
+                         % (a["file"], a["method"]))
     if sum(1 for a in allowlist if a.get("effect") == "git-runner") > 1:
         probs.append("more than one git runner is allowlisted: every git call must go through one")
     return probs
@@ -1389,7 +1397,7 @@ def check_a6(census, allowlist):
         elif c["method"] == "?" and not allowed(c, allowlist):
             probs.append("unresolvable call at %s:%s cannot be proven read-only" % (c["file"], c["line"]))
     for a in allowlist:
-        if a.get("effect") in ("write", "git-runner") and not a.get("guard"):
+        if a.get("effect") in ("write", "git-runner", "publish") and not a.get("guard"):
             probs.append("allowlisted %s %s %s declares no guard" % (a.get("effect"), a["method"], a["target"]))
     return probs
 

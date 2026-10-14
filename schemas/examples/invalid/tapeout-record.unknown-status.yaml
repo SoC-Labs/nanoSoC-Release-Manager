@@ -1,0 +1,77 @@
+# expect-error: enum at /status
+# A published tapeout status is draft, submitted, accepted or fabricated.
+schema: 1
+kind: tapeout-record
+tapeout_id: examplechip-r0
+project: examplechip
+version: 1.0.0
+block: example_pads
+chip: example-chip
+silicon_revision: r0p0
+configuration: example-r0
+status: taped-out-maybe
+foundry:
+  foundry: ExampleFab
+  node: nn
+  shuttle: MPW-0000
+pdk:
+  name: example-pdk
+  version: null
+libraries:
+- name: example-stdcells
+  version: '1'
+submission_date: '2026-01-02'
+dates:
+  foundry_graded_on: '2026-01-05'
+foundry_verdict:
+  verdict: accepted
+  date: '2026-01-05'
+  report_md5: ca27e538f3b183aad14e8076310781ed
+  cites_raw_md5: 8261e1a4f86abe76f7a1e8a66ae713e3
+  note: null
+source:
+  repo:
+    host: github
+    path: SoC-Labs/example-soc
+  tags:
+  - v1.0.0
+  - silicon/example-chip-r0p0
+  commit: 4813494d137e1631bba301d5acab6e7bb7aa74ce
+  pins:
+    ip: bb9af5d1915da1fbc132ced081325efcd2e63e48
+    gen: 3b6a765ede676559e0f261b5b9e339c9f36819c7
+  build: null
+  silicon_equivalent: []
+toolkit: null
+gds:
+  file: example.gds
+  raw_md5: 8261e1a4f86abe76f7a1e8a66ae713e3
+  raw_sha256: null
+  bytes: 300
+  layout_hash: 1dc5ae5b68174891b6aa9850aa05ee0d9ae8a20468d9517259951a2dd9e9c0f0
+  layout_method: example
+  store_path: asic-candidate/examplechip/run1/stream/example.gds.zst
+  stored_sha256: 70cefe41641688a7c2959b2d9c5783763b26f9fb40f4d151228a8fbda09726e8
+  raw_md5_from: property
+signoff:
+- name: evidence_report
+  path: asic-record/examplechip/run1/evidence_report.json
+  verdict: null
+foundry_returns:
+- archive: Archive_example
+  cites_raw_md5: 8261e1a4f86abe76f7a1e8a66ae713e3
+errata:
+  ids:
+  - EXAMPLE-R0P0-ERR-001
+  revision: 1
+  configuration: example-r0
+documents:
+- kind: reference-manual
+  store_path: asic-record/examplechip/run1/docs/manual.tar.zst
+release:
+  project: examplechip
+  version: 1.0.0
+  manifest_sha256: null
+generated_by:
+  tool: nanosoc-release-manager
+  version: 0.1.0

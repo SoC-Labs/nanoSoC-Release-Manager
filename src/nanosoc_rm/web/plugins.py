@@ -30,7 +30,8 @@ __all__ = ["PLUGINS", "load", "render_page", "local_routes"]
 PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Matrix"),
            ("nanosoc_rm.bumps.web", "Bumps"),
            ("nanosoc_rm.versioning.web", "Versions"),                   # CR-VER (Wave B versioning)
-           ("nanosoc_rm.releases.web", "Releases"))                     # CR-R1 (Wave B releases)
+           ("nanosoc_rm.releases.web", "Releases"),                     # CR-R1 (Wave B releases)
+           ("nanosoc_rm.publish.web", "Publish"))                       # CR-ART-publish (Wave E)
 
 
 def local_routes(app: Any) -> bool:
