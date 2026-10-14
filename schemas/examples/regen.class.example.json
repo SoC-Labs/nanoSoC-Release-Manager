@@ -1,0 +1,111 @@
+{
+  "build_affecting": false,
+  "class": "fix",
+  "component": "nanosoc_gen",
+  "configuration": "multicore-master",
+  "coverage": [
+    "No build_info section found, skipping",
+    "WARNING: ARM_IP_LIBRARY_PATH not set, skipping BuildBusMatrix.pl",
+    "WARNING: ARM_IP_LIBRARY_PATH/SOCLABS_DMA250_DIR not set, skipping DMA-250 render",
+    "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for eth_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+    "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for multicore_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+    "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for nanosoc_cpu_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+    "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250"
+  ],
+  "files": {
+    "added": [],
+    "changed": [
+      "docs/nanosoc_multicore_soc_yaml_schema.json",
+      "docs/nanosoc_multicore_soc_yaml_schema.md",
+      "reports/nanosoc_multicore_soc_sram_report.txt"
+    ],
+    "counts": {
+      "added": 0,
+      "changed": 3,
+      "removed": 0,
+      "unchanged": 82
+    },
+    "removed": []
+  },
+  "finished_at": "2026-10-14T04:24:16Z",
+  "flists_changed": [],
+  "from": {
+    "binary": 0,
+    "cached": true,
+    "commit": "308e2e02c2bfdbcb39e118fe8d65f9781e39e551",
+    "coverage": [
+      "No build_info section found, skipping",
+      "WARNING: ARM_IP_LIBRARY_PATH not set, skipping BuildBusMatrix.pl",
+      "WARNING: ARM_IP_LIBRARY_PATH/SOCLABS_DMA250_DIR not set, skipping DMA-250 render",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for eth_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for multicore_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for nanosoc_cpu_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250"
+    ],
+    "digest": "bc5b5ea13ddcc3333677d819eb8a22df05ab05275929f3a548afb665a00af575",
+    "exit_code": 0,
+    "files": 85,
+    "log_tail": [
+      "OK         nanosoc_multicore_soc/u_chip_core nanosoc_cpu_ss_ahb_interconnect.dmem_0: table 0x2000, compiled 0x2000 -- u_region_dmem_0 (nanosoc_region_dmem): RAM region (its source is not in the compile list): RAM_ADDR_W=13, the sl_ahb_sram BYTE width: 2**13 bytes",
+      "10 memory target(s): 9 match, 0 mismatch, 0 unresolved, 0 subsystem window(s), 1 waived [multicore_ahb_interconnect.qspi_flash_xip: off-chip QSPI flash aperture, not an on-die memory (found UNRESOLVED)] (--rtl-flist: 1)",
+      "",
+      "--- HSEL-reader check ---",
+      "30 matrix-driven hsel(s) and 1 hsel input(s) checked in 3 structural module(s): 0 finding(s), 0 note(s)",
+      "",
+      "Done.",
+      "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250",
+      "[qctrl-patch] no dma250_qctrl*.sv files found to patch",
+      "make: Leaving directory '$TREE/sys_desc'"
+    ],
+    "reason": null,
+    "seconds": 13.191,
+    "status": "ok",
+    "verdict": "PASS"
+  },
+  "generator": "sandbox",
+  "nonce": "3e5af0512924c909a8e2fa432818a491",
+  "reason": null,
+  "reasons": [
+    "3 file(s) changed, no port, instance, address or IRQ line among the changes: docs/nanosoc_multicore_soc_yaml_schema.json, docs/nanosoc_multicore_soc_yaml_schema.md, reports/nanosoc_multicore_soc_sram_report.txt"
+  ],
+  "root_commit": "24b66a6e91d08baf5f5626a47d88f2899f729895",
+  "started_at": "2026-10-14T04:24:09Z",
+  "to": {
+    "binary": 0,
+    "cached": true,
+    "commit": "c309d5c4b1814c84cfd4413216d964c621ae6465",
+    "coverage": [
+      "No build_info section found, skipping",
+      "WARNING: ARM_IP_LIBRARY_PATH not set, skipping BuildBusMatrix.pl",
+      "WARNING: ARM_IP_LIBRARY_PATH/SOCLABS_DMA250_DIR not set, skipping DMA-250 render",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for eth_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for multicore_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "WARNING: systemrdl-compiler or peakrdl-regblock not installed. Skipping RTL generation for nanosoc_cpu_ss_ahb_interconnect_discovery. Install with: pip install systemrdl-compiler peakrdl-regblock",
+      "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250"
+    ],
+    "digest": "2e0b2880ab9f93e4ed8731d7fc309baaba881c36de664064dcd2a33d9f9d042c",
+    "exit_code": 0,
+    "files": 85,
+    "log_tail": [
+      "30 matrix-driven hsel(s) and 1 hsel input(s) checked in 3 structural module(s): 0 finding(s), 0 note(s)",
+      "",
+      "--- Cross-instance wire check ---",
+      "NOTE: 51 width(s) not compared: no readable source (render or --rtl-flist) for cc_periph_subsystem (2), chip_core_remap_ctrl (2), cmsdk_ahb_to_apb (4), ctrl_dbg_group (1), dma_250_ahb (2), evt_route_ctrl (2), ipc_mbx_ahb (2), nanosoc_dbg_ahb_bridge (4), nanosoc_hostio_debug_ss (5), nanosoc_region_sr",
+      "13 cross-instance wire(s) in 2 module(s) (13 expected from the model), 15 width(s) compared, 51 not compared: 0 finding(s)",
+      "",
+      "Done.",
+      "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250",
+      "[qctrl-patch] no dma250_qctrl*.sv files found to patch",
+      "make: Leaving directory '$TREE/sys_desc'"
+    ],
+    "reason": null,
+    "seconds": 15.036,
+    "status": "ok",
+    "verdict": "PASS"
+  },
+  "tree_paths": [
+    "ethernet-subsystem-ahb/nanosoc_arch_tech/nanosoc_gen",
+    "nanosoc_arch_tech/nanosoc_gen"
+  ],
+  "verdict": "PASS"
+}

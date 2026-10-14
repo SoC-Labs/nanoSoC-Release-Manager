@@ -166,3 +166,15 @@ private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-rea
   anonymous alerts; the old anonymous alerts that were not cleared stay open until you clear their group on
   `/alerts`.
 - The credential is never logged, stored or shown: not in commands, observations, alerts or pages.
+
+## Regenerator (Wave D, interfaces.md section 20)
+
+Optional. To class generator moves by regeneration on this host:
+
+1. Add `[regen] read_only_roots = ["<shared IP library root>"]` to the private config (any path under it is
+   refused); `work_dir` defaults to `<data_dir>/regen`, `nice` to 15.
+2. Add a `regen` entry for the configuration to the registry's `tiers.yaml` (example:
+   `schemas/examples/eligibility.tiers.example.yaml`; `PYTHON` must name an interpreter with the generator's
+   packages, else the render is INFRA "tool not on this host").
+3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
+   per render; renders are cached by digest.

@@ -1263,6 +1263,7 @@ builder who wants a different name changes it here, through a CR after gate 2, a
                # optional (CR-PR1), per host: private_read = "ssh"  or  { method = "token", token_file = "..." }
 [auth]         mode = "github"       # CR-16: or "local", with [[auth.users]] login = "..."  hash = "scrypt$..."  roles = [...]
 [quality]      api_key_file = "..."  model = "claude-sonnet-5-5"  paths = { <name> = "<local checkout>" }   # CR-14, all optional
+[regen]        work_dir = "..."  read_only_roots = ["..."]  nice = 15   # section 20, all optional
 ```
 
 GitLab projects are addressed in API paths by their URL-encoded path (`projects/soclabs%2Fnanosoc_gen`), as the
@@ -1298,6 +1299,8 @@ contract examples do.
 | `matrix`, `queue`, `nightly_plan`, `NIGHTLY`, `bump_cell` / `run_cell`, `compare`, `baseline_for`, `quarantine`, `set_owner` / `capture`, `moved` (section 18; `bump_cell` for section 19.6) | `nanosoc_rm.matrix` / `.cells` / `.provenance` |
 | `changelog_lint`, `plan`, `tag_check`, `manifest_init`, `draft`, `approve`, `yank`, `defect_trailers`, `is_yanked`, `allowed`, `classify_bump`, `Regenerator`, `NoGenerator` (CR-VER, section 14b; `classify_bump` for section 19.6) | `nanosoc_rm.versioning` |
 | `draft`, `verify`, `drafts`, `forks`, `ReleaseUsage`, `ReleaseError` (CR-R1, section 14c) | `nanosoc_rm.releases` |
+| `render`, `measure_class`, `stored_signals`, `pending`, `tree_paths`, `SandboxRegenerator`, `RegenUsage`, `RegenerationError` (section 20) | `nanosoc_rm.regen` |
+| `regen_signals` (section 20.3) | `nanosoc_rm.versioning.consumers` |
 | `JobKind`, `register_kind`, `registered`, `KIND_MODULES`, `all_kinds` (CR-VER, CR-R2, CR-WC-seams, section 13a) | `nanosoc_rm.jobs` |
 | `ROUTERS`, `WAVE_C_POSTS`, `DELEGATES`, `mount`, `optional`, `route_table`, `writes` (CR-W1, CR-W6) | `nanosoc_rm.web.routers` |
 | `deciding`, `causes`, `next_action`, `unused_waivers`, `Decision`, `Cause`, `GATE_LABEL`, `GATE_ITEM` (CR-W1) | `nanosoc_rm.web.verdict` |
@@ -1335,6 +1338,7 @@ init` (CR-VER, C1-C12, F6, G1, G5, G6): section 14b.
 `nanosoc-rm bumps [CONFIG]|show|patch|mark|ledger` (E1-E7 shadow mode; built per CR-15): section 19.
 `nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (CR-R1; G2, G3, G4, G7, F4, I1, I2, built under
 CR-15): section 14c.
+`nanosoc-rm regen run|class|pending` (C3 3/3, C7; built per CR-15): section 20.
 
 ### 17.4 Test infrastructure
 
@@ -1788,3 +1792,76 @@ feature info, fix green, none grey, unknown amber). Row hooks: `data-proposal`, 
 Examples: `bump-proposal.example.yaml`, `observation.bumps.example.jsonl` (ILLUSTRATIVE: synthetic tags on real
 commits, labelled); invalid: `bump-proposal.auto-merge-in-shadow-mode.yaml`, `.release-branch-target.yaml`,
 `.claims-regenerated-rtl.yaml`, `.blocked-but-would-open-a-pr.yaml`, `observation.bump-scan-frozen-with-proposal.yaml`.
+
+## 20. The regenerator: C3 consumer regeneration and C7 (Wave D, built per CR-15)
+
+Requirements: C3, C7 (Phase 3; built and used locally, nothing scheduled). Package `nanosoc_rm.regen`.
+
+A configuration opts in with a `regen` entry in the registry's `tiers.yaml` (`eligibility#/$defs/regen_command`):
+a tier command plus `output`, the tree-relative directory it writes (build_soc), and optional `include`/`exclude`
+globs over it. Example: `schemas/examples/eligibility.tiers.example.yaml` (`multicore-master`).
+
+### 20.1 A render (`regen.render`, `nanosoc-rm regen run`)
+
+1. **Request.** The configuration's commit is resolved once (`ci.trigger.build_request`); every tree path where the
+   stored walk pins the component (`regen.tree_paths`; a B7 split moves together) is overridden to the commit
+   (`pin_overrides`, CR-11). Both renders of a measurement share that root commit.
+2. **Tree.** The overridden tree is walked anonymously in a fresh sandbox under `[regen] work_dir`
+   (`t0.gates.Context.for_local`: empty HOME, no credential, no user git config) and the spec's `pins` are checked
+   out (`tierrun.materialise`). An override the walk did not reach: not run, UNVERIFIED. A pin not laid out or a
+   tool absent on this host (`tierrun.missing_tools`): not run, INFRA.
+3. **Run.** `tierrun.run_tier` (clean environment, PATH=/usr/bin:/bin, budget, kill at 1.5 x), plus:
+   PYTHONDONTWRITEBYTECODE=1 always; `nice -n <[regen] nice>` (default 15); the `output` directory deleted first.
+   Refused before any work (RegenUsage, exit 3): no `regen` entry; a set_env.sh sourced; `env` naming
+   ARM_IP_LIBRARY_PATH or SOCLABS_DMA250_DIR (the registry schema refuses them too, so a registry naming one does
+   not load); any path under a `[regen] read_only_roots` entry (symlinks resolved) in the command, the env or the
+   work directory. Without the vendor library the generator skips its vendor-rendered parts (bus matrices,
+   DMA-250); its own "skipping ..." lines are recorded as `coverage`. The configuration and component must be ids
+   and the commit a full sha; `--out` under a read-only root is refused before any directory is made. A run killed
+   at budget x 1.5, or one that fails on this host's environment (a missing Python module, `command not found`,
+   exit 126/127), is status `not-run`, verdict INFRA: no measurement.
+4. **Collect.** Every file under `output` (text, at most 4 MiB each; others counted as `binary`), normalised: the
+   sandbox's paths become `$TREE`/`$WORK`, a line holding a date-time stamp is dropped. `flist/*` files are the C7
+   file lists, one per variant. sha256 `digest` over the result: two renders of one commit give one digest.
+5. **Cache.** `<work_dir>/cache/<configuration>/<component>/<commit>/<root commit[:12]>-<spec digest>-<tree paths
+   digest>-<code version>/` (a partial `--at` render is never served as the full B7 move; a render made by other
+   render code is a miss); a cached render is used only when its digest still matches its files (`--fresh` ignores
+   it; `--out` never reads it). Failed renders are not cached.
+
+### 20.2 The class measurement (`regen.measure_class`, `nanosoc-rm regen class`, job `regen-class`)
+
+The class is `versioning.classify.diff_outputs` over the two renders (docs/versioning.md decision table): a removed
+file or a removed/changed port, instance, address or IRQ line is breaking; an added file or shape line feature;
+any other text change fix; identical output none. C7: build-affecting when a `flist/*` list differs. A generator
+that renders the configuration at `from` and fails for it at `to` is breaking (C5: a consumer that built no longer
+builds; `files` and `build_affecting` null); a `to` run killed or failing on the host's environment is INFRA, not
+C5 (20.1 step 3). Verdict: PASS (class measured), FAIL (the generator failed at `from`:
+no baseline), INFRA (not run here), UNVERIFIED (override not reached). Exit 0, 1, 2, 2; usage 3.
+
+**Observation kind** `regen_class` (event, no snapshot), subject
+`regen_class:<component>:<from>:<to>:<configuration>`, fact `regen.schema.json#/$defs/regen_class`. Examples:
+`regen.class.example.json`, `observation.regen.example.jsonl` (REAL: multicore-master, 2026-10-14); invalid:
+`regen.class-pass-without-class.yaml`, `eligibility.tiers-regen-vendor-env.yaml`.
+
+### 20.3 Wiring into the classifier and the bumps class
+
+- `versioning.consumers.regen_signals(component, base, head, config, regenerator=None)` gives the C3 consumers and
+  C7 build signals: a live `Regenerator` when one is passed (`regen.SandboxRegenerator(config)` conforms), else the
+  stored `regen_class` measurements of exactly that move (`regen.stored_signals`), else unmeasured, naming the
+  `regen class` command that would measure it. A measurement that is not PASS leaves the signal unmeasured with its
+  reason; one consumer unmeasured makes the signal unmeasured (C3 complete needs every consumer). Every
+  configuration that declares a `regen` entry and pins the component is a consumer: one with no stored
+  measurement leaves the stored signals unmeasured, naming the `regen class` command (as the live path, which
+  regenerates each).
+- `version next` (`versioning.plan`) uses it for the baseline-to-head move; `classify_bump` for a pin move, so the
+  bump engine's `change.class` (`class_source: classifier`) carries the measured class, and its sources name each
+  stored measurement (`stored regen_class:...`).
+- `versioning.classify.consumer_signal`/`build_signal` no longer raise when a live render fails: the consumer is
+  unmeasured with the reason, or breaking when only the head fails (C5, as 20.2).
+- `nanosoc-rm regen pending [--run]` lists the moves a stored version plan or bump proposal would class that no
+  stored measurement covers, per configuration with a `regen` entry pinning the component; `--run` measures them.
+
+`[regen]` service config (all optional): `work_dir` (default `<data_dir>/regen`), `read_only_roots` (list),
+`nice` (int, default 15). No page in this wave: the measurements reach the GUI through the version plans and bump
+proposals that cite them. Phase 3 surfaces: the `regen` CLI group (`phasegates.LATER_SURFACES`); a scheduler job
+named with `regen` is Phase 3 automation (`LATER_AUTOMATION`).

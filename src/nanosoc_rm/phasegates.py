@@ -57,14 +57,14 @@ LATER_PHASES = ("Phase 2", "Phase 3", "Phase 4", "Phase 5")
 # phase may be built (CR-15).
 LATER_SURFACES: dict[str, dict[str, tuple[str, ...]]] = {
     "Phase 2": {"routes": ("/matrix",), "cli": ("matrix",)},
-    "Phase 3": {"routes": (), "cli": ("release", "changelog", "version")},
+    "Phase 3": {"routes": (), "cli": ("release", "changelog", "version", "regen")},
     "Phase 4": {"routes": ("/bumps",), "cli": ("bump",)},
     "Phase 5": {"routes": ("/releases", "/trains", "/forks"), "cli": ("lock", "forks")},
 }
 # CR-15 rule 5a: the words that make a scheduler job a later phase's automation, wherever they stand in its name.
 LATER_AUTOMATION: dict[str, tuple[str, ...]] = {
     "Phase 2": ("matrix", "flaky", "quarantine"),
-    "Phase 3": ("changelog", "classify", "tool_release", "version"),
+    "Phase 3": ("changelog", "classify", "tool_release", "version", "regen"),
     "Phase 4": ("bump", "auto_merge", "revert"),
     "Phase 5": ("release", "lock", "forks", "train"),
 }

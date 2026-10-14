@@ -52,7 +52,8 @@
         "bump_ledger",
         "release_draft",
         "release_verify",
-        "fork_status"
+        "fork_status",
+        "regen_class"
       ]
     },
     "subject": {
@@ -455,6 +456,16 @@
         "properties": {
           "fact": { "$ref": "#/$defs/doc_score" },
           "subject": { "pattern": "^doc_score:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "regen_class" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "regen.schema.json#/$defs/regen_class" },
+          "subject": { "pattern": "^regen_class:" }
         },
         "not": { "required": ["snapshot"] }
       }

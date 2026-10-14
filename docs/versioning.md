@@ -72,9 +72,12 @@ allowed. An unclassed entry makes `version next` FAIL: no class or draft rests o
 - **Class (C3):** the most severe of: `declared` (the Unreleased entries), `api` (API.md diff since the baseline:
   a removed or changed line is breaking, only additions feature), `consumers` (every registered consumer's
   regenerated output diffed: ports, instances, address and IRQ lines), plus `reexports` (C6) and `build` (C7).
-  The consumer regeneration needs the generator: it is a pluggable `Regenerator`
-  (`nanosoc_rm.versioning.classify`). The default `NoGenerator` measures nothing and says so, so today every
-  class is `partial` and its plan is WARN. A commit-message hint is shown and never used.
+  The consumer regeneration is the regenerator (`nanosoc-rm regen class`, interfaces.md section 20): a
+  configuration with a `regen` entry in the registry's tiers.yaml is regenerated in a sandbox at both commits and
+  the outputs diffed by the table below; the stored measurement is what `version next` and the bump engine read.
+  A move nobody measured stays unmeasured (`partial`, WARN) and names the command that would measure it;
+  `nanosoc-rm regen pending --run` measures every move a stored plan or bump needs. A commit-message hint is
+  shown and never used.
 - **Verdict:** PASS (complete class), WARN (partial class), UNVERIFIED (no class at all: no classed changelog),
   FAIL (a finding: C9 refuses a 1.0.0, or the next version is already tagged or yanked).
 
@@ -91,6 +94,13 @@ last column are this table's answer, for review (C3 done-when replays them once 
 | toolkit | a gate fails that used to pass (C5); a target or flag removed | a new target or gate, warning by default | a false red removed | HSEL lint made fail-by-default: **breaking** (C5, David's decision) |
 | SoC reference | a different module behind an address window; the pin set or file list changes for silicon (C7 build-affecting) | a new peripheral in a free window | a pin bump to a fix release | the PL230 → DMA-250 swap: **breaking** (the module behind the DMA window changes) |
 | example project | the fork contract's user paths move (I2) | a new example flow | docs and script fixes | (illustrative) a renamed user directory: **breaking** for every fork |
+
+Measured on real commits (2026-10-14, multicore-master, rendered without the vendor library): nanosoc_gen
+`308e2e0` to `c309d5c` is **fix** (3 doc and report files change, no port, instance, address or IRQ line);
+`308e2e0` to `e338359` (the licence-header commit) is **fix** (29 files, headers only); `ed27975` to `a79454d`
+("pad packs") is **breaking** under C5: the generator now stops on the configuration's pad tech, which rendered
+the commit before; `308e2e0` to rc4's generator `d04de2e` is **breaking** the same way (the consumer's Makefile
+passes options the older generator lacks). Two fresh renders of one commit gave one digest.
 
 A host move (C8) is a fix while the old host still serves the same commits; freezing or removing the old host is
 breaking (`classify.host_move_class`).

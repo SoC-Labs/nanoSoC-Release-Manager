@@ -148,6 +148,7 @@ Keys:
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | release_draft, release_verify | `<kind>:<configuration>:<version>` | event (CR-R1; one per draft, the latest wins) | none |
 | fork_status | `fork_status:<component>:<host>:<fork path>` | event (CR-R1; stored on `forks --store`) | none |
+| regen_class | `regen_class:<component>:<from>:<to>:<configuration>` | event (interfaces section 20; stored on `regen class --store` and the `regen-class` job) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
 | matrix_cell | `matrix_cell:<configuration>:<component or ->:<column>:<nonce>` | event (D3; interfaces.md section 18) | none |
 | matrix_quarantine | `matrix_quarantine:<configuration>:<test>` | event (D8; latest per subject is the current entry) | none |

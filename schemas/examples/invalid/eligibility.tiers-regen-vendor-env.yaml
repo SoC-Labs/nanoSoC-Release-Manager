@@ -1,0 +1,12 @@
+# expect-error: not at /configurations/multicore-master/regen/env
+# Section 20: the tool never sets a vendor-library variable for a regeneration (a vendor renderer writes inside its library).
+schema: 1
+configurations:
+  multicore-master:
+    regen:
+      command: [make, -C, sys_desc, soc_model]
+      cwd: .
+      env:
+        ARM_IP_LIBRARY_PATH: /opt/vendor/ip_library
+      budget_s: 300
+      output: build_soc

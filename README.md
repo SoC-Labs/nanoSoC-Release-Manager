@@ -91,6 +91,20 @@ nanosoc-rm version draft nanosoc_gen           # G1: <data_dir>/drafts/nanosoc_g
 
 Format, decision table and approval matrix: `docs/versioning.md`. Pages: `/versions/`.
 
+## Regenerating generated RTL to class a change (C3, C7; built per CR-15)
+
+```
+nanosoc-rm regen run multicore-master --component nanosoc_gen --commit <sha> --out /tmp/r   # one sandbox render
+nanosoc-rm regen class multicore-master --component nanosoc_gen --from <sha> --to <sha> --store   # none/fix/feature/breaking
+nanosoc-rm regen pending --run           # measure every move a stored version plan or bump proposal needs
+```
+
+A configuration opts in with a `regen` entry in the registry's `tiers.yaml` (command, `output`). The tree is
+checked out anonymously in a sandbox with the component moved, the command runs with a clean environment (no
+set_env.sh, PYTHONDONTWRITEBYTECODE=1, under nice), and the vendor-library variables are never set: the vendor
+renderers are skipped and listed as coverage. `[regen] read_only_roots` refuses any path under a shared library
+tree. `version next` and the bump engine read the stored class. Details: interfaces.md section 20.
+
 ## Bump proposals, shadow mode (Phase 4 E1-E7, built per CR-15, not enabled)
 
 What the bump bot WOULD do, for a person to do: the tool never pushes, writes a branch or opens a pull request.

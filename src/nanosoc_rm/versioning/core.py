@@ -197,11 +197,13 @@ def _plan(view: RepoView, policy: dict, regenerator=None) -> dict:
     man = mf.status(view)
     count, messages = view.commits(base["commit"], view.commit) if view.commit else (None, [])
     passed = _reexports(view, base["commit"], man["reexports"])
+    from nanosoc_rm.versioning.consumers import regen_signals
+    consumers, build = regen_signals(view.target, base["commit"], view.commit, view.config, regenerator)
     signals = [cf.declared_signal(unrel, text is not None),
                cf.api_signal(api_then, api_now),
-               cf.consumer_signal(view.target, base["commit"], view.commit or "", regenerator),
+               consumers,
                cf.reexport_signal(passed),
-               cf.build_signal(view.target, base["commit"], view.commit or "", regenerator)]
+               build]
     klass = cf.classify(signals)
     findings: list[str] = []
     notes = list(base["notes"])

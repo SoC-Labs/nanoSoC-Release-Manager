@@ -151,15 +151,36 @@ def consumer_signal(component: str, base: str | None, head: str, regen: Regenera
     if not consumers:
         return signal("consumers", None, "unmeasured", "no registered consumer builds with %s" % component,
                       generator=regen.name)
-    per, cls, sources = [], "none", []
+    per, cls, sources, failed = [], "none", [], []
     for c in consumers:
-        b = regen.regenerate(c, component, base)
-        a = regen.regenerate(c, component, head)
+        try:                     # a consumer the generator cannot render here leaves the signal unmeasured
+            b = regen.regenerate(c, component, base)
+        except RuntimeError as e:
+            failed.append("%s: %s" % (c, getattr(e, "reason", None) or e))
+            per.append({"consumer": c, "class": None, "reasons": [str(getattr(e, "reason", None) or e)[:300]]})
+            continue
+        try:
+            a = regen.regenerate(c, component, head)
+        except RuntimeError as e:
+            why = str(getattr(e, "reason", None) or e)[:300]
+            if getattr(e, "status", None) != "failed":
+                failed.append("%s: %s" % (c, why))
+                per.append({"consumer": c, "class": None, "reasons": [why]})
+                continue
+            # C5: it rendered at the baseline and the generator fails for it at the head: breaking
+            per.append({"consumer": c, "class": "breaking", "reasons": ["the generator fails at the head: " + why]})
+            sources += b.sources
+            cls = "breaking"
+            continue
         sources += b.sources + a.sources
         k, reasons = diff_outputs(b.outputs, a.outputs)
         per.append({"consumer": c, "class": k, "reasons": reasons[:20]})
         cls = semver.max_class([cls, k])
-    return signal("consumers", cls, "measured", "%d consumer(s) regenerated with %s" % (len(consumers), regen.name),
+    done = len(consumers) - len(failed)
+    detail = "%d consumer(s) regenerated with %s" % (done, regen.name)
+    if failed:
+        detail += "; not regenerated: " + "; ".join(failed)
+    return signal("consumers", cls if done else None, "unmeasured" if failed else "measured", detail[:500],
                   generator=regen.name, consumers=per, sources=sources)
 
 
@@ -169,12 +190,19 @@ def build_signal(component: str, base: str | None, head: str, regen: Regenerator
     ok, why = regen.available()
     if not ok or base is None:
         return signal("build", None, "unmeasured", why if not ok else "no baseline release", build_affecting=None)
-    changed = []
+    changed, failed = [], []
     for c in regen.consumers(component):
-        b, a = regen.regenerate(c, component, base), regen.regenerate(c, component, head)
+        try:
+            b, a = regen.regenerate(c, component, base), regen.regenerate(c, component, head)
+        except RuntimeError as e:
+            failed.append("%s: %s" % (c, getattr(e, "reason", None) or e))
+            continue
         for variant in sorted(set(b.flists) | set(a.flists)):
             if b.flists.get(variant) != a.flists.get(variant):
                 changed.append("%s/%s" % (c, variant))
+    if failed:
+        return signal("build", None, "unmeasured", ("not regenerated: " + "; ".join(failed))[:500],
+                      build_affecting=True if changed else None)
     return signal("build", None, "measured", ("file lists changed: " + ", ".join(changed)) if changed
                   else "no file list changed", build_affecting=bool(changed))
 
