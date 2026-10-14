@@ -195,7 +195,11 @@ def test_the_client_refuses_every_call_off_its_allow_list_before_any_io(fake):
                ("PUT", "asic-release/p/1.0.0/x.md5"), ("PUT", "asic-release/p/1.0.0/x.sha256"),
                ("POST", "api/search/aql"), ("POST", "api/build/promote/a"), ("DELETE", "asic-release/p/1.0.0/x"),
                ("PATCH", "api/build"), ("GET", "../access/api/v1/tokens"), ("PUT", "asic-release/p/../x/y"),
-               ("GET", "asic-release//x"), ("PUT", "api/storage/asic-release/p/1.0.0/x.json")]
+               ("GET", "asic-release//x"), ("PUT", "api/storage/asic-release/p/1.0.0/x.json"),
+               # PUB-REV-2a: a `..` segment past the first (httpx would resolve it to <host>/access/api/...)
+               ("GET", "asic-release/../../access/api/v1/tokens"), ("HEAD", "api/storage/../../access/api/v1/x"),
+               # PUB-REV-1: `api/build` is a build-info record, only through put_build (which checks the name)
+               ("PUT", "api/build")]
     for method, rel in refused:
         with pytest.raises(C.StoreRefused):
             s.check(method, rel)
@@ -203,6 +207,15 @@ def test_the_client_refuses_every_call_off_its_allow_list_before_any_io(fake):
         s.promote("rm-release-p", "1.0.0", {"status": "RELEASED", "targetRepo": "asic-record"})
     with pytest.raises(C.StoreRefused):
         s.put_file("asic-record/x/y/z.json", b"x")
+    # PUB-REV-1: put_file can never write a build record (a producer's build would be overwritten)
+    producer = json.dumps({"version": "1.0.1", "name": "nanosoc-ethernet-chiplet", "number": "rc4",
+                           "started": "2026-01-01T00:00:00.000+0000", "modules": []}).encode()
+    with pytest.raises(C.StoreRefused):
+        s.put_file("api/build", producer)
+    # PUB-REV-5: credentials in the url would make httpx send Basic auth instead of the Bearer token
+    for url in ("http://admin:pw@127.0.0.1:8082/artifactory", "http://admin@127.0.0.1:8082/artifactory"):
+        with pytest.raises(C.StoreRefused, match="credentials"):
+            C.Store(url, "t", release_repo="asic-release")
     for url in ("http://h:8082/access", "http://h:8082/artifactory/../access", "ftp://h/artifactory"):
         with pytest.raises(C.StoreRefused):
             C.Store(url, "t", release_repo="asic-release")
@@ -220,6 +233,7 @@ def test_the_client_refuses_every_call_off_its_allow_list_before_any_io(fake):
             s.promote("rm-release-p", "1.0.0", body)
     with pytest.raises(C.StoreRefused, match="not one of this tool's records"):
         s.put_build({"name": "nanosoc-ethernet-chiplet", "number": "rc4"})
+    assert ("nanosoc-ethernet-chiplet", "rc4") not in fake.builds
     from nanosoc_rm.publish.core import BUILD_PREFIX
     assert set(BUILD_PREFIX.values()) == set(C.BUILD_NAME_PREFIXES)
     assert fake.requests == [], "a refused build call reached the store"
@@ -248,6 +262,9 @@ def test_config_keys_refuse_a_shared_publisher_and_a_url_off_artifactory(tmp_pat
         load_config(p)
     p.write_text(base + 'url = "http://localhost:8082/access"\n')
     with pytest.raises(ConfigError, match="must be http"):
+        load_config(p)
+    p.write_text(base + 'url = "http://admin:pw@localhost:8082/artifactory"\n')     # PUB-REV-5
+    with pytest.raises(ConfigError, match="credentials"):
         load_config(p)
     p.write_text(base + 'url = "http://localhost:8082/artifactory"\ntoken_file = "tok"\ntoken_expires = "2027-10-14"\n')
     assert load_config(p)["stores"]["artifactory"]["token_file"] == str(tmp_path / "tok")
@@ -356,6 +373,58 @@ def test_read_back_and_signature_must_verify(world):
     with pytest.raises(PublishRefused, match="read-back"):
         S.publish(cfg, "release", KEY, confirm=prev["sha256"], by="alice")
     assert db.latest("release_publication", config=cfg) == []
+
+
+def test_every_uploaded_document_is_read_back_by_checksum(world):
+    """PUB-REV-2c: a document the store keeps wrong (only the record and its .sig are compared byte for byte) is
+    caught by the stored sha256 of every uploaded path."""
+    fake, cfg = world.fake, world.config
+    prev = S.preview(cfg, "release", KEY, by="alice")
+    fake.store_wrong.add(FOLDER + "/ERRATA.md")
+    with pytest.raises(PublishRefused, match="read-back: %s/ERRATA.md is different" % FOLDER):
+        S.publish(cfg, "release", KEY, confirm=prev["sha256"], by="alice")
+    assert db.latest("release_publication", config=cfg) == []
+
+
+def test_a_document_edited_after_the_draft_is_refused(world):
+    """PUB-REV-2d: ERRATA.md edited after the draft was reviewed is never published silently."""
+    d = R.D.draft_path(world.config, "soc-v1", "1.0.0")
+    with open(d / "ERRATA.md", "a") as fh:
+        fh.write("\nan unreviewed line\n")
+    with pytest.raises(PublishRefused, match="ERRATA.md changed since the draft was written"):
+        S.preview(world.config, "release", KEY)
+    assert world.fake.requests == []
+
+
+def test_the_signer_identity_is_enforced_with_an_allowed_signers_file(world):
+    """PUB-REV-4: a key listed only under another principal is not the configured signer_identity, as
+    `ssh-keygen -Y verify -I nanosoc-rm` would also say."""
+    fake = world.fake
+    prev = S.preview(world.config, "release", KEY, by="alice")
+    pub = (Path(str(world.key) + ".pub")).read_text().split()
+    allowed = world.tmp / "allowed_signers"
+    allowed.write_text('mallory namespaces="nanosoc-rm" %s %s\n' % (pub[0], pub[1]))
+    with open(world.scene.env.config, "a") as fh:
+        fh.write('allowed_signers = "%s"\nsigner_identity = "nanosoc-rm"\n' % allowed)
+    with pytest.raises(SG.SignatureError, match="not an allowed signer"):
+        S.publish(load_config(world.scene.env.config), "release", KEY, confirm=prev["sha256"], by="alice")
+    assert fake.writes() == []
+    allowed.write_text('nanosoc-rm namespaces="nanosoc-rm" %s %s\n' % (pub[0], pub[1]))
+    obs = S.publish(load_config(world.scene.env.config), "release", KEY, confirm=prev["sha256"], by="alice")
+    assert obs["fact"]["verified"]["signature"] is True
+
+
+def test_serve_refuses_store_writes_in_the_web_process(world, monkeypatch):
+    """PUB-REV-2b: `nanosoc-rm serve` turns the client's write refusal on before it serves anything."""
+    import uvicorn
+    seen = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: seen.append(C.writes_refused()))
+    try:
+        r = CliRunner().invoke(cli.main, ["serve", "--no-schedule", "--no-worker"])
+        assert r.exit_code == 0, r.output
+        assert seen == ["the web process"]
+    finally:
+        C.refuse_writes_here(None)
 
 
 def test_a_signature_that_does_not_verify_is_refused_before_any_upload(world):
@@ -543,9 +612,18 @@ def test_cli_needs_a_preview_then_publishes_exactly_it(world):
     assert r.exit_code == 1 and "not the confirmed" in r.output
     r = CliRunner().invoke(cli.main, ["publish-release", KEY, "--confirm", sha, "--by", "soclabs"])
     assert r.exit_code == 1 and "shared login" in r.output
+    # PUB-REV-3: --by never claims a cli: login (that skips the publisher check): only the real one is cli:
+    for fake_cli in ("cli:soclabs", "cli:" + ("x" if S.cli_login() != "cli:x" else "y")):
+        r = CliRunner().invoke(cli.main, ["publish-release", KEY, "--confirm", sha, "--by", fake_cli])
+        assert r.exit_code == 1 and "cli:" in r.output, r.output
+    assert world.fake.writes() == []
     r = CliRunner().invoke(cli.main, ["publish-release", KEY, "--confirm", sha, "--json"])
     assert r.exit_code == 0, r.output
-    assert json.loads(r.output.strip().splitlines()[-1])["fact"]["published_by"].startswith("cli:")
+    assert json.loads(r.output.strip().splitlines()[-1])["fact"]["published_by"] == S.cli_login()
+    # a --by for a listed publisher is recorded with the account that ran the command
+    obs = S.publish(world.config, "release", KEY, confirm=sha, by="alice")
+    assert obs["fact"]["published_by"] == "alice"
+    assert obs["fact"]["run_by"] == S.cli_login() and contracts.validate_observation(obs) == []
     r = CliRunner().invoke(cli.main, ["register-tapeout", "no-such", "--dry-run"])
     assert r.exit_code == 3
 

@@ -170,7 +170,8 @@ def _check_artifactory(table: dict, problems: list[str]) -> None:
     the admin out) and carries no user or token; a shared login is never a publisher; projects name store folders."""
     url = table.get("url")
     if isinstance(url, str) and not re.match(r"^https?://[^/?#@\s]+(/[^?#@\s]*)?/artifactory$", url.rstrip("/")):
-        problems.append("[stores.artifactory] url must be http(s)://<host>[:port]/artifactory, with no user or token")
+        problems.append("[stores.artifactory] url must be http(s)://<host>[:port]/artifactory, with no user or token "
+                        "(no credentials in the url: token_file is the only credential)")
     exp = table.get("token_expires")
     if isinstance(exp, str) and exp and not _DATE.match(exp):
         problems.append("[stores.artifactory] token_expires must be YYYY-MM-DD or empty")

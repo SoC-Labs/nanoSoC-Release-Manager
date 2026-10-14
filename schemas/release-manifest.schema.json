@@ -647,6 +647,11 @@
           "type": "string",
           "minLength": 1
         },
+        "run_by": {
+          "description": "The account that ran the publish (`cli:<user>`), when `published_by` is a GUI login given with --by (the GUI's job, or a person at the CLI). Absent when they are the same. Additive optional (PUB-REV-3): no schema bump.",
+          "type": "string",
+          "pattern": "^cli:"
+        },
         "published_at": {
           "$ref": "defs.schema.json#/$defs/utc"
         },

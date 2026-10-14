@@ -33,6 +33,7 @@ class FakeArtifactory:
         self.overwrites = 0
         self.fail_put: set[str] = set()           # paths whose PUT answers 500 (a store that fails mid-publish)
         self.serve_wrong: set[str] = set()        # paths whose GET returns other bytes (a store that lies)
+        self.store_wrong: set[str] = set()        # paths whose PUT passes the checksum check, then stores other bytes
         self.lock = threading.Lock()
         fake = self
 
@@ -164,6 +165,8 @@ class FakeArtifactory:
                 props[urllib.parse.unquote(k)] = [urllib.parse.unquote(v)]
             if rel_path in self.files:
                 self.overwrites += 1
+            if rel_path in self.store_wrong:
+                body = body + b"corrupted at rest"
             self.files[rel_path] = {"data": body, "props": props, "created": "now"}
             return h._send(201, {"repo": rel_path.split("/")[0], "path": "/" + rel_path.split("/", 1)[1],
                                  "size": str(len(body)), "checksums": s, "originalChecksums": s, "uri": "x"})
