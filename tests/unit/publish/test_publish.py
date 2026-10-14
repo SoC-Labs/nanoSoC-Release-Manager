@@ -681,6 +681,9 @@ def test_gui_preview_confirm_and_who_may_publish(world):
     assert "data-preview-form" not in page.text
     for path in ("/publish/release/soc-v1/1.0.0/preview", url):
         assert s.post(path, data={"csrf_token": s_csrf, "sha256": sha, "ack": "1"}).status_code == 403
+    # a refused login learns nothing about the stored preview: 403 comes before the sha256 and ack checks
+    for data in ({"sha256": "2" * 64, "ack": "1"}, {"sha256": "nope"}, {}):
+        assert s.post(url, data=dict(data, csrf_token=s_csrf)).status_code == 403
 
 
 def test_gui_is_disabled_with_a_reason_without_token_or_key(world):

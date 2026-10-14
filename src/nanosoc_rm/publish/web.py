@@ -178,7 +178,12 @@ async def _submit(request: Request, kind: str, params: dict, back: str, *, confi
 
 
 async def _confirm(request: Request, kind: str, key: str, params: dict, back: str) -> Response:
+    from nanosoc_rm.publish.core import can_publish
     from nanosoc_rm.publish.service import read_preview
+    if _local(request):                              # who may publish is decided before anything about the preview
+        refused = can_publish(_config(request), _login(request))
+        if refused:
+            return PlainTextResponse("403 Forbidden: %s" % "; ".join(refused), 403)
     form = await request.form()
     sha = str(form.get("sha256") or "")
     if not _SHA256.match(sha):
