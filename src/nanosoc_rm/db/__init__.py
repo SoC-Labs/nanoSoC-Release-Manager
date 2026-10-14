@@ -419,8 +419,11 @@ def _latest(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[dic
         # wall clock said when it completed (ROB-faults-4).
         where, args = _prefix_range(subject_prefix)
         rows = con.execute(
+            # CROSS JOIN and INDEXED BY pin the plan: the current snapshots first, then their rows by snapshot id.
+            # Left to itself the planner walks the (kind, subject) index over every stored row of the prefix, so the
+            # cost grows with the history again.
             """SELECT o.rowid AS rid, o.subject, o.doc FROM current_snapshots c
-               JOIN observations o ON o.snapshot_id = c.snapshot_id
+               CROSS JOIN observations o INDEXED BY observations_snapshot ON o.snapshot_id = c.snapshot_id
                WHERE c.kind = ? AND o.kind = ? AND %s
                ORDER BY o.rowid""" % where, [kind, kind] + args).fetchall()
         best = {r["subject"]: r for r in rows}                    # a subject put twice into one snapshot: last

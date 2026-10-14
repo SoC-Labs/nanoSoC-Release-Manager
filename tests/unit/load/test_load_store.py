@@ -36,6 +36,21 @@ def test_current_pins_cost_at_most_linear_in_the_walk_history(tmp_path, monkeypa
     assert ops_large <= 2.6 * ops_small, (ops_small, ops_large)
 
 
+def test_current_pins_cost_does_not_grow_with_the_walk_history(tmp_path, monkeypatch):
+    """Stronger than linear: the current snapshot is found directly (db current_snapshots), so ten times the
+    stored walks of a configuration cost about the same to read its current pins."""
+    small, large = tmp_path / "small", tmp_path / "large"
+    small.mkdir(), large.mkdir()
+    c_small, c_large = L.store_config(small), L.store_config(large)
+    L.add_pin_snapshots(c_small, "eth-rc4", 20)
+    L.add_pin_snapshots(c_large, "eth-rc4", 200)
+    for prefix in ("pin_state:eth-rc4:", ""):
+        ops_small, n_small = _latest_ops(monkeypatch, c_small, "pin_state", prefix)
+        ops_large, n_large = _latest_ops(monkeypatch, c_large, "pin_state", prefix)
+        assert n_small == n_large == len(L.examples("pin-state.example.jsonl", "pin_state"))
+        assert ops_large <= 1.3 * ops_small + 200, (prefix, ops_small, ops_large)
+
+
 def test_current_pins_of_one_configuration_among_500_cost_little(tmp_path, monkeypatch):
     """500 registered configurations with one walk each (1500 pins): reading one configuration's pins touches
     each pin row about once, and every configuration's current pins come back. Budget: 20 VM steps per stored
