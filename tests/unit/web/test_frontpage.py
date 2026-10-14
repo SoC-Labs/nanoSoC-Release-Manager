@@ -181,6 +181,23 @@ def test_filters_fold_and_count(fp):
     assert "Filters (1)" in text
 
 
+def test_the_gap_chip_says_unverified_while_a_soc_reference_has_no_stated_group(fp):
+    c = fp["client"]
+    assert "data-gap-unverified" not in c.get("/?filters=1").text           # every soc_ref states its group
+    cat = fp["registry"] / "catalogue.yaml"
+    lines = cat.read_text().splitlines(True)
+    at = next(i for i, l in enumerate(lines) if '"id": "nanosoc-multicore-system"' in l)
+    lines.insert(at + 1, '  - {"id": "nanosoc-unsorted-soc", "class": "soc_ref", '
+                         '"canonical": {"host": "gitlab", "path": "soclabs/nanosoc-unsorted-soc"}}\n')
+    cat.write_text("".join(lines))                                          # a SoC reference with no group
+    subprocess.run(["git", "commit", "-qam", "a soc_ref with no group"], cwd=fp["registry"], check=True,
+                   capture_output=True)
+    text = c.get("/?filters=1").text
+    assert "registry problem" not in text
+    chip = re.search(r"data-gap-filter>(.*?)</a>", text, re.S).group(1)
+    assert "· unverified" in chip and "nanosoc-unsorted-soc" in chip, chip
+
+
 def test_the_timeline_toggle_is_saved_per_login_and_a_get_never_creates_gui_state(fp, tmp_path, monkeypatch):
     c = fp["client"]
     monkeypatch.setattr(jobs, "submit", lambda *a, **k: pytest.fail("a GET submitted a job"))

@@ -3,7 +3,6 @@ loader rule 15, the org scan (anonymous, repo_seen snapshots), the catalogue-cha
 kind. Every check here is shown able to fail by a planted defect (PR6)."""
 from __future__ import annotations
 
-import copy
 import functools
 import importlib.util
 import json

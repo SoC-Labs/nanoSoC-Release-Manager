@@ -183,11 +183,14 @@ class _Data:
     """Everything the page reads, once per request."""
 
     def __init__(self, config, today: dt.date, problems: list[str]):
-        from nanosoc_rm.catalogue.model import socs_without_forkable_project
+        from nanosoc_rm.catalogue.model import gap_unverified, socs_without_forkable_project
         from nanosoc_rm.freshness import view as fview
         self.today = today
         self.chars, self.comp_docs = _characterisations(config, problems)
         self.gaps = set(socs_without_forkable_project(self.chars)) if self.chars else set()
+        # SoC references with no stated group default to project, so the gap check cannot see them: the chip says
+        # it is unverified rather than "0" (catalogue review F2; `catalogue show --gaps` exits 2 for the same list)
+        self.gap_unverified = sorted(gap_unverified(self.chars)) if self.chars else []
         self.cfg_docs = views.configurations(config)
         try:
             self.trees = {t["configuration"]: t for t in fview.trees(today=today, config=config)}
@@ -411,7 +414,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
             "filters_href": _url(st, filters=not (st["filters"] or n_active > 0), open=open_),
             "clear_href": _url(st, fresh=None, lv=set(), ty=set(), ro=set(), gap=False, open=open_),
             "gap": {"on": st["gap"], "n": sum(1 for p in data.projects if p["gap"] and passes(p, "gap")),
-                    "href": _url(st, gap=not st["gap"], filters=True, open=open_)},
+                    "href": _url(st, gap=not st["gap"], filters=True, open=open_),
+                    "unverified": data.gap_unverified},
             "timeline": {"on": tl_on, "saved": prefs.get("timeline"), "local": local,
                          "href": _url(st, tl="off" if tl_on else "on", open=open_), "axis": tl.axis() if tl else [],
                          "today": tl.x(0) if tl else None, "marks": tl.marks() if tl else [],

@@ -2325,6 +2325,11 @@ and its pages show no button for a missing route (the timeline toggle is then a 
 - **Pills** count live configurations by tree verdict and frozen ones as Frozen; the Not measured pill adds the
   projects with no stored scan to the scanned live trees that read Not measured, so every configuration is in one
   pill, and its filter keeps both.
+- **No forkable project** chip (`gap=1`): counts the SoCs no forkable project wraps
+  (`catalogue.model.socs_without_forkable_project`). While `catalogue.model.gap_unverified` is non-empty (a soc_ref
+  with no stated group defaults to project, so the check cannot see it) the chip adds "· unverified"
+  (`data-gap-unverified`, its title naming those entries): a count of 0 then measured nothing, as `catalogue show
+  --gaps` exits 2.
 - **Default view** (no `v=1`): the most lagging project with an Outdated or Unpushed live configuration is open,
   with its first live configuration; everything else (frozen trees included) is closed. **Timeline**: a bar from each row's newest bump to today on one axis (`_TL_MONTHS` whole months before
   today's month to `_TL_AFTER` days after today), the today line, and a dashed line at each frozen configuration's

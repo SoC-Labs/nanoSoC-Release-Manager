@@ -35,7 +35,7 @@
     {% endfor %}
   </div>
   {% endfor %}
-  <a class="fp-chipbtn{% if h.gap.on %} is-on{% endif %}" href="{{ h.gap.href }}" aria-pressed="{{ 'true' if h.gap.on else 'false' }}" data-gap-filter>No forkable project <span class="mono">{{ h.gap.n }}</span></a>
+  <a class="fp-chipbtn{% if h.gap.on %} is-on{% endif %}" href="{{ h.gap.href }}" aria-pressed="{{ 'true' if h.gap.on else 'false' }}" data-gap-filter>No forkable project <span class="mono">{{ h.gap.n }}</span>{% if h.gap.unverified %} <span data-gap-unverified title="{{ h.gap.unverified|length }} SoC reference{{ '' if h.gap.unverified|length == 1 else 's' }} with no stated group, so the check cannot see them: {{ h.gap.unverified|join(', ') }}">· unverified</span>{% endif %}</a>
   <a class="fp-link" href="{{ h.clear_href }}">Clear</a>
 </div>
 {% endif %}

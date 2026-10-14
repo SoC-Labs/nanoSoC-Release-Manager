@@ -950,7 +950,6 @@ def _cat(value: Any) -> str:
 
 def dashboard(request: Request) -> Response:
     """GET /inbox: the inbox cards with their evidence, snooze and undo (the board is on the projects home)."""
-    from nanosoc_rm import jobs
     from nanosoc_rm.web import registry_facts
     config, _ = _ctx(request)
     problems = list(registry_facts.refresh(config))
