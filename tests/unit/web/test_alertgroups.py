@@ -83,13 +83,17 @@ def test_clear_group_clears_all_fifty_and_logs_each(site):
     from test_inbox import local_client
     lc = local_client(site)
     assert lc.post("/alerts/clear-group", data={"group": "private-anon"}).status_code == 403    # no CSRF token
-    r = c.post("/alerts/clear-group", data={"csrf_token": token, "group": "private-anon"}, follow_redirects=False)
+    seen = re.search(r'name="group" value="private-anon"><input type="hidden" name="seen" value="([0-9a-f]+)"',
+                     page).group(1)
+    r = c.post("/alerts/clear-group", data={"csrf_token": token, "group": "private-anon", "seen": seen},
+               follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/alerts"
     open_ = db.alerts(open_only=True, config=site["cfg"])
     assert not [a for a in open_ if a["fact"]["alert_kind"] == "mirror_failed"]
     acts = [a for a in db.actions(config=site["cfg"]) if a["action"] == "clear_alert"]
     assert len(acts) == 50 and {a["login"] for a in acts} == {"alice"}
-    assert c.post("/alerts/clear-group", data={"csrf_token": token, "group": "private-anon"}).status_code == 404
+    assert c.post("/alerts/clear-group", data={"csrf_token": token, "group": "private-anon", "seen": seen}
+                  ).status_code == 404
 
 
 def test_no_url_from_a_message_reaches_a_page(site):
@@ -115,3 +119,20 @@ def test_clear_group_is_not_a_route_in_a_github_ci_deployment(service, registry_
     app = create_app(cfg, auth=auth.FakeMembership(login="alice"))
     assert ("POST", "/alerts/clear-group") not in routers.writes(app)
     assert 'action="/alerts/clear-group"' not in TestClient(app).get("/alerts").text
+
+
+def test_clear_group_refuses_when_the_group_changed_since_the_page(site):
+    """I-R3: a clear covers exactly the alerts the person saw; one raised since then answers 409, clears nothing."""
+    c = site["client"]
+    page = c.get("/alerts").text
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+    seen = re.search(r'name="group" value="rewrite"><input type="hidden" name="seen" value="([0-9a-f]+)"',
+                     page).group(1)
+    assert "Clear all 1" in page
+    old = next(a for a in db.alerts(open_only=True, config=site["cfg"]) if a["fact"]["alert_kind"] == "rewrite")
+    db.raise_alert("rewrite", "branch_state:gitlab:soclabs/other:main", old["fact"]["message"], SRC, config=site["cfg"])
+    r = c.post("/alerts/clear-group", data={"csrf_token": token, "group": "rewrite", "seen": seen})
+    assert r.status_code == 409
+    assert not [a for a in db.actions(config=site["cfg"]) if a["action"] == "clear_alert"]
+    assert len([a for a in db.alerts(open_only=True, config=site["cfg"]) if a["fact"]["alert_kind"] == "rewrite"]) == 2
+    assert c.post("/alerts/clear-group", data={"csrf_token": token, "group": "rewrite"}).status_code == 400

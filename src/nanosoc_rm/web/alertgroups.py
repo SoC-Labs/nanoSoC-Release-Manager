@@ -9,7 +9,7 @@ Fifty `mirror_failed` alerts with one message are one problem, not fifty: the da
                                               message forms its own group, keyed by a hash of its normalised text
     groups(config, alerts=None) -> [group]    open alerts by cause, biggest group first:
         {key, label, advice, kind, count, by_host: {host: n}, hosts_text, subjects[], newest_at, sample[3],
-         alerts[]}
+         alerts[], fp}                        fp = seen_fp(subjects): what a clear-group POST must match
     group(config, key) -> group | None
 
 No hostname reaches a label: an unmatched message's label is its normalised text, which has no URL left in it,
@@ -23,7 +23,7 @@ from typing import Any, Iterable
 
 from nanosoc_rm import clock, db
 
-__all__ = ["CAUSES", "normalise", "cause_of", "groups", "group", "host_of"]
+__all__ = ["CAUSES", "normalise", "cause_of", "groups", "group", "host_of", "seen_fp"]
 
 # (alert_kind or None for any kind, pattern on the normalised message, key, label, advice). First match wins.
 CAUSES: tuple[tuple[str | None, str, str, str, str], ...] = (
@@ -130,8 +130,15 @@ def groups(config, alerts: list[dict] | None = None) -> list[dict]:
         g["sample"] = g["alerts"][:SAMPLE]
         g["by_host"] = dict(sorted(g["by_host"].items(), key=lambda kv: (-kv[1], kv[0])))
         g["hosts_text"] = ", ".join("%d %s" % (n, h) for h, n in g["by_host"].items())
+        g["fp"] = seen_fp(g["subjects"])
     return sorted(out.values(), key=lambda g: (-g["count"], -clock.parse(g["newest_at"]).timestamp()
                                                if g["newest_at"] else 0, g["key"]))
+
+
+def seen_fp(subjects: Iterable[str]) -> str:
+    """The fingerprint of the alerts a page showed in one group: a clear-group POST carries it, and the server
+    clears only when the group still holds exactly those alerts (I-R3)."""
+    return hashlib.sha256("\n".join(sorted(subjects)).encode()).hexdigest()[:24]
 
 
 def group(config, key: str) -> dict | None:

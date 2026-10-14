@@ -22,7 +22,7 @@
       <td class="num">{{ g.count }}</td>
       <td>{{ g.advice }}</td>
       <td>{{ g.newest_at }} ({{ age_text(g.newest_at) }} ago)</td>
-      <td>{% if actions %}<form method="post" action="/alerts/clear-group"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="group" value="{{ g.key }}"><button type="submit" class="prim">Clear all {{ g.count }}</button></form>{% endif %}</td>
+      <td>{% if actions %}<form method="post" action="/alerts/clear-group"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="group" value="{{ g.key }}"><input type="hidden" name="seen" value="{{ g.fp }}"><button type="submit" class="prim">Clear all {{ g.count }}</button></form>{% endif %}</td>
     </tr>
   {% endfor %}
   </tbody>

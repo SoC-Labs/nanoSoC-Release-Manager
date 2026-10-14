@@ -33,14 +33,14 @@
       <form method="post" action="/inbox/done" hx-post="/inbox/done" hx-target="#inbox" hx-swap="outerHTML">
         <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ c.id }}">
         <input type="hidden" name="fp" value="{{ c.fingerprint }}"><input type="hidden" name="cat" value="{{ inbox.cat }}">
-        <button type="submit" class="ghost">Mark done</button>
+        <button type="submit" class="ghost" aria-describedby="card-h-{{ c.number }}">Mark done</button>
       </form>
       <details id="snooze-{{ c.code_id }}">
-        <summary class="ghost">Snooze</summary>
+        <summary class="ghost" aria-describedby="card-h-{{ c.number }}">Snooze</summary>
         <form method="post" action="/inbox/snooze" hx-post="/inbox/snooze" hx-target="#inbox" hx-swap="outerHTML" aria-label="Snooze this card">
           <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ c.id }}">
           <input type="hidden" name="fp" value="{{ c.fingerprint }}"><input type="hidden" name="cat" value="{{ inbox.cat }}">
-          {% for n in inbox.snooze_days %}<button type="submit" name="days" value="{{ n }}" class="ghost">{{ n }} {{ 'day' if n == 1 else 'days' }}</button> {% endfor %}
+          {% for n in inbox.snooze_days %}<button type="submit" name="days" value="{{ n }}" class="ghost" aria-describedby="card-h-{{ c.number }}">{{ n }} {{ 'day' if n == 1 else 'days' }}</button> {% endfor %}
         </form>
       </details>
     </div>
@@ -55,7 +55,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf }}">
         {% for k, v in p.fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
         {% if p.local %}<input type="hidden" name="cat" value="{{ inbox.cat }}">{% endif %}
-        <button type="submit" class="prim">{{ p.label }}</button>
+        <button type="submit" class="prim" aria-describedby="card-h-{{ c.number }}">{{ p.label }}</button>
       </form>
       {% elif p.method == "post" %}
       <a class="prim" href="{{ p.fallback }}">Open the alerts</a>

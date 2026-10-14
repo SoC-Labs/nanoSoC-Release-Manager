@@ -11,10 +11,12 @@ only from stored observations, with the configuration board under them.
 Rules this module keeps (spec section 0 and 2):
 - A card is built from module functions over the store (views, db, verdict, alertgroups, and the Wave B modules
   when they are installed). Nothing here walks, fetches, compares or queues: a GET never submits a job.
+- Cards 1 and 2 read a configuration's verdict as the newer of its compat result and its latest CI T0 run (a
+  GitHub + CI deployment stores only the second); a configuration with either is not "never checked".
 - `inbox.WEIGHTS` is the one ranking table: rank = weight x staleness (0.8 when the card's fact is older than
   7 days). Ties go to frozen configurations, then to the older fact.
 - Done, snooze and undo are per login in gui.sqlite (web.uistate); a done card reopens when its fingerprint (a
-  hash of the facts it was built from) changes. They are not system actions and are not logged in `actions`.
+  hash of the content of the facts it was built from, not of when they were observed) changes. They are not system actions and are not logged in `actions`.
 """
 from __future__ import annotations
 
@@ -32,7 +34,7 @@ from typing import Any, Callable
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from nanosoc_rm import clock, db
+from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.web import alertgroups, routers, shell, uistate, verdict as V, views
 
 __all__ = ["Card", "CARD_KINDS", "CATS", "WEIGHTS", "STALE_AFTER", "STALE_FACTOR", "cards", "open_count", "board",
@@ -142,7 +144,10 @@ def _optional(modname: str) -> Any:
 
 
 def _fingerprint(card: Card) -> str:
-    basis = [(d.get("subject"), d.get("observed_at")) for d in card.facts if isinstance(d, dict)]
+    """A hash of what the card says and of the CONTENT of its facts: not their observed_at or snapshot, which a
+    producer run renews even when nothing changed (I-R1). A new run of a set kind with the same facts keeps a done
+    card done; a changed fact, or a new event (a new subject, e.g. a new compat nonce), reopens it."""
+    basis = [(d.get("subject"), d.get("fact")) for d in card.facts if isinstance(d, dict)]
     raw = json.dumps([card.kind, card.title, basis, card.basis], sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
@@ -182,6 +187,20 @@ def _evidence(tag: str, tone: str, what: str, say: str = "") -> dict:
 # ---------------------------------------------------------------------------------------------------------
 # Card builders, one per row of spec 2.3. Each takes a shared context and returns cards.
 # ---------------------------------------------------------------------------------------------------------
+def _newer(compat: dict | None, t0: dict | None) -> dict | None:
+    """The verdict a configuration stands at (I-R2): its compat result or its latest T0 run, the newer one. A T0
+    run still pending acceptance has no verdict yet."""
+    if t0 is not None and t0["fact"].get("acceptance") == "pending":
+        t0 = None
+    if compat is None or t0 is None:
+        return compat or t0
+    return t0 if clock.parse(t0["observed_at"]) > clock.parse(compat["observed_at"]) else compat
+
+
+def _is_t0(doc: dict | None) -> bool:
+    return bool(doc) and doc.get("kind") == "t0_result"
+
+
 class _Ctx:
     def __init__(self, config, now: dt.datetime):
         self.config, self.now = config, now
@@ -196,12 +215,20 @@ class _Ctx:
             self.pins.setdefault(d["fact"].get("configuration") or "", []).append(d)
         for ps in self.pins.values():
             ps.sort(key=lambda d: d["fact"]["tree_paths"][0])
+        runs: dict[str, list[dict]] = {}
+        for d in views.runs(config):                              # the CI T0 results, one read
+            runs.setdefault(d["fact"]["configuration"], []).append(d)
+        self.local_ci = jobs.is_local_ci(config)
         self.compat: dict[str, dict | None] = {}
+        self.t0: dict[str, dict | None] = {}                      # the board's latest T0 run (may be pending)
+        self.result: dict[str, dict | None] = {}                  # the newer verdict: compat result or T0 run
         self.decisions: dict[str, V.Decision] = {}
         for rec in self.records:
             cid = rec["fact"]["id"]
             self.compat[cid] = newest.get(cid)
-            self.decisions[cid] = V.deciding(self.compat[cid], rec)
+            self.t0[cid] = views.latest_run(runs.get(cid, []))
+            self.result[cid] = _newer(self.compat[cid], self.t0[cid])
+            self.decisions[cid] = V.deciding(self.result[cid], rec)
         self.claimed: dict[str, set[str]] = {}          # cid -> tree paths a compat or silicon card already names
 
     def record(self, cid: str) -> dict | None:
@@ -216,8 +243,11 @@ def _compat_fail(ctx: _Ctx) -> list[Card]:
     out = []
     for rec in ctx.records:
         cid = rec["fact"]["id"]
-        doc = ctx.compat[cid]
+        doc = ctx.result[cid]
         if doc is None or V.verdict_of(doc) not in V.RED:
+            continue
+        if _is_t0(doc):
+            out.append(_t0_card(ctx, rec, doc))
             continue
         d = ctx.decisions[cid]
         cs = V.causes(doc, rec)
@@ -267,8 +297,49 @@ def _compat_fail(ctx: _Ctx) -> list[Card]:
     return out
 
 
+def _t0_card(ctx: _Ctx, rec: dict, doc: dict) -> Card:
+    """Card 1 when the configuration's newest verdict is a CI T0 run (a GitHub + CI deployment, I-R2)."""
+    w = WEIGHTS["compat_fail"]
+    cid, f = rec["fact"]["id"], doc["fact"]
+    d = ctx.decisions[cid]
+    nonce = str((f.get("run") or {}).get("nonce") or "")
+    cs = V.causes(doc, rec)
+    top = cs[0] if cs else None
+    if f.get("acceptance") == "rejected":
+        label = "the run was rejected"
+        why = "A rejected run proves nothing about this configuration: %s." % str(f.get("reason") or "no reason "
+                                                                                  "was stored")[:200]
+    elif top:
+        label = d.label
+        why = "It is the red gate that decides this configuration in its latest CI run."
+    else:
+        label = d.label.lower() if d.label != d.verdict else "no gate result"
+        why = "The latest CI run has no gate that explains its verdict%s." % (
+            ": %s" % str(f.get("reason"))[:200] if f.get("reason") else "")
+    weight = (w["base"] + w["per_gate"] * (len(top.gates) if top else 0)
+              + w["per_not_reached"] * (top.not_reached if top else 0) + (w["fixable"] if not ctx.frozen[cid] else 0))
+    act = V.next_action(d, cid, doc=doc) if top else None
+    primary = ({"label": act["label"], "href": act["href"], "method": act.get("method", "get"), "fields": {},
+                "local": False} if act and act.get("label") and act.get("method", "get") == "get" else
+               {"label": "Open the run", "href": "/runs/%s" % _q(nonce), "method": "get", "fields": {}})
+    run = f.get("run") or {}
+    ctx.claim(cid, d.tree_paths)
+    return Card(
+        id="compat_fail:%s" % cid, kind="compat_fail", chip=(d.verdict, shell.tone(d.verdict)),
+        title="%s is %s in its latest T0 run: %s." % (cid, d.verdict, label), why=why, weight=weight,
+        fact_at=doc.get("observed_at"), frozen=ctx.frozen[cid], facts=[doc],
+        meta="T0 run %s · %s" % (nonce[:12], _age(run.get("triggered_at"), ctx.now)),
+        evidence=[_evidence(c.verdict, shell.tone(c.verdict), ", ".join(c.gates), c.label) for c in cs]
+        + [_evidence(str(f.get("acceptance") or "?").upper(), "c-warn" if f.get("acceptance") == "rejected"
+                     else "c-neutral", "run %s" % nonce[:12], "%s by %s" % (run.get("trigger") or "?",
+                                                                       run.get("triggered_by") or "?"))],
+        primary=primary, dest="opens the %s" % ("run" if primary["href"].startswith("/runs/") else "configuration"),
+        basis=[d.gate, label])
+
+
 def _never_checked(ctx: _Ctx) -> list[Card]:
-    cids = [r["fact"]["id"] for r in ctx.records if ctx.compat[r["fact"]["id"]] is None]
+    cids = [r["fact"]["id"] for r in ctx.records
+            if ctx.compat[r["fact"]["id"]] is None and ctx.t0[r["fact"]["id"]] is None]
     if not cids:
         return []
     names = ", ".join(cids)
@@ -285,7 +356,8 @@ def _never_checked(ctx: _Ctx) -> list[Card]:
                   for c in cids],
         forms=forms, primary={"label": "Run first check: %s" % cids[0], "href": forms[0]["action"], "method": "post",
                               "fields": {}, "local": False},
-        dest="queues one check per press (nanosoc-rm compat CONFIG --store)", basis=cids)]
+        dest=("queues one check per press (nanosoc-rm compat CONFIG --store)" if ctx.local_ci
+              else "triggers one CI T0 run per press"), basis=cids)]
 
 
 def _silicon_uncovered(ctx: _Ctx) -> list[Card]:
@@ -463,7 +535,7 @@ def _alert_groups(ctx: _Ctx) -> list[Card]:
             evidence=[_evidence(a["fact"]["alert_kind"], "c-fail", str(a["fact"].get("about") or ""),
                                 shell.redact(a["fact"].get("message"), ctx.config)) for a in g["alerts"]],
             primary={"label": "Clear all %d after fixing" % n, "href": "/alerts/clear-group", "method": "post",
-                     "fields": {"group": g["key"], "return": "inbox"}, "local": True,
+                     "fields": {"group": g["key"], "seen": g["fp"], "return": "inbox"}, "local": True,
                      "fallback": "/alerts#group-%s" % g["key"]},
             dest=g["advice"], basis=sorted(g["subjects"])))
     return out
@@ -901,14 +973,20 @@ async def post_undo(request: Request) -> Response:
 
 
 async def post_clear_group(request: Request) -> Response:
-    """CR-W3: clear every open alert of one cause group; each clear is logged as `clear_alert` with the login."""
+    """CR-W3: clear every open alert of one cause group; each clear is logged as `clear_alert` with the login. The
+    form carries `seen`, the fingerprint of the alerts the page showed: a group that changed since answers 409."""
     from starlette.concurrency import run_in_threadpool
     config, _ = _ctx(request)
     form = await request.form()
-    key = str(form.get("group") or "")
+    key, seen = str(form.get("group") or ""), str(form.get("seen") or "")
+    if not seen:
+        return PlainTextResponse("400 Bad Request: group and seen (the alerts the page showed) are needed", 400)
     g = await run_in_threadpool(alertgroups.group, config, key)
     if g is None:
         return PlainTextResponse("404 Not Found: no open alert group %s" % key[:60], 404)
+    if g["fp"] != seen:                                          # I-R3: clear only what the person saw
+        return PlainTextResponse("409 Conflict: the group %s changed since the page was drawn (%d open now); "
+                                 "reload and check it again" % (key[:60], g["count"]), 409)
     login = _login(request)
 
     def clear() -> None:

@@ -179,9 +179,9 @@ def test_an_empty_store_gives_only_the_registry_cards(empty):
 
 def test_1_compat_fail_names_the_deciding_cause_and_its_fix(site):
     cfg = site["config"]
-    assert not of(inbox.cards(cfg), "compat_fail")
+    assert not [c for c in inbox.cards(cfg) if c.id == "compat_fail:eth-main"]
     db.put(eth_main(), config=cfg)
-    c = of(inbox.cards(cfg), "compat_fail")[0]
+    c = [c for c in inbox.cards(cfg) if c.id == "compat_fail:eth-main"][0]
     assert c.title == "eth-main is FAIL: tidelink pinned by ssh URL."
     assert c.why.startswith("That one cause fails 2 gates and hides 5 trees from the vendor scan.")
     assert c.primary["label"] == "Try the fix in What-if"
@@ -190,11 +190,14 @@ def test_1_compat_fail_names_the_deciding_cause_and_its_fix(site):
     assert any("upgrade path from v1.0.0" in e["say"] for e in c.evidence)       # eligibility: {tag: v1.0.0}
 
 
-def test_2_never_checked_is_one_card_with_a_run_form_per_configuration(site):
-    c = of(inbox.cards(site["config"]), "never_checked")[0]
+def test_2_never_checked_is_one_card_with_a_run_form_per_configuration(site, empty):
+    c = of(inbox.cards(empty["config"]), "never_checked")[0]
     assert c.title == "3 configurations have never been checked: eth-rc4, eth-main, multicore-master."
     assert [f["action"] for f in c.forms] == ["/configurations/eth-rc4/runs", "/configurations/eth-main/runs",
                                               "/configurations/multicore-master/runs"]
+    assert c.dest == "queues one check per press (nanosoc-rm compat CONFIG --store)"
+    c = of(inbox.cards(site["config"]), "never_checked")[0]                     # eth-rc4 has stored T0 runs
+    assert c.title == "2 configurations have never been checked: eth-main, multicore-master."
     world(site["cfg"])
     c = of(inbox.cards(site["config"]), "never_checked")[0]
     assert c.title == "1 configuration has never been checked: multicore-master."
@@ -530,3 +533,90 @@ def test_the_board_keeps_the_t0_column_when_ci_runs_exist(service, registry_spy,
     text = s["client"].get("/").text
     row = re.search(r'<tr data-configuration="eth-rc4".*?</tr>', text, re.S).group(0)
     assert re.search(r'<td data-item="t0-result" data-label="T0">', row)
+
+
+# ----- review fixes (I-R1, I-R2, I-R4, I-R5) ------------------------------------------------------------------
+def _fp_of(text, card):
+    return re.search(r'data-card="%s".*?name="fp" value="([0-9a-f]+)"' % re.escape(card), text, re.S).group(1)
+
+
+def _restore_host_compares(cfg, change=None, minutes_ago=2):
+    """Store every host_compare scope again, as a new producer run would: same facts, a new snapshot and a new
+    observed_at (`change` may edit one fact first)."""
+    at = clock.iso(clock.now() - dt.timedelta(minutes=minutes_ago))       # one snapshot id per producer run
+    scopes: dict[str, list] = {}
+    for d in db.latest("host_compare", "host_compare:", config=cfg):
+        scopes.setdefault(d["snapshot"]["scope"], []).append(copy.deepcopy(d))
+    for scope, docs in scopes.items():
+        for d in docs:
+            d["observed_at"] = at
+            d["snapshot"] = {"id": "%s@%s" % (scope, at), "scope": scope}
+            if change is not None:
+                change(d)
+        db.put_snapshot(scope, docs, config=cfg)
+
+
+def test_done_holds_across_a_producer_run_that_changed_nothing(site):
+    card = "host_drift:asic-flow:gitlab:soclabs/asic_flow"
+    c = site["client"]
+    page = c.get("/").text
+    assert card in _cards_on(page)
+    r = c.post("/inbox/done", data={"csrf_token": _csrf(page), "card": card, "fp": _fp_of(page, card)},
+               follow_redirects=False)
+    assert r.status_code == 303 and card not in _cards_on(c.get("/").text)
+    _restore_host_compares(site["cfg"])                                   # the next mirror sync: same facts
+    assert card not in _cards_on(c.get("/").text), "a done card reopened though no fact changed"
+
+    def more(d):
+        if d["fact"]["component"] == "asic-flow":
+            d["fact"]["copy_only"] = (d["fact"].get("copy_only") or 0) + 1
+    _restore_host_compares(site["cfg"], more, minutes_ago=1)                             # a fact changed: it reopens
+    assert card in _cards_on(c.get("/").text)
+
+
+def _t0(cid, nonce, verdict, acceptance="rejected", reason="captured commit differs from the requested one",
+        at=None):
+    at = at or clock.iso(NOW - dt.timedelta(minutes=10))
+    d = copy.deepcopy(next(x for x in example("observation.example.jsonl", "t0_result")
+                           if x["fact"]["acceptance"] == "rejected"))
+    d["fact"].update(configuration=cid, verdict=verdict, acceptance=acceptance, reason=reason)
+    d["fact"]["run"].update(nonce=nonce, triggered_at=at)
+    d["subject"], d["observed_at"] = "t0_result:%s:%s" % (cid, nonce), at
+    assert db.check_observation(d) == [], db.check_observation(d)
+    return d
+
+
+def test_a_stored_t0_result_is_a_verdict_in_a_ci_deployment(service, registry_spy, tmp_path):
+    s = _site(service, tmp_path, local=False)
+    nonce = "a" * 32
+    db.put(_t0("eth-rc4", nonce, "UNVERIFIED"), config=s["cfg"])
+    cs = inbox.cards(s["config"])
+    never = of(cs, "never_checked")[0]
+    assert "eth-rc4" not in never.title and never.title.startswith("2 configurations have never been checked")
+    assert "CI" in never.dest and "nanosoc-rm compat" not in never.dest
+    red = [c for c in cs if c.id == "compat_fail:eth-rc4"]
+    assert red and red[0].chip[0] == "UNVERIFIED" and "T0 run" in red[0].title
+    assert red[0].primary["href"] == "/runs/%s" % nonce and "captured commit differs" in red[0].why
+    head = re.search(r'<h2[^>]*id="h-next"[^>]*>(.*?)</h2>', s["client"].get("/").text, re.S).group(1)
+    assert "eth-rc4" in head and "never been checked: eth-rc4" not in head
+
+
+def test_an_unverified_compat_result_is_a_card(site):
+    gates = [_gate(g["id"], "UNVERIFIED", "1 pin not verified") if g["id"] == "t0.pins.reachable"
+             else g if g["verdict"] != "FAIL" else _gate(g["id"], "PASS") for g in eth_main()["fact"]["gates"]]
+    pins = [_pin("tidechart", reachable="unverified")]
+    db.put(compat_doc("eth-main", "b" * 32, gates, pins, verdict="UNVERIFIED"), config=site["cfg"])
+    c = [x for x in inbox.cards(site["config"]) if x.id == "compat_fail:eth-main"]
+    assert c and c[0].chip[0] == "UNVERIFIED" and c[0].title.startswith("eth-main is UNVERIFIED: ")
+
+
+def test_every_card_button_names_its_card(site):
+    world(site["cfg"])
+    text = site["client"].get("/").text
+    heads = set(re.findall(r'<h3 id="(card-h-\d+)"', text))
+    assert heads
+    for label in ("Mark done", "Snooze", "1 day", "7 days", "30 days"):
+        ctrls = re.findall(r'<(?:button|summary)([^>]*)>%s</(?:button|summary)>' % label, text)
+        assert len(ctrls) == len(heads), label
+        refs = [re.search(r'aria-describedby="([^"]+)"', a) for a in ctrls]
+        assert all(refs) and {m.group(1) for m in refs} == heads, label
