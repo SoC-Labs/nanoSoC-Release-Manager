@@ -45,7 +45,7 @@ __all__ = ["main", "EXIT_OK", "EXIT_FINDING", "EXIT_UNVERIFIED", "EXIT_USAGE", "
 # foundation's own (`alerts`, section 8). `releases` (CR-R1) is a Phase 5 capability built for local use under
 # CR-15: it drafts, never tags or publishes; the phase gate governs enabling (A7, phasegates.py).
 PLUGIN_MODULES = ("db", "registry", "mirror", "walker", "analysis", "t0", "ci", "scan", "credentials", "web",
-                  "schedule", "trace", "quality", "matrix", "versioning", "bumps", "releases")
+                  "schedule", "trace", "quality", "matrix", "versioning", "bumps", "releases", "regen")
 
 
 class RMGroup(click.Group):

@@ -136,3 +136,15 @@ target, **Run what-if**, wait for Now vs After), `/components/<component>/branch
 T0 (resolve, pins, URLs, vendor scan) needs only git. T1 and T2 tiers call EDA tools (Verilator, VCS); on a host
 without them the tier result says the tool is not on this host. Private repos stay unreadable: every fetch is
 anonymous.
+
+## Regenerator (Wave D, interfaces.md section 20)
+
+Optional. To class generator moves by regeneration on this host:
+
+1. Add `[regen] read_only_roots = ["<shared IP library root>"]` to the private config (any path under it is
+   refused); `work_dir` defaults to `<data_dir>/regen`, `nice` to 15.
+2. Add a `regen` entry for the configuration to the registry's `tiers.yaml` (example:
+   `schemas/examples/eligibility.tiers.example.yaml`; `PYTHON` must name an interpreter with the generator's
+   packages, else the render is INFRA "tool not on this host").
+3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
+   per render; renders are cached by digest.

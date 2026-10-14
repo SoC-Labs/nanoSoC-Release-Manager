@@ -46,6 +46,7 @@ _SECTIONS: dict[str, dict[str, str]] = {
     "schedule": {"poll_minutes": _INT, "nightly_utc": _STR, "fetch_minutes": _INT},
     "paths": {"quarantine": _STR},
     "quality": {"api_key_file": _STR, "model": _STR, "paths": _TABLE},   # CR-14: rewrite key/model; local targets
+    "regen": {"work_dir": _STR, "read_only_roots": _STRS, "nice": _INT},  # section 20: sandbox, refusals, priority
 }
 _HOST = {"web": _STR, "api": _STR, "ssh": _STR, "git": _STR, "org": _STR, "group": _STR}
 _CREDENTIAL = {"token_file": _STR, "scope": _STRS, "expires": _STR, "project": _STR, "client_id": _STR}
@@ -57,7 +58,7 @@ _AUTH_USER = {"login": _STR, "hash": _STR, "roles": _STRS}
 _LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 # Keys holding a filesystem path, resolved against the config file's directory.
 _PATH_KEYS = (("service", "data_dir"), ("registry", "path"), ("session", "secret_file"), ("paths", "quarantine"),
-              ("quality", "api_key_file"))
+              ("quality", "api_key_file"), ("regen", "work_dir"))
 
 
 class ConfigError(Exception):

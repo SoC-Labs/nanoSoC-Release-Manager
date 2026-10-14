@@ -59,7 +59,8 @@ __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "j
 # on first use of a kind it does not know, so a fresh worker process knows them all.
 KINDS = ("compat", "mirror-sync", "walk")
 KIND_MODULES = ("nanosoc_rm.matrix.jobkind", "nanosoc_rm.bumps.jobkind", "nanosoc_rm.quality.jobkinds",
-                "nanosoc_rm.releases.jobkinds", "nanosoc_rm.versioning.jobkinds")
+                "nanosoc_rm.releases.jobkinds", "nanosoc_rm.versioning.jobkinds",
+                "nanosoc_rm.regen.jobkind")
 _KINDS_LOADED = False
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")

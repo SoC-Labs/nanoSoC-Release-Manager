@@ -30,3 +30,17 @@ configurations:
       budget_s: 300
       verdicts: build/ci/verdicts.tsv
       regenerates: true
+  multicore-master:
+    regen:
+      description: >-
+        Section 20: nanosoc_gen's soc_model render into build_soc. No vendor library is ever named, so the bus
+        matrices and the DMA-250 are skipped and recorded under the measurement's coverage.
+      command: [make, -C, sys_desc, soc_model]
+      cwd: .
+      env:
+        PYTHON: /usr/bin/python3.8
+        BUILD_SOC_DIR: ${TREE}/build_soc
+      budget_s: 300
+      output: build_soc
+      pins: [nanosoc_arch_tech, ethernet-subsystem-ahb, ahb_qspi, inter-processor-communications-ahb]
+      exclude: ["reports/*.html"]

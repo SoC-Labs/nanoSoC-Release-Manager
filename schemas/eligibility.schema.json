@@ -40,7 +40,7 @@
             "type": "object",
             "minProperties": 1,
             "additionalProperties": false,
-            "properties": { "t1": { "$ref": "#/$defs/tier_command" }, "t2": { "$ref": "#/$defs/tier_command" } }
+            "properties": { "t1": { "$ref": "#/$defs/tier_command" }, "t2": { "$ref": "#/$defs/tier_command" }, "regen": { "$ref": "#/$defs/regen_command" } }
           }
         }
       }
@@ -70,6 +70,34 @@
         "needs": { "type": "array", "uniqueItems": true, "items": { "enum": ["vcs-seat", "network"] }, "description": "vcs-seat: one local tier run at a time holds the host's seat lock (busy = INFRA). network: the command reaches a network (recorded, not enforced)." },
         "verdicts": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$", "description": "Tree-relative path of the toolkit-format verdicts.tsv the command writes (removed before the run)." },
         "regenerates": { "type": "boolean", "description": "The command regenerates build_soc: refused unless the caller sets NANOSOC_GEN_OK=1, which is then passed on." }
+      }
+    },
+    "regen_command": {
+      "description": "Wave D (interfaces.md section 20): the command that regenerates the configuration's generated output (build_soc) for `nanosoc-rm regen` and the C3/C7 class measurement. It runs as a tier_command does (same sandbox, clean environment, budget, kill at 1.5 x), always with PYTHONDONTWRITEBYTECODE=1 and under nice. The tool never sets a vendor-library variable: `env` may not name ARM_IP_LIBRARY_PATH or SOCLABS_DMA250_DIR, so the generator skips its vendor-rendered parts and the measurement records what it skipped under `coverage`.",
+      "type": "object",
+      "required": ["command", "cwd", "budget_s", "output"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "command": {
+          "description": "An argv list (run as is), or a shell string (run with `bash --noprofile --norc -c`). Never sources a set_env.sh.",
+          "oneOf": [
+            { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } },
+            { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } } }
+          ]
+        },
+        "cwd": { "type": "string", "pattern": "^(\\.|(?!/)(?!.*(^|/)\\.\\.(/|$)).+)$", "description": "Tree-relative; `.` is the tree root." },
+        "env": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "not": { "enum": ["TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_VERDICTS", "NANOSOC_GEN_OK", "ARM_IP_LIBRARY_PATH", "SOCLABS_DMA250_DIR"] } },
+          "additionalProperties": { "type": "string" }
+        },
+        "pins": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$" }, "description": "As tier_command: only these pins (with their subtrees) are laid out." },
+        "budget_s": { "type": "integer", "minimum": 1, "description": "D1 budget of one render; killed at 1.5 x." },
+        "needs": { "type": "array", "uniqueItems": true, "items": { "enum": ["vcs-seat", "network"] } },
+        "output": { "type": "string", "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$)).+$", "description": "Tree-relative directory the command writes (deleted before the run); every file under it is the regenerated output." },
+        "include": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Globs over paths relative to `output`; absent = every file." },
+        "exclude": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Globs over paths relative to `output`, added to the tool's own (logs, __pycache__)." }
       }
     },
     "configuration": {
