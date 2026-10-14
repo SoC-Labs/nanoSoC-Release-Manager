@@ -13,7 +13,6 @@ def _local(users, roles=None):
     return {"auth": {"mode": "local", "users": users}, "roles": roles or {}}
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-mutation-1: a local user with an explicit `roles = []` is still a member")
 def test_a_local_user_with_an_explicit_empty_role_list_has_no_role():
     """Section 14: "No role means refused". roles_for reads `user.get("roles") or [MEMBER_ROLE]`, so an explicit
     empty list (an admin taking a user's access away without deleting the entry) falls back to `member`."""
@@ -168,8 +167,6 @@ def test_the_local_secret_is_made_once_0600_and_reused(local_cfg):
     assert not list(cfg.data_dir.glob(".session.secret.*"))
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-mutation-3: an empty <data_dir>/session.secret becomes the session "
-                                       "signing key ('') instead of being replaced")
 def test_an_empty_local_secret_file_is_never_used_as_the_key(local_cfg):
     """auth.py _local_secret: an empty file is skipped (`if value`), a new secret is written to a temp file, the
     os.link onto the existing (empty) path raises FileExistsError, and the re-read returns ''. Sessions('') then

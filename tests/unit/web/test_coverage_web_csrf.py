@@ -53,9 +53,6 @@ def test_a_signed_in_post_with_a_wrong_ascii_token_is_403(local):
     assert r.status_code == 403
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-9: a non-ASCII csrf_token makes hmac.compare_digest raise "
-                                       "TypeError: HTTP 500 instead of 403 (web/app.py login_post and the CSRF "
-                                       "middleware)")
 @pytest.mark.parametrize("where", ["login", "signed-in post"])
 def test_a_non_ascii_csrf_token_is_403_not_500(local, where):
     if where == "login":

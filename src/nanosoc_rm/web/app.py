@@ -63,6 +63,21 @@ def _safe_next(value: str | None) -> str:
     return value
 
 
+def _same(given: str, want: str) -> bool:
+    """Constant-time equality of two tokens. Bytes, so a non-ASCII token is a mismatch (403), not the TypeError
+    `hmac.compare_digest` raises for a non-ASCII str (ROB-coverage-9)."""
+    return bool(given) and bool(want) and hmac.compare_digest(given.encode("utf-8", "surrogateescape"),
+                                                              want.encode("utf-8", "surrogateescape"))
+
+
+def _redacted_alert(doc: dict, config: Config) -> dict:
+    """A copy of an alert observation whose message has passed through shell.redact, as /alerts and the inbox
+    show it: no hostname or credential-bearing URL reaches /facts/alert:* or /api/v1/alerts (ROB-security-5)."""
+    if doc.get("kind") != "alert" or not isinstance(doc.get("fact"), dict):
+        return doc
+    return {**doc, "fact": {**doc["fact"], "message": shell.redact(doc["fact"].get("message"), config)}}
+
+
 def _cookie_secure(request: Request, state: "_State") -> bool:
     """Cookies are `Secure` when this process serves TLS (CR-20, `serve --tls-cert`) or the request is https."""
     return state.tls or request.url.scheme == "https"
@@ -149,7 +164,7 @@ class Guard:
                 return
             token = await _csrf_token(scope, body)
             want = self.state.csrf_for(ident, config)
-            if not token or not hmac.compare_digest(token, want):
+            if not _same(token, want):
                 await PlainTextResponse("403 Forbidden: the form's CSRF token is missing or wrong; reload the page "
                                         "and try again", 403)(scope, receive, send)
                 return
@@ -412,7 +427,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         obs, current = views.fact_by_subject(config, subject)
         if obs is None:
             return not_found(request, "fact")
-        return page(request, "fact.html", "Fact", obs=obs, current=current)
+        return page(request, "fact.html", "Fact", obs=_redacted_alert(obs, config), current=current)
 
     async def post_run(request: Request, id: str) -> Response:
         """Section 13 POST /configurations/{id}/runs: the Run T0 button (htmx form with CSRF)."""
@@ -428,7 +443,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
             token = request.headers.get("x-csrf-token", "")
             if not token and "form" in request.headers.get("content-type", ""):
                 token = str((await request.form()).get(authmod.CSRF_FIELD) or "")
-            if not token or not hmac.compare_digest(token, state.csrf_for(ident, config)):
+            if not _same(token, state.csrf_for(ident, config)):
                 return PlainTextResponse("403 Forbidden: the form's CSRF token is missing or wrong", 403)
         if not views.is_valid_id(cid):
             return PlainTextResponse("400 Bad Request: not a configuration id", 400)
@@ -749,7 +764,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
 
     def api_alerts(request: Request) -> Response:
         config, _ = _ctx(request)
-        return _ndjson(db.alerts(open_only=True, config=config))
+        return _ndjson([_redacted_alert(a, config) for a in db.alerts(open_only=True, config=config)])
 
     # ----- auth (section 14) -------------------------------------------------------------------------------
     def login(request: Request) -> Response:
@@ -795,13 +810,12 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         login, password = str(form.get("login") or "").strip(), str(form.get("password") or "")
         cookie = request.cookies.get(authmod.LOGIN_CSRF_COOKIE, "")
         given = str(form.get(authmod.CSRF_FIELD) or "")
-        if not cookie or not given or not hmac.compare_digest(cookie, given):
+        if not _same(given, cookie):
             return _login_form(request, "The form expired. Sign in again.", 403, login)
-        if state.throttle.blocked(login):
+        if not state.throttle.attempt(login):       # reserved before the slow check: holds under concurrency
             return _login_form(request, "Too many failed sign-ins for this login: wait 5 minutes.", 429, login)
         ok = await run_in_threadpool(authmod.check_local_password, config, login, password)
         if not ok:
-            state.throttle.fail(login)
             return _login_form(request, "Wrong login or password.", 401, login)
         state.throttle.clear(login)
         sessions = state.sessions(config)
@@ -826,7 +840,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
             return PlainTextResponse("503 Service Unavailable: sign-in is not configured", 503)
         saved = sessions.load_state(request.cookies.get(authmod.STATE_COOKIE, ""))
         given = request.query_params.get("state") or ""
-        if saved is None or not given or not hmac.compare_digest(given, saved["state"]):
+        if saved is None or not _same(given, str(saved["state"])):
             return PlainTextResponse("403 Forbidden: the sign-in state does not match; start again at "
                                      + authmod.LOGIN_PATH, 403)
         code = request.query_params.get("code")
@@ -852,17 +866,44 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         resp.delete_cookie(authmod.STATE_COOKIE, path=authmod.AUTH_PREFIX)
         return resp
 
-    def logout(request: Request) -> Response:
+    def _logout_session(request: Request) -> tuple[Config | None, authmod.Sessions | None, dict | None]:
+        """The config, the session signer and the request's session payload (None when absent or invalid)."""
         try:
             config = state.config()
-            local = config.auth_mode == "local"
         except ConfigError:
-            local = False
-        if local:                                    # revoke, so a copy of the cookie stops working too
-            sessions = state.sessions(config)
-            d = sessions.load_session(request.cookies.get(authmod.SESSION_COOKIE, "")) if sessions else None
-            if d:
-                authmod.revoke_session(config, d.get("sid", ""), authmod.session_seconds_left(d) or 0)
+            return None, None, None
+        sessions = state.sessions(config)
+        d = sessions.load_session(request.cookies.get(authmod.SESSION_COOKIE, "")) if sessions else None
+        return config, sessions, d
+
+    def logout_form(request: Request) -> Response:
+        """GET /auth/logout signs nobody out (a cross-site link or <img> could): it shows a sign-out button that
+        POSTs with the session's CSRF token (ROB-security-1)."""
+        _config, sessions, d = _logout_session(request)
+        if d is None:
+            return RedirectResponse(authmod.LOGIN_PATH + "?signed_out=1", 303)
+        token = sessions.csrf(d["login"], d.get("sid", ""))
+        body = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign out</title></head><body>'
+                '<form method="post" action="%s"><input type="hidden" name="%s" value="%s">'
+                '<button type="submit">Sign out</button></form></body></html>'
+                % (authmod.LOGOUT_PATH, authmod.CSRF_FIELD, token))
+        return HTMLResponse(body, 200)
+
+    async def logout(request: Request) -> Response:
+        """POST /auth/logout, both modes: needs the session's CSRF token (ROB-security-1), then revokes the session
+        id so a copy of the cookie stops working too (ROB-security-2), and deletes the cookie."""
+        config, sessions, d = _logout_session(request)
+        local = config is not None and config.auth_mode == "local"
+        if d is not None:
+            given = ""
+            if "form" in request.headers.get("content-type", ""):
+                given = str((await request.form()).get(authmod.CSRF_FIELD) or "")
+            given = request.headers.get("x-csrf-token", "") or given
+            if not _same(given, sessions.csrf(d["login"], d.get("sid", ""))):
+                return PlainTextResponse("403 Forbidden: the form's CSRF token is missing or wrong; reload the page "
+                                         "and try again", 403)
+            await run_in_threadpool(authmod.revoke_session, config, d.get("sid", ""),
+                                    authmod.session_seconds_left(d) or 0)
         resp: Response = RedirectResponse(authmod.LOGIN_PATH + "?signed_out=1", 303) if local \
             else PlainTextResponse("Signed out.", 200)
         resp.delete_cookie(authmod.SESSION_COOKIE, path="/")
@@ -885,15 +926,16 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
                      ("/api/v1/errata/{configuration}", api_errata), ("/api/v1/mirrors", api_mirrors),
                      ("/api/v1/inventory", api_inventory), ("/api/v1/runner", api_runner),
                      ("/api/v1/alerts", api_alerts),
-                     (authmod.LOGIN_PATH, login), (authmod.CALLBACK_PATH, callback), (authmod.LOGOUT_PATH, logout)):
+                     (authmod.LOGIN_PATH, login), (authmod.CALLBACK_PATH, callback), (authmod.LOGOUT_PATH, logout_form)):
         app.add_api_route(path, fn, methods=get, include_in_schema=False)
     app.add_api_route("/configurations/{id}/runs", post_run, methods=["POST"], include_in_schema=False)
     app.add_api_route("/api/v1/configurations/{id}/runs", post_run_api, methods=["POST"], include_in_schema=False)
     local_posts = (("/compat/jobs", post_compat), ("/jobs/{id}/cancel", post_cancel),
                    ("/configurations/{id}/walk", post_walk), ("/mirrors/sync", post_mirror_sync),
                    ("/alerts/clear", post_clear_alert), ("/branches/refresh", post_branches_refresh),
-                   ("/hosts/refresh", post_hosts_refresh), (authmod.LOGIN_PATH, login_post), (authmod.LOGOUT_PATH, logout))
+                   ("/hosts/refresh", post_hosts_refresh), (authmod.LOGIN_PATH, login_post))
     for path, fn in local_posts if state.local_routes else ():
         app.add_api_route(path, fn, methods=["POST"], include_in_schema=False)
+    app.add_api_route(authmod.LOGOUT_PATH, logout, methods=["POST"], include_in_schema=False)   # both modes
     state.nav = NAV + tuple(plugins.load(app))
     return app

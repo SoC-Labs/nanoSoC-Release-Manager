@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import datetime
 import json
+import re
 import time
 import urllib.parse
 import zlib
@@ -390,7 +391,12 @@ def test_fake_membership_is_a_member_still_subject_to_roles(service, tmp_path, f
 def test_logout_ends_the_session(service):
     c = TestClient(create_app(service["cfg"]))
     sign_in(c, "alice")
-    assert c.get("/auth/logout").status_code == 200
+    form = c.get("/auth/logout")                       # ROB-security-1: a GET signs nobody out, it shows a button
+    assert form.status_code == 200 and c.get("/", follow_redirects=False).status_code == 200
+    token = re.search(r'name="csrf_token" value="([^"]+)"', form.text).group(1)
+    assert c.post("/auth/logout", data={}).status_code == 403            # no token: a forged form
+    assert c.get("/", follow_redirects=False).status_code == 200
+    assert c.post("/auth/logout", data={"csrf_token": token}).status_code == 200
     assert c.get("/", follow_redirects=False).status_code == 303
 
 
