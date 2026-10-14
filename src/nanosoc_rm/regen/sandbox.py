@@ -22,9 +22,14 @@ A render:
    (`// Generated: 2026-10-14 04:37:45`) is dropped, so two renders of one commit are identical. The file lists of
    `output/flist/*` (one per variant) feed C7. The log's "skipping" and "not set" warning lines become `coverage`.
 
-Renders are cached under `<[regen] work_dir>/cache/<configuration>/<component>/<commit>/<key>/` (key: root commit
-and spec digest), as normalised text plus `render.json`. A cached render is identical to a fresh one by
-construction; `fresh=True` ignores the cache.
+A run killed at budget x 1.5, or one that fails on this host's environment (a missing Python module, a command not
+found, exit 126/127), is status `not-run`, verdict INFRA: no measurement, never a C5 `breaking`.
+
+Renders are cached under `<[regen] work_dir>/cache/<configuration>/<component>/<commit>/<key>/` (key: root commit,
+spec digest, digest of the overridden tree paths, and CODE_VERSION, the fingerprint of this module and spec.py), as
+normalised text plus `render.json`. A cached render is identical to a fresh one by construction; `fresh=True`
+ignores the cache, and `keep_work` never reads it. The configuration and component must be ids and the commit a
+full sha, so the cache path cannot leave `work_dir`.
 """
 from __future__ import annotations
 
@@ -48,7 +53,26 @@ MAX_FILES = 5000
 STAMP = re.compile(r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?")
 _ERROR = re.compile(r"\b(error|fatal|traceback|unrecognized)\b", re.I)
 _COVERAGE = re.compile(r"(skipping|skipped|not set|not installed|not found)", re.I)
-_CACHE_VERSION = 1
+_CACHE_VERSION = 2
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+# A host-environment failure, not the generator's verdict on the consumer: a module or a tool missing here
+_HOST_ENV = re.compile(r"(ModuleNotFoundError|No module named|ImportError|command not found|"
+                       r"cannot execute binary file)")
+
+
+def _code_version() -> str:
+    """The render code's own fingerprint: a cached render made by other code (other normalisation) is a miss."""
+    h = hashlib.sha256(str(_CACHE_VERSION).encode())
+    for name in ("sandbox.py", "spec.py"):
+        try:
+            h.update((Path(__file__).with_name(name)).read_bytes())
+        except OSError:
+            h.update(name.encode())
+    return h.hexdigest()[:16]
+
+
+CODE_VERSION = _code_version()
 
 
 class RegenerationError(RuntimeError):
@@ -151,9 +175,20 @@ def _spec_digest(spec: dict) -> str:
     return hashlib.sha256(json.dumps(spec, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
-def _cache_dir(st: S.Settings, configuration, component, commit, root_commit, spec) -> Path:
-    key = "%s-%s" % ((root_commit or "none")[:12], _spec_digest(spec))
-    return st.work_dir / "cache" / configuration / component / commit / key
+def _cache_dir(st: S.Settings, configuration, component, commit, root_commit, spec, paths) -> Path:
+    """The key holds the root commit, the spec, the overridden tree paths (a partial `--at` render is not the
+    full B7 move) and the render code's fingerprint (a render normalised by other code is not served)."""
+    for what, v in (("configuration", configuration), ("component", component)):
+        if not isinstance(v, str) or not _ID.match(v):
+            raise S.RegenUsage("%r is not a %s id" % (str(v)[:60], what))
+    if not _SHA.match(commit or ""):
+        raise S.RegenUsage("%r is not a full 40-hex commit id" % str(commit)[:60])
+    pd = hashlib.sha256("\0".join(paths).encode()).hexdigest()[:12]
+    key = "%s-%s-%s-%s" % ((root_commit or "none")[:12], _spec_digest(spec), pd, CODE_VERSION)
+    d = st.work_dir / "cache" / configuration / component / commit / key
+    if Path(st.work_dir).absolute() not in d.absolute().parents:            # never outside [regen] work_dir
+        raise S.RegenUsage("the render cache path %s leaves [regen] work_dir" % d)
+    return d
 
 
 def _load_cached(d: Path) -> Render | None:
@@ -162,9 +197,10 @@ def _load_cached(d: Path) -> Render | None:
         doc = json.loads(meta.read_text())
     except (OSError, ValueError):
         return None
-    if doc.get("cache_version") != _CACHE_VERSION:
+    if doc.get("cache_version") != _CACHE_VERSION or doc.get("code_version") != CODE_VERSION:
         return None
     doc.pop("cache_version", None)
+    doc.pop("code_version", None)
     outputs = {}
     for rel in doc.pop("files", []):
         try:
@@ -189,6 +225,7 @@ def _save_cached(d: Path, r: Render) -> None:
         doc["files"] = sorted(r.outputs)
         doc["cached"] = False
         doc["cache_version"] = _CACHE_VERSION
+        doc["code_version"] = CODE_VERSION
         tmp.mkdir(parents=True, exist_ok=True)
         (tmp / "render.json").write_text(json.dumps(doc, sort_keys=True))
         if d.exists():
@@ -220,6 +257,11 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
     from nanosoc_rm.t0.gitwork import iter_pins
 
     st = S.settings(config)
+    for what, v in (("configuration", configuration), ("component", component)):
+        if not isinstance(v, str) or not _ID.match(v):
+            raise S.RegenUsage("%r is not a %s id" % (str(v)[:60], what))
+    if keep_work is not None and st.under_read_only(Path(keep_work).absolute()) is not None:
+        raise S.RegenUsage("the sandbox %s is under a read-only root" % keep_work)       # before any mkdir
     spec = S.check(S.spec_for(configuration, config), configuration, st)
     paths = sorted(paths) if paths else tree_paths(configuration, component, config)
     if not paths:
@@ -230,7 +272,7 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
     else:
         req_sources = []
     root_commit = request.get("commit")
-    cdir = _cache_dir(st, configuration, component, commit, root_commit, spec)
+    cdir = _cache_dir(st, configuration, component, commit, root_commit, spec, paths)
     if not fresh and keep_work is None:
         got = _load_cached(cdir)
         if got is not None:
@@ -244,8 +286,6 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
         work.mkdir(parents=True, exist_ok=True)
     else:
         work = Path(tempfile.mkdtemp(prefix="render-", dir=str(st.work_dir)))
-    if st.under_read_only(work) is not None:
-        raise S.RegenUsage("the sandbox %s is under a read-only root" % work)
     nonce = secrets.token_hex(16)
     try:
         req = dict(request, pin_overrides={p: commit for p in paths})
@@ -280,6 +320,18 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
                                 for x in log.splitlines() if _COVERAGE.search(x)})[:40]
         if doc.get("seconds") is None:          # not run: a pin not laid out, a tool not on this host, no cwd
             base.reason = doc.get("reason") or "the generator did not run"
+            return base
+        if doc.get("killed"):
+            # a kill at budget x 1.5 says the host was slow or loaded (nice 15), not that the generator rejects
+            # this consumer: no measurement (never C5 breaking)
+            base.reason = "the generator was killed at %s, not measured here: %s" % (commit[:12],
+                                                                                      doc.get("reason") or "")
+            return base
+        env_said = next((x for x in base.log_tail if _HOST_ENV.search(x)), None)
+        if doc["verdict"] != "PASS" and (env_said or doc.get("exit_code") in (126, 127)):
+            base.reason = ("the generator failed at %s on this host's environment (a module or tool missing "
+                           "here), not measured: %s%s" % (commit[:12], doc.get("reason") or "",
+                                                          "; %s" % env_said[:300] if env_said else ""))
             return base
         if doc["verdict"] != "PASS":
             base.status, base.verdict = "failed", "FAIL"

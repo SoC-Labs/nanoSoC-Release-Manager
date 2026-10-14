@@ -53,9 +53,9 @@
       "30 matrix-driven hsel(s) and 1 hsel input(s) checked in 3 structural module(s): 0 finding(s), 0 note(s)",
       "",
       "Done.",
-      "[qctrl-patch] WARNING: path not found: <scratch>/work/render-uefz3inr/tree/build_soc/rtl/dma250",
+      "[qctrl-patch] WARNING: path not found: $TREE/build_soc/rtl/dma250",
       "[qctrl-patch] no dma250_qctrl*.sv files found to patch",
-      "make: Leaving directory '<scratch>/work/render-uefz3inr/tree/sys_desc'"
+      "make: Leaving directory '$TREE/sys_desc'"
     ],
     "reason": null,
     "seconds": 13.191,

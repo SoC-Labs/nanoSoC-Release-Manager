@@ -22,7 +22,6 @@ import secrets
 
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.regen import sandbox as SB
-from nanosoc_rm.regen import spec as S
 
 __all__ = ["KIND", "measure", "observe", "subject_key", "stored", "stored_signals", "pending", "EXIT", "MAX_REASONS"]
 
@@ -125,7 +124,9 @@ def stored(component: str, frm: str, to: str, *, config) -> list[dict]:
 
 def stored_signals(component: str, frm: str | None, to: str | None, *, config) -> tuple[dict, dict] | None:
     """The C3 consumers signal and the C7 build signal from the stored measurements of this move, or None when
-    none is stored. A non-PASS measurement leaves the signal unmeasured with its reason."""
+    none is stored. A non-PASS measurement leaves the signal unmeasured with its reason, and so does a consumer that
+    declares a regen command and pins the component but has no stored measurement (the live path regenerates every
+    such consumer; C3 complete needs each one)."""
     from nanosoc_rm.versioning import classify as cf
     from nanosoc_rm.versioning import semver
     if not frm or not to or config is None:
@@ -145,6 +146,15 @@ def stored_signals(component: str, frm: str | None, to: str | None, *, config) -
                 changed += ["%s/%s" % (f["configuration"], v) for v in f["flists_changed"]]
         else:
             unm.append("%s %s (%s)" % (f["configuration"], f["verdict"], f["reason"] or ""))
+    have = {p["consumer"] for p in per}
+    try:                     # every consumer that declares a regen command and pins the component counts (C3)
+        want = SB.SandboxRegenerator(config).consumers(component)
+    except Exception:                                                  # noqa: BLE001 - no registry here
+        want = []
+    for c in want:
+        if c not in have:
+            unm.append("%s not measured (no stored regen_class: `nanosoc-rm regen class %s --component %s --from %s "
+                       "--to %s --store`)" % (c, c, component, frm, to))
     cls = semver.max_class(classes) if classes else None
     status = "measured" if classes and not unm else "unmeasured"
     detail = "%d consumer(s) regenerated in a sandbox (stored regen_class)" % len(classes)
@@ -152,9 +162,13 @@ def stored_signals(component: str, frm: str | None, to: str | None, *, config) -
         detail += "; not measured: " + "; ".join(unm)
     srcs = [{"kind": "derived", "command": "stored %s" % p["subject"]} for p in per]
     consumers = cf.signal("consumers", cls, status, detail[:500], generator="sandbox", consumers=per, sources=srcs)
-    bsig = cf.signal("build", None, "measured" if classes else "unmeasured",
-                     (("file lists changed: " + ", ".join(changed)) if changed else "no file list changed")
-                     if classes else "no measurement passed", build_affecting=build if classes else None)
+    if classes and not unm:
+        bsig = cf.signal("build", None, "measured", ("file lists changed: " + ", ".join(changed)) if changed
+                         else "no file list changed", build_affecting=build)
+    else:                    # as the live build signal: a changed list is known, an unchanged one is not
+        why = (("file lists changed: " + ", ".join(changed) + "; ") if changed else "") + "not measured: " + \
+            "; ".join(unm or ["no measurement passed"])
+        bsig = cf.signal("build", None, "unmeasured", why[:500], build_affecting=True if changed else None)
     return consumers, bsig
 
 

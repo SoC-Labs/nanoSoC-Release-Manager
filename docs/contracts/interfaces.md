@@ -1683,13 +1683,17 @@ globs over it. Example: `schemas/examples/eligibility.tiers.example.yaml` (`mult
    ARM_IP_LIBRARY_PATH or SOCLABS_DMA250_DIR (the registry schema refuses them too, so a registry naming one does
    not load); any path under a `[regen] read_only_roots` entry (symlinks resolved) in the command, the env or the
    work directory. Without the vendor library the generator skips its vendor-rendered parts (bus matrices,
-   DMA-250); its own "skipping ..." lines are recorded as `coverage`.
+   DMA-250); its own "skipping ..." lines are recorded as `coverage`. The configuration and component must be ids
+   and the commit a full sha; `--out` under a read-only root is refused before any directory is made. A run killed
+   at budget x 1.5, or one that fails on this host's environment (a missing Python module, `command not found`,
+   exit 126/127), is status `not-run`, verdict INFRA: no measurement.
 4. **Collect.** Every file under `output` (text, at most 4 MiB each; others counted as `binary`), normalised: the
    sandbox's paths become `$TREE`/`$WORK`, a line holding a date-time stamp is dropped. `flist/*` files are the C7
    file lists, one per variant. sha256 `digest` over the result: two renders of one commit give one digest.
-5. **Cache.** `<work_dir>/cache/<configuration>/<component>/<commit>/<root commit[:12]>-<spec digest>/`; a cached
-   render is used only when its digest still matches its files (`--fresh` ignores it). Failed renders are not
-   cached.
+5. **Cache.** `<work_dir>/cache/<configuration>/<component>/<commit>/<root commit[:12]>-<spec digest>-<tree paths
+   digest>-<code version>/` (a partial `--at` render is never served as the full B7 move; a render made by other
+   render code is a miss); a cached render is used only when its digest still matches its files (`--fresh` ignores
+   it; `--out` never reads it). Failed renders are not cached.
 
 ### 20.2 The class measurement (`regen.measure_class`, `nanosoc-rm regen class`, job `regen-class`)
 
@@ -1697,7 +1701,8 @@ The class is `versioning.classify.diff_outputs` over the two renders (docs/versi
 file or a removed/changed port, instance, address or IRQ line is breaking; an added file or shape line feature;
 any other text change fix; identical output none. C7: build-affecting when a `flist/*` list differs. A generator
 that renders the configuration at `from` and fails for it at `to` is breaking (C5: a consumer that built no longer
-builds; `files` and `build_affecting` null). Verdict: PASS (class measured), FAIL (the generator failed at `from`:
+builds; `files` and `build_affecting` null); a `to` run killed or failing on the host's environment is INFRA, not
+C5 (20.1 step 3). Verdict: PASS (class measured), FAIL (the generator failed at `from`:
 no baseline), INFRA (not run here), UNVERIFIED (override not reached). Exit 0, 1, 2, 2; usage 3.
 
 **Observation kind** `regen_class` (event, no snapshot), subject
@@ -1711,7 +1716,10 @@ no baseline), INFRA (not run here), UNVERIFIED (override not reached). Exit 0, 1
   C7 build signals: a live `Regenerator` when one is passed (`regen.SandboxRegenerator(config)` conforms), else the
   stored `regen_class` measurements of exactly that move (`regen.stored_signals`), else unmeasured, naming the
   `regen class` command that would measure it. A measurement that is not PASS leaves the signal unmeasured with its
-  reason; one consumer unmeasured makes the signal unmeasured (C3 complete needs every consumer).
+  reason; one consumer unmeasured makes the signal unmeasured (C3 complete needs every consumer). Every
+  configuration that declares a `regen` entry and pins the component is a consumer: one with no stored
+  measurement leaves the stored signals unmeasured, naming the `regen class` command (as the live path, which
+  regenerates each).
 - `version next` (`versioning.plan`) uses it for the baseline-to-head move; `classify_bump` for a pin move, so the
   bump engine's `change.class` (`class_source: classifier`) carries the measured class, and its sources name each
   stored measurement (`stored regen_class:...`).

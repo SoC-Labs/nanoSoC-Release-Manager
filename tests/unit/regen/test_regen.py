@@ -12,6 +12,8 @@ fakegen commits (each on its own branch; main ends at `brk`, tagged v0.2.0; `g0`
     feat   adds rtl/extra.v and its flist entry                            -> feature, build-affecting
     brk    port `led` renamed `leds`                                       -> breaking
     fail   the generator exits 1                                           -> FAIL, no class
+    slow   sleeps past a 2 s budget                                        -> killed: INFRA, never C5 breaking
+    nomod  exits 1 on a missing Python module (this host's environment)   -> INFRA, never C5 breaking
 """
 from __future__ import annotations
 
@@ -74,6 +76,8 @@ class Scene:
             "feat": gen(extra="printf 'module extra; endmodule\\n' > \"$out/rtl/extra.v\"", extra_flist="rtl/extra.v\\n"),
             "fail": gen() + "exit 1\n",
             "brk": gen(port="leds"),
+            "slow": gen() + "sleep 6\n",
+            "nomod": gen() + "echo \"ModuleNotFoundError: No module named 'yaml'\" >&2\nexit 1\n",
         }
         for name, text in variants.items():
             c[name] = h.commit(GH, "SoC-Labs/fakegen", parents=[g0], files={"gen.sh": text}, message=name)
@@ -171,9 +175,10 @@ def test_render_is_a_clean_sandbox_and_two_renders_of_one_commit_are_identical(s
 
 def test_render_moves_every_split_pin_and_keeps_the_sandbox_when_asked(scene, tmp_path):
     import subprocess
+    assert scene.render("brk").status == "ok"                          # cached now: keep_work must not serve it
     keep = tmp_path / "kept"
     r = scene.render("brk", keep_work=keep)
-    assert r.status == "ok"
+    assert r.status == "ok" and not r.cached
     for tp in ("gen", "vendor/gen"):
         head = subprocess.run(["git", "-C", str(keep / "tree" / tp), "rev-parse", "HEAD"], capture_output=True,
                               text=True).stdout.strip()
@@ -415,3 +420,106 @@ def test_the_observation_contract_can_fail(scene):
     bad = json.loads(json.dumps(obs))
     bad["fact"]["to"]["status"] = "failed"                                # a failed render cannot be PASS
     assert contracts.validate_observation(bad)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Review fixes: cache key, killed/host-environment runs, unmeasured consumers, read-only keep_work, ids
+# ---------------------------------------------------------------------------------------------------------
+def test_a_partial_render_is_never_served_as_the_full_split_move(scene):
+    import shutil
+    shutil.rmtree(scene.h.root / "regen-work" / "cache", ignore_errors=True)
+    part = scene.render("fix", paths=["vendor/gen"], fresh=True)
+    assert part.status == "ok" and part.tree_paths == ["vendor/gen"]
+    f = fact(scene.measure("g0", "fix"))
+    assert f["tree_paths"] == ["gen", "vendor/gen"]
+    assert f["class"] == "fix" and not f["to"]["cached"], (f["class"], f["to"])
+
+
+def test_a_render_cached_by_other_code_is_a_miss(scene, monkeypatch):
+    a = scene.render("same", fresh=True)
+    assert scene.render("same").cached
+    monkeypatch.setattr(SB, "CODE_VERSION", "0" * 16)
+    b = scene.render("same")
+    assert not b.cached and b.digest == a.digest
+
+
+@pytest.mark.parametrize("to,needle", [("slow", "killed"), ("nomod", "environment")])
+def test_a_killed_or_host_environment_failure_at_to_is_infra_not_breaking(scene, to, needle):
+    if to == "slow":
+        scene.set_regen(dict(REGEN, budget_s=2))
+    f = fact(scene.measure("g0", to, fresh=True))
+    assert f["verdict"] == "INFRA" and f["class"] is None, (f["verdict"], f["class"], f["reasons"])
+    assert f["to"]["status"] == "not-run" and needle in f["reason"], f["reason"]
+    with scene.env.active():
+        regen = SB.SandboxRegenerator(scene.config(), url_map=scene.url_map)
+        from nanosoc_rm.versioning import classify as cf
+        sig = cf.consumer_signal("fakegen", scene.c["g0"], scene.c[to], regen)
+    assert sig["status"] == "unmeasured" and sig["class"] is None, sig
+
+
+def test_stored_signals_count_every_consumer_not_only_the_measured_ones(scene, monkeypatch):
+    g0, feat = scene.c["g0"], scene.c["feat"]
+    monkeypatch.setattr(SB.SandboxRegenerator, "consumers", lambda self, comp: ["soc-b", "soc-main"])
+    obs = scene.measure("g0", "feat", store=True)
+    with scene.env.active():
+        cons, build = M.stored_signals("fakegen", g0, feat, config=scene.config())
+    assert cons["status"] == "unmeasured" and "soc-b not measured" in cons["detail"], cons
+    assert build["status"] == "unmeasured" and build["build_affecting"] is True, build
+    # soc-b measured, but FAIL: one PASS and one non-PASS is still unmeasured
+    bad = json.loads(json.dumps(scene.measure("fail", "g0")["fact"]))
+    bad.update(configuration="soc-b")
+    bad["from"]["commit"], bad["to"]["commit"] = g0, feat
+    with scene.env.active():
+        db.put(M.observe(bad, [], "test"), config=scene.config())
+        cons, build = M.stored_signals("fakegen", g0, feat, config=scene.config())
+    assert cons["status"] == "unmeasured" and "soc-b FAIL" in cons["detail"], cons
+    assert cons["class"] == "feature" and build["status"] == "unmeasured"
+    monkeypatch.setattr(SB.SandboxRegenerator, "consumers", lambda self, comp: ["soc-main"])
+    with scene.env.active():
+        cons, build = M.stored_signals("fakegen", g0, feat, config=scene.config())
+    assert cons["status"] == "unmeasured"                                # the stored soc-b FAIL still counts
+    assert obs["fact"]["verdict"] == "PASS"
+
+
+def test_keep_work_under_a_read_only_root_is_refused_before_any_mkdir(scene, tmp_path):
+    ro = tmp_path / "ro"
+    ro.mkdir()
+    scene.settings({"work_dir": str(scene.h.root / "regen-work"), "read_only_roots": [str(ro)]})
+    with pytest.raises(S.RegenUsage, match="read-only root"):
+        scene.render("g0", keep_work=ro / "kept" / "deeper")
+    assert not (ro / "kept").exists()
+
+
+def test_a_component_that_is_not_an_id_is_refused_and_writes_nothing(scene, tmp_path):
+    from click.testing import CliRunner
+    from nanosoc_rm.cli import main
+    esc = "../../../../../../../../.." + str(tmp_path / "escaped")
+    with scene.env.active():
+        with pytest.raises(S.RegenUsage, match="not a component id"):
+            SB.render("soc-main", esc, scene.c["g0"], config=scene.config(), paths=["gen", "vendor/gen"],
+                      url_map=scene.url_map, fresh=True)
+    assert not (tmp_path / "escaped").exists()
+    r = CliRunner().invoke(main, ["regen", "run", "soc-main", "--component", "../x", "--commit", scene.c["g0"],
+                                  "--at", "gen"], env=scene.env.env)
+    assert r.exit_code == 3 and "not a component id" in r.output, r.output
+
+
+def test_a_binary_file_the_move_removes_is_breaking(scene, monkeypatch):
+    def fake(configuration, component, commit, **kw):
+        r = SB.Render(configuration, component, commit, "c" * 40, ["gen"], "ok", "PASS",
+                      outputs={"rtl/top.v": "module top; endmodule\n"},
+                      binary=["rom.bin"] if commit == "a" * 40 else [])
+        r.digest = SB._digest(r.outputs, r.binary)
+        return r
+    monkeypatch.setattr(SB, "render", fake)
+    monkeypatch.setattr(SB, "request_for", lambda c, cfg: ({"commit": "c" * 40}, []))
+    f = fact(M.measure("soc-main", "fakegen", "a" * 40, "b" * 40, config=None))
+    assert f["class"] == "breaking" and any("binary" in x for x in f["reasons"]), f
+
+
+def test_the_live_build_signal_is_unmeasured_when_a_render_fails(scene):
+    from nanosoc_rm.versioning import classify as cf
+    with scene.env.active():
+        regen = SB.SandboxRegenerator(scene.config(), url_map=scene.url_map)
+        b = cf.build_signal("fakegen", scene.c["g0"], scene.c["fail"], regen)
+    assert b["status"] == "unmeasured" and b["build_affecting"] is None, b
