@@ -84,7 +84,8 @@ def test_each_page_shows_the_cli_rows(site):
     assert sorted(_rows(dens.text, "data-path")) == sorted(r["path"] for r in cli("density"))
     com = c.get("/quality/demo/comments")
     rows = cli("comments")
-    assert sorted(_rows(com.text, "data-kind")) == sorted(r["kind"] for r in rows if r["kind"] != "banner")
+    assert sorted(_rows(com.text, "data-kind")) == sorted(r["kind"] for r in rows
+                                                          if r["kind"] not in ("banner", "boilerplate"))
     ban = c.get("/quality/demo/comments?kind=banner")                  # CR-W5: banners one click away
     assert sorted(_rows(ban.text, "data-kind")) == sorted(r["kind"] for r in rows if r["kind"] == "banner")
     rd = c.get("/quality/demo/readme")
@@ -232,8 +233,12 @@ def test_comments_page_hides_banners_by_default_and_shows_the_real_line_text(sit
     path, line, text = row.group(1), int(row.group(2)), _html.unescape(row.group(3))
     assert text == (repo / path).read_text().split("\n")[line - 1]          # the very line, at the analysed commit
     sev = re.findall(r'<tr data-kind="[^"]+"><td><code>[^<]+</code></td><td>(\w+)</td>', page)
+    has_edit = [bool(re.search(r'<pre class="edit">', row)) for row in re.findall(r"<tr data-kind=.*?</tr>", page, re.S)]
+    assert has_edit == sorted(has_edit, reverse=True), "CR-WD-Q3: suggested edits first"
     order = ["High", "Medium", "Check", "Low"]
-    assert sev == sorted(sev, key=order.index), sev
+    for flag in (True, False):
+        part = [s for s, e in zip(sev, has_edit) if e == flag]
+        assert part == sorted(part, key=order.index), sev
     plain = c.get("/quality/demo/comments.diff").text
     with_b = c.get("/quality/demo/comments.diff?banners=1").text
     only_b = c.get("/quality/demo/comments.diff?kind=banner").text
@@ -246,11 +251,71 @@ def test_comments_page_hides_banners_by_default_and_shows_the_real_line_text(sit
         git("apply", "--check", str(p), cwd=repo)
 
 
-def test_comments_preview_says_line_n_when_the_text_is_not_here(site, monkeypatch):
-    """The blob-presence rule: no local text, so the removed lines read "line N" with a note."""
+def test_comments_preview_shows_the_deleted_text_even_when_the_blob_is_not_here(site, monkeypatch):
+    """CR-W4 / CR-WD-Q1: the analysis stores each finding's lines (`context`), so the preview shows the actual
+    deleted text with no local blob at all; a finding without context still reads "line N" (rt.edit_lines_for)."""
     from nanosoc_rm.quality import review_text
-    c = site["client"]
+    c, repo = site["client"], site["repo"]
     _settle(c, "/quality/demo/comments", site["cfg"])
     monkeypatch.setattr(review_text, "local_source", lambda *a, **k: (_ for _ in ()).throw(OSError("gone")))
     page = c.get("/quality/demo/comments").text
-    assert "- line " in page and "not on this host yet" in page
+    assert "- line " not in page and "not on this host yet" not in page
+    dels = [__import__("html").unescape(t) for t in re.findall(r'<span class="del">- (.*?)</span>', page)]
+    every = {ln for f in repo.rglob("*") if f.is_file() and ".git" not in f.parts for ln in f.read_text().split("\n")}
+    assert dels and "    # y = compute(x)" in dels and all(d in every for d in dels)
+    bare = {"path": "x.py", "line": 2, "end_line": 2, "kind": "restates_code",
+            "edit": {"start": 2, "end": 2, "replacement": []}}
+    assert review_text.edit_lines_for(None, bare) == ([("-", "line 2")], False)
+
+
+def test_overview_filters_to_the_repos_in_my_configurations(site, monkeypatch):
+    """CR-WD-Q5: the overview defaults to the repos in my configurations when any listed target is one; ?scope=all shows
+    every target. my_components reads the stored pin_state facts (a walked tree's children)."""
+    from pathlib import Path
+
+    from nanosoc_rm import contracts
+    from nanosoc_rm.quality import web as qweb
+    c, cfg = site["client"], load_config(site["cfg"])
+    _settle(c, "/quality/demo", site["cfg"])
+    assert qweb.my_components(cfg) == set()
+    ov = c.get("/quality/")
+    assert _rows(ov.text, "data-target") == ["demo"] and 'data-scope="all"' in ov.text   # nothing registered
+    examples = Path(contracts.__file__).resolve().parents[3] / "schemas" / "examples" / "pin-state.example.jsonl"
+    for _, doc in contracts.docs_in(examples):
+        db.put(doc, config=cfg)
+    mine = qweb.my_components(cfg)
+    assert "nanosoc_arch_tech" in mine and "demo" not in mine
+    ov = c.get("/quality/")      # no listed target is mine (a [quality] paths name): never an empty default
+    assert 'data-scope="all"' in ov.text and _rows(ov.text, "data-target") == ["demo"]
+    ov = c.get("/quality/?scope=mine")
+    assert 'data-scope="mine"' in ov.text and _rows(ov.text, "data-target") == []
+    assert "Show all 1 targets" in ov.text and "Repos in my configurations: 0" in ov.text
+    monkeypatch.setattr(qweb, "my_components", lambda config: mine | {"demo"})
+    ov = c.get("/quality/")
+    assert 'data-scope="mine"' in ov.text and _rows(ov.text, "data-target") == ["demo"]
+    assert _rows(c.get("/quality/?scope=all").text, "data-target") == ["demo"]
+
+
+def test_decoration_is_one_rule_of_banners_and_boilerplate(tmp_path, monkeypatch):
+    """CR-WD-Q1: banner and boilerplate findings are one rule: hidden from the default table and patch, listed
+    together under ?kind=decoration, counted in one chip, and added to the patch together by ?banners=1."""
+    files = dict(CASES["banner"][0])
+    files.update(CASES["boilerplate"][0])
+    files.update({"dead.py": CASES["commented_out_code"][0]["a.py"]})
+    repo = make_repo(tmp_path / "demo", files)
+    cfg = tmp_path / "rm.toml"
+    cfg.write_text('[service]\ndata_dir = "%s"\n[roles]\ndefault = ["member"]\n[quality]\npaths = { demo = "%s" }\n'
+                   % (tmp_path / "data", repo))
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    c = TestClient(create_app(cfg, auth=auth.FakeMembership(login="alice")))
+    page = _settle(c, "/quality/demo/comments", cfg).text
+    assert set(_rows(page, "data-kind")) == {"commented_out_code"}
+    assert "decoration: 3 (one rule: banner 2, boilerplate 1)" in page
+    deco = c.get("/quality/demo/comments?kind=decoration").text
+    assert sorted(_rows(deco, "data-kind")) == ["banner", "banner", "boilerplate"]
+    plain = c.get("/quality/demo/comments.diff").text
+    with_rule = c.get("/quality/demo/comments.diff?banners=1").text
+    assert "tool.py" not in plain and "a/tool.py" in with_rule and "a/m.sv" in with_rule
+    p = tmp_path / "w.diff"
+    p.write_text(with_rule)
+    git("apply", "--check", str(p), cwd=repo)

@@ -1,5 +1,6 @@
 {% include "_qstyle.html" %}
 <p>Comment density, comment problems, README accuracy and doc conciseness per repository (Q1-Q6). The tools only read: every fix is a patch you review and apply with <code>git apply</code>. The same rows come from <code>nanosoc-rm quality density|comments|readme|docs TARGET</code>.</p>
+<p class="kindchips" data-scope="{{ scope }}"><a href="{{ '/quality/?scope=mine' }}"{% if scope == 'mine' %} aria-current="true"{% endif %} data-scope-mine>Repos in my configurations: {{ n_mine }}</a><a href="{{ '/quality/?scope=all' }}"{% if scope == 'all' %} aria-current="true"{% endif %} data-scope-all>All targets: {{ n_all }}</a></p>
 <div class="scroll">
 <table class="sortable" data-quality="overview">
   <thead><tr><th>Target</th><th>Source</th><th class="num">Comment ratio</th><th>Ratio trend</th><th class="num">Outlier files</th><th class="num">Comment findings</th><th class="num">README mismatches</th><th class="num">Doc score</th><th>Doc trend</th><th>Analysed</th></tr></thead>
@@ -21,7 +22,8 @@
     <td>{% if d %}<span class="note">{{ d.observed_at }}</span>{% else %}<a href="{{ qurl(r.target) }}">analyse now</a>{% endif %}</td>
   </tr>
 {% else %}
-  <tr><td colspan="10">No targets yet. Add local checkouts under <code>[quality] paths</code> in the service config, sync a component mirror, or run <code>nanosoc-rm quality all --path DIR --store</code>.</td></tr>
+  {% if scope == 'mine' and n_all %}<tr><td colspan="10">No repo of a registered configuration is a target here. <a href="/quality/?scope=all">Show all {{ n_all }} targets</a>.</td></tr>{% else %}
+  <tr><td colspan="10">No targets yet. Add local checkouts under <code>[quality] paths</code> in the service config, sync a component mirror, or run <code>nanosoc-rm quality all --path DIR --store</code>.</td></tr>{% endif %}
 {% endfor %}
   </tbody>
 </table>

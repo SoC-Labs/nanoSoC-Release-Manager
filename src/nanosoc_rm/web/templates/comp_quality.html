@@ -1,4 +1,4 @@
-{# Component Quality (spec 4.4): stored facts only; banners are one rule, not N findings. #}
+{# Component Quality (spec 4.4): stored facts only; banners and header boilerplate are one decoration rule (CR-WD-Q1). #}
 {% import "_ui.html" as ui %}
 {% include "_comp_header.html" %}
 {% if not qv.analysed %}
@@ -16,8 +16,8 @@
   <div class="tiles">
     {% if qv.density %}<div class="tile"><strong>{{ qv.ratio_text }}</strong><span class="lbl">comment ratio · {{ qv.code_files }} code files · {{ fact(qv.density, "density") }}</span></div>
     <div class="tile"><strong>{{ qv.outliers }}</strong><span class="lbl">outlier files</span></div>{% endif %}
-    {% if c %}<div class="tile" data-tile="findings"><strong>{{ qv.total }}</strong><span class="lbl">findings; {{ qv.banner_share }}% are banners</span></div>
-    <div class="tile" data-tile="worth"><strong>{{ qv.worth }}</strong><span class="lbl">worth a look (not banners)</span></div>{% endif %}
+    {% if c %}<div class="tile" data-tile="findings"><strong>{{ qv.total }}</strong><span class="lbl">findings; {{ qv.banner_share }}% are decoration</span></div>
+    <div class="tile" data-tile="worth"><strong>{{ qv.worth }}</strong><span class="lbl">worth a look (not decoration)</span></div>{% endif %}
     {% if qv.readme %}<div class="tile"><strong>{{ qv.readme_count }}</strong><span class="lbl">README mismatches in {{ qv.readme_files }} README{{ "" if qv.readme_files == 1 else "s" }} · {{ fact(qv.readme, "readme check") }}</span></div>{% endif %}
     {% if qv.docs %}<div class="tile"><strong>{{ "%.1f"|format(qv.doc_score) if qv.doc_score is not none else "-" }}</strong><span class="lbl">doc score (100 = concise) · {{ fact(qv.docs, "doc score") }}</span></div>{% endif %}
   </div>
@@ -27,16 +27,16 @@
 
 {% if c and qv.banner %}
 <section class="panel" aria-labelledby="h-banner" data-banner-rule>
-  <h2 id="h-banner">{{ qv.banner }} banner lines are one rule, not {{ qv.banner }} findings</h2>
-  <p>Decoration lines (rows of # or =) are {{ qv.banner_share }}% of the findings. They stay out of the counts and the queue. Add the rule to your patch only if you want them gone.</p>
+  <h2 id="h-banner">{{ qv.banner }} decoration findings are one rule, not {{ qv.banner }} findings</h2>
+  <p>Banners (rows of # or =){% if qv.banner_kinds %}: {{ qv.banner_kinds.banner }}{% endif %} and header fields git already records (file, author, date){% if qv.banner_kinds %}: {{ qv.banner_kinds.boilerplate }}{% endif %}, in {{ qv.banner_files }} file{{ "" if qv.banner_files == 1 else "s" }}: {{ qv.banner_share }}% of the findings. They stay out of the counts and the queue. Add the rule to your patch only if you want them gone.</p>
   {% if actions and basket %}
   <form method="post" action="{{ href(comp, 'review/basket') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="commit" value="{{ basket.commit }}">
     <input type="hidden" name="return" value="{{ href(comp, 'quality', commit=c.fact.commit) }}">
-    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if basket.banner else 'banner-on' }}" aria-pressed="{{ 'true' if basket.banner else 'false' }}">Also apply the banner rule: {{ "on" if basket.banner else "off" }}</button>
+    <button type="submit" class="ghost" name="op" value="{{ 'banner-off' if basket.banner else 'banner-on' }}" aria-pressed="{{ 'true' if basket.banner else 'false' }}">Also apply the decoration rule: {{ "on" if basket.banner else "off" }}</button>
   </form>
   {% endif %}
-  <p class="note"><a href="/quality/{{ quote(comp) }}/comments?kind=banner">See the banner lines</a></p>
+  <p class="note"><a href="/quality/{{ quote(comp) }}/comments?kind=decoration">See the decoration findings</a></p>
 </section>
 {% endif %}
 

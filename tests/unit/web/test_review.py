@@ -76,27 +76,40 @@ def _obs(rv):
 
 # ----- rules ---------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("finding, sev", [
+    # CR-WD-Q2: one level per kind; a stored finding's own `severity` wins
     ({"kind": "stale_todo", "age_days": 190}, "High"),
-    ({"kind": "stale_todo", "age_days": 120}, "Low"),
-    ({"kind": "unknown_identifier", "did_you_mean": "u_rx_ptp_det"}, "High"),
+    ({"kind": "stale_todo", "age_days": 120}, "High"),
+    ({"kind": "unknown_identifier", "did_you_mean": "u_rx_ptp_det"}, "Check"),
     ({"kind": "unknown_identifier"}, "Check"),
     ({"readme": "README.md", "status": "missing", "kind": "path"}, "Medium"),
+    ({"readme": "README.md", "status": "unverified", "kind": "path"}, "Check"),
     ({"kind": "restates_code", "edit": {"start": 1, "end": 1, "replacement": []}}, "Low"),
     ({"kind": "boilerplate", "edit": {"start": 1, "end": 1, "replacement": []}}, "Low"),
-    ({"kind": "commented_out_code", "edit": {"start": 1, "end": 2, "replacement": []}}, "Low"),
-    ({"kind": "commented_out_code", "edit": None}, "Check"),
-    ({"kind": "restates_code", "edit": None}, "Check"),
+    ({"kind": "banner", "edit": None}, "Low"),
+    ({"kind": "commented_out_code", "edit": {"start": 1, "end": 2, "replacement": []}}, "Medium"),
+    ({"kind": "commented_out_code", "edit": None}, "Medium"),
+    ({"kind": "restates_code", "edit": None, "severity": "High"}, "High"),
 ])
 def test_severity_rules(finding, sev):
     assert review.severity(finding) == sev
 
 
-def test_rank_orders_high_medium_check_low_then_path_and_line():
+def test_severity_is_written_per_kind_at_analysis(rv):
+    """CR-WD-Q2: every stored finding carries its kind's level from quality.findings.SEVERITY_BY_KIND."""
+    from nanosoc_rm.quality.findings import SEVERITY_BY_KIND
+    fs = _obs(rv)["fact"]["findings"]
+    assert fs and all(f["severity"] == SEVERITY_BY_KIND[f["kind"]] for f in fs)
+
+
+def test_rank_puts_suggested_edits_first_then_high_medium_check_low_then_path_and_line():
+    """CR-WD-Q3: 263 of 440 tidelink findings had no edit and came first; a finding a person can accept in one step
+    now leads, then severity, then path and line."""
     fs = [{"kind": "restates_code", "edit": {"start": 1}, "path": "a", "line": 1},
           {"kind": "unknown_identifier", "path": "z", "line": 9},
           {"kind": "stale_todo", "age_days": 400, "path": "b", "line": 5},
+          {"kind": "commented_out_code", "edit": {"start": 3}, "path": "c", "line": 3},
           {"kind": "stale_todo", "age_days": 400, "path": "b", "line": 2}]
-    assert [(f["path"], f["line"]) for f in review.rank(fs)] == [("b", 2), ("b", 5), ("z", 9), ("a", 1)]
+    assert [(f["path"], f["line"]) for f in review.rank(fs)] == [("c", 3), ("a", 1), ("b", 2), ("b", 5), ("z", 9)]
 
 
 def test_caution_rules():
@@ -113,7 +126,10 @@ def test_queue_hides_banners_and_keys_are_stable(rv):
     obs = _obs(rv)
     items = review.queue(obs)
     kinds = {it["kind"] for it in items}
-    assert "banner" not in kinds and {"commented_out_code", "restates_code", "boilerplate"} <= kinds
+    assert not kinds & {"banner", "boilerplate"}, "CR-WD-Q1: the decoration rule is not in the queue"
+    assert {"commented_out_code", "restates_code", "unknown_identifier"} <= kinds
+    edits = [bool(it["finding"].get("edit")) for it in items]
+    assert edits == sorted(edits, reverse=True), "CR-WD-Q3: findings with a suggested edit come first"
     assert [it["key"] for it in items] == [it["key"] for it in review.queue(_obs(rv))]
     assert len({it["key"] for it in items}) == len(items), "two findings on one line must not share a key"
     assert any(it["key"].endswith("#2") for it in items)        # calc.py:2 names two unknown identifiers
@@ -253,8 +269,11 @@ def test_remove_from_the_basket(rv):
 def test_quality_tab_counts_banners_as_one_rule(rv):
     t = rv["client"].get("/components/demo/quality").text
     obs = _obs(rv)
-    n_banner = sum(1 for f in obs["fact"]["findings"] if f["kind"] == "banner")
-    assert n_banner and "%d banner lines are one rule, not %d findings" % (n_banner, n_banner) in t
+    n_banner = sum(1 for f in obs["fact"]["findings"] if f["kind"] in ("banner", "boilerplate"))
+    assert sum(1 for f in obs["fact"]["findings"] if f["kind"] == "boilerplate"), "the fixture has boilerplate"
+    assert n_banner and "%d decoration findings are one rule, not %d findings" % (n_banner, n_banner) in t
+    rule = obs["fact"]["bulk_rules"][0]
+    assert rule["rule"] == "decoration" and rule["count"] == n_banner and rule["files"] == 2
     assert 'data-tile="worth"' in t and "Review: one finding at a time" in t
     assert "README mismatches" in t
 
@@ -278,6 +297,8 @@ def test_a_blob_less_mirror_is_never_fetched_by_a_page(tmp_path, monkeypatch):
     obs["fact"].update(target="tidelink", commit=head, worktree=False)
     obs["subject"] = "quality_finding:tidelink:%s" % head
     obs["fact"].pop("worktree_state", None)
+    stored_context = [f.pop("context", None) for f in obs["fact"]["findings"]]   # a fact from before CR-W4
+    assert any(stored_context)
     db.put(obs, config=cfg)
     missing = lambda: {ln[1:] for ln in git("rev-list", "--objects", "--missing=print", "--no-walk", head,
                                             cwd=mirror).stdout.split() if ln.startswith("?")}
@@ -289,6 +310,16 @@ def test_a_blob_less_mirror_is_never_fetched_by_a_page(tmp_path, monkeypatch):
     i = next(it["n"] for it in review.queue(obs) if it["finding"].get("edit"))
     t = client.get("/components/tidelink/review?i=%d" % i).text
     assert rt.NOT_LOCAL in t and "- line " in t                 # edit shown as line numbers, with the note
+    assert missing() == before, "the page fetched a blob"
+    for f, ctx in zip(obs["fact"]["findings"], stored_context):    # CR-W4 context: the real text, still no fetch
+        if ctx:
+            f["context"] = ctx
+    obs["observed_at"] = "2099-01-01T00:00:00Z"
+    db.put(obs, config=cfg)
+    finding = next(it["finding"] for it in review.queue(obs) if it["n"] == i)
+    t = client.get("/components/tidelink/review?i=%d" % i).text
+    deleted = (src / finding["path"]).read_text().split("\n")[finding["edit"]["start"] - 1]
+    assert "- line " not in t and deleted.strip() in t
     assert missing() == before, "the page fetched a blob"
 
 

@@ -28,6 +28,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import db
+from nanosoc_rm.quality.findings import BULK_KINDS, is_bulk
 from nanosoc_rm.web import registry_facts, review, shell, uistate, verdict as V, views
 from nanosoc_rm.web.page import Page, env
 
@@ -175,13 +176,15 @@ def quality_view(config: Any, comp: str, ref: str | None = None, commit: str | N
     out: dict[str, Any] = {"comments": comments, "density": density, "readme": readme, "docs": docs,
                            "analysed": any((comments, density, readme, docs))}
     findings = (comments or {}).get("fact", {}).get("findings") or []
-    banner = [f for f in findings if f.get("kind") == "banner"]
-    rest = [f for f in findings if f.get("kind") != "banner"]
+    banner = [f for f in findings if is_bulk(f)]             # the decoration rule: banner + boilerplate
+    rest = [f for f in findings if not is_bulk(f)]
     by_kind: dict[str, int] = {}
     for f in rest:
         by_kind[f["kind"]] = by_kind.get(f["kind"], 0) + 1
     top = max(by_kind.values()) if by_kind else 0
     out.update(total=len(findings), banner=len(banner), worth=len(rest),
+               banner_kinds={k: sum(1 for f in banner if f.get("kind") == k) for k in BULK_KINDS},
+               banner_files=len({f.get("path") for f in banner}),
                banner_share=round(100 * len(banner) / len(findings)) if findings else 0,
                kinds=[{"kind": k, "count": n, "width": round(100 * n / top) if top else 0}
                       for k, n in sorted(by_kind.items(), key=lambda kv: (-kv[1], kv[0]))],
@@ -305,7 +308,7 @@ def sentence(comp: str, s: dict) -> str:
     if s.get("branches_total"):
         parts.append("%d of %d branches can be deleted" % (s.get("deletable", 0), s["branches_total"]))
     if s.get("analysed"):
-        extra = " (%d more are banners)" % s["banner"] if s.get("banner") else ""
+        extra = " (%d more are decoration, one rule)" % s["banner"] if s.get("banner") else ""
         parts.append("%d comment findings are worth a look%s" % (s.get("worth", 0), extra))
     for h in s.get("hosts") or []:
         if h["relation"] == "AHEAD" and h.get("canonical_only"):

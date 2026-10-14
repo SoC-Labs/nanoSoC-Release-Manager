@@ -118,7 +118,7 @@ def test_sentence_states_only_stored_counts():
     s = compspace.sentence("tidelink", {"branches_total": 15, "deletable": 7, "analysed": True, "worth": 440,
                                         "banner": 4880, "hosts": [{"relation": "AHEAD", "canonical": "github",
                                                                   "copy_host": "gitlab", "canonical_only": 462}]})
-    assert s == ("7 of 15 branches can be deleted, 440 comment findings are worth a look (4880 more are banners), "
+    assert s == ("7 of 15 branches can be deleted, 440 comment findings are worth a look (4880 more are decoration, one rule), "
                  "and the gitlab copy lacks 462 commits that github has.")
     assert compspace.sentence("x", {}).startswith("Nothing is stored for x yet")
 

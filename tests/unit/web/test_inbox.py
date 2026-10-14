@@ -277,7 +277,7 @@ def test_8_quality_top_ranks_the_findings_that_matter(site):
     assert not of(inbox.cards(site["config"]), "quality_top")
     seed(site["cfg"], "observation.quality.example.jsonl")
     c = of(inbox.cards(site["config"]), "quality_top")[0]
-    assert c.title == "demo has 2 comment findings; 1 are banners. Review the 1 that matter first."
+    assert c.title == "demo has 2 comment findings; 1 are decoration (one rule). Review the 1 that matter first."
     assert c.why == "Top one: src/a.py:2 commented_out_code." and c.weight == 11
 
 

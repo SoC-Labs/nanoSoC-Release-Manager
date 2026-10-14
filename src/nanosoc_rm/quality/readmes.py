@@ -16,6 +16,15 @@ What is checked, per README (every `README*.md`; `docs/*.md` too with include_do
   mention are reported as undocumented.
 
 A mismatch the reader could not confirm (a Makefile include it could not resolve) is `unverified`, not missing.
+
+Precision (CR-WD-Q4): in a shell block that shows prompts (`$ cmd`), only the prompted lines are commands (the rest
+is output); an untagged block is read as commands only on lines that start with a known command or `./`; a
+`console` or `shell-session` block only on prompted lines. Never a mismatch: URLs and host names
+(`git.example.org/x.git`), branch names on a submodule line, home and absolute paths, virtual environments the
+reader creates (`.venv*/`), build outputs (`*.bit`, `*.bin`, `*.xsa`, reports and logs: `ignored`), and link
+targets inside a submodule, commit ids on a submodule line, and `NN_name.sh` placeholders. A bare HDL or IP file
+name (`x.sv`, `x.flist`, `x.lib`) that is not in the repository's own files is `unverified` when the repository has
+submodules (it may be in one, and their trees are not read); a bare name on a submodule line likewise.
 """
 from __future__ import annotations
 
@@ -40,7 +49,18 @@ _LAYOUT_HEAD = re.compile(r"^(#{1,6})\s*(repository|repo|directory|folder|projec
 _SHELL_FENCES = {"", "sh", "bash", "shell", "console", "zsh", "terminal", "shell-session", "cmd"}
 _INTERP = {"python", "python3", "python2", "bash", "sh", "zsh", "source", ".", "tclsh", "perl", "ruby", "node",
            "uv", "pytest"}
-_PLACEHOLDER = re.compile(r"[<>{}…]|\.\.\.|X{3,}|N{3,}|\$")
+_PLACEHOLDER = re.compile(r"[<>{}…]|\.\.\.|X{3,}|N{3,}|\$|(^|[/_])(NN|XX)(_|\.|$)")
+_TRANSCRIPT_FENCES = {"console", "shell-session", "terminal"}
+_PROMPT = re.compile(r"^(\$|%|>|#)\s+")
+_COMMAND_START = set("make gmake git cd python python3 python2 bash sh zsh source . pytest pip pip3 uv export env sudo "
+                     "cmake ninja vivado vcs xrun verilator tclsh perl nanosoc-rm docker ssh scp rsync curl wget".split())
+# A script run by its repo path (`scripts/run_all.sh --all`); a two-space gap or `->` makes it a description list
+_REPO_SCRIPT = re.compile(r"^[\w.-]+(/[\w.-]+)+\.(sh|bash|py|tcl|pl|rb)$")
+_URL_LIKE = re.compile(r"^[\w-]+(\.[\w-]+)*\.(com|org|net|io|uk|edu|gov|dev|eu|de|fr|ai|co)(/|:|$)", re.I)
+_BRANCH_WORDS = {"main", "master", "develop", "dev", "trunk", "HEAD"}
+_BUILD_EXT = set("bin bit xsa hwh elf rpt log vcd fst fsdb dcp mcs ltx spef sdf wdb vpd".split())
+_SUBMODULE_EXT = set("v sv svh vh vhd vhdl flist f lib lef db".split())     # IP sources a submodule usually holds
+_VENV = re.compile(r"^\.?venv([-.\w]*)?(/|$)")
 
 
 def readme_files(source: Source, include_docs: bool = False) -> list[str]:
@@ -94,8 +114,9 @@ def _ignored(path: str, pats: list[tuple[str, str]]) -> bool:
 def _segments(text: str):
     """Yield (line number, kind, payload): kind 'code' (inline span), 'link', 'cmd' (a shell block line),
     'tree' (a tree-drawing line), 'heading' (level, title), 'prose' (the raw line)."""
-    fence, fence_lang = None, ""
-    for n, line in enumerate(text.split("\n"), 1):
+    fence, fence_lang, prompted = None, "", False
+    all_lines = text.split("\n")
+    for n, line in enumerate(all_lines, 1):
         st = line.strip()
         m = re.match(r"^(```+|~~~+)\s*([\w+-]*)", st)
         if fence:
@@ -104,12 +125,14 @@ def _segments(text: str):
                 continue
             if re.search(r"[├└│]──|^\s*[|`]--|^\s*\+--", line):
                 yield n, "tree", line
-            elif fence_lang in _SHELL_FENCES and st and not st.startswith("#"):
-                cmd = re.sub(r"^(\$|>|%|#)\s+", "", st)
-                yield n, "cmd", cmd
+            elif fence_lang in _SHELL_FENCES and st:
+                cmd = _fence_command(st, fence_lang, prompted)
+                if cmd is not None:
+                    yield n, "cmd", cmd
             continue
         if m:
             fence, fence_lang = m.group(1), m.group(2).lower()
+            prompted = _has_prompts(all_lines, n, fence)
             continue
         h = re.match(r"^(#{1,6})\s+(.*)$", line)
         if h:
@@ -119,6 +142,36 @@ def _segments(text: str):
             yield n, "code", span.strip()
         for target in re.findall(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", line):
             yield n, "link", target
+
+
+def _has_prompts(lines: list[str], opened_at: int, fence: str) -> bool:
+    """The code block opened at line `opened_at` (1-based) shows a prompt (`$ cmd`, `% cmd`) on some line."""
+    for line in lines[opened_at:]:
+        st = line.strip()
+        if st.startswith(fence):
+            return False
+        if re.match(r"^(\$|%)\s+\S", st):
+            return True
+    return False
+
+
+def _fence_command(st: str, lang: str, prompted: bool) -> str | None:
+    """The command on a line of a shell code block, or None when the line is output, a comment or prose
+    (CR-WD-Q4): with prompts in the block only prompted lines are commands; a transcript block (`console`)
+    needs a prompt; an untagged block needs a known command (or `./x`) first."""
+    has_prompt = bool(re.match(r"^(\$|%)\s+\S", st))
+    if prompted or lang in _TRANSCRIPT_FENCES:
+        return _PROMPT.sub("", st, count=1) if has_prompt else None
+    if st.startswith("#"):
+        return None
+    cmd = _PROMPT.sub("", st, count=1)
+    if lang == "":
+        first = cmd.split(None, 1)[0] if cmd.split() else ""
+        script = bool(_REPO_SCRIPT.match(first)) and not re.search(r"\s{2,}|->", cmd)
+        if not (first in _COMMAND_START or first.startswith("./") or script or
+                re.match(r"^[A-Za-z_]\w*=\S*$", first)):
+            return None
+    return cmd
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -180,6 +233,8 @@ def _path_like(tok: str) -> bool:
         return False
     if _PLACEHOLDER.search(tok) or "://" in tok or "@" in tok or "=" in tok or tok.count(":") or "," in tok:
         return False
+    if _URL_LIKE.match(tok) or _VENV.match(_dotslash(tok)):
+        return False                                     # a host name or URL; a venv the reader creates
     if "*" in tok or (tok.startswith(".") and "/" not in tok and tok.count(".") >= 1 and not tok.startswith("./")
                       and len(tok.split(".")) <= 3 and tok.split(".")[1] in _FILE_EXT):
         return False                                     # a glob or a bare extension (`*.lib`, `.pins.xdc`)
@@ -216,6 +271,14 @@ def _check_path(ctx: _Ctx, readme: str, base: str, n: int, tok: str, rows: list[
                       norm.startswith(g + "/")), None)
     if under_sub:
         rows.append(_row(readme, n, kind, tok, "ignored", "inside submodule %s (not read)" % under_sub))
+        return
+    ext = tok.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[-1].lower() if "." in tok.rsplit("/", 1)[-1] else ""
+    if ext in _BUILD_EXT:
+        rows.append(_row(readme, n, kind, tok, "ignored", "a build output (.%s): built, not committed" % ext))
+        return
+    if ctx.gitlinks and "/" not in tok and ext in _SUBMODULE_EXT:
+        rows.append(_row(readme, n, kind, tok, "unverified",
+                         "not in this repository's own files; it may be in a submodule (not read)"))
         return
     rows.append(_row(readme, n, kind, tok, "missing", "no such file or directory at this commit"))
 
@@ -269,13 +332,15 @@ def _check_command(ctx: _Ctx, readme: str, base: str, n: int, cmd: str, rows: li
                 continue
             if prog in ("uv", "pytest"):
                 continue
-            if script and not _PLACEHOLDER.search(script) and (("/" in script) or "." in script):
+            if script and not _PLACEHOLDER.search(script) and (("/" in script) or "." in script) \
+                    and not script.startswith(("/", "~")) and not _VENV.match(_dotslash(script)):
                 _check_script(ctx, readme, cwd, n, script, rows, need_exec=False)
             continue
         if _NOT_PROGRAM.search(prog) and "/" in prog and not _PLACEHOLDER.search(prog):
             _check_path(ctx, readme, cwd, n, prog, rows)  # `cocotb/Makefile regression`: a file, not a program
             continue
-        if _looks_like_script(prog) and not _PLACEHOLDER.search(prog) and not prog.startswith(("/", "~")):
+        if _looks_like_script(prog) and not _PLACEHOLDER.search(prog) and not prog.startswith(("/", "~")) \
+                and not _VENV.match(_dotslash(prog)) and not _URL_LIKE.match(prog):
             _check_script(ctx, readme, cwd, n, prog, rows, need_exec=prog.startswith("./") or "/" in prog)
 
 
@@ -401,6 +466,8 @@ def _check_submodule(ctx: _Ctx, readme: str, n: int, tok: str, rows: list[dict],
     """`claimed`: the README says it is a submodule (`git submodule update --init PATH`), not just mentions it
     on a line about submodules."""
     t = _dotslash(tok.strip("/"))
+    if _URL_LIKE.match(t) or t in _BRANCH_WORDS or re.fullmatch(r"[0-9a-f]{7,40}", t):
+        return                                           # a URL, a branch name or a commit in a submodule row
     if t in ctx.subs or t in ctx.subs.values() or t in ctx.gitlinks or \
             any(p.rsplit("/", 1)[-1] == t for p in list(ctx.subs.values()) + list(ctx.gitlinks)):
         rows.append(_row(readme, n, "submodule", tok, "ok", "in .gitmodules"))
@@ -412,6 +479,9 @@ def _check_submodule(ctx: _Ctx, readme: str, n: int, tok: str, rows: list[dict],
         rows.append(_row(readme, n, "path", tok, "ok", t))
     elif any(t.startswith(g + "/") for g in ctx.gitlinks):
         rows.append(_row(readme, n, "submodule", tok, "ignored", "inside a submodule (not read)"))
+    elif not claimed and ctx.gitlinks and "/" not in t:
+        rows.append(_row(readme, n, "submodule", tok, "unverified",
+                         "not in .gitmodules; it may be a nested submodule (submodule trees are not read)"))
     else:
         rows.append(_row(readme, n, "submodule", tok, "missing", "not in .gitmodules"))
 
@@ -587,8 +657,12 @@ def _check_one(ctx: _Ctx, readme: str, rows: list[dict]) -> None:
             tgt = payload.split("#", 1)[0]
             if not tgt or _PLACEHOLDER.search(tgt):
                 continue
-            hit = ctx.source.exists(posixpath.normpath(posixpath.join(base, tgt))) if not tgt.startswith("/") \
-                else ctx.source.exists(tgt.lstrip("/"))
+            resolved = posixpath.normpath(posixpath.join(base, tgt)) if not tgt.startswith("/") else tgt.lstrip("/")
+            hit = ctx.source.exists(resolved)
+            sub = next((g for g in ctx.gitlinks if resolved.startswith(g + "/")), None) if not hit else None
+            if sub:
+                rows.append(_row(readme, n, "path", tgt, "ignored", "inside submodule %s (not read)" % sub))
+                continue
             rows.append(_row(readme, n, "path", tgt, "ok" if hit else "missing",
                              "link target" if hit else "link target not in the tree at this commit"))
             continue
