@@ -419,10 +419,34 @@ def test_serve_in_github_mode_binds_as_before(tmp_path, monkeypatch):
 def _fill(path):
     vals = {"/configurations/": "eth-rc4", "/components/": "tidelink", "/defects/": "SL-DEF-0001",
             "/errata/": "eth-rc4", "/runs/": "5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f", "/jobs/": "1",
-            "/contains/": "036d3811e630c89b2344b56aa617b40a99cd652b"}
+            "/contains/": "036d3811e630c89b2344b56aa617b40a99cd652b", "/quality/": "tidelink",
+            "/versions/": "tidelink", "/matrix/": "eth-rc4", "/releases/": "eth-rc4"}
     if path.startswith("/facts/"):
         return "/facts/" + urllib.parse.quote("registry_record:eligibility.yaml#/configurations/0", safe="")
     return re.sub(r"\{[^}]+\}", next((v for k, v in vals.items() if k in path), "x"), path)
+
+
+# Routes whose object cannot exist in this fixture (nothing has been drafted, proposed or analysed, and no mirror
+# is synced), with the status and the words each must answer instead of 200: a rendered "not found" or "cannot
+# answer yet", never a 500. Every other GET route must answer 200.
+_NO_MIRROR = (503, "has no mirror")
+NOT_200_HERE = {
+    # NEW (found by walking every route): the matrix view of the example tree fails its own schema; see
+    # test_the_matrix_page_renders_on_the_example_data below. /configurations/{id}/matrix 303s to /matrix/{id}.
+    "/configurations/{id}/matrix": (503, "is too short"), "/matrix/{configuration}": (503, "is too short"),
+    "/matrix/{configuration}/cell": (404, "no column"),
+    "/components/{id}/review/patch.diff": (404, "no stored comment findings"),
+    "/quality/{target}": _NO_MIRROR, "/quality/{target}/density": _NO_MIRROR, "/quality/{target}/comments": _NO_MIRROR,
+    "/quality/{target}/comments.diff": _NO_MIRROR, "/quality/{target}/readme": _NO_MIRROR,
+    "/quality/{target}/readme.diff": _NO_MIRROR, "/quality/{target}/docs": _NO_MIRROR,
+    "/versions/{component}/manifest.diff": _NO_MIRROR,
+    "/versions/{component}/drafts/{version}/{name}": (404, "Not Found"),
+    "/bumps/facts/{subject:path}": (404, "is kept"), "/bumps/p/{pid}": (404, "is kept"),
+    "/bumps/p/{pid}/patch.diff": (404, "is kept"),
+    "/releases/{configuration}/{version}": (404, "Not found"), "/releases/{configuration}/{version}/errata": (404, "Not found"),
+    "/releases/{configuration}/{version}/download.zip": (404, "no such draft"),
+    "/releases/{configuration}/{version}/files/{name}": (404, "no such file"),
+}
 
 
 def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
@@ -436,24 +460,35 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
     from pathlib import Path
     fake = [sys.executable, str(Path(__file__).resolve().parents[1] / "jobs" / "fake_cli.py")]
     assert jobs.Worker(local["cfg"], argv_prefix=fake).step() == 1
-    pages = 0
-    for r_ in c.app.routes:
-        methods = getattr(r_, "methods", None) or set()
-        if "GET" not in methods or r_.path.startswith(("/auth", "/static")):
+    # Every GET route, the included routers' too (workspaces, plug-ins): app.routes alone lists only the routes
+    # added directly to the app (34 of 72 on FastAPI 0.143), so walk the router tree as the route census does.
+    from nanosoc_rm.web import routers
+    pages, bad = 0, []
+    for path, methods, _ in routers.route_table(c.app):
+        if "GET" not in methods or path.startswith(("/auth", "/static")):
             continue
-        url = _fill(r_.path)
+        url = _fill(path)
         extra = {"/contains": "?sha=036d381", "/branches": "?component=tidelink", "/compat": "?job=1",
                  "/hosts": "?component=tidelink", "/mirrors": "?job=1"}
-        r = c.get(url + extra.get(r_.path, ""))
-        assert r.status_code == 200, (url, r.status_code, r.text[:300])
-        if r.headers["content-type"].startswith("text/html") and not r_.path.startswith("/jobs/"):
+        r = c.get(url + extra.get(path, ""))
+        want, words = NOT_200_HERE.get(path, (200, ""))
+        if r.status_code != want or words not in r.text:
+            bad.append((path, url, r.status_code, want, words, r.text[:300]))
+            continue
+        if want != 200:
+            continue
+        if (r.headers["content-type"].startswith("text/html") and not path.startswith("/jobs/")
+                and "<html" in r.text):                  # a full page; an htmx fragment carries no age
             h = Hooks(r.text)
-            assert len(h.with_attr("data-age-seconds")) == 1, url
-            assert "Problem:" not in r.text or url == "/branches", (url, re.findall(r"Problem:</strong>([^<]*)", r.text))
+            if len(h.with_attr("data-age-seconds")) != 1:
+                bad.append((url, "data-age-seconds x%d" % len(h.with_attr("data-age-seconds"))))
+            if "Problem:" in r.text and url != "/branches":
+                bad.append((url, re.findall(r"Problem:</strong>([^<]*)", r.text)))
             pages += 1
         elif r.headers["content-type"].startswith("application/x-ndjson"):
             for line in r.text.splitlines():
                 assert json.loads(line)["kind"]
+    assert not bad, bad
     assert pages >= 17
     job_page = c.get("/compat?job=1").text
     assert 'data-job-state="done"' in job_page and 'data-verdict="FAIL"' in job_page
@@ -465,6 +500,17 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
         assert m.group(2).strip(), m.group(0)
     assert "nanosoc-rm compat eth-rc4 --store" in c.get("/jobs/1/log").text
     assert c.get("/jobs/1/fragment").headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.xfail(strict=True, reason="NEW (found 2026-10-14 when the smoke test began walking every route): "
+                   "/matrix/eth-rc4 answers 503 on the contract example data. The view copies pin_state.split, and "
+                   "the example marks nanosoc_arch_tech split while the tree pins it once, so fact.splits[].pins has "
+                   "1 item and the matrix_view fails its schema (minItems 2); matrix/__init__.py matrix()")
+def test_the_matrix_page_renders_on_the_example_data(local):
+    seed(local["cfg"], "observation.compat-result.example.jsonl")
+    c = TestClient(local["app"])
+    sign_in(c)
+    assert c.get("/matrix/eth-rc4").status_code == 200
 
 
 def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
