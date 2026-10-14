@@ -319,3 +319,118 @@ def test_stored_t1_cell_validates_and_shows_on_its_page(tiered, tmp_path):
         assert "UNVERIFIED" in r.text
         stored = db.latest("matrix_cell", "matrix_cell:top-main:-:pinned:")
         assert [d["fact"].get("tier") for d in stored] == ["t1"]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# D4: a laid-out input that the command removed or changed is not a green capture (review R1, R4)
+# ---------------------------------------------------------------------------------------------------------
+@pytest.mark.parametrize("command, where", [
+    ("rm -rf a/.git && echo 'module evil; endmodule' > a/rtl/a.v", "a"),
+    ("rm -rf .git", "(superproject)"),
+])
+def test_a_laid_out_repo_the_tier_removed_is_unverified(tiered, command, where):
+    s = tiered
+    set_tiers(s, {"command": command})
+    f = valid(s.run_cell("pinned", tier="t1"))
+    assert f["verdict"] == "UNVERIFIED", f["reason"]
+    assert "could not be re-read after the t1 command" in f["reason"] and where in f["reason"]
+    assert where in [x or "(superproject)" for x in f["provenance"]["checkout"]["lost"]]
+
+
+def test_a_tier_that_rewrites_a_tracked_file_in_a_pin_is_unverified(tiered):
+    s = tiered
+    set_tiers(s, {"command": "echo 'module a1_tampered; endmodule' > a/rtl/a.v; echo built > a/build.log"})
+    f = valid(s.run_cell("pinned", tier="t1"))
+    assert f["verdict"] == "UNVERIFIED", f["reason"]
+    assert f["provenance"]["checkout"]["dirty"] == [{"tree_path": "a", "files": ["rtl/a.v"]}]
+    assert "a/rtl/a.v" in f["reason"]
+
+
+def test_a_rewritten_declared_output_file_is_not_dirty(tiered):
+    """run_tier deletes a declared ip_files/verdicts file before the command, so its rewrite is not tampering."""
+    s = tiered
+    set_tiers(s, {"command": "printf 'README\\n' > README",
+                  "ip_files": "README"})
+    f = valid(s.run_cell("pinned", tier="t1"))
+    assert f["provenance"]["checkout"]["dirty"] == [] and f["verdict"] == "PASS", f["reason"]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# ip_hash: an identity of the inputs, bounded (review R2, R3)
+# ---------------------------------------------------------------------------------------------------------
+def test_ip_hash_is_the_same_for_absolute_and_relative_listings_across_runs(tiered):
+    s = tiered
+    set_tiers(s, {"command": "printf '%s/README\\n' \"$TREE\" > files.lst", "ip_files": "files.lst"})
+    h1 = valid(s.run_cell("pinned", tier="t1"))["provenance"]["ip_hash"]
+    h2 = valid(s.run_cell("pinned", tier="t1"))["provenance"]["ip_hash"]
+    set_tiers(s, {"command": "printf 'README\\n./README\\n' > files.lst", "ip_files": "files.lst"})
+    h3 = valid(s.run_cell("pinned", tier="t1"))["provenance"]["ip_hash"]
+    want = hashlib.sha256(("%s  README\n" % hashlib.sha256(b"top\n").hexdigest()).encode()).hexdigest()
+    assert h1 == h2 == h3 == want
+
+
+def test_ip_hash_refuses_a_listed_path_that_is_not_a_regular_file(tmp_path):
+    import os
+    t = tmp_path / "t"
+    t.mkdir()
+    os.mkfifo(t / "fifo")
+    import signal
+
+    def stuck(*_):
+        raise AssertionError("ip_hash is still reading after 20 s")
+    old = signal.signal(signal.SIGALRM, stuck)
+    for name in ("/dev/zero", "fifo", "."):
+        (t / "files.lst").write_text(name + "\n")
+        signal.alarm(20)
+        try:
+            h, note, n = P.ip_hash(t, "files.lst")
+        finally:
+            signal.alarm(0)
+        assert h is None and n == 0 and "not a regular file" in note, (name, note)
+    signal.signal(signal.SIGALRM, old)
+
+
+def test_ip_hash_refuses_a_list_above_the_byte_cap(tmp_path, monkeypatch):
+    t = tmp_path / "t"
+    t.mkdir()
+    (t / "big.v").write_bytes(b"x" * 100)
+    (t / "files.lst").write_text("big.v\n")
+    assert P.ip_hash(t, "files.lst")[0] is not None
+    monkeypatch.setattr(P, "IP_BYTES_MAX", 99)
+    h, note, _ = P.ip_hash(t, "files.lst")
+    assert h is None and "above 99 bytes" in note
+
+
+def test_a_tier_run_without_a_layout_record_is_unverified(tiered, monkeypatch):
+    """Without the record a removed repo looks like one not laid out: the capture is not trusted."""
+    s = tiered
+    set_tiers(s, {"command": "true"})
+
+    def broken(*a, **kw):
+        raise OSError("disk full")
+    monkeypatch.setattr(T, "_record_layout", broken)
+    f = valid(s.run_cell("pinned", tier="t1"))
+    assert f["verdict"] == "UNVERIFIED" and "left no layout record" in f["reason"], f["reason"]
+    assert f["provenance"]["checkout"]["laid_out"] is None
+
+
+def test_a_change_the_layout_left_is_not_the_commands_but_a_further_change_is(tmp_path):
+    """The record's before-state: a tracked file already changed when the command started (e.g. checkout
+    normalisation) is not DIRTY unless the command changes it again."""
+    import subprocess
+    r = tmp_path / "r"
+    r.mkdir()
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(r)]
+    (r / "f.v").write_text("module f; endmodule\n")
+    subprocess.run(git + ["init", "-q"], check=True)
+    subprocess.run(git + ["add", "f.v"], check=True)
+    subprocess.run(git + ["commit", "-qm", "i"], check=True)
+    head = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    (r / "f.v").write_text("module f; endmodule\r\n")                  # changed by the layout, before the command
+    T._record_layout(tmp_path, r, T.Layout(laid_out=[""]))
+    rec = T.read_layout_record(tmp_path)
+    assert rec["changes_before"] == {"": {"f.v": hashlib.sha256(b"module f; endmodule\r\n").hexdigest()}}
+    co = P.capture_checkout(r, head, [], record=rec)
+    assert co["dirty"] == [] and co["lost"] == [] and co["laid_out"] == [""]
+    (r / "f.v").write_text("module tampered; endmodule\n")              # changed by the command
+    assert P.capture_checkout(r, head, [], record=rec)["dirty"] == [{"tree_path": "", "files": ["f.v"]}]

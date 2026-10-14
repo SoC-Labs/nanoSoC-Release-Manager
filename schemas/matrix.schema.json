@@ -119,6 +119,46 @@
         "note": {
           "description": "Optional, on a capture: what this capture can and cannot show (a T0 run cannot move a pin, so its capture only confirms pins or shows them as not read).",
           "type": "string"
+        },
+        "laid_out": {
+          "description": "Optional, on a tier checkout's re-read (CR-WD-matrix-t1): the tree paths the layout checked out before the command (\"\" = the superproject); null = the layout record is missing, so a removed repo cannot be told from one not laid out (the cell is UNVERIFIED).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "lost": {
+          "description": "Optional, on a tier checkout's re-read: laid-out tree paths (\"\" = the superproject) that hold no readable repo after the command (removed or broken by it). Any makes the cell UNVERIFIED (D4: an input the run could not capture).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "dirty": {
+          "description": "Optional, on a tier checkout's re-read: per laid-out repo, the tracked files (repo-relative) the command changed (git status, untracked and submodules ignored; the tier's declared verdicts and ip_files outputs excepted). Any makes the cell UNVERIFIED (D4: the run read other contents than the requested commits).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "tree_path",
+              "files"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "tree_path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },

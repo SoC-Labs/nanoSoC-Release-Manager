@@ -1496,11 +1496,23 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
      captured. The superproject is the repo at the tree root. A path with no repo (not laid out: the tier's `pins`
      did not need it) is null, not read. Recorded as `attempt.checkout` and `provenance.checkout`; a moved pin
      from either capture is in `moved` and makes the attempt and the cell UNVERIFIED (the schema rule of item 3).
+     Just before the command `tierrun.run_tier` writes `<work>/tree-layout.json` (`tierrun.LAYOUT_RECORD`): the
+     tree paths laid out and, per laid-out repo, its tracked changes then (`git diff HEAD`, path -> sha256 of the
+     working file). With it the re-read adds `laid_out`, `lost` (laid-out paths, "" = the superproject, that hold
+     no readable repo after the command) and `dirty` (per laid-out repo, tracked files the command changed:
+     changed against HEAD and not identical to the before-state; the tier's declared `verdicts` and `ip_files`
+     excepted). Lost or dirty makes the attempt UNVERIFIED (D4: inputs not captured, or other contents than the
+     requested commits read), and so does a run whose command ran with no record (`laid_out` null): without it a
+     removed repo cannot be told from one not laid out.
    - **IP hash (D4).** When the tier declares `ip_files` and the run wrote it, `provenance.ip_hash` = sha256 over
-     the sorted lines `<sha256 of the file>  <path>` of the listed files (tree-relative, or absolute outside the
-     tree); `attempt.ip` = {hash, note, files}. Otherwise null with the reason in `ip_hash_note`: no list declared,
-     not written by this run, empty, more than `provenance.IP_LIST_MAX` entries, or a listed file unreadable (a
-     hash of part of the inputs is not a hash of the inputs). A T0-only cell keeps `ip_hash` null ("T0 reads no IP
+     the sorted distinct lines `<sha256 of the file>  <path>` of the listed files. Each listed path is normalised
+     first: an absolute path inside the sandbox tree (`$TREE/...`, either spelling of the tree) becomes
+     tree-relative, since the sandbox directory differs per run; `./x` is `x`; an absolute path outside the tree is
+     kept. `attempt.ip` = {hash, note, files}. Otherwise null with the reason in `ip_hash_note`: no list declared,
+     not written by this run, empty, more than `provenance.IP_LIST_MAX` entries, a listed path that is not a
+     regular file (device, FIFO, directory: never read), listed files totalling more than
+     `provenance.IP_BYTES_MAX` (2 GiB) bytes, or a listed file unreadable (a hash of part of the inputs is not a
+     hash of the inputs). A T0-only cell keeps `ip_hash` null ("T0 reads no IP
      file list").
    - **D9.** A tier cell's baseline is the pinned cell of the same tier and the same night.
    - **Job.** Params gain optional `tier` and `force_tier`; the worker runs `matrix cell ... --tier t1

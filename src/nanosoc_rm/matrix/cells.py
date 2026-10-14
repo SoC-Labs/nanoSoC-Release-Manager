@@ -274,6 +274,26 @@ def _tier_part(td: Mapping) -> dict:
             "missing_paths": list(td.get("missing_paths") or []), "log_tail": list(td.get("log_tail") or [])[-20:]}
 
 
+def _checkout_unread(co: Mapping, tier: str, ran: bool) -> str | None:
+    """D4 for a tier's checkout beyond moved commits: a laid-out repo the command removed (LOST), a tracked file
+    it changed (DIRTY), or no layout record from a command that ran (removed and not-laid-out cannot be told apart).
+    The reason, or None."""
+    if not ran:
+        return None
+    if co.get("laid_out") is None:
+        return ("D4: the %s run left no layout record (%s), so a repo its command removed cannot be told from one "
+                "not laid out: the run's inputs could not be captured" % (tier, "analysis.tierrun.LAYOUT_RECORD"))
+    parts = []
+    if co.get("lost"):
+        parts.append("laid-out repo(s) %s could not be re-read after the %s command (removed or broken by it): "
+                     "inputs not captured" % (", ".join(x or "(superproject)" for x in co["lost"][:5]), tier))
+    if co.get("dirty"):
+        files = ["%s/%s" % (d["tree_path"], x) if d["tree_path"] else x for d in co["dirty"] for x in d["files"]]
+        parts.append("the %s command changed %d tracked file(s) of the requested commits: %s" % (
+            tier, len(files), ", ".join(files[:5]) + (" ..." if len(files) > 5 else "")))
+    return ("D4: " + "; ".join(parts))[:600] if parts else None
+
+
 def _merge_moved(*lists: list[dict]) -> list[dict]:
     out, seen = [], set()
     for lst in lists:
@@ -364,8 +384,11 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
         att["captured"] = cap
         co_moved: list[dict] = []
         if tier and (keep / "tree").is_dir():
+            from nanosoc_rm.analysis.tierrun import read_layout_record
+            record = read_layout_record(keep)
+            declared = [x for x in ((spec or {}).get("verdicts"), (spec or {}).get("ip_files")) if x]
             try:
-                co = P.capture_checkout(keep / "tree", f["commit"], requested)
+                co = P.capture_checkout(keep / "tree", f["commit"], requested, record=record, exclude=declared)
             except Exception as e:                                # noqa: BLE001 - an unreadable checkout
                 co = None
                 if att["verdict"] != "INFRA":
@@ -377,6 +400,11 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
                 if co["superproject_commit"] not in (None, f["commit"]):
                     co_moved.insert(0, {"tree_path": "", "requested": f["commit"],
                                         "captured": co["superproject_commit"]})
+                ran = td is not None and td.get("seconds") is not None
+                why = _checkout_unread(co, tier, ran)
+                if why and att["verdict"] != "INFRA":
+                    att["verdict"] = "UNVERIFIED"
+                    att["reason"] = why
         if cap is not None or co_moved:
             mv = P.moved(requested, cap) if cap is not None else []
             if cap is not None and cap["superproject_commit"] not in (None, f["commit"]):
