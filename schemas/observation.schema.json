@@ -1372,6 +1372,114 @@
               "type": "null"
             }
           ]
+        },
+        "would_be_counts": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "unpushed",
+                "not_measured",
+                "current",
+                "outdated",
+                "behind"
+              ],
+              "properties": {
+                "unpushed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "not_measured": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "current": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "outdated": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "behind": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A frozen tree's live counts per state (its `counts` are all 0); null for a live tree."
+        },
+        "would_be_stalest_lagging": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "days",
+                "behind",
+                "state"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A frozen tree's stalest_lagging if it were live (its own is null); null for a live tree."
+        },
+        "would_be_worst_lagging": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "behind",
+                "state"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A frozen tree's worst_lagging if it were live (its own is null); null for a live tree."
         }
       }
     },

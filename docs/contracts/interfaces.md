@@ -1927,8 +1927,10 @@ state over the whole tree; `lagging`/`direct_lagging` = unpushed + outdated + be
 `would_be_lagging`/`would_be_direct_lagging` keep a frozen tree's numbers); `total_behind`, `any_lower_bound`;
 `newest_bump` / `newest_direct_bump` {tree_path, component, date, days}; `updated_days` = days since the newest
 bump in the tree and `age` = fresh (< 30) / aging (30 to 89) / stale (>= 90); `stalest_lagging` (longest unbumped
-lagging pin) and `worst_lagging` (most severe, then most behind). Days are whole UTC calendar days
-(`days_since(ts, today)`).
+lagging pin) and `worst_lagging` (most severe, then most behind). A frozen tree is old on purpose and never reads as
+lagging: its `counts` are all 0, `age`, `stalest_lagging` and `worst_lagging` are null, and its live numbers sit
+under `would_be_counts`, `would_be_stalest_lagging` and `would_be_worst_lagging` (null for a live tree);
+`updated_days` stays as a fact. Days are whole UTC calendar days (`days_since(ts, today)`).
 
 ```python
 STATES, LIVE_STATES, WORDS, SEVERITY, LAGGING, OUTDATED_BEHIND, OUTDATED_DAYS, FRESH_DAYS, STALE_DAYS, AGE_WORDS
@@ -1941,7 +1943,11 @@ def days_since(ts: str | None, today: date) -> int | None;  def day_of(ts) -> da
 ### 23.3 What pages call (`nanosoc_rm.freshness.view`; stored facts only)
 
 Every function reads `db.latest("freshness")` and re-judges with `rules` on `today` (default: today, UTC). None
-runs git, starts a job or touches the network (`test_no_view_function_runs_git`). Each returned row carries the
+runs git, starts a job or touches the network (`test_no_view_function_runs_git`). The stored registry records
+(`registry_record`, kept current by the pages' registry refresh) decide which configurations are listed and
+whether each is frozen (frozen or silicon): a configuration dropped from `eligibility.yaml` leaves the pages, and
+a newly frozen one reads Frozen, without waiting for a scan. With no registry record stored at all, every stored
+scan is listed as stored. Each returned row carries the
 `subject` and `observed_at` of its observation, so a template prints the section 13 hooks with `fact(row, label)`.
 
 ```python
@@ -1962,7 +1968,8 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
   `branches`, `branches_more`, `upstream` {repo, default_branch, head, head_date}, `bump` {commit, date, author,
   subject, total}, `not_measured`, `caveat`, `parent_component`, `parent_commit`, `frozen`, `judge_pin` fields
   (`state`, `would_be`, `live`, `lagging`, `days_since_bump`, `pin_age_days`), `word`, `would_be_word`, `rollup`
-  (worst live state at or under it, for "a parent row shows the worst state beneath it"), `rollup_word`,
+  (worst live state at or under it, for "a parent row shows the worst state beneath it"; `frozen` on every node
+  of a frozen tree, which carries the live answer as `would_be_rollup`, null otherwise), `rollup_word`,
   `rollup_behind`, `subject`, `observed_at`. Nodes come depth first, siblings by path; grouping siblings by kind
   (SoC, custom peripherals, tooling) is the page's, from the catalogue.
 - **`same_pin_lags_in`**: other LIVE configurations pinning the same component at the same commit and lagging on it.
@@ -1983,7 +1990,8 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
   does not gate). `nanosoc-rm freshness show [CONFIG] [--tree] [--today] [--json]` prints the stored facts
   re-judged (exit 2 when none is stored).
 - **Routes** (plug-in `nanosoc_rm.freshness.web`, navigation "Freshness"): `GET /freshness/` lists every scanned
-  tree (verdict word, direct and whole-tree lagging, Updated with Fresh/Aging/Stale, root), stored facts only;
+  tree (verdict word, direct and whole-tree lagging, Updated with Fresh/Aging/Stale, or "Frozen N d ago" for a
+  frozen tree, root), stored facts only; one compact scan toolbar, the explanations behind "How is this judged?";
   `POST /freshness/scan` (field `configuration`, optional; local deployments only, CSRF-checked; elsewhere 403
   with the CLI command) queues the job, or shows the one already queued that covers it, and redirects to
   `/freshness/?job=N`. 400 for an unregistered configuration.
