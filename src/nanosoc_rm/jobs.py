@@ -207,7 +207,8 @@ def get(config: Config, job_id: int) -> dict | None:
 
 def jobs(config: Config, *, limit: int = 50, kind: str | None = None, configuration: str | None = None,
          states: Sequence[str] | None = None) -> list[dict]:
-    """Job records, newest first."""
+    """Job records, newest first, at most `limit`. The filters and the limit run in SQL, so only the rows returned
+    are decoded (ROB-load-4)."""
     where, args = [], []
     if kind:
         where.append("kind = ?")
@@ -215,12 +216,12 @@ def jobs(config: Config, *, limit: int = 50, kind: str | None = None, configurat
     if states:
         where.append("state IN (%s)" % ",".join("?" * len(states)))
         args += list(states)
-    with _connect(config) as con:
-        rows = [_row(r) for r in con.execute("SELECT * FROM jobs %s ORDER BY id DESC" % (
-            ("WHERE " + " AND ".join(where)) if where else ""), args)]
     if configuration:
-        rows = [r for r in rows if r["params"].get("configuration") == configuration]
-    return rows[:limit]
+        where.append("json_extract(params, '$.configuration') = ?")
+        args.append(configuration)
+    with _connect(config) as con:
+        return [_row(r) for r in con.execute("SELECT * FROM jobs %s ORDER BY id DESC LIMIT ?" % (
+            ("WHERE " + " AND ".join(where)) if where else ""), [*args, max(int(limit), 0)])]
 
 
 # ---------------------------------------------------------------------------------------------------------
