@@ -1,0 +1,56 @@
+{# Configuration workspace, History tab (spec 3.7). Data from cfgspace.history_page. #}
+{% import "_ui.html" as ui %}
+{% include "_cfg_head.html" %}
+{% if not ci %}<p class="note">No CI is configured on this service: every check below ran as a local job.</p>{% endif %}
+
+<section aria-labelledby="h-jobs">
+  <h2 id="h-jobs">Jobs ({{ rows|length }})</h2>
+  {% if rows %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Job</th><th scope="col">Command</th><th scope="col">Verdict</th><th scope="col">Tier</th><th scope="col">Stored result</th><th scope="col">When</th><th scope="col">Took</th><th scope="col">By</th></tr></thead>
+    <tbody>
+    {% for row in rows %}{% set j = row.job %}
+      <tr data-job="{{ j.id }}" data-job-state="{{ j.state }}">
+        <td><a href="{{ row.href }}">{{ j.id }}</a></td>
+        <td><code>{{ j.command }}</code></td>
+        <td>{{ ui.chip(j.verdict or j.state, row.tone) }}</td>
+        <td>{{ row.tier }}</td>
+        <td>{% if row.stored %}{{ fact(row.stored, short(row.stored.fact.nonce, 12)) }}{% elif row.whatif %}<span class="note">what-if: never stored</span>{% else %}<span class="note">-</span>{% endif %}</td>
+        <td>{{ row.when }}</td><td>{{ row.took or '-' }}</td><td>{{ j.by }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty">No job has run for {{ c.cid }} on this host yet.</p>{% endif %}
+</section>
+
+<section aria-labelledby="h-results">
+  <h2 id="h-results">Stored compat results ({{ c.docs|length }})</h2>
+  {% if c.docs %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Result</th><th scope="col">Verdict</th><th scope="col">Tier</th><th scope="col">Not run</th><th scope="col">Finished</th></tr></thead>
+    <tbody>
+    {% for row in results %}{% set d = row.doc %}{% set f = d.fact %}
+      <tr data-verdict="{{ row.verdict }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td>{{ ui.chip(row.verdict, row.tone) }}{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</td>
+        <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'T0 only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty">No stored compat result. A Run without overrides stores one (<code>nanosoc-rm compat {{ c.cid }} --store</code>).</p>{% endif %}
+</section>
+
+{% if ci %}
+<section aria-labelledby="h-ci">
+  <h2 id="h-ci">CI T0 runs ({{ runs|length }})</h2>
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Run</th><th scope="col">Verdict</th><th scope="col">Acceptance</th><th scope="col">Triggered</th><th scope="col">By</th></tr></thead>
+    <tbody>
+    {% for r in runs %}
+      <tr data-verdict="{{ r.fact.verdict or '' }}"><td><a href="/runs/{{ r.fact.run.nonce }}">{{ short(r.fact.run.nonce, 12) }}</a></td>
+        <td>{{ fact(r, r.fact.verdict or 'pending') }}</td><td>{{ r.fact.acceptance }}</td><td>{{ r.fact.run.triggered_at }}</td><td>{{ r.fact.run.triggered_by }}</td></tr>
+    {% else %}<tr><td colspan="5">no CI run yet</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}

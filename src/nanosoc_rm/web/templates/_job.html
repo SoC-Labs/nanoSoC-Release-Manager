@@ -1,4 +1,5 @@
-{# One local job (CR-17): status, command, log tail, result. While it is queued or running, htmx re-fetches it every 2 s. #}
+{# One local job (CR-17): status, command, log tail, result. While it is queued or running, htmx re-fetches it every 2 s.
+   `compact` (the What-if tab, which shows Now vs After above it): the gates and pins tables fold into <details>. #}
 {% set live = job.state in ('queued', 'running') %}
 <div class="job" id="job-{{ job.id }}" data-job="{{ job.id }}" data-job-state="{{ job.state }}"{% if live %} hx-get="/jobs/{{ job.id }}/fragment" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
   <div class="head">
@@ -20,7 +21,7 @@
   {% if job.kind == 'compat' and r %}
     {% set f = r.fact %}
     {% if stored %}<p class="note">Stored result: {{ fact(stored, 'compat_result ' ~ short(f.nonce, 12)) }}</p>
-    {% elif f.overrides %}<p class="banner info">What-if run (pins overridden): shown here, never stored as a fact.</p>{% endif %}
+    {% elif f.overrides %}<p class="banner info">What-if run (pins overridden): shown here, never stored as a fact.{% if not compact %} <a href="/configurations/{{ quote(f.configuration) }}/whatif?job={{ job.id }}#whatif-result">Now vs After for this what-if</a>{% endif %}</p>{% endif %}
     <table class="kv">
       <tr><th>Run verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.run_verdict or f.verdict, '') }}">{{ f.run_verdict or f.verdict }}</span>
         {% if f.tier %}(T0 {{ f.verdict }} + {{ f.tier.tier }} {{ f.tier.verdict }}){% endif %}
@@ -31,6 +32,7 @@
       {% if f.overrides %}<tr><th>Overrides</th><td>{% for o in f.overrides %}<code>{{ o.tree_path }}</code> = <code>{{ short(o.commit, 12) }}</code> (was <code>{{ short(o.replaces, 12) if o.replaces else 'none' }}</code>)<br>{% endfor %}</td></tr>{% endif %}
       {% if f.unused_waivers %}<tr><th>Unused waivers</th><td>{{ f.unused_waivers }}</td></tr>{% endif %}
     </table>
+    {% if compact %}<details><summary>Gates and pins of this run</summary>{% endif %}
     <h3>Gates</h3>
     <div class="scroll"><table>
       <thead><tr><th>Gate</th><th>Verdict</th><th>Control</th><th>Detail</th></tr></thead>
@@ -78,6 +80,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {% if compact %}</details>{% endif %}
   {% elif r %}
     <p class="note">{{ r.documents }} document(s){% for k, n in r.kinds|dictsort %}: {{ n }} {{ k }}{% endfor %}{% if r.failed %}; failed: {{ r.failed|join(', ') }}{% endif %}</p>
   {% endif %}

@@ -69,7 +69,7 @@
   <thead><tr><th>Configuration</th><th>Frozen</th><th>Last stored result</th></tr></thead>
   <tbody>
   {% for c in configs %}{% set last = (results|selectattr('fact.configuration', 'equalto', c.fact.id)|first) %}
-    <tr><td><a href="/compat?configuration={{ c.fact.id }}">{{ c.fact.id }}</a> {{ fact(c, 'registry') }}</td><td>{{ 'yes' if c.fact.record.frozen else '' }}</td>
+    <tr><td><a href="/configurations/{{ c.fact.id }}/whatif">{{ c.fact.id }}</a> {{ fact(c, 'registry') }}</td><td>{{ 'yes' if c.fact.record.frozen else '' }}</td>
       <td>{% if last %}{% set v = last.fact.run_verdict or last.fact.verdict %}<span class="pill {{ VERDICT_CLASS.get(v, '') }}">{{ v }}</span> <span class="note">{{ age_text(last.fact.finished_at) }} ago</span>{% else %}<span class="note">none</span>{% endif %}</td></tr>
   {% else %}<tr><td colspan="3">No configuration registered (set <code>[registry] path</code>).</td></tr>
   {% endfor %}

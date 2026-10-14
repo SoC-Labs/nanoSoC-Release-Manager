@@ -198,6 +198,8 @@ def _update(config: Config, job_id: int, **fields: Any) -> None:
 
 
 def get(config: Config, job_id: int) -> dict | None:
+    if not 0 <= int(job_id) < 2 ** 63:          # beyond SQLite INTEGER: no such job (not an OverflowError)
+        return None
     with _connect(config) as con:
         return _row(con.execute("SELECT * FROM jobs WHERE id = ?", (int(job_id),)).fetchone())
 

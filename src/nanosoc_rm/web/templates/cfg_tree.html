@@ -1,0 +1,54 @@
+{# Configuration workspace, Submodule tree tab (spec 3.3). Rows, flags, open state and selection come from
+   cfgspace.tree_view; this file only loops and prints. #}
+{% import "_ui.html" as ui %}
+{% include "_cfg_head.html" %}
+{% macro row(r) -%}
+<span class="trow{% if r.selected %} tsel{% endif %}{% if r.twin %} is-twin{% endif %}" data-tree-path="{{ r.path }}" data-tone="{{ r.tone }}"{% if r.selected %} aria-current="true"{% endif %}>
+  <a href="{{ r.href }}" hx-get="{{ r.hx }}" hx-target="#pin-aside" hx-swap="outerHTML" hx-push-url="{{ r.href }}"><code>{{ r.path }}</code>{% if r.comp %} <span class="note">{{ r.comp }}</span>{% endif %}</a>
+  {{ fact(r.pin, r.commit, tag='code') }}
+  {% for text, tone in r.hosts %}{{ ui.chip(text, tone) }} {% endfor %}
+  {% for text, tone in r.flags %}{{ ui.chip(text, tone) }} {% endfor %}
+  <span class="note">lag {{ r.lag }}</span>
+</span>
+{%- endmacro %}
+
+<div class="row" style="align-items:center;justify-content:space-between">
+  <nav class="filters" aria-label="Show pins">
+    {% for f in t.filters %}<a class="seg{% if f.on %} is-on{% endif %}" href="{{ f.href }}"{% if f.on %} aria-current="page"{% endif %}>{{ f.label }} <span class="chip c-neutral">{{ f.count }}</span></a>{% endfor %}
+  </nav>
+  {% if t.show == 'all' %}<p class="filters"><a class="ghost seg" href="{{ t.expand }}">Expand all</a> <a class="ghost seg" href="{{ t.collapse }}">Collapse all</a></p>{% endif %}
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
+<section class="panel" aria-labelledby="h-tree" style="flex:999 1 520px;min-width:0">
+  <h2 id="h-tree" class="sr">Pins of {{ c.cid }}</h2>
+  {% if not c.pins %}
+  <p class="empty">No walk of {{ c.cid }} is stored, so there is no tree yet. {% if actions %}Press Walk now above, or run{% else %}Run{% endif %} <code>nanosoc-rm walk {{ c.cid }}</code>.</p>
+  {% elif t.flat is not none %}
+  <ul class="tree" style="list-style:none;padding-left:0">
+    {% for r in t.flat %}<li>{{ row(r) }}</li>{% else %}<li><p class="empty">No pin matches this filter.</p></li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="trow"><strong><code>{{ t.root.label }}</code></strong> <code>{{ t.root.commit }}</code> {% for text, tone in t.root.flags %}{{ ui.chip(text, tone) }} {% endfor %}</p>
+  <ul class="tree" style="list-style:none;padding-left:1rem">
+  {% for r in t.rows recursive %}
+    <li>
+    {% if r.children %}
+      <details id="{{ r.id }}"{% if r.open %} open{% endif %}>
+        <summary>{{ row(r) }}</summary>
+        <ul style="list-style:none;padding-left:1.25rem">{{ loop(r.children) }}
+        {% if r.below %}<li><span class="trow note">[{{ r.below }} tree{{ '' if r.below == 1 else 's' }} below, never reached]</span></li>{% endif %}
+        </ul>
+      </details>
+    {% else %}
+      {{ row(r) }}
+      {% if r.below %}<ul style="list-style:none;padding-left:1.25rem"><li><span class="trow note">[{{ r.below }} tree{{ '' if r.below == 1 else 's' }} below, never reached]</span></li></ul>{% endif %}
+    {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <p class="note">* the host the pinned URL names. Lag: commits behind that host's default branch.</p>
+  {% endif %}
+</section>
+{% include "cfg_pin_aside.html" %}
+</div>

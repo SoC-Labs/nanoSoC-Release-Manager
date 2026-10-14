@@ -1277,15 +1277,11 @@ def check_a4(run, pipeline, jobs, variables, *, configuration, commit, login):
 
 
 def route_table(app):
-    """Every route the app serves: (path, methods, static directory or None)."""
-    out = []
-    for r in app.routes:
-        path = getattr(r, "path", None)
-        if path is None:
-            continue
-        directory = getattr(getattr(r, "app", None), "directory", None)
-        out.append((path, set(getattr(r, "methods", None) or ()), directory))
-    return out
+    """Every route the app serves: (path, methods, static directory or None). Included routers (the plug-ins and
+    the Wave C workspaces) are flattened through web.routers.route_table: FastAPI keeps an included router as one
+    entry with no path, so a walk of `app.routes` alone never requested their routes (CR-W6)."""
+    from nanosoc_rm.web.routers import route_table as flat
+    return [(path, set(methods), getattr(getattr(r, "app", None), "directory", None)) for path, methods, r in flat(app)]
 
 
 def norm_route(path):
@@ -1330,7 +1326,7 @@ def sweep(client, app, who, *, methods=None, skip=()):
 MEMBER_MUST_OPEN = {("GET", "/"), ("GET", "/silicon-protection"), ("GET", "/defects"), ("GET", "/api/v1/configurations")}
 # CR-W6: the Wave C pages a member must open in the real app's sweep (the checker's synthetic baseline sweeps only
 # the section 13 contract routes, so it keeps MEMBER_MUST_OPEN).
-APP_MUST_OPEN = MEMBER_MUST_OPEN | {("GET", "/search")}
+APP_MUST_OPEN = MEMBER_MUST_OPEN | {("GET", "/search"), ("GET", "/configurations/{id}/tree")}
 
 
 def check_a5(results, *, member, login_path, exempt=(), required=CONTRACT_ROUTES, must_open=MEMBER_MUST_OPEN):

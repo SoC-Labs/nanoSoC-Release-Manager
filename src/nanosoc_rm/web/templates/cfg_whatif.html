@@ -1,0 +1,173 @@
+{# Configuration workspace, What-if tab (spec 3.4, build-first fix 3): the result first, then the question, then
+   the form. Data from cfgspace.whatif_page; this file only loops and prints. #}
+{% import "_ui.html" as ui %}
+{% include "_cfg_head.html" %}
+
+{% if result %}
+<section aria-labelledby="h-na" id="whatif-result">
+  <h2 id="h-na">Now vs After, per gate</h2>
+  <p>{% if result.now %}Now: {{ fact(result.now, result.now_line) }}.{% else %}Now: no stored result, so every gate below is new.{% endif %}
+     After: job {{ job.id }}{% if result.after.fact.nonce %}, result {{ short(result.after.fact.nonce, 12) }}{% endif %} (a what-if is shown here and never stored).</p>
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Gate</th><th scope="col">Now</th><th scope="col">After</th><th scope="col">Change</th><th scope="col">Detail after</th></tr></thead>
+    <tbody>
+    {% for r in result.rows %}
+      <tr data-gate="{{ r.gate }}" data-change="{{ r.change }}"{% if r.change != 'same' %} class="is-deciding"{% endif %}>
+        <td><code>{{ r.gate }}</code></td>
+        <td>{{ ui.chip(r.now, r.now_tone) }}</td>
+        <td>{{ ui.chip(r.after, r.after_tone) }}</td>
+        <td>{{ ui.chip(r.change, change_tone[r.change]) }}</td>
+        <td>{{ r.detail }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p><strong>{% if result.changed %}{{ result.changed }} gate{{ '' if result.changed == 1 else 's' }} changed; {% endif %}{% if result.unchanged %}Nothing else moved: {{ result.unchanged }} gate{{ '' if result.unchanged == 1 else 's' }} unchanged.{% else %}every gate changed.{% endif %}</strong></p>
+  {% if result.moved %}
+  <p>Moved pins:</p>
+  <ul>{% for o in result.moved %}<li><code>{{ o.tree_path }}</code>: <code>{{ short(o.replaces) if o.replaces else 'none' }}</code> to <code>{{ short(o.commit) }}</code></li>{% endfor %}</ul>
+  {% endif %}
+  {% if result.infra %}<p class="banner info" role="note"><strong>INFRA.</strong> {{ result.infra }}</p>{% endif %}
+</section>
+{% endif %}
+{% if job %}
+<details id="whatif-job"{% if not result %} open{% endif %} class="panel">
+  <summary>Job {{ job.id }}: {{ job.state }}{% if job.verdict %}, {{ job.verdict }}{% endif %} (log and the full result)</summary>
+  {% set compact = true %}{% include "_job.html" %}
+</details>
+{% endif %}
+
+{% if not c.doc %}
+<section class="panel" aria-labelledby="h-never">
+  <h2 id="h-never">{{ c.cid }} has never been checked. Run a first check, then ask again.</h2>
+  <p>A what-if compares against a stored result, and there is none yet. Press {{ 'Run' if local_ci else 'Run T0' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
+</section>
+{% endif %}
+
+<section class="panel" aria-labelledby="h-q">
+  <p class="note">Your question</p>
+  <h2 id="h-q">What if {{ comp or 'a component' }} moves to {{ target_label or 'another commit' }} in {{ c.cid }}?</h2>
+  <p>{{ expect }}</p>
+</section>
+
+<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start" id="whatif-pick">
+<section class="panel" aria-labelledby="h-s1" style="flex:1 1 320px;min-width:0">
+  <h3 id="h-s1">1. Pick the component</h3>
+  <form method="get" action="{{ base }}/whatif" role="search">
+    <label>Filter components
+      <input type="search" name="q" value="{{ flt }}" hx-get="{{ base }}/whatif" hx-trigger="input changed delay:200ms, search" hx-target="#wi-comps" hx-select="#wi-comps" hx-swap="outerHTML" hx-include="this"></label>
+    {% if comp %}<input type="hidden" name="component" value="{{ comp }}">{% endif %}
+    <noscript><button type="submit" class="ghost">Filter</button></noscript>
+  </form>
+  <ul id="wi-comps" style="list-style:none;padding-left:0">
+  {% for m in comp_rows %}
+    <li><a class="trow{% if m.on %} tsel{% endif %}" href="{{ m.href }}"{% if m.on %} aria-current="true"{% endif %}><code>{{ m.id }}</code>{% if m.flag %} {{ ui.chip(m.flag[0], m.flag[1]) }}{% endif %} <span class="note">pin {{ m.pin }}{% if m.n > 1 %}, pinned {{ m.n }} times{% endif %}</span></a></li>
+  {% else %}<li><p class="empty">{% if c.pins %}No component matches "{{ flt }}".{% else %}No walk of {{ c.cid }} is stored, so its components cannot be listed.{% endif %}</p></li>
+  {% endfor %}
+  </ul>
+</section>
+
+<section class="panel" aria-labelledby="h-s2" style="flex:1 1 320px;min-width:0">
+  <h3 id="h-s2">2. Pick where it moves to</h3>
+  {% if not comp %}
+  <p class="empty">Pick a component first.</p>
+  {% else %}
+  <form method="get" action="{{ base }}/whatif" id="wi-target" hx-get="{{ base }}/whatif" hx-trigger="change" hx-target="#main" hx-select="#main" hx-swap="outerHTML" hx-push-url="true">
+    <input type="hidden" name="component" value="{{ comp }}">
+    <fieldset>
+      <legend class="sr">Target commit for {{ comp }}</legend>
+      {% for t in targets %}
+      <label class="check"><input type="radio" name="target" value="{{ t.commit }}"{% if t.commit == target %} checked{% endif %}>
+        <span><strong>{{ t.label }}</strong> <code>{{ t.ref }}</code> <code>{{ short(t.commit) }}</code> <span class="note">{{ t.note }}</span></span></label><br>
+      {% else %}<p class="note">No named target: {{ comp }} has no mirror refs stored here, no other configuration pins it, and no defect fix cites it.</p>
+      {% endfor %}
+    </fieldset>
+    {% if n_refs %}
+    <details id="wi-other">
+      <summary>Other ref ({{ n_refs }} in the mirror)</summary>
+      <label>Ref
+        <select name="target_other">
+          <option value="">choose...</option>
+          <optgroup label="tags">{% for r in refs.tag %}<option value="{{ r.sha }}"{% if r.sha == target %} selected{% endif %}>{{ r.name }} ({{ r.host }}, {{ short(r.sha) }}, {{ r.date[:10] }})</option>{% endfor %}</optgroup>
+          <optgroup label="branches">{% for r in refs.branch %}<option value="{{ r.sha }}"{% if r.sha == target %} selected{% endif %}>{{ r.name }} ({{ r.host }}, {{ short(r.sha) }}, {{ r.date[:10] }})</option>{% endfor %}</optgroup>
+        </select></label>
+    </details>
+    {% else %}<p class="note">No mirror of {{ comp }} here: sync it on <a href="/mirrors">Mirrors</a> to list its tags and branches.</p>{% endif %}
+    {% if paths|length > 1 %}
+    <fieldset>
+      <legend>{{ comp }} is pinned {{ paths|length }} times. Move which?</legend>
+      <input type="hidden" name="paths_set" value="1">
+      {% for p in paths %}<label class="check"><input type="checkbox" name="path" value="{{ p }}"{% if p in chosen %} checked{% endif %}> <code>{{ p }}</code></label><br>{% endfor %}
+    </fieldset>
+    {% endif %}
+    <noscript><button type="submit" class="ghost">Use this target</button></noscript>
+  </form>
+  {% endif %}
+</section>
+</div>
+
+{% if comp and target %}
+<section class="panel" aria-labelledby="h-run">
+  <h3 id="h-run">3. Run it</h3>
+  {% if actions %}
+  <form method="post" action="/compat/jobs">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="configuration" value="{{ c.cid }}">
+    <input type="hidden" name="return" value="whatif">
+    {% for v in pin_values %}<input type="hidden" name="pin" value="{{ v }}">{% endfor %}
+    <p>Moves {% for p in chosen %}<code>{{ p }}</code>{{ ', ' if not loop.last }}{% else %}nothing (tick a path above){% endfor %} to <code>{{ short(target, 12) }}</code>. Same as <code>{{ cli }}</code>.</p>
+    <details id="wi-tier">
+      <summary>Change tier (T0 only now)</summary>
+      <label>Tier
+        <select name="tier">
+          <option value="">T0 only</option>
+          {% for k, t in tiers|dictsort %}{% if k in ('t1', 't2') %}<option value="{{ k }}">{{ k|upper }} (budget {{ t.budget_s }} s)</option>{% endif %}{% endfor %}
+        </select></label>
+      <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if T0 fails (UNVERIFIED for release)</label>
+    </details>
+    <p><button type="submit" class="prim"{% if not chosen %} disabled{% endif %}>Run what-if</button> <span class="note">One job; the result opens here with Now vs After.</span></p>
+  </form>
+  {% else %}
+  <p class="empty">This service triggers CI and has no local job worker. Run it on a login server: <code>{{ cli }}</code></p>
+  {% endif %}
+</section>
+{% elif not actions %}
+<p class="note">This service has no local job worker: a what-if runs on a login server as <code>{{ cli }}</code>.</p>
+{% endif %}
+
+{% if actions and c.pins %}
+<details id="wi-all" class="panel">
+  <summary>Change pins (all {{ c.pins|length }})</summary>
+  {% if pin_refs is none %}
+  <p><a href="{{ base }}/whatif?all=1{% if comp %}&amp;component={{ quote(comp) }}{% endif %}#wi-all">Load the override table</a> <span class="note">(lists every mirror's tags and branches).</span></p>
+  {% else %}
+  <form method="post" action="/compat/jobs">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="configuration" value="{{ c.cid }}">
+    <input type="hidden" name="return" value="whatif">
+    <div class="scroll"><table>
+      <thead><tr><th scope="col">Tree path</th><th scope="col">Registered commit</th><th scope="col">Override</th></tr></thead>
+      <tbody>
+      {% for p in c.pins %}{% set tp = p.fact.tree_paths[0] %}{% set rs = pin_refs.get(tp) or [] %}
+        <tr><td><code>{{ tp }}</code></td><td><code>{{ short(p.fact.child.commit) }}</code></td>
+          <td>{% if rs %}<select name="pin" aria-label="override for {{ tp }}"><option value="">registered</option>
+            <optgroup label="tags">{% for r in rs if r.kind == 'tag' %}<option value="{{ tp }}={{ r.sha }}">{{ r.name }} ({{ r.host }}, {{ short(r.sha) }})</option>{% endfor %}</optgroup>
+            <optgroup label="branches">{% for r in rs if r.kind == 'branch' %}<option value="{{ tp }}={{ r.sha }}">{{ r.name }} ({{ r.host }}, {{ short(r.sha) }})</option>{% endfor %}</optgroup>
+          </select>{% else %}<span class="note">no mirror</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <label>More overrides, one <code>TREE_PATH=SHA</code> per line<textarea name="pins_extra" rows="2" cols="70"></textarea></label>
+    <p><button type="submit" class="ghost">Run with these pins</button></p>
+  </form>
+  {% endif %}
+</details>
+{% endif %}
+
+{% if steps %}
+<section class="panel" aria-labelledby="h-wn">
+  <h2 id="h-wn">What to do next</h2>
+  <ol>{% for s in steps %}<li><strong>{{ s.lead }}</strong> {{ s.rest }}</li>{% endfor %}</ol>
+  {% if code %}{{ ui.copybox('wi-code', code, 'The fix, as commands') }}{% endif %}
+</section>
+{% endif %}
