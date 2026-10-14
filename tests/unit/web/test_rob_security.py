@@ -310,6 +310,23 @@ def test_local_logout_revokes_every_copy_of_the_cookie(local):
         assert r.status_code == 401, (method, r.status_code)
 
 
+def test_logout_accepts_the_token_as_a_header(local):
+    """POST /auth/logout takes the session's CSRF token from X-CSRF-Token as the other session POSTs do."""
+    c = signed_in(local["app"])
+    copied = c.cookies.get(auth.SESSION_COOKIE)
+    r = c.post("/auth/logout", headers={"X-CSRF-Token": page_csrf(c)}, follow_redirects=False)
+    assert r.status_code == 303
+    thief = TestClient(local["app"])
+    thief.cookies.set(auth.SESSION_COOKIE, copied)
+    assert thief.get("/api/v1/alerts", follow_redirects=False).status_code == 401
+
+
+def test_an_empty_secret_never_makes_a_signer():
+    """ROB-coverage-1 backstop: Sessions('') is refused whatever path built it ('' is a key anyone can sign with)."""
+    with pytest.raises(auth.ConfigError):
+        auth.Sessions("")
+
+
 def test_github_logout_revokes_a_copied_cookie(service):
     c = TestClient(create_app(service["cfg"]))
     r = c.get("/auth/login", follow_redirects=False)
@@ -354,6 +371,21 @@ def test_concurrent_guesses_are_held_to_the_limit(local):
     codes = asyncio.run(_concurrent_wrong_passwords(local["app"], 30))
     assert set(codes) <= {401, 429}, codes
     assert codes.count(401) <= 5, "%d password checks in one window (limit 5)" % codes.count(401)
+
+
+def test_successful_sign_ins_are_never_throttled(local):
+    """Review of ROB-security-3: attempt() reserves a slot before the password check, so a successful sign-in must
+    give its slot back (clear). Otherwise a user who signs in six times in five minutes is locked out."""
+    for _ in range(6):
+        c = TestClient(local["app"])
+        assert sign_in(c).status_code == 303
+    c = TestClient(local["app"])
+    for _ in range(4):
+        assert sign_in(c, password="nope").status_code == 401
+    assert sign_in(c).status_code == 303                                  # the fifth check, right: in
+    for _ in range(4):
+        assert sign_in(c, password="nope").status_code == 401             # the success reset the count
+    assert sign_in(c).status_code == 303
 
 
 def test_the_throttle_forgets_logins_whose_window_has_passed(monkeypatch):
