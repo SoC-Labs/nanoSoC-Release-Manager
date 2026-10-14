@@ -464,6 +464,7 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
     # added directly to the app (34 of 72 on FastAPI 0.143), so walk the router tree as the route census does.
     from nanosoc_rm.web import routers
     pages, bad = 0, []
+    jobs_before = [j["id"] for j in jobs.jobs(load_config(local["cfg"]), limit=1000)]
     for path, methods, _ in routers.route_table(c.app):
         if "GET" not in methods or path.startswith(("/auth", "/static")):
             continue
@@ -490,6 +491,8 @@ def test_smoke_every_page_renders_for_a_local_user(local, monkeypatch):
                 assert json.loads(line)["kind"]
     assert not bad, bad
     assert pages >= 17
+    # GET queues no work: walking every GET route left the job store as it was (review of the wider walk)
+    assert [j["id"] for j in jobs.jobs(load_config(local["cfg"]), limit=1000)] == jobs_before
     job_page = c.get("/compat?job=1").text
     assert 'data-job-state="done"' in job_page and 'data-verdict="FAIL"' in job_page
     assert "Stored result:" in job_page and 'data-gate="t0.pins.reachable"' in job_page    # seeded above

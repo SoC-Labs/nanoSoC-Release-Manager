@@ -48,6 +48,19 @@ def test_the_rail_lists_every_registered_configuration_with_a_text_chip(site):
     assert "never checked · " in text                                         # no compat result stored yet
 
 
+def test_the_rails_pin_count_is_each_configurations_own(site):
+    """The rail's batched pin read (ROB-load-6) still counts each configuration's own pins (review: no test
+    read the number)."""
+    from nanosoc_rm.web import views
+    config = _load_config(site)
+    text = site["client"].get("/").text
+    counts = dict(re.findall(r'data-rail-configuration="([^"]+)">.*?never checked · (\d+) pins', text, re.S))
+    assert counts, text[:300]
+    for cid, n in counts.items():
+        assert int(n) == len(views.pins(config, cid)), (cid, n)
+    assert any(int(n) > 0 for n in counts.values()), counts
+
+
 def test_the_rail_shows_the_deciding_gate_once_a_result_is_stored(site):
     seed(site["cfg"], "observation.compat-result.example.jsonl")
     text = site["client"].get("/configurations/eth-rc4").text

@@ -123,3 +123,27 @@ def test_versioning_no_mirror_hint_is_a_valid_command(registry_config, argv):
     r = _run(*argv)
     assert r.exit_code == 2, r.output
     assert _parses(_advised_sync(r.output)), r.output
+
+
+def test_a_retired_configuration_with_stored_drafts_still_lists_them(registry_config, monkeypatch):
+    """The bound of ROB-soak-4: the name check runs only when the listing is empty, so drafts kept for a
+    configuration the registry no longer has are still listed, exit 0 (review: no test held this)."""
+    from nanosoc_rm import releases
+    row = {"configuration": "retired-x", "version": "1.0.0", "dir": "releases/retired-x/1.0.0",
+           "doc": {"fact": {"verdict": "PASS", "ready": True}}}
+    monkeypatch.setattr(releases, "drafts", lambda configuration=None, **_: [row])
+    r = _run("release", "list", "retired-x")
+    assert r.exit_code == 0, (r.exit_code, r.output)
+    assert "retired-x" in r.output and "1.0.0" in r.output, r.output
+
+
+def test_an_unreadable_registry_never_turns_a_listing_into_usage(registry_config):
+    """With no registry to ask, an empty listing is still an answer (exit 0), not exit 3 (review)."""
+    from nanosoc_rm.cliutil import unregistered_configuration
+    from nanosoc_rm.config import load_config
+    text = registry_config.read_text()
+    reg = text.split('[registry]\npath = "', 1)[1].split('"', 1)[0]
+    registry_config.write_text(text.replace(reg, reg + "-missing"))
+    assert unregistered_configuration("nosuch", load_config(registry_config)) is None
+    r = _run("release", "list", "nosuch")
+    assert r.exit_code == 0, (r.exit_code, r.output)
