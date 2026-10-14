@@ -157,3 +157,11 @@ def test_a_nested_ssh_pin_names_its_submodule_relative_to_its_parent():
     dd = doc("x", [gate("t0.pins.fetchable", "FAIL"), gate("t0.urls.no-ssh-public", "FAIL")], pins)
     a = V.next_action(V.deciding(dd), "x", doc=dd)
     assert "submodule.sub.url <https URL of sub>" in a["code"] and a["code"].endswith("git submodule sync sub")
+
+
+def test_the_upgrade_path_label_names_the_registry_tag_not_a_dict():
+    rec = {"fact": {"record": {"upgrade_from": {"tag": "v1.0.0"}}}}
+    labels = [c.label for c in V.causes(eth_main(), rec)]
+    assert "upgrade path from v1.0.0 does not clone anonymously" in labels, labels
+    rec = {"fact": {"record": {"upgrade_from": {"commit": "ab73e40924317e45e7b3b941f52a7ed35f20832e"}}}}
+    assert "upgrade path from ab73e40 does not clone anonymously" in [c.label for c in V.causes(eth_main(), rec)]

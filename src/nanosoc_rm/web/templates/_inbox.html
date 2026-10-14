@@ -1,0 +1,52 @@
+{# The inbox section (spec 2.3, 2.4). Rendered inside inbox.html, and alone as the htmx answer to a done, snooze,
+   undo or clear-group POST (hx-target="#inbox"). `inbox` is web.inbox.inbox_view(). #}
+{% import "_ui.html" as ui %}
+<section id="inbox" aria-labelledby="h-next" style="display:flex;flex-direction:column;gap:16px">
+  <div class="row" style="justify-content:space-between">
+    <div style="flex:1 1 480px;min-width:0">
+      <p class="rail-h" style="margin:0">Inbox · {{ inbox.open }} open · ranked by what unblocks most</p>
+      <h2 id="h-next" class="disp" style="margin:.25rem 0 0;font-size:1.6rem">{{ inbox.headline }}</h2>
+    </div>
+    <div style="flex:0 1 260px">
+      <label for="inbox-progress"><strong>{{ inbox.done_n }} of {{ inbox.total }} done</strong> today</label>
+      <progress id="inbox-progress" max="100" value="{{ inbox.progress }}" style="width:100%">{{ inbox.progress }}%</progress>
+    </div>
+  </div>
+
+  <form method="get" action="/" class="filters" role="group" aria-label="Filter the inbox">
+  {% for f in inbox.filters %}
+    <button type="submit" name="cat" value="{{ f.key }}" class="seg" aria-pressed="{{ 'true' if f.on else 'false' }}">{{ f.label }} <span class="mono">{{ f.count }}</span></button>
+  {% endfor %}
+  </form>
+
+  <div aria-label="Things that need you" role="region" style="display:flex;flex-direction:column;gap:14px">
+  {% for c in inbox.cards %}
+    {% with first = loop.first and inbox.cat == "all" %}{% include "_card.html" %}{% endwith %}
+  {% else %}
+    <p class="empty">{% if inbox.open %}Nothing open here. Pick <strong>All</strong> to see the other {{ inbox.open }}.{% else %}Inbox clear. Nothing needs you right now.{% endif %}</p>
+  {% endfor %}
+  </div>
+
+  <details id="inbox-done">
+    <summary>Done ({{ inbox.done_n }}) today</summary>
+    {% if inbox.done %}
+    <ul>
+    {% for r in inbox.done %}
+      <li><s>{{ r.card.title if r.card else r.card_id }}</s> <span class="note">at {{ r.at }}</span>
+        {% if actions %}<form method="post" action="/inbox/undo" hx-post="/inbox/undo" hx-target="#inbox" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ r.card_id }}"><input type="hidden" name="cat" value="{{ inbox.cat }}"><button type="submit" class="ghost">Undo</button></form>{% endif %}</li>
+    {% endfor %}
+    </ul>
+    {% else %}<p class="note">Nothing marked done today. A done card comes back by itself when its facts change.</p>{% endif %}
+  </details>
+  {% if inbox.snoozed %}
+  <details id="inbox-snoozed">
+    <summary>Snoozed ({{ inbox.snoozed|length }})</summary>
+    <ul>
+    {% for r in inbox.snoozed %}
+      <li>{{ r.card.title if r.card else r.card_id }} <span class="note">until {{ r.until }}</span>
+        {% if actions %}<form method="post" action="/inbox/undo" hx-post="/inbox/undo" hx-target="#inbox" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="card" value="{{ r.card_id }}"><input type="hidden" name="cat" value="{{ inbox.cat }}"><button type="submit" class="ghost">Show again</button></form>{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</section>

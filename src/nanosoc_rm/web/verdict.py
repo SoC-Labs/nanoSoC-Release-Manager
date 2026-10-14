@@ -120,8 +120,13 @@ def _tier_row(f: dict) -> dict | None:
 
 def _upgrade_from(f: dict, record: dict | None) -> str | None:
     rec = ((record or {}).get("fact") or {}).get("record") or {}
-    if rec.get("upgrade_from"):
-        return str(rec["upgrade_from"])[:7]
+    uf = rec.get("upgrade_from")
+    if isinstance(uf, dict):                       # eligibility.yaml: {tag: v1.0.0} or {commit: <sha>}
+        named = uf.get("tag") or str(uf.get("commit") or "")[:7]
+        if named:
+            return str(named)
+    elif uf:
+        return str(uf)[:7]
     for g in f.get("gates") or []:
         if g.get("id") == "t0.clone.upgrade-path":
             m = _UPGRADE.search(g.get("detail") or "")
