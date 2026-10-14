@@ -7,7 +7,6 @@ arbitrary text (release only its documented ValueError).
 """
 from __future__ import annotations
 
-import pytest
 from prop_helpers import budget, example, given, st  # loads the profile; skips without hypothesis
 
 from nanosoc_rm.versioning import changelog as C, semver
@@ -114,9 +113,6 @@ def test_lint_on_structured_noise_never_raises_and_cites_real_lines(text):
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-7: release() rejoins every line with \\n "
-                                       "(versioning/changelog.py:368 splitlines, :396 join), so a CRLF changelog is "
-                                       "rewritten to LF and a U+2028/\\x0c inside an entry becomes a line break")
 @example("\r\n")
 @given(st.sampled_from(["\r\n", "\n"]), )
 def test_rob_property_7_release_keeps_line_endings(eol):

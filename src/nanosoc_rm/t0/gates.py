@@ -52,9 +52,14 @@ HOST_DEPENDENT = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-publ
                   "t0.clone.upgrade-path", "t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data")
 
 
+# Every character str.splitlines() breaks at, plus the tab: none may stay in a detail (ROB-property-10).
+_DETAIL_BREAKS = re.compile("[\t\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
+
+
 def clean_detail(text: Any) -> str:
-    """A verdicts.tsv detail: no tab, no newline (README section 2)."""
-    return " ".join(str(text).replace("\t", " ").replace("\r", " ").split("\n")).strip()
+    """A verdicts.tsv detail: no tab, no newline and no other line separator (README section 2), each one a
+    space, so whichever way a reader splits the file into lines, a row stays one line."""
+    return _DETAIL_BREAKS.sub(" ", str(text)).strip()
 
 
 _URL_WITH_PASSWORD = re.compile(r"[a-z][a-z0-9+.-]*://[^/@\s:]*:[^/@\s]*@", re.I)

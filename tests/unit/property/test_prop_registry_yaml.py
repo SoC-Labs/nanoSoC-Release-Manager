@@ -151,10 +151,6 @@ def test_broken_yaml_files_raise_registry_error(example_root, tmp_path_factory, 
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-11: the duplicate-key check puts every key in a set "
-                                       "(contracts/__init__.py:166), so a complex (list or mapping) key raises "
-                                       "TypeError, not YAMLError, and load_registry crashes instead of raising "
-                                       "RegistryError")
 @example("catalogue.yaml", "? [a, b]\n: 1\n")
 @given(st.sampled_from([dst for _src, dst in LAYOUT]), st.sampled_from(["? [a, b]\n: 1\n", "{[a]: 1}\n",
                                                                         "? {a: 1}\n: 2\n"]))

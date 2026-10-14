@@ -56,7 +56,8 @@ def register(main: click.Group) -> None:
                 return EXIT_USAGE
         code = runner.run(out, url_map=mapping)
         tsv = Path(out) / "verdicts.tsv"
-        rows = [parse_verdict_row(x) for x in tsv.read_text().splitlines() if x] if tsv.is_file() else []
+        rows = ([parse_verdict_row(x) for x in tsv.read_text(encoding="utf-8").split("\n") if x]   # \n only, as the
+                if tsv.is_file() else [])                                                   # service reads it
         emit(rows, as_json, columns=("status", "gate", "detail"), row=lambda r: r)
         return code
 

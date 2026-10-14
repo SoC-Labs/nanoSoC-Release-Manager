@@ -7,8 +7,7 @@ a file reads the same with CRLF as with LF line ends.
 """
 from __future__ import annotations
 
-import pytest
-from prop_helpers import example, given, st  # loads the profile; skips without hypothesis
+from prop_helpers import assume, example, given, st  # loads the profile; skips without hypothesis
 
 from nanosoc_rm.quality import lexers as L
 
@@ -116,20 +115,17 @@ def test_crlf_reads_like_lf(lang, lines):
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-8: with CRLF line ends a comment's text keeps the CR: C and "
-                                       "Verilog `//` (quality/lexers.py:162 strips only ' \\t/!'), Python "
-                                       "docstrings (lexers.py:510)")
 @example("c", ["x = 1; // note"])
 @example("python", ['"""doc', "more", '"""'])
-@given(st.sampled_from(["c", "verilog", "python"]), st.just(["x = 1; // note"]))
+# A comment each language reads as one (`//` is not a Python comment, so Python gets `#`).
+@given(st.sampled_from(["c", "verilog", "python"]),
+       st.sampled_from([["x = 1; // note"], ["x = 1  # note"], ['"""doc', "more", '"""']]))
 def test_rob_property_8_comment_text_has_no_cr(lang, lines):
+    assume((lang == "python") == (lines[0] != "x = 1; // note"))
     r = L.lex(lang, "\r\n".join(lines) + "\r\n")
     assert r.comments and all("\r" not in c.text for c in r.comments), [c.text for c in r.comments]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-9: a backslash continuation is tested with "
-                                       "line.endswith('\\\\') (quality/lexers.py:277 make, :306 tcl, :186 C/Verilog "
-                                       "strings), so with CRLF the continued comment line is read as code or blank")
 @example("make", ["# comment \\", "continued", "X := 1"])
 @example("tcl", ["# comment \\", "continued", "set x 1"])
 @given(st.sampled_from(["make", "tcl"]), st.just(["# comment \\", "continued", "x"]))

@@ -271,12 +271,16 @@ def test_t0_run_prints_what_the_runner_wrote(detail):
     assert res.exit_code == 0 and res.exception is None, res.output
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-10: clean_detail() (t0/gates.py:57) leaves \\x0b \\x0c "
-                                       "\\x1c-\\x1e \\x85 U+2028 U+2029 in a detail, and `nanosoc-rm t0 run` reads "
-                                       "verdicts.tsv with splitlines() (t0/commands.py:59): the job crashes with "
-                                       "ValueError after writing its bundle")
 @example("vendor/x\u2028y.v")
 @given(st.sampled_from(["a\x0bb", "a\x0cb", "a\x1cb", "a\x85b", "a\u2028b", "a\u2029b"]))
 def test_rob_property_10_t0_run_prints_what_the_runner_wrote(detail):
     res = _t0_run_cli(detail)
     assert res.exception is None and res.exit_code == 0, res.output[-200:]
+
+
+@given(st.text(max_size=40))
+def test_a_clean_detail_is_one_line_however_it_is_split(text):
+    """ROB-property-10, the writer's half: no character str.splitlines() breaks at survives clean_detail."""
+    from nanosoc_rm.t0.gates import clean_detail
+    d = clean_detail(text)
+    assert len(d.splitlines()) <= 1 and "\t" not in d

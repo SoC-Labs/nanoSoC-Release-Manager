@@ -172,8 +172,6 @@ def test_rob_property_5_matrix_partial_gt_and_le(rng, v):
     assert len(set(got.values())) == 1, (rng, v, got)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-6: bumps Version.key() orders pre-releases as strings "
-                                       "(bumps/versions.py:42), so rc.10 sorts before rc.2 (SemVer 11.4.1)")
 @example(("0.1.1-2", "0.1.1-10"))
 @given(st.tuples(st.integers(2, 9), st.integers(10, 30)).map(lambda t: ("1.0.0-rc.%d" % t[0], "1.0.0-rc.%d" % t[1])))
 def test_rob_property_6_bumps_prerelease_order_is_numeric(pair):

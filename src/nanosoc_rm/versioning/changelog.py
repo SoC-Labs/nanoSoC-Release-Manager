@@ -131,7 +131,7 @@ def parse(text: str) -> Changelog:
     sub_open: list | None = None
     in_code = in_comment = blank = False
     last: Entry | None = None
-    for n, raw in enumerate(text.splitlines(), 1):
+    for n, raw in enumerate(_lines(text), 1):
         line = raw.rstrip()
         if in_comment:
             in_comment = "-->" not in line
@@ -362,16 +362,40 @@ def _tag_findings(cl: Changelog, tags: dict[str, dict], grandfathered) -> list[d
     return out
 
 
+# Markdown's line endings (CommonMark 2.1): \n, \r\n or \r. Not str.splitlines(), which also breaks at \x0b,
+# \x0c, \x1c-\x1e, \x85, U+2028 and U+2029, characters an entry may hold (ROB-property-7).
+_EOL = re.compile(r"\r\n|\r|\n")
+
+
+def _split_keep(text: str) -> list[tuple[str, str]]:
+    """[(line, its line ending)], the last ending "" when the text does not end in one."""
+    out, pos = [], 0
+    for m in _EOL.finditer(text):
+        out.append((text[pos:m.start()], m.group()))
+        pos = m.end()
+    if pos < len(text):
+        out.append((text[pos:], ""))
+    return out
+
+
+def _lines(text: str) -> list[str]:
+    return [line for line, _ in _split_keep(text)]
+
+
 def release(text: str, version: str, date: str, *, previous_tag: str | None, compare_base: str | None) -> str:
     """The changelog with its Unreleased entries moved under `## [version] - date` and a fresh empty Unreleased
-    section; the link definitions updated (`compare_base`: the canonical repo's web URL, None leaves links)."""
-    lines = text.splitlines()
+    section; the link definitions updated (`compare_base`: the canonical repo's web URL, None leaves links).
+    Every line keeps its own line ending; a new line takes the file's first one (a CRLF file stays CRLF)."""
+    pairs = _split_keep(text)
+    lines, ends = [p[0] for p in pairs], [p[1] for p in pairs]
+    eol = next((e for e in ends if e), "\n")
     cl = parse(text)
     u = cl.unreleased
     if u is None:
         raise ValueError("no ## [Unreleased] section to release")
     idx = u.line - 1
     lines[idx:idx + 1] = [lines[idx], "", "## [%s] - %s" % (version, date)]
+    ends[idx:idx + 1] = [ends[idx] or eol, eol, eol]
     if compare_base:
         base = compare_base.rstrip("/")
         sep = "/-/compare/" if "/-/" in base or "gitlab" in base else "/compare/"
@@ -380,17 +404,28 @@ def release(text: str, version: str, date: str, *, previous_tag: str | None, com
         new_unrel = "[Unreleased]: %s%sv%s...HEAD" % (base, sep, version)
         new_ver = ("[%s]: %s%s%s...v%s" % (version, base, sep, previous_tag, version) if previous_tag
                    else "[%s]: %s%sv%s" % (version, base, "/releases/tag/" if sep == "/compare/" else "/-/tags/", version))
-        out, replaced = [], False
-        for line in lines:
+        out, out_ends, replaced = [], [], False
+        for line, end in zip(lines, ends):
             m = _LINKDEF.match(line)
             if m and m.group("label").strip().lower() == "unreleased":
                 out += [new_unrel, new_ver]
+                out_ends += [end or eol, end or eol]
                 replaced = True
             else:
                 out.append(line)
+                out_ends.append(end)
         if not replaced:
+            if out_ends:
+                out_ends[-1] = out_ends[-1] or eol
             if out and out[-1].strip():
                 out.append("")
+                out_ends.append(eol)
             out += [new_unrel, new_ver]
-        lines = out
-    return "\n".join(lines).rstrip("\n") + "\n"
+            out_ends += [eol, eol]
+        lines, ends = out, out_ends
+    while lines and lines[-1] == "":                 # one line ending at the end, no trailing blank lines
+        lines.pop()
+        ends.pop()
+    if ends:
+        ends[-1] = ends[-1] or eol
+    return "".join(line + end for line, end in zip(lines, ends))

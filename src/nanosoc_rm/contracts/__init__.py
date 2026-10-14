@@ -212,6 +212,11 @@ def _no_dup_mapping(loader, node, deep=False):
     seen = set()
     for key_node, _ in node.value:
         key = loader.construct_object(key_node, deep=deep)
+        try:
+            hash(key)
+        except TypeError:                                   # a list or mapping key: YAMLError (ROB-property-11)
+            raise yaml.constructor.ConstructorError(None, None, "a mapping key must be a scalar, not %s"
+                                                    % type(key).__name__, key_node.start_mark) from None
         if key in seen:
             raise yaml.constructor.ConstructorError(None, None, "duplicate key %r" % (key,), key_node.start_mark)
         seen.add(key)
