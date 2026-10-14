@@ -67,9 +67,14 @@ def list_host(config: Config, host: str) -> list[tuple[dict, dict]]:
         url, page = None, 1
         for _ in range(MAX_PAGES):
             ans = api_get(config, host, path, None if url else params, url=url, client=client)
-            if ans.status != 200 or not isinstance(ans.body, list):
+            if ans.status != 200:
                 raise InventoryError("%s listing failed at %s: %s" % (host, ans.source["command"],
                                                                      ans.error or "HTTP %s" % ans.status))
+            if not isinstance(ans.body, list):
+                ctype = (ans.headers.get("content-type") or "no content-type").split(";")[0].strip()
+                raise InventoryError("%s listing failed at %s: HTTP 200 but the body is not a JSON list (%s, %s)"
+                                     % (host, ans.source["command"],
+                                        "not JSON" if ans.body is None else type(ans.body).__name__, ctype))
             out += [(item, ans.source) for item in ans.body]
             if host == "github":
                 m = _NEXT.search(ans.headers.get("link", ""))

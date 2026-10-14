@@ -50,10 +50,8 @@ def test_listing_server_error_names_the_status(cfg, monkeypatch):
         inv.list_host(cfg, "gitlab")
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="ROB-soak-6: a 200 whose body is not a JSON list is reported as "
-                          "'listing failed ...: HTTP 200' (mirror/inventory.py list_host)")
 def test_listing_200_not_a_list_says_what_was_wrong(cfg, monkeypatch):
+    """ROB-soak-6 (fixed): a 200 whose body is not a JSON list used to read 'listing failed ...: HTTP 200'."""
     _answer(monkeypatch, 200, None, {"content-type": "text/html"})
     with pytest.raises(inv.InventoryError) as e:
         inv.list_host(cfg, "gitlab")

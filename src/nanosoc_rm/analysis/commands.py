@@ -223,7 +223,10 @@ def register(main: click.Group) -> None:
         try:
             doc = compat(configuration, parse_pins(pins), store=store, keep_work=keep_work, argv=argv, tier=tier,
                          force_tier=force_tier)
-        except (CompatUsage, TierUsage, OverrideError, UnknownConfiguration, UnknownCfg) as e:
+        except UnknownConfiguration:
+            click.echo("nanosoc-rm: %s is not a registered configuration" % configuration, err=True)
+            return EXIT_USAGE
+        except (CompatUsage, TierUsage, OverrideError, UnknownCfg) as e:
             click.echo("nanosoc-rm: %s" % (e.args[0] if e.args else e), err=True)
             return EXIT_USAGE
         except (WalkError, TriggerError, RegistryUnreadable) as e:

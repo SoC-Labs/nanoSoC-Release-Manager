@@ -300,6 +300,7 @@ def register(main: click.Group) -> None:
     def quarantine(configuration, owner, as_json):
         """D8: tests quarantined after two FLAKY results in 14 days (30-day expiry), active and expired."""
         from nanosoc_rm import clock
+        from nanosoc_rm.cliutil import unregistered_configuration
         from nanosoc_rm.config import load_config
         from nanosoc_rm.matrix import cells as K
         try:
@@ -310,6 +311,8 @@ def register(main: click.Group) -> None:
                     raise K.CellUsage("--owner expects GATE=LOGIN")
                 K.set_owner(configuration, test.strip(), login.strip(), _login(), config=config)
             docs = K.quarantine(configuration, config)
+            if not docs and (msg := unregistered_configuration(configuration, config)):
+                raise K.CellUsage(msg)
         except K.CellUsage as e:
             click.echo("nanosoc-rm matrix quarantine: %s" % e, err=True)
             sys.exit(EXIT_USAGE)

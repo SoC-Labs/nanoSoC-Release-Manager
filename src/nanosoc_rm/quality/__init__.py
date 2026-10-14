@@ -105,7 +105,7 @@ def open_source(target: str | None, *, ref: str | None = None, path: str | os.Pa
                          "components (give --path DIR)" % target) from None
     mirror = inp.mirror_path(cfg, comp.id)
     if not (mirror / "HEAD").is_file():
-        raise QualityError("component %s has no mirror at %s: run `nanosoc-rm mirror sync %s` first"
+        raise QualityError("component %s has no mirror at %s: run `nanosoc-rm mirror sync --component %s` first"
                            % (comp.id, mirror, comp.id))
     sources: list[dict] = []
     if ref is None:

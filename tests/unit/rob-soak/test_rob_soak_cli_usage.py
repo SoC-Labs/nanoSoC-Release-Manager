@@ -72,25 +72,17 @@ def test_known_configuration_is_not_usage(registry_config):
         assert r.exit_code != 3, (argv, r.exit_code, r.output)
 
 
-@pytest.mark.parametrize("argv", [
-    pytest.param(("release", "list", "nosuch"), marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="ROB-soak-4: `release list nosuch` exits 0 'no release drafts' "
-                            "(releases/commands.py list_cmd never checks the name)")),
-    pytest.param(("bumps", "queue", "nosuch"), marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="ROB-soak-4: `bumps queue nosuch` exits 0 'no kept proposals' "
-                            "(bumps/commands.py queue_cmd never checks the name)")),
-    pytest.param(("matrix", "quarantine", "nosuch"), marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="ROB-soak-4: `matrix quarantine nosuch` exits 0 while `matrix nightly nosuch` exits 3 "
-                            "(matrix/commands.py quarantine)")),
-], ids=lambda a: " ".join(a))
+@pytest.mark.parametrize("argv", [("release", "list", "nosuch"), ("bumps", "queue", "nosuch"),
+                                  ("matrix", "quarantine", "nosuch")], ids=lambda a: " ".join(a))
 def test_unknown_configuration_is_usage_everywhere(registry_config, argv):
+    """ROB-soak-4 (fixed): a listing of nothing for a name the registry does not know is a usage error."""
     r = _run(*argv)
     assert r.exit_code == 3, (r.exit_code, r.output)
+    assert "nosuch" in r.output, r.output
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="ROB-soak-5: `compat nosuch` prints only 'nanosoc-rm: nosuch' "
-                                       "(analysis/commands.py compat_cmd prints KeyError args[0])")
 def test_compat_unknown_configuration_says_why(registry_config):
+    """ROB-soak-5 (fixed): `compat nosuch` used to print only 'nanosoc-rm: nosuch'."""
     r = _run("compat", "nosuch")
     assert r.exit_code == 3
     msg = r.output.strip().splitlines()[-1]
@@ -126,10 +118,8 @@ def test_branches_no_mirror_hint_is_a_valid_command(registry_config):
 
 @pytest.mark.parametrize("argv", [("version", "tags", "ahb_qspi"), ("version", "next", "ahb_qspi"),
                                   ("changelog", "lint", "ahb_qspi")], ids=lambda a: " ".join(a))
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="ROB-soak-7: the no-mirror hint says `nanosoc-rm mirror sync <component>`, which click "
-                          "refuses (quality/__init__.py:108; the option is --component)")
 def test_versioning_no_mirror_hint_is_a_valid_command(registry_config, argv):
+    """ROB-soak-7 (fixed): the hint used to say `mirror sync <component>`, which click refuses."""
     r = _run(*argv)
     assert r.exit_code == 2, r.output
     assert _parses(_advised_sync(r.output)), r.output
