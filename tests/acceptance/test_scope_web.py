@@ -2079,7 +2079,15 @@ def _nc_A7_checker(tmp):
     # a job under another name that queues the matrix enables nightly_matrix all the same (CR-18-matrix-r1)
     from nanosoc_rm.phasegates import automation_reached
     from nanosoc_rm.schedule import Job
-    sweep = Job("matrix", "nightly", lambda c: __import__("nanosoc_rm.matrix", fromlist=["queue"]).queue("x", by="n"))
+    # CR-ART-publish: the job lives in its own module, as a scheduler job does; defined in this file it would
+    # "reach" every automation whose job kind this file names as text (LATER_SURFACES lists publish-release).
+    import importlib.util
+    (tmp / "a7_sweep.py").write_text(
+        "def run(c):\n    __import__('nanosoc_rm.matrix', fromlist=['queue']).queue('x', by='n')\n")
+    spec = importlib.util.spec_from_file_location("a7_sweep", tmp / "a7_sweep.py")
+    a7_sweep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(a7_sweep)
+    sweep = Job("matrix", "nightly", a7_sweep.run)
     reached = sorted(automation_reached([sweep]))
     assert reached == ["nightly_matrix"], reached
     assert check_a7(gates, phase_of, [], ["/"], ["walk"], automation=["matrix"] + reached) == [

@@ -40,7 +40,7 @@ phases:
     status: not-met
     checked: {}
   - phase: Phase 5
-    capabilities: [F4, G2, G3, G4, G7, I1, I2]
+    capabilities: [F4, G2, G3, G4, G7, G8, I1, I2]   # G8: CR-ART-G8
     entry_gate:
       - criterion: Phase 3 is complete.
         check: David accepted the Phase 3 live demo (gate 3); the record is in the private registry.
