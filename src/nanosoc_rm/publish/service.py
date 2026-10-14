@@ -284,7 +284,13 @@ def publish(config: Config | str | None, kind: str, key: str, *, confirm: str, b
     action = "publish_release" if kind == "release" else "register_tapeout"
     from nanosoc_rm import db
     try:
-        if not login.startswith("cli:"):
+        if login.startswith("cli:"):
+            # only the CLI's own account is a cli: login (it skips the publisher list: a shell as the service
+            # user holds the token anyway); `--by cli:<someone>` would name a login it is not
+            if login != cli_login():
+                raise PublishRefused("%s is not this account (%s): --by names a GUI publisher, or leave it out"
+                                     % (login[:64], cli_login()))
+        else:
             refused = can_publish(config, login)
             if refused:
                 raise PublishRefused("; ".join(refused))
@@ -318,7 +324,8 @@ def _publish(config: Config, s: Any, kind: str, key: str, confirm: str, login: s
         # The signature must verify against the allowed keys BEFORE anything is uploaded: the store is never
         # overwritten, so an unverifiable .sig left in the folder could only be removed by an admin.
         allowed = signing.load_allowed(s.allowed_file(), s.signer_identity)
-        signing.verify(plan.data, sig.text, allowed, ssh_keygen=s.ssh_keygen)
+        signing.verify(plan.data, sig.text, allowed, principal=s.signer_identity,
+                             ssh_keygen=s.ssh_keygen)
         files = plan.files(sig_bytes)
         states = {path: _state(store, path, data) for path, _, data in files}
         clash = [p for p, st in states.items() if st == "differs"]
@@ -345,7 +352,8 @@ def _publish(config: Config, s: Any, kind: str, key: str, confirm: str, login: s
         got_sig = store.get_bytes(plan.store_path + ".sig")
         if got != plan.data or got_sig != sig_bytes:
             raise PublishRefused("read-back: the record or its signature came back different")
-        fpr = signing.verify(got, got_sig.decode("ascii"), allowed, ssh_keygen=s.ssh_keygen)
+        fpr = signing.verify(got, got_sig.decode("ascii"), allowed, principal=s.signer_identity,
+                             ssh_keygen=s.ssh_keygen)
         props = store.properties(plan.store_path)
         if (props.get("rm.manifest_sha256") or [None])[0] != plan.sha256:
             notes.append("the record's rm.manifest_sha256 property reads back as %r" % (props.get("rm.manifest_sha256"),))
@@ -386,6 +394,8 @@ def _publish(config: Config, s: Any, kind: str, key: str, confirm: str, login: s
                       for p, r, d in files],
             "build": {"name": plan.build_name, "number": plan.build_number, "status": plan.status},
             "published_by": login, "published_at": clock.iso(),
+            # `--by` is free text on the command line: the account that ran the publish is recorded beside it
+            **({} if login.startswith("cli:") else {"run_by": cli_login()}),
             "verified": {"checksums": True, "signature": True, "build": build_ok},
             "outcome": "published" if uploaded else "already-published"}
     if notes:

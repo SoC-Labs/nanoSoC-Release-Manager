@@ -169,6 +169,9 @@ def _check_artifactory(table: dict, problems: list[str]) -> None:
     url = table.get("url")
     if isinstance(url, str) and not re.match(r"^https?://[^/?#]+(/[^?#]*)?/artifactory$", url.rstrip("/")):
         problems.append("[stores.artifactory] url must be http(s)://<host>[:port]/artifactory")
+    elif isinstance(url, str) and "@" in url.split("//", 1)[-1].split("/", 1)[0]:
+        problems.append("[stores.artifactory] url must not carry credentials (user@host): the token file is the "
+                        "only credential")
     exp = table.get("token_expires")
     if isinstance(exp, str) and exp and not _DATE.match(exp):
         problems.append("[stores.artifactory] token_expires must be YYYY-MM-DD or empty")

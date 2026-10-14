@@ -1906,7 +1906,8 @@ OpenSSH SSHSIG, namespace `nanosoc-rm`, `.sig` beside the record: `ssh-keygen -Y
 when `[stores.artifactory] ssh_keygen` (default: `ssh-keygen` on PATH) is OpenSSH 8.1 or later; otherwise, for an
 RSA key, the module's own SSHSIG writer (rsa-sha2-512; standard library only), whose output `ssh-keygen -Y verify`
 reads. RHEL 8 ships OpenSSH 8.0 (no `-Y`), so the tool host signs with an RSA key. An encrypted key is refused.
-Verification reads `allowed_signers` (default: the key's `.pub`) and accepts only `signer_identity`.
+Verification reads `allowed_signers` (default: the key's `.pub`) and accepts only a key listed for
+`signer_identity` (as `ssh-keygen -Y verify -I <signer_identity>` does), both before upload and on read-back.
 
 ### 21.3 Publishing (`publish.service`)
 
@@ -1914,7 +1915,9 @@ Verification reads `allowed_signers` (default: the key's `.pub`) and accepts onl
 differs; the build record; referenced artefacts) and writes `<data_dir>/publish/previews/<kind>/<key>.json`.
 `publish(kind, key, confirm=SHA256, by=LOGIN)`:
 1. readiness (url, a 0600 token file, a signing key this host can use, a public key to verify with, the token not
-   expired) and `by` a listed publisher that is not a shared login (the CLI's own `cli:<user>` is the shell user);
+   expired) and `by` a listed publisher that is not a shared login, or the CLI's own `cli:<user>` (the shell user;
+   any other `cli:` value is refused). A `by` given with `--by` is recorded with the account that ran the publish
+   (`run_by`, `cli:<user>`: the GUI's job runs as the service user);
 2. rebuild; refuse unless the sha256 equals `confirm`;
 3. HEAD every target: one holding other bytes refuses the whole publish before any upload (never overwrite; OSS
    cannot forbid an overwrite, so the tool does); one holding the same bytes is a retry and is skipped;
@@ -1933,10 +1936,11 @@ differs; the build record; referenced artefacts) and writes `<data_dir>/publish/
 ### 21.4 Store client (`publish.client.Store`)
 
 Bearer token only (`[stores.artifactory] token_file`, read per call, never logged; the CR-PR1 pattern, not a fifth
-`[credentials]` entry). The base URL must end in `/artifactory` (no call can reach the Access API, where a
-Basic-auth failure locks the admin out). Allow-list checked before any I/O: GET/HEAD under the base; PUT only a
-new file directly under `<release_repo>/<project>/<version>/` (never a checksum name) or `api/build` with a
-build named `rm-release-<project>` or `rm-tapeout-<project>`; POST only `api/build/promote/<name>/<number>` for
+`[credentials]` entry). The base URL must end in `/artifactory` and carry no `user@` credentials (httpx would send
+them as Basic auth), and no path has a `..` segment, so no call can reach the Access API, where a Basic-auth
+failure locks the admin out. Allow-list checked before any I/O: GET/HEAD under the base; PUT only a new file
+directly under `<release_repo>/<project>/<version>/` (never a checksum name) or `api/build` with a build named
+`rm-release-<project>` or `rm-tapeout-<project>` (`check()` takes the build name, so only `put_build` reaches it); POST only `api/build/promote/<name>/<number>` for
 those names (never a producer's build), with a body of the allow-listed keys `status`, `comment`, `ciUser`,
 `timestamp`, `dryRun`, `copy`, `artifacts`, `dependencies`, `failFast` (no `targetRepo`, no `properties`, and
 `copy`, `artifacts`, `dependencies` false). No DELETE, PATCH or property set exists.

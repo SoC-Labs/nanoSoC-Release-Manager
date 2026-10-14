@@ -3,11 +3,13 @@
 On Artifactory OSS every token is effectively admin (no per-repo permissions), so the TOOL decides what it may do.
 Every call is checked here BEFORE any network I/O, and anything else raises `StoreRefused`:
 
-    HEAD, GET   any path under `<url>/` (the base ends in /artifactory, so the Access API is out of reach:
-                Basic-auth calls there count as failed admin logins and lock the admin out)
+    HEAD, GET   any path under `<url>/` (the base ends in /artifactory and no path has a `..` segment, so the
+                Access API is out of reach: Basic-auth calls there count as failed admin logins and lock the admin
+                out; the url may not carry user@ credentials either, which httpx would send as Basic auth)
     PUT         `<release_repo>/<project>/<version>/<file>` (a new release record; never overwritten: the
                 publish service HEADs first and refuses an existing path) and `api/build` (a build-info record
-                named `rm-release-<project>` or `rm-tapeout-<project>`, never a producer's build)
+                named `rm-release-<project>` or `rm-tapeout-<project>`, never a producer's build: check() takes
+                the build name, so only put_build can reach it)
     POST        `api/build/promote/<name>/<number>` for those names only (a status-only promotion: the body keys
                 are allow-listed, so no copy, no move, no target repo, no properties)
 
@@ -83,6 +85,10 @@ class Store:
                  transport: httpx.BaseTransport | None = None):
         if not re.match(r"^https?://[^/?#]+(/[^?#]*)?/artifactory$", (url or "").rstrip("/")):
             raise StoreRefused("refused: the store url must end in /artifactory")
+        if "@" in urllib.parse.urlsplit(url).netloc:
+            # httpx would send Basic auth from the url's userinfo instead of the Bearer token
+            raise StoreRefused("refused: the store url must not carry credentials (user@host): the token is the "
+                               "only credential")
         if not SAFE_SEGMENT.match(release_repo or ""):
             raise StoreRefused("refused: %r is not a repository key" % release_repo)
         if not token or any(c in token for c in "\r\n "):
@@ -103,8 +109,9 @@ class Store:
         self.close()
 
     # -- the allow-list -------------------------------------------------------------------------------------
-    def check(self, method: str, rel: str) -> str:
-        """The URL for an allowed call; StoreRefused for anything else. Pure: no I/O."""
+    def check(self, method: str, rel: str, *, build_name: str | None = None) -> str:
+        """The URL for an allowed call; StoreRefused for anything else. Pure: no I/O. `PUT api/build` needs the
+        record's `build_name`, one of this tool's own (put_build passes it; put_file never can)."""
         rel = _clean(rel)
         if method in ("GET", "HEAD"):
             return "%s/%s" % (self.base, rel)
@@ -113,6 +120,9 @@ class Store:
         parts = rel.split("/")
         if method == "PUT":
             if rel == "api/build":
+                if not _own_build(build_name):
+                    raise StoreRefused("refused: PUT api/build for build %r, not one of this tool's records (%s<project>)"
+                                       % (str(build_name)[:80], " or ".join(BUILD_NAME_PREFIXES)))
                 return "%s/%s" % (self.base, rel)
             if (len(parts) == 4 and parts[0] == self.release_repo and all(SAFE_SEGMENT.match(p) for p in parts[1:3])
                     and SAFE_NAME.match(parts[3]) and not parts[3].lower().endswith(_CHECKSUM_SUFFIX)):
@@ -215,10 +225,11 @@ class Store:
             return {}
 
     def put_build(self, build_info: dict) -> None:
-        url = self.check("PUT", "api/build")
-        if not _own_build(build_info.get("name")) or not SAFE_SEGMENT.match(str(build_info.get("number") or "")):
+        name = build_info.get("name")
+        if not _own_build(name) or not SAFE_SEGMENT.match(str(build_info.get("number") or "")):
             raise StoreRefused("refused: build %r is not one of this tool's records (%s<project>)"
-                               % (str(build_info.get("name"))[:80], " or ".join(BUILD_NAME_PREFIXES)))
+                               % (str(name)[:80], " or ".join(BUILD_NAME_PREFIXES)))
+        url = self.check("PUT", "api/build", build_name=name)
         self.calls.append(("PUT", "api/build"))
         try:
             r = self._http.put(url, content=json.dumps(build_info).encode(),
