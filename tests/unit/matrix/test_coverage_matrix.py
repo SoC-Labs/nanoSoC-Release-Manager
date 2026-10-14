@@ -110,3 +110,28 @@ def test_active_quarantine_and_exit_codes():
     assert M.subject_of_cell({"configuration": "eth", "component": None, "column": "head", "nonce": "x"}) \
         == "matrix_cell:eth:-:head:x"
     assert M.tier_of({"tier": ""}) is None and M.tier_of({"tier": "t1"}) == "t1"
+
+
+# ----- columns: which pins a cell moves ----------------------------------------------------------------------
+from nanosoc_rm.matrix import columns as COL  # noqa: E402
+
+
+def _row(*pins):
+    return COL.Row("ip", [{"tree_path": tps[0], "tree_paths": list(tps), "commit": c} for c, tps in pins], False, True)
+
+
+def test_overrides_move_only_outer_paths_not_already_at_the_commit():
+    new = "n" * 40
+    row = _row(("o" * 40, ["a/ip", "b/ip"]), ("o" * 40, ["a/ip/sub/ip"]), (new, ["c/ip"]), ("p" * 40, ["a/ip2"]))
+    assert COL.overrides_for(row, new) == {"a/ip": new, "b/ip": new, "a/ip2": new}   # a/ip/sub/ip rides on a/ip
+    assert COL.overrides_for(_row((new, ["x"])), new) == {}
+    assert row.tree_paths == ["a/ip", "b/ip", "a/ip/sub/ip", "c/ip", "a/ip2"]
+
+
+def test_same_as_pinned_and_root_commit():
+    one = _row(("o" * 40, ["a"]), ("o" * 40, ["b"]))
+    assert COL.same_as_pinned(one, "o" * 40) and not COL.same_as_pinned(one, None)
+    assert not COL.same_as_pinned(_row(("o" * 40, ["a"]), ("p" * 40, ["b"])), "o" * 40)       # split: not the same
+    tree = [{"fact": {"depth": 2, "parent": {"commit": "x"}}}, {"fact": {"depth": 1, "parent": {"commit": "r"}}}]
+    assert COL.root_commit(tree, {"commit": "frozen"}) == "frozen"
+    assert COL.root_commit(tree, {}) == "r" and COL.root_commit([], {}) is None
