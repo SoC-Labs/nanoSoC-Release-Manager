@@ -139,3 +139,5 @@ def test_an_unsigned_record_shows_unverified_never_in_store(tmp_path, monkeypatc
     s = client.get("/configurations/eth-rc4/silicon").text
     assert 'data-signature="invalid"' in s and "UNVERIFIED" in s and ">IN STORE<" not in s
     assert "has no verified manifest" in client.get("/").text
+    h = client.get("/configurations/eth-rc4/history").text                # SR-3: marked, no commit link from it
+    assert 'data-event="unverified manifest"' in h and 'data-event="tapeout"' not in h and "not trusted" in h

@@ -299,3 +299,119 @@ def test_settings_read_the_trust_keys(tmp_path, signer):
                                                        'signer_identity = "rm"\n' % signer["allowed"]))
     s = C.settings(cfg)
     assert (s.allowed_signers, s.shared_logins, s.signer_identity) == (signer["allowed"], ("soclabs",), "rm")
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Second review (SR-1 to SR-5): the signer's principal, one row per release, None is not a raw md5, the namespace
+# ---------------------------------------------------------------------------------------------------------------
+def test_a_key_the_allowed_signers_file_lists_for_another_principal_is_invalid(signer, tmp_path):
+    """SR-1: a shared allowed_signers file lists the second key for alice@lab only; it must not sign for nanosoc-rm."""
+    from pathlib import Path
+    allowed = tmp_path / "allowed_signers"
+    other_pub = " ".join(Path(str(signer["other"]) + ".pub").read_text().split()[:2])
+    allowed.write_text(Path(signer["allowed"]).read_text() + "alice@lab %s\n" % other_pub)
+    m = run(sample(key=signer["other"]), allowed_signers=str(allowed), shared_logins=("soclabs",))["manifests"][0]
+    assert (m["signature"], m["trusted"]) == ("invalid", False)
+    assert "not an allowed signer" in m["signature_detail"]
+    # control: the same file still accepts the nanosoc-rm key
+    m = run(sample(key=signer["key"]), allowed_signers=str(allowed), shared_logins=("soclabs",))["manifests"][0]
+    assert (m["signature"], m["trusted"]) == ("verified", True)
+
+
+def test_a_signature_in_another_namespace_is_invalid(signer):
+    """SR-5: an SSHSIG by the allowed key, made for the git namespace, does not sign a manifest."""
+    from nanosoc_rm.publish import signing
+    fa = sample(key=signer["key"])
+    fa.files[MAN + ".sig"] = signing.sign(fa.files[MAN], signer["key"], ssh_keygen="/nonexistent",
+                                          namespace="git").text.encode()
+    m = run(fa, **trusted_kw(signer))["manifests"][0]
+    assert (m["signature"], m["trusted"]) == ("invalid", False)
+    assert "namespace" in m["signature_detail"]
+
+
+def _shown(monkeypatch, manifests, streams=()):
+    doc = {"fact": {"artefacts": list(streams), "manifests": manifests, "release_repo": "asic-release",
+                    "sections": {"manifests": {"verdict": "PASS"}}}, "observed_at": "2026-10-14T00:00:00Z"}
+    monkeypatch.setattr(V, "shown", lambda config: (doc, doc))
+
+
+def _man(kind, raw, ok, path, created="2026-10-14T00:00:00Z"):
+    return {"kind": kind, "configuration": "eth-rc4", "version": "1.0.0", "gds_raw_md5": raw, "trusted": ok,
+            "signature": "verified" if ok else "absent", "created": created, "problems": [], "path": path,
+            "name": path.rsplit("/", 1)[-1]}
+
+
+def test_a_later_untrusted_manifest_cannot_hide_a_trusted_red(monkeypatch):
+    """SR-2: a planted record sorting after the release manifest, whose raw md5 is in the store, used to replace
+    the row and turn the trusted NOT IN STORE into UNVERIFIED."""
+    good = _man("release", "b" * 32, True, "chipa/1.0.0/release-manifest.json")
+    plant = _man("tapeout", RAW_A, False, "chipa/1.0.0/tapeout-z.json", created="2026-10-15T00:00:00Z")
+    _shown(monkeypatch, [good, plant], [{"role": "stream", "raw_md5": RAW_A}])
+    r = V.release_rows(None)[("eth-rc4", "1.0.0")]
+    assert r["store"][:2] == ("NOT IN STORE", "c-fail") and r["manifest"] is good and r["count"] == 2
+
+
+def test_a_release_manifest_and_its_tapeout_record_share_one_row_with_the_worst_verdict(monkeypatch):
+    """SR-2: both trusted; the row names the release manifest and keeps the tapeout record's red."""
+    rel = _man("release", RAW_A, True, "chipa/1.0.0/release-manifest.json")
+    tap = _man("tapeout", "b" * 32, True, "chipa/1.0.0/tapeout-a.json")
+    for order in ([rel, tap], [tap, rel]):
+        _shown(monkeypatch, order, [{"role": "stream", "raw_md5": RAW_A}])
+        r = V.release_rows(None)[("eth-rc4", "1.0.0")]
+        assert r["manifest"] is rel and r["store"][1] == "c-fail" and r["published"] == rel["created"]
+
+
+def test_an_untrusted_manifest_alone_is_not_published(monkeypatch):
+    """SR-3: Published is set only by a trusted manifest."""
+    _shown(monkeypatch, [_man("release", None, False, "chipa/1.0.0/release-manifest.json")])
+    r = V.release_rows(None)[("eth-rc4", "1.0.0")]
+    assert r["published"] is None and r["trusted"] is False and r["why"]
+
+
+def test_the_timeline_marks_an_untrusted_manifest_and_follows_no_commit_from_it(stored, monkeypatch):
+    """SR-3: no trust mark and a commit link built from the manifest's own repo field, before."""
+    cfg = stored(sample())
+    monkeypatch.setattr(V, "commit_link", lambda config, repo, sha: "https://h.example/x" if sha else None)
+    ev = [e for e in V.timeline(cfg, "demo-si")["events"] if "manifest" in e["detail"]]
+    assert ev and all(e["what"] == "unverified manifest" and e["link"] is None and "not trusted" in e["detail"]
+                      for e in ev)
+
+
+def test_a_trusted_tapeout_without_a_raw_md5_registers_no_stream(monkeypatch):
+    """SR-4: None in the registered set made every shipped stream without a raw md5 count as registered."""
+    man = _man("tapeout", None, True, "chipa/t.json")
+    man["configuration"] = "demo-si"
+    stream = {"role": "stream", "repo": "asic-candidate", "path": "p/b/r/stream", "name": "x.gds.zst",
+              "raw_md5": None, "ships": "yes", "project": "chipz", "commit": None}
+    _shown(monkeypatch, [man], [stream])
+    monkeypatch.setattr(V, "_cfg_records", lambda config: [silicon_record()])
+    monkeypatch.setattr(V, "_lock_gds", lambda config, cid: [])
+    assert "tapeout_unregistered" in [f["kind"] for f in V.findings(None)]
+
+
+def test_the_taped_out_panel_registers_no_stream_by_a_missing_raw_md5(monkeypatch):
+    """SR-4, panel side."""
+    man = _man("tapeout", None, True, "chipa/t.json")
+    man["configuration"] = "demo-si"
+    stream = {"role": "stream", "repo": "asic-candidate", "path": "p/b/r/stream", "name": "x.gds.zst",
+              "raw_md5": None, "ships": "yes", "project": "chipa", "commit": None}
+    _shown(monkeypatch, [man], [stream])
+    monkeypatch.setattr(V, "_cfg_records", lambda config: [silicon_record()])
+    monkeypatch.setattr(V, "_lock_gds", lambda config, cid: [])
+    monkeypatch.setattr(V, "_projects_of_cfg", lambda config, cid: ["chipa"])
+    monkeypatch.setattr(V, "_component_repo", lambda config, comp: None)
+    monkeypatch.setattr(V, "_manifests_for", lambda config, fact, cid, *kind: fact["manifests"])
+    rows = V.taped_out(None, "demo-si")["streams"]
+    assert rows and rows[0]["registered"] is False
+
+
+def test_the_taped_out_panel_follows_no_commit_from_an_untrusted_manifest(stored, signer, monkeypatch):
+    """SR-3, panel side: the row is shown (amber at best) but carries no commit link; a trusted one does."""
+    bad = stored(sample())
+    monkeypatch.setattr(V, "commit_link", lambda config, repo, sha: "https://h.example/x" if sha else None)
+    rows = V.taped_out(bad, "demo-si")["rows"]
+    assert rows and all(r["trusted"] is False and r["link"] is None for r in rows)
+    good = stored(sample(key=signer["key"]))
+    monkeypatch.setattr(V, "commit_link", lambda config, repo, sha: "https://h.example/x" if sha else None)
+    rows = V.taped_out(good, "demo-si")["rows"]
+    assert rows and all(r["trusted"] is True and r["link"] for r in rows)

@@ -498,7 +498,8 @@ def _signature(client: StoreClient, st: Settings, full: str, body: bytes, sigs: 
         failed.append(str(e))
         return "unverified", "the signature could not be read: %s" % e.cause, None
     try:
-        fpr = signing.verify(body, text.decode("ascii"), allowed, ssh_keygen=st.ssh_keygen)
+        fpr = signing.verify(body, text.decode("ascii"), allowed, principal=st.signer_identity,
+                             ssh_keygen=st.ssh_keygen)
     except Exception as e:                                        # noqa: BLE001 - any parse or check failure
         why = str(e) if isinstance(e, signing.SignatureError) else "not an SSH signature (%s)" % type(e).__name__
         return "invalid", why[:200], None
