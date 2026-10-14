@@ -325,13 +325,15 @@ def test_a_trigger_that_raises_is_reported_not_a_crash(site, monkeypatch):
 
 
 def test_only_the_two_run_routes_write_and_no_docs_routes(site):
-    """GitHub sign-in with a CI project: section 13's two Run routes are the only writes (D5). The CR-16/CR-17
-    routes exist only in a local deployment (test_web_local.py)."""
+    """GitHub sign-in with a CI project: section 13's two Run routes and sign-out (CR-ROB-auth: POST /auth/logout,
+    which accepts no result) are the only writes (D5). The CR-16/CR-17 routes exist only in a local deployment
+    (test_web_local.py)."""
     from nanosoc_rm.web import routers
     app = site["client"].app
     # routers.writes flattens included routers: the plug-ins' and the workspaces' routes are counted too
     writes = routers.writes(app)
-    assert writes == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs")}
+    assert writes == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs"),
+                      ("POST", "/auth/logout")}
     assert not writes & routers.WAVE_C_POSTS
     paths = {getattr(r, "path", "") for r in app.routes}
     assert not paths & {"/docs", "/redoc", "/openapi.json"}

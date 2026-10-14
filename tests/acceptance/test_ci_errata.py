@@ -1208,7 +1208,8 @@ def test_AT_D5(tmp_path, monkeypatch):
         assert v.check == check, (label, v.check, v.reason)
         assert v.reason, label
 
-    # Then 3: no push path. The only non-GET routes are the two Run T0 routes (section 13).
+    # Then 3: no push path. The only non-GET routes are the two Run T0 routes (section 13) and sign-out (CR-ROB-auth:
+    # POST /auth/logout with the session's CSRF token, which revokes a session and accepts no result).
     # CR-3: the trigger gets a registry checkout, so it reaches the CI POST and fails there (no CI host).
     example_registry(tmp_path / "registry")
     prime_for_trigger(tmp_path)
@@ -1216,7 +1217,7 @@ def test_AT_D5(tmp_path, monkeypatch):
     from nanosoc_rm.web import routers
     writes = routers.writes(client.app)              # included (plug-in) routers counted too
     assert writes == {("POST", "/configurations/{id}/runs"),
-                      ("POST", "/api/v1/configurations/{id}/runs")}
+                      ("POST", "/api/v1/configurations/{id}/runs"), ("POST", "/auth/logout")}
     posted = example_provenance()
     for path in ("/configurations/eth-rc4/runs", "/api/v1/configurations/eth-rc4/runs"):
         client.post(path, json=posted)

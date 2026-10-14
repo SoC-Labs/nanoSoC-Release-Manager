@@ -868,10 +868,10 @@ it is; this section adds what a single-host deployment (no GitHub OAuth app, no 
 | `POST /jobs/{id}/cancel` | cancel a queued job, stop a running one (its whole process tree) | `jobs.cancel` |
 | `POST /alerts/clear` | clear one alert (field `subject`) | `db.clear_alert` |
 | `POST /branches/refresh`, `POST /hosts/refresh` | re-read one component's mirror now / compare the host copies now (fields `component`, `all`); store and show the result | `analysis.branches.branches`, `analysis.hosts.compare_hosts` |
-| `POST /auth/login`, `POST /auth/logout` | local sign-in form and sign-out (local mode only for login; local logout revokes the session id in `<data_dir>/sessions.sqlite` until it would have expired) | section 14 |
+| `POST /auth/login`, `POST /auth/logout` | local sign-in form (local mode only) and sign-out (both modes, CR-ROB-auth: needs the session's CSRF token and revokes the session id in `<data_dir>/sessions.sqlite` until it would have expired) | section 14 |
 
-The POST routes above are registered only when the app is built for a local deployment (`[auth] mode = "local"`
-or no `[ci] project`); a GitHub + CI deployment keeps section 13's two Run routes as its only writes, and its pages
+The POST routes above other than `POST /auth/logout` are registered only when the app is built for a local deployment (`[auth] mode = "local"`
+or no `[ci] project`); a GitHub + CI deployment keeps section 13's two Run routes and sign-out (CR-ROB-auth) as its only writes, and its pages
 show the CLI command instead of the local action buttons. None of these accepts a result (D5): a job's result is
 what the child process printed. Every page keeps the
 section 13 hooks and its one data-age element.
@@ -914,7 +914,7 @@ class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), sto
   2 UNVERIFIED), `failed` on exit 3, as walk and sync do. Another module's kind cannot be replaced.
 - **POST routes of plug-ins:** a plug-in `router` factory that takes the app registers its POST routes only when
   `app.state.rm.local_routes` is true (`web.plugins.local_routes(app)`), so a GitHub + CI deployment serves
-  exactly section 13's two Run routes as writes (D5). The census reads `web.routers.writes(app)`, which counts the
+  exactly section 13's two Run routes and `POST /auth/logout` (CR-ROB-auth) as writes (D5). The census reads `web.routers.writes(app)`, which counts the
   routes of included routers too.
 
 ## 14. Auth and roles
@@ -927,16 +927,24 @@ Requirements: A5, H2.
 - **Refused session:** a user who completed the callback but is not an active member, or has no role, gets a signed "refused" session and **403** on every route, including `/api`. An anonymous user (no session) gets a redirect to `/auth/login` for pages and 401 for `/api`.
 - **Re-check:** membership is re-checked at most hourly with the service's read token: `auth.is_member(config, login)` calls `GET /orgs/SoC-Labs/members/{login}`, which must return 204. K3 (option a, David 2026-10-10): when GitHub cannot answer, the session is kept and the re-check is retried 10 minutes later (not on every request, and not an hour later), so a revoked member is caught soon after GitHub is back. The session still ends 8 hours after sign-in.
 - **Roles:** from the service config (H2): `roles.default` for every active member, plus per-login additions. v1's only role, `member`, allows viewing and Run T0. An empty table refuses everyone.
-- **CSRF:** every form carries `csrf_token`, bound to the session.
+- **CSRF:** every form carries `csrf_token`, bound to the session. Tokens are compared as bytes, so a non-ASCII
+  token is a 403, never a 500 (CR-ROB-auth).
+- **Logout (CR-ROB-auth, both modes):** `POST /auth/logout` with the session's CSRF token (403 without it) revokes the
+  session id in `<data_dir>/sessions.sqlite` until it would have expired, so a copied cookie is refused in GitHub
+  mode as in local mode. `GET /auth/logout` signs nobody out: it shows a sign-out button that makes that POST.
+- **Alert messages** pass through `web.shell.redact` wherever they are shown: `/alerts`, the inbox, `/facts/alert:*`
+  and `/api/v1/alerts` (CR-ROB-auth).
 - **Logging:** every write action (in v1, Run T0 and clearing an alert) is logged in `actions` with the login (A2, H2): `action` is `run_t0` or `clear_alert`, `target` the configuration id or the alert subject.
 - **Test seam:** `create_app(config_path, auth=None)`; `auth=FakeMembership(login=...)` signs every request in as that login (still subject to roles).
 - **Local mode (CR-16):** `[auth] mode = "local"` with `[[auth.users]]` (`login`, `hash`, optional `roles`, default
-  `["member"]`). `hash` is `scrypt$<n>$<r>$<p>$<salt>$<key>` (base64; `hashlib.scrypt`, n = 2^14, r = 8, p = 1), printed by
+  `["member"]` when the key is absent; an explicit `roles = []` adds no role, CR-ROB-auth). `hash` is `scrypt$<n>$<r>$<p>$<salt>$<key>` (base64; `hashlib.scrypt`, n = 2^14, r = 8, p = 1), printed by
   `nanosoc-rm user add LOGIN [--generate] [--role R]...`, which writes no file. `/auth/login` is a form (POST with a
   double-submit token in cookie `rm_login_csrf`); five failed sign-ins of one login in 5 minutes refuse it for the
-  rest of the window (429). The session cookie is the same signed cookie, `HttpOnly`, `SameSite=Strict`, 8 h; a login
+  rest of the window (429). Each password check reserves its slot before it runs, so concurrent guesses are held to
+  the same five; logins whose window has passed are forgotten (CR-ROB-auth). The session cookie is the same signed cookie, `HttpOnly`, `SameSite=Strict`, 8 h; a login
   removed from the config is signed out on its next request. Without `[session] secret_file` the secret is created
-  once in `<data_dir>/session.secret` (0600). `/auth/logout` also takes a POST; `/auth/callback` is 404.
+  once in `<data_dir>/session.secret` (0600); an empty file is replaced with a new secret, and an empty secret never
+  signs anything (CR-ROB-auth). `/auth/callback` is 404.
   `serve` refuses a non-loopback `--host` in local mode (exit 3) unless `--i-know-this-is-exposed`: the service is
   reached through an SSH tunnel. **CR-20 (team access):** `serve --tls-cert PATH --tls-key PATH` serves HTTPS
   (uvicorn `ssl_certfile`/`ssl_keyfile`); exit 3 when only one is given or either is not a readable file. A

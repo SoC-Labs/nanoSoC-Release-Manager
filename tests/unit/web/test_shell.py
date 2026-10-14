@@ -190,7 +190,8 @@ def test_no_wave_c_post_exists_in_a_github_ci_deployment(site, monkeypatch):
     app = create_app(site["cfg"], auth=auth.FakeMembership(login="alice"))
     assert not app.state.rm.local_routes
     assert routers.WAVE_C_POSTS & routers.writes(app) == set()
-    assert routers.writes(app) == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs")}
+    assert routers.writes(app) == {("POST", "/configurations/{id}/runs"), ("POST", "/api/v1/configurations/{id}/runs"),
+                                   ("POST", "/auth/logout")}           # CR-ROB-auth: sign-out, accepts no result
 
 
 def test_the_census_sees_a_workspace_post_in_a_local_deployment(site, monkeypatch, tmp_path):

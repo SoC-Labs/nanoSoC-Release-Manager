@@ -18,6 +18,9 @@ the service config. Everything else is refused.
   does not extend the session. Membership is re-checked at most hourly with the service's read token,
   `is_member(config, login)`. When GitHub cannot answer, the session is kept and the failed attempt is
   recorded (`attempt_at`), so GitHub is asked again 10 minutes later (K3 option a), not on every request.
+- **Logout (both modes):** `POST /auth/logout` with the session's CSRF token revokes the session id
+  (`<data_dir>/sessions.sqlite`) until it would have ended, so a copied cookie stops working too; `GET
+  /auth/logout` only shows a sign-out button, so a cross-site link cannot sign anybody out.
 - **CSRF:** every form carries `csrf_token`, an HMAC of the session id and login. It is checked on every POST
   authenticated by the session cookie (the only ambient credential a browser sends cross-site).
 - **Test seam:** `create_app(config_path, auth=FakeMembership(login=...))` signs every request in as that
@@ -28,9 +31,8 @@ the service config. Everything else is refused.
 in `[[auth.users]]` (login, `hash` from `nanosoc-rm user add`: scrypt via hashlib, salted), a login form at
 `/auth/login` (POST, with a double-submit CSRF cookie so nobody can sign a browser in as someone else), the same
 signed session cookie (HttpOnly, SameSite=Strict, 8 h) and the same CSRF token on every POST. A user removed from
-the config is signed out on the next request, and so is every session of a user whose hash changes. Logout
-revokes the session (`<data_dir>/sessions.sqlite`), so a copied cookie stops working too. Roles: `roles.default`, `roles."<login>"` and the user's own
-`roles` (default `["member"]`). Without `[session] secret_file`, the secret is generated once in
+the config is signed out on the next request, and so is every session of a user whose hash changes. Roles: `roles.default`, `roles."<login>"` and the user's own
+`roles` (default `["member"]` when the key is absent; an explicit `roles = []` adds none). Without `[session] secret_file`, the secret is generated once in
 `<data_dir>/session.secret` (mode 0600). Failed sign-ins are throttled per login.
 
 The OAuth exchange is a POST that writes nothing, declared `read-post` in `nanosoc_rm.contracts.WRITE_CALLS`.
@@ -119,7 +121,8 @@ def roles_for(config: Mapping[str, Any], login: str) -> set[str]:
     if (config.get("auth") or {}).get("mode") == "local":
         user = local_users(config).get(login)
         if user is not None:
-            roles |= set(user.get("roles") or [MEMBER_ROLE])
+            own = user.get("roles")                     # absent: member; an explicit [] grants nothing (ROB-mutation-1)
+            roles |= set([MEMBER_ROLE] if own is None else own)
     return roles
 
 
@@ -223,26 +226,51 @@ def session_revoked(config: Config, sid: str) -> bool:
 
 
 class Throttle:
-    """At most `limit` failed sign-ins per login in `window_s`; then that login is refused until the window
-    passes. In memory: a restart forgets it, which is fine on a host reached through an SSH tunnel."""
+    """At most `limit` password checks per login in `window_s` that did not end in a sign-in; then that login is
+    refused until the window passes. In memory: a restart forgets it.
+
+    `attempt(key)` reserves a slot under the lock BEFORE the (slow) password check, so concurrent guesses cannot
+    all pass the check before any failure is counted (ROB-security-3); a successful sign-in calls `clear(key)`.
+    Logins whose window has passed are swept at most once per window, so unique login names cannot grow the
+    table without bound (ROB-security-4)."""
 
     def __init__(self, limit: int = 5, window_s: float = 300.0):
         self.limit, self.window_s = limit, window_s
         self._fails: dict[str, list[float]] = {}
         self._lock = threading.Lock()
+        self._swept = time.monotonic()
 
     def _recent(self, key: str, now: float) -> list[float]:
+        """Call with the lock held. The key's failures inside the window; a key with none is dropped."""
+        if now - self._swept >= self.window_s:
+            self._fails = {k: v for k, v in self._fails.items() if v and now - v[-1] < self.window_s}
+            self._swept = now
         fails = [t for t in self._fails.get(key, []) if now - t < self.window_s]
-        self._fails[key] = fails
+        if fails:
+            self._fails[key] = fails
+        else:
+            self._fails.pop(key, None)
         return fails
 
     def blocked(self, key: str) -> bool:
         with self._lock:
             return len(self._recent(key, time.monotonic())) >= self.limit
 
+    def attempt(self, key: str) -> bool:
+        """Reserve one password check for `key`: False (and nothing reserved) when the limit is reached. The
+        reservation counts as a failure until `clear(key)` (a successful sign-in) removes it."""
+        with self._lock:
+            now = time.monotonic()
+            fails = self._recent(key, now)
+            if len(fails) >= self.limit:
+                return False
+            self._fails[key] = fails + [now]
+            return True
+
     def fail(self, key: str) -> None:
         with self._lock:
-            self._recent(key, time.monotonic()).append(time.monotonic())
+            now = time.monotonic()
+            self._fails[key] = self._recent(key, now) + [now]
 
     def clear(self, key: str) -> None:
         with self._lock:
@@ -379,7 +407,7 @@ def _local_secret(config: Config) -> str:
         raise ConfigError("%s: the session secret is unreadable (%s)" % (path, e.strerror)) from None
     path.parent.mkdir(parents=True, exist_ok=True)
     value = secrets.token_hex(32)
-    tmp = path.with_name(".session.secret.%d" % os.getpid())
+    tmp = path.with_name(".session.secret.%d.%d" % (os.getpid(), threading.get_ident()))
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(value + "\n")
@@ -387,8 +415,13 @@ def _local_secret(config: Config) -> str:
         os.link(tmp, path)                       # first writer wins; a racing one reads the winner's secret
     except FileExistsError:
         value = path.read_text().strip()
+        if not value:                            # an empty file (truncated, full disk): replace it atomically,
+            os.replace(tmp, path)                # never sign with '' (ROB-coverage-1)
+            value = path.read_text().strip()
     finally:
         tmp.unlink(missing_ok=True)
+    if not value:
+        raise ConfigError("%s: the session secret is empty" % path)
     return value
 
 
@@ -397,6 +430,8 @@ class Sessions:
     is `session.secret_file`; without it nobody can sign in (the login page says so)."""
 
     def __init__(self, secret: str):
+        if not secret:
+            raise ConfigError("an empty session secret signs nothing")   # ROB-coverage-1: '' is a known key
         self._session = URLSafeTimedSerializer(secret, salt="nanosoc-rm session")
         self._state = URLSafeTimedSerializer(secret, salt="nanosoc-rm oauth state")
         self._csrf_key = hashlib.sha256(("csrf|" + secret).encode()).digest()
@@ -466,6 +501,8 @@ class GitHubAuth:
         d = sessions.load_session(cookies[SESSION_COOKIE])
         if d is None:
             return None
+        if session_revoked(config, d.get("sid", "")):
+            return None                                   # signed out: a copied cookie is refused too (ROB-security-2)
         ident = Identity(login=d["login"], status=d["status"], via="session", sid=d.get("sid", ""),
                          checked_at=d.get("checked_at", ""), iat=d.get("iat", ""), attempt_at=d.get("attempt_at", ""))
         if ident.status != "member":

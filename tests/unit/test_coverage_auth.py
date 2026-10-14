@@ -167,8 +167,6 @@ def test_local_secret_unreadable_is_a_config_error(tmp_path):
         auth._local_secret(cfg)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-1: an empty <data_dir>/session.secret becomes the signing key "
-                                       "'' and forged session cookies are accepted")
 def test_an_empty_local_secret_file_is_never_the_signing_key(tmp_path):
     cfg = _cfg(tmp_path, auth={"mode": "local", "users": []})
     path = tmp_path / "data" / "session.secret"

@@ -289,9 +289,6 @@ def test_sign_in_mints_a_new_session_and_ignores_a_planted_one(local):
     assert sign_in(victim, "alice").status_code == 303 and _sid(victim)["sid"] != d["sid"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-security-1: /auth/logout (POST and GET) signs a user out and revokes "
-                                       "the session with no CSRF token: the guard exempts /auth/* and logout "
-                                       "checks none")
 def test_logout_needs_the_sessions_csrf_token(local):
     c = signed_in(local["app"])
     copied = c.cookies.get(auth.SESSION_COOKIE)
@@ -313,15 +310,33 @@ def test_local_logout_revokes_every_copy_of_the_cookie(local):
         assert r.status_code == 401, (method, r.status_code)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-security-2: GitHub-mode logout only deletes the cookie; a copied session "
-                                       "cookie keeps working for the rest of its 8 h (revocation is local-mode only)")
+def test_logout_accepts_the_token_as_a_header(local):
+    """POST /auth/logout takes the session's CSRF token from X-CSRF-Token as the other session POSTs do."""
+    c = signed_in(local["app"])
+    copied = c.cookies.get(auth.SESSION_COOKIE)
+    r = c.post("/auth/logout", headers={"X-CSRF-Token": page_csrf(c)}, follow_redirects=False)
+    assert r.status_code == 303
+    thief = TestClient(local["app"])
+    thief.cookies.set(auth.SESSION_COOKIE, copied)
+    assert thief.get("/api/v1/alerts", follow_redirects=False).status_code == 401
+
+
+def test_an_empty_secret_never_makes_a_signer():
+    """ROB-coverage-1 backstop: Sessions('') is refused whatever path built it ('' is a key anyone can sign with)."""
+    with pytest.raises(auth.ConfigError):
+        auth.Sessions("")
+
+
 def test_github_logout_revokes_a_copied_cookie(service):
     c = TestClient(create_app(service["cfg"]))
     r = c.get("/auth/login", follow_redirects=False)
     st = urllib.parse.parse_qs(urllib.parse.urlsplit(r.headers["location"]).query)["state"][0]
     assert c.get("/auth/callback", params={"code": "alice", "state": st}, follow_redirects=False).status_code == 303
     copied = c.cookies.get(auth.SESSION_COOKIE)
-    assert c.get("/auth/logout").status_code == 200
+    form = c.get("/auth/logout")                                          # GET only shows the sign-out button
+    assert form.status_code == 200
+    token = re.search(r'name="csrf_token" value="([^"]+)"', form.text).group(1)
+    assert c.post("/auth/logout", data={"csrf_token": token}).status_code == 200
     thief = TestClient(create_app(service["cfg"]))
     thief.cookies.set(auth.SESSION_COOKIE, copied)
     assert thief.get("/api/v1/alerts").status_code == 401
@@ -352,18 +367,27 @@ async def _concurrent_wrong_passwords(app, n: int) -> list[int]:
         return list(await asyncio.gather(*(one() for _ in range(n))))
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-security-3: the sign-in throttle is check-then-act around a slow scrypt in "
-                                       "a thread pool; concurrent wrong guesses all pass blocked() before any fail() "
-                                       "lands, so far more than 5 guesses per window are checked")
 def test_concurrent_guesses_are_held_to_the_limit(local):
     codes = asyncio.run(_concurrent_wrong_passwords(local["app"], 30))
     assert set(codes) <= {401, 429}, codes
     assert codes.count(401) <= 5, "%d password checks in one window (limit 5)" % codes.count(401)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-security-4: Throttle keeps a key per distinct login ever tried and prunes "
-                                       "a key only when that same login is tried again: unknown logins grow memory "
-                                       "without bound")
+def test_successful_sign_ins_are_never_throttled(local):
+    """Review of ROB-security-3: attempt() reserves a slot before the password check, so a successful sign-in must
+    give its slot back (clear). Otherwise a user who signs in six times in five minutes is locked out."""
+    for _ in range(6):
+        c = TestClient(local["app"])
+        assert sign_in(c).status_code == 303
+    c = TestClient(local["app"])
+    for _ in range(4):
+        assert sign_in(c, password="nope").status_code == 401
+    assert sign_in(c).status_code == 303                                  # the fifth check, right: in
+    for _ in range(4):
+        assert sign_in(c, password="nope").status_code == 401             # the success reset the count
+    assert sign_in(c).status_code == 303
+
+
 def test_the_throttle_forgets_logins_whose_window_has_passed(monkeypatch):
     clock_s = [1000.0]
     monkeypatch.setattr(auth.time, "monotonic", lambda: clock_s[0])
@@ -728,9 +752,6 @@ def test_github_mode_tokens_and_session_secret_never_reach_a_page(service, tmp_p
 CRED_URL = "https://oauth2:%s@gitlab.invalid/soclabs/x.git" % MARK
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-security-5: alert messages are redacted on /alerts and the inbox, but "
-                                       "/facts/<alert subject> and /api/v1/alerts show the raw message, URL and "
-                                       "credentials included")
 def test_a_credential_url_in_an_alert_is_redacted_everywhere_it_is_shown(local):
     db.raise_alert("mirror_failed", "tidelink", "fetch %s failed" % CRED_URL,
                    [{"kind": "git", "command": "git ls-remote <gitlab>"}], config=load_config(local["cfg"]))
