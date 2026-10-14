@@ -29,6 +29,8 @@ def _target(name):
         return "release-lock", "/$defs/draft_lock"
     if name.startswith("regen.class"):                           # section 20: the regen_class fact
         return "regen", "/$defs/regen_class"
+    if name.startswith("store.index"):                           # section 22: the store_index fact
+        return "store", "/$defs/store_index"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
@@ -36,7 +38,7 @@ def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
         "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "result-bundle",
-        "tool-release"])
+        "store", "tool-release"])
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 

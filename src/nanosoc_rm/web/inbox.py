@@ -47,6 +47,7 @@ CARD_KINDS = {
     "branches_deletable": "branches", "host_drift": "hosts", "alert_group": "mirrors", "quality_top": "quality",
     "waiver_unused": "compat", "errata_exposure": "silicon", "matrix_flaky": "compat", "bump_proposal": "bumps",
     "release_draft": "silicon",
+    "store_mismatch": "silicon", "release_not_archived": "silicon", "tapeout_unregistered": "silicon",   # section 22
 }
 CATS = (("all", "All"), ("compat", "Compatibility"), ("branches", "Branches"), ("silicon", "Silicon"),
         ("quality", "Quality"), ("hosts", "Host copies"), ("mirrors", "Mirrors"), ("bumps", "Bumps"))
@@ -68,6 +69,9 @@ WEIGHTS = {
     "matrix_flaky": {"base": 40, "expiring": 55, "expiring_days": 3},
     "bump_proposal": {"base": 25, "blocked": 10},
     "release_draft": {"base": 60},
+    "store_mismatch": {"base": 85},                 # the store does not hold what a manifest names
+    "release_not_archived": {"base": 45},           # a silicon configuration with no manifest in the store
+    "tapeout_unregistered": {"base": 55},           # shipped streams no registered silicon configuration covers
 }
 STALE_AFTER = dt.timedelta(days=7)
 STALE_FACTOR = 0.8
@@ -773,9 +777,46 @@ def _releases(ctx: _Ctx) -> list[Card]:
     return out
 
 
+def _store(ctx: _Ctx) -> list[Card]:
+    """Section 21: the store index's findings (store.views.findings), one card each, from the stored index only."""
+    mod = _optional("nanosoc_rm.store.views")
+    if mod is None:
+        return []
+    out = []
+    for f in mod.findings(ctx.config):
+        kind, doc = f["kind"], f["doc"]
+        about = f["about"]
+        if kind == "release_not_archived":
+            primary = {"label": "Open %s Silicon" % about, "href": _silicon_href(about), "method": "get", "fields": {}}
+            dest, why = "opens the configuration's Taped out panel", (
+                "A silicon release with no manifest in the store cannot be traced from the store to its commit (D12).")
+            code = "nanosoc-rm store findings"
+        elif kind == "store_mismatch":
+            primary = {"label": "Open the manifest in Store", "href": "/store/?q=%s" % _q(about.rsplit("/", 1)[-1]),
+                       "method": "get", "fields": {}}
+            dest, why, code = "opens the store index at that manifest", (
+                "The manifest and the store disagree about the bytes: fix the manifest or the upload."), None
+        else:
+            primary = {"label": "Find %s in Store" % about, "href": "/store/?q=%s" % _q(about), "method": "get",
+                       "fields": {}}
+            dest, why, code = "lists that project's streams", (
+                "The store marks these streams shipped, but no registered silicon configuration covers them: "
+                "register the configuration, then publish its tapeout manifest."), None
+        out.append(Card(
+            id="%s:%s" % (kind, re.sub(r"[^A-Za-z0-9_.@:/+-]", "_", about)[:200]), kind=kind, chip=({"store_mismatch": "MISMATCH",
+                                                           "release_not_archived": "NOT ARCHIVED",
+                                                           "tapeout_unregistered": "UNREGISTERED"}[kind],
+                                                          "c-fail" if kind == "store_mismatch" else "c-warn"),
+            title=f["title"], why=why, weight=WEIGHTS[kind]["base"], fact_at=doc["observed_at"],
+            frozen=ctx.frozen.get(about, False), facts=[doc], meta="store index · %s" % _age(doc["observed_at"], ctx.now),
+            evidence=[_evidence("store", "c-neutral", e) for e in f["evidence"]], code=code, primary=primary,
+            dest=dest, basis=f["evidence"]))
+    return out
+
+
 # Builder order matters: compat and silicon claim tree paths before the red-pin card reads them.
 BUILDERS = (_compat_fail, _never_checked, _silicon_uncovered, _red_pins, _branches, _host_drift, _alert_groups,
-            _quality, _waivers, _errata, _matrix, _bumps, _releases)
+            _quality, _waivers, _errata, _matrix, _bumps, _releases, _store)
 
 
 def _rank(cards_: list[Card], now: dt.datetime) -> list[Card]:

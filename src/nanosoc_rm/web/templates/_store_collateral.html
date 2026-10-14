@@ -1,0 +1,11 @@
+{# Documents and collateral from the stored store index (section 22). `coll`: store.views.collateral(config)["rows"].
+   A download link exists only when the index job holds a copy verified against the store's sha1; the store's own
+   address and token never appear here. #}
+{% if coll %}
+<div class="scroll"><table data-collateral>
+  <thead><tr><th scope="col">Document</th><th scope="col">Kind</th><th scope="col">Project</th><th scope="col">Run</th><th scope="col" class="num">Bytes</th><th scope="col">Uploaded</th><th scope="col">Download</th></tr></thead>
+  <tbody>{% for r in coll %}{% set a = r.a %}<tr data-doc="{{ a.name }}">
+    <td><code>{{ a.repo }}/{{ a.path }}/{{ a.name }}</code></td><td>{{ a.kind or 'document' }}</td><td>{{ a.project or '-' }}</td><td>{{ a.run_tag or '-' }}</td><td class="num">{{ a.size }}</td><td>{{ a.created or '?' }}</td>
+    <td>{% if r.href %}<a href="{{ r.href }}" download data-download>download</a>{% else %}<span class="note">{{ r.why }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="empty">The stored index lists no document. Collateral is found by path (a docs folder, or a name such as datasheet, errata, manual, release notes); no store property marks it.</p>{% endif %}

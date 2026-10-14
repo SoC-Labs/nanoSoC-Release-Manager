@@ -2,6 +2,7 @@
 {% import "_ui.html" as ui %}
 {% include "_cfg_head.html" %}
 {% if not ci %}<p class="note">No CI is configured on this service: every check below ran as a local job.</p>{% endif %}
+{% if tl %}{% include "_store_timeline.html" %}{% endif %}
 
 <section aria-labelledby="h-jobs">
   <h2 id="h-jobs">Jobs ({{ rows|length }})</h2>

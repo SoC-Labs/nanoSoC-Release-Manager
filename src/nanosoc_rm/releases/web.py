@@ -178,6 +178,23 @@ async def _submit(request: Request, kind: str, params: dict, back: str) -> Respo
     return RedirectResponse(back + ("&" if "?" in back else "?") + "job=%d" % job["id"], 303)
 
 
+def _store_columns(config: Config, problems: list[str]) -> tuple[dict | None, list[dict]]:
+    """Section 21: the Store and Published columns ({(configuration, version): row}, key None: the index doc) and the
+    collateral rows, from the stored store index; (None, []) when the store package is not built here."""
+    try:
+        from nanosoc_rm.store import views as store_views
+    except ModuleNotFoundError:
+        return None, []
+    try:
+        rows = store_views.release_rows(config)
+        if rows[None]["doc"] is None and not (config.get("stores") or {}).get("artifactory"):
+            return None, []                             # no store configured or indexed: no columns
+        return rows, store_views.collateral(config)["rows"]
+    except Exception as e:                              # noqa: BLE001 - the drafts table still shows
+        problems.append("the store index could not be read: %s" % str(e)[:200])
+        return None, []
+
+
 def router(app: Any = None) -> APIRouter:
     """The plug-in's routes. Its POST routes are registered only in a local deployment (`app.state.rm.local_routes`,
     interfaces.md section 13a), so a GitHub + CI deployment keeps section 13's two Run routes as its only writes
@@ -198,9 +215,10 @@ def router(app: Any = None) -> APIRouter:
             problems = []
         except Exception as e:                          # noqa: BLE001 - the form needs the registry; say why not
             configs, problems = [], ["the registry does not load: %s" % str(e)[:300]]
+        store, coll = _store_columns(config, problems)
         return _page(request, "releases_index.html", "Releases", problems=problems, rows=rows, configs=configs,
                      inputs=_inputs(config), inputs_path=INPUTS, job_html=_job_html(request, config, job),
-                     recent=_recent(config))
+                     recent=_recent(config), store=store, coll=coll)
 
     async def post_draft(request: Request) -> Response:
         form = await request.form()

@@ -1,6 +1,7 @@
 {# Configuration workspace, Silicon tab (spec 3.6). Data from cfgspace.silicon_page. #}
 {% import "_ui.html" as ui %}
 {% include "_cfg_head.html" %}
+{% if taped and (taped.configured or taped.doc) and (c.frozen or taped.rows) %}{% include "_store_taped_out.html" %}{% endif %}
 {% if c.frozen %}
 <section class="panel" aria-labelledby="h-sil">
   <h2 id="h-sil">{{ covered }} of {{ rows|length }} silicon commits are covered by keep/{{ c.cid }}/* tags. {{ uncovered|length }} {{ 'is' if uncovered|length == 1 else 'are' }} not.</h2>

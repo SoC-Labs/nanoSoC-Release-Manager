@@ -198,7 +198,8 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 # relative to the directory holding the package), kind and method. AT-A2 and AT-A6 hold the package to it.
 #
 #   write       exactly one: POST projects/:id/trigger/pipeline, guarded to the configured CI project
-#   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (CR-14, Q4 rewrite)
+#   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (CR-14, Q4 rewrite);
+#               the artefact store's AQL search api/search/aql (Wave E, section 22)
 #   local       a call the census mistakes for HTTP, only in a file that imports no HTTP library (none yet)
 #   git-runner  at most one: nanosoc_rm.gitrun, which refuses push, send-pack and receive-pack at run time
 #
@@ -221,6 +222,13 @@ WRITE_CALLS: list[dict[str, str]] = [
               "a person runs `nanosoc-rm quality docs --rewrite`; the client is built after the key check, so without "
               "a key no connection is opened; the reply becomes a patch a person applies, never an edit",
      "reason": "CR-14 (Q4): the Messages API call that proposes a shorter rewrite of a doc section; it writes nothing"},
+    {"file": "nanosoc_rm/store/client.py", "kind": "http", "method": "POST", "target": "api/search/aql",
+     "effect": "read-post",
+     "guard": "store.client.check_request admits exactly one POST, api/search/aql, before any request is made; the "
+              "client sends a Bearer token only (never Basic, never a netrc), follows no redirect and never calls "
+              "the Access or security APIs",
+     "reason": "Wave E (section 22): AQL is Artifactory's only bulk read of files with their properties; the query "
+               "is `items.find(...)`, which reads and writes nothing"},
     {"file": "nanosoc_rm/gitrun.py", "kind": "exec", "method": "?", "target": "git with unresolved subcommand",
      "effect": "git-runner",
      "guard": "check_argv() refuses push, send-pack, receive-pack and every subcommand or form not on its "
@@ -240,4 +248,10 @@ WRITE_CALLS: list[dict[str, str]] = [
               "person runs, under the same git runner and WRITE_CALLS",
      "reason": "CR-17: the service's local job worker runs `nanosoc-rm compat`, `mirror sync` and `walk` as a child "
                "process, so a cancel can stop the whole process tree and the service never imports the tier runner"},
+    {"file": "nanosoc_rm/publish/signing.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local",
+     "guard": "_run() starts only `<[stores.artifactory] ssh_keygen> -Y sign|verify` (refused otherwise), with a "
+              "minimal environment, no stdin but the bytes to verify, a 60 s limit; the file imports no HTTP client",
+     "reason": "CR-ART-publish: sign and verify a manifest with ssh-keygen -Y (OpenSSH 8.1+); it writes only a "
+               "temporary file"},
 ]

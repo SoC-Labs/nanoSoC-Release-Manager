@@ -179,8 +179,8 @@ def _has(module: str) -> bool:
 
 
 def search(config, q: str, limit: int = 8, scope: str | None = None) -> list[dict]:
-    """Command-bar hits (spec 1.4): configurations, components, commits, branches, errata and defects, in that
-    order, cut at `limit`. Case-insensitive substring on the label; a hex query of 4 to 40 characters also
+    """Command-bar hits (spec 1.4): configurations, components, commits, branches, errata and defects, then store
+    artefacts (section 22: path, name, commit or md5), in that order, cut at `limit`. Case-insensitive substring on the label; a hex query of 4 to 40 characters also
     matches commit prefixes. `scope="component"` searches components only."""
     q = (q or "").strip()
     if len(q) < MIN_QUERY:
@@ -284,7 +284,18 @@ def search(config, q: str, limit: int = 8, scope: str | None = None) -> list[dic
                     return False
         return True
 
-    sources = [components] if scope == "component" else [configurations, components, commits, branches, ids]
+    def store() -> bool:
+        """Section 21: artefacts, builds and manifests of the stored store index, by path, name, commit or md5."""
+        try:
+            from nanosoc_rm.store import views as store_views
+        except ModuleNotFoundError:
+            return True
+        for h in store_views.search(config, q, limit=limit):
+            if not add(h["label"], "store · " + h["sub"], "artefact", h["tone"], h["href"]):
+                return False
+        return True
+
+    sources = [components] if scope == "component" else [configurations, components, commits, branches, ids, store]
     for src in sources:
         try:
             if not src():

@@ -1,0 +1,32 @@
+{# Configuration > Silicon: "Taped out" (section 22). `taped`: store.views.taped_out(config, cid). Stored facts only. #}
+{% import "_ui.html" as ui %}
+<section class="panel" aria-labelledby="h-taped" data-taped-out>
+  <h2 id="h-taped">Taped out</h2>
+  {% if taped.latest and taped.latest.fact.verdict == 'INFRA' %}<p class="banner problem">The last store index could not read the store: {{ fact(taped.latest, taped.latest.fact.reason) }}</p>{% endif %}
+  {% if not taped.doc %}
+  <p class="empty">No store index is stored, so nothing is known about tapeouts of {{ c.cid }}. {% if local is defined and local %}Open <a href="/store/">Store</a> and refresh the index.{% else %}Run <code>nanosoc-rm store index --store</code>.{% endif %}</p>
+  {% elif taped.rows %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Tapeout</th><th scope="col">Foundry</th><th scope="col">Date</th><th scope="col">GDS raw md5</th><th scope="col">Signature</th><th scope="col">Store</th><th scope="col">Release lock</th><th scope="col">Source commit</th></tr></thead>
+    <tbody>{% for r in taped.rows %}{% set m = r.manifest %}<tr data-tapeout="{{ m.path }}">
+      <td>{{ fact(taped.doc, m.tapeout_id or m.name) }}{% if m.status %} <span class="note">{{ m.status }}</span>{% endif %}</td>
+      <td>{{ m.foundry or 'not recorded' }}{% if m.shuttle %}, {{ m.shuttle }}{% endif %}</td><td>{{ m.date or 'not recorded' }}</td>
+      <td>{% if m.gds_raw_md5 %}<code>{{ m.gds_raw_md5 }}</code>{% else %}not recorded{% endif %}</td>
+      <td title="{{ m.signature_detail or '' }}" data-signature="{{ m.signature or 'unknown' }}">{{ ui.chip((m.signature or 'unknown')|upper, 'c-pass' if r.trusted else ('c-fail' if m.signature == 'invalid' else 'c-warn')) }}</td>
+      <td title="{{ r.store[2] }}">{{ ui.chip(r.store[0], r.store[1]) }}</td><td title="{{ r.lock[2] }}">{{ ui.chip(r.lock[0], r.lock[1]) }}</td>
+      <td>{% if r.link %}<a href="{{ r.link }}" rel="noopener" data-commit-link>{{ short(m.commit, 12) }}</a>{% if r.repo_from == 'registry' %} <span class="note">(repository from the registry)</span>{% endif %}{% elif m.commit %}<code>{{ short(m.commit, 12) }}</code> <span class="note">repository not recorded</span>{% else %}<span class="note">no git identity recorded</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p>The store holds no tapeout manifest for {{ fact(taped.doc, c.cid) }}{% if taped.silicon %} (silicon {{ taped.silicon.chip }} {{ taped.silicon.revision }}){% endif %}. Its tapeout is not registered in the store's release repository.</p>
+  {% endif %}
+  {% if taped.doc and taped.streams %}
+  <details><summary>Streams of store project{{ 's' if taped.projects|length != 1 }} {{ taped.projects|join(', ') }} ({{ taped.streams|length }})</summary>
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">Stream</th><th scope="col">Run tag</th><th scope="col">Raw md5</th><th scope="col">Registered</th><th scope="col">Git identity</th><th scope="col">Uploaded</th></tr></thead>
+    <tbody>{% for s in taped.streams %}{% set a = s.a %}<tr data-stream="{{ a.name }}"><td><code>{{ a.name }}</code></td><td>{{ a.run_tag or '-' }}</td><td>{{ a.raw_md5 or 'no raw md5' }}</td>
+      <td>{{ ui.chip('tapeout manifest', 'c-pass') if s.registered else ui.chip('not registered', 'c-notrun') }}</td>
+      <td>{% if s.identity.link %}<a href="{{ s.identity.link }}" rel="noopener">{{ s.identity.text }}</a>{% else %}<span class="note">{{ s.identity.text }}</span>{% endif %}</td><td>{{ a.created or '?' }}</td></tr>{% endfor %}</tbody>
+  </table></div></details>
+  {% elif taped.doc and not taped.projects %}<p class="note">No store project is mapped to {{ c.cid }} (<code>[stores.artifactory] projects</code>), so its uploads are not listed here; <a href="/store/">Store</a> lists every stream.</p>{% endif %}
+  {% if taped.locks %}<p class="note">Release locks of {{ c.cid }}: {% for lk in taped.locks %}{{ lk.version }} GDS md5 <code>{{ lk.md5 }}</code>{{ '; ' if not loop.last }}{% endfor %}.</p>{% endif %}
+</section>

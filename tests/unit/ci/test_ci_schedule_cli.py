@@ -33,7 +33,9 @@ def recorder():
 
 
 def test_job_names_are_the_contracted_ones():
-    assert [j.name for j in schedule.JOBS] == ["poll", "inventory", "nightly_t0", "fetch", "credentials", "runner"]
+    # CR-WE-index: store_index (section 22) queues the read-only store-index job once a night
+    assert [j.name for j in schedule.JOBS] == ["poll", "inventory", "nightly_t0", "fetch", "credentials", "runner",
+                                               "store_index"]
 
 
 def test_first_tick_after_the_nightly_time_runs_everything_in_order(ci_config, recorder):
@@ -151,7 +153,12 @@ def test_the_census_finds_exactly_one_write_and_it_is_the_trigger(sw):
     # only write.
     assert sorted((c["file"], c["method"]) for c in posts) == [("nanosoc_rm/auth.py", "POST"),
                                                                ("nanosoc_rm/ci/client.py", "POST"),
-                                                               ("nanosoc_rm/quality/rewrite.py", "POST")]
+                                                               ("nanosoc_rm/quality/rewrite.py", "POST"),
+                                                               ("nanosoc_rm/store/client.py", "POST")]   # CR-WE-aql
+    aql = [c for c in posts if c["file"] == "nanosoc_rm/store/client.py"]
+    assert aql[0]["target"] == "api/search/aql"
+    assert sw.allowed(aql[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
+    assert not sw.allowed(aql[0], [w for w in WRITE_CALLS if w["effect"] == "write"])
     rewrite = [c for c in posts if c["file"] == "nanosoc_rm/quality/rewrite.py"]
     assert sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "read-post"])
     assert not sw.allowed(rewrite[0], [w for w in WRITE_CALLS if w["effect"] == "write"])

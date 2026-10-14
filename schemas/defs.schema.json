@@ -128,7 +128,7 @@
       "required": ["kind", "command"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["git", "github_api", "gitlab_api", "ci_api", "registry", "derived"] },
+        "kind": { "enum": ["git", "github_api", "gitlab_api", "ci_api", "registry", "derived", "artifactory_api"] },
         "command": { "type": "string", "minLength": 1 }
       }
     },

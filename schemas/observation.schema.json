@@ -53,7 +53,8 @@
         "release_draft",
         "release_verify",
         "fork_status",
-        "regen_class"
+        "regen_class",
+        "store_index"
       ]
     },
     "subject": {
@@ -456,6 +457,17 @@
         "properties": {
           "fact": { "$ref": "#/$defs/doc_score" },
           "subject": { "pattern": "^doc_score:" }
+        },
+        "not": { "required": ["snapshot"] }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "store_index" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "store.schema.json#/$defs/store_index" },
+          "subject": { "pattern": "^store_index:artifactory$" },
+          "sources": { "items": { "properties": { "kind": { "const": "artifactory_api" } } } }
         },
         "not": { "required": ["snapshot"] }
       }

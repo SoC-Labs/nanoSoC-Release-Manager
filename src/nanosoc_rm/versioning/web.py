@@ -138,7 +138,13 @@ def router(app=None) -> APIRouter:
         cur = row.get("plan") or {}
         earlier = [h for h in hist if (h.get("subject"), h.get("observed_at")) != (cur.get("subject"),
                                                                                     cur.get("observed_at"))]
+        try:                                            # section 22: per tag, its commit link and the chips it reached
+            from nanosoc_rm.store import views as store_views
+            sv = store_views.component_versions(config, component)
+        except Exception:                               # noqa: BLE001 - the store index is optional on this page
+            sv = None
         return _page(request, "versions_component.html", "Versions: %s" % component, row=row, history=earlier[-10:],
+                     sv=sv,
                      drafts=_drafts(config, component), draft_obs=drafts_obs[-5:], job=_job(config, request.query_params),
                      local=local, me=getattr(ident, "login", ""))
 

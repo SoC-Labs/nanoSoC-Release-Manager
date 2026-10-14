@@ -58,6 +58,8 @@
 </table></div></details>
 {% else %}<p class="note">Not read yet.</p>{% endif %}
 
+{% if sv %}{% include "_store_versions.html" %}{% endif %}
+
 <h2>Release drafts (G1, G5)</h2>
 {% if drafts %}<ul>{% for d in drafts %}<li>{{ d.version }}: {% for n in d.files %}<a href="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/' ~ n) }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}
   {% if d.approvals %}<table><thead><tr><th>Step</th><th>Roles (all needed)</th><th>State</th><th>Approved by</th><th></th></tr></thead><tbody>{% for a in d.approvals %}

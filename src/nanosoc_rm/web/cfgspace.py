@@ -881,9 +881,24 @@ def silicon_page(request: Request, id: str) -> Response:
     waivers = [dict(w, unused=w.get("tree_path") in unused) for w in ctx.waivers]
     open_err = [e for e in ctx.errata if (e["fact"].get("record") or {}).get("status") in views.OPEN_ERRATUM_STATUSES]
     return _page(request, ctx, "silicon", "cfg_silicon.html", problems=problems, uncovered=unc,
+                 taped=_store_panel("taped_out", config, ctx.cid, problems),
                  rows=[{"doc": d, "tone": shell.tone(d["fact"].get("state"))} for d in rows],
                  covered=len(rows) - len(unc), cmds="\n".join(cmds), unreadable=unreadable, waivers=waivers,
                  open_errata=open_err)
+
+
+def _store_panel(name: str, config: Any, cid: str, problems: list[str]) -> Any:
+    """A store-index panel (section 22) from stored facts, or None when the store package is not built here. A
+    failure to read it is a page problem, never a broken page."""
+    try:
+        from nanosoc_rm.store import views as store_views
+    except ModuleNotFoundError:
+        return None
+    try:
+        return getattr(store_views, name)(config, cid)
+    except Exception as e:                                      # noqa: BLE001 - the panel says why, the page stays
+        problems.append("the store index could not be read: %s" % str(e)[:200])
+        return None
 
 
 def history_page(request: Request, id: str) -> Response:
@@ -906,6 +921,7 @@ def history_page(request: Request, id: str) -> Response:
     ci = not jobs.is_local_ci(config)
     results = [{"doc": d, "verdict": views.run_verdict(d), "tone": shell.tone(views.run_verdict(d))} for d in ctx.docs]
     return _page(request, ctx, "history", "cfg_history.html", problems=problems, rows=rows, ci=ci, results=results,
+                 tl=_store_panel("timeline", config, ctx.cid, problems),
                  runs=views.runs(config, ctx.cid) if ci else [])
 
 
