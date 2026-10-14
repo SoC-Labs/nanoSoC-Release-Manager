@@ -163,6 +163,12 @@ def _sync_repo(config: Config, mirror: Path, entry: Entry, repo: dict
     return fact, alert, sources, previous
 
 
+def _failure_way(fact: dict) -> tuple:
+    """What decides a failed repo's alert group: the read method tried, and whether private_read is misconfigured
+    (other cause changes, such as a network flap, do not raise the alert again)."""
+    return fact.get("method"), fact.get("cause") == "config"
+
+
 def failure_message(fact: dict) -> str:
     """The `mirror_failed` alert text: the cause first, so alerts group by it (web.alertgroups)."""
     repo = "%s:%s" % (fact["repo"]["host"], fact["repo"]["path"])
@@ -194,9 +200,10 @@ def sync_component(component_id: str, host: str | None = None, *, config: Config
         doc = {"schema": 1, "kind": "mirror_status", "subject": "mirror_status:%s:%s" % (repo["host"], repo["path"]),
                "observed_at": clock.iso(), "sources": sources, "snapshot": snap, "fact": fact}
         statuses.append(doc)
-        if not fact["ok"] and (previous is None or previous["ok"] or previous.get("method") != fact["method"]):
+        if not fact["ok"] and (previous is None or previous["ok"] or _failure_way(previous) != _failure_way(fact)):
             # Raised when a repo starts failing (not on every failed poll); it re-opens after a recovery, and is
-            # raised again when the way it fails changes (read credentials configured, then refused).
+            # raised again (open, even if a person cleared it) when the way it fails changes: read credentials
+            # configured then refused, or a private_read that is misconfigured.
             db.raise_alert("mirror_failed", doc["subject"], failure_message(fact), sources, config=config)
         if alert is not None:
             alerts.append(alert)

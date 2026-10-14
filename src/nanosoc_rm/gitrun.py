@@ -275,13 +275,18 @@ def check_credentialed(args: Sequence[str]) -> None:
     args = [str(a) for a in args]
     i = 0
     while i < len(args) and args[i].startswith("-"):
+        # No -c or --config-env: a config setting could turn on submodule recursion or change the transport
+        # (core.sshCommand) under the credential. The private-read path passes its config through the env.
+        if args[i] == "-c" or args[i].startswith(("-c", "--config-env")):
+            raise _refuse("a private-read credential takes no -c or --config-env", args)
         i += 2 if args[i] in _GLOBAL_WITH_VALUE else 1
     sub = args[i] if i < len(args) else ""
     if sub not in CREDENTIALED_READS:
         raise _refuse("a private-read credential is only for %s, not %r" % (" and ".join(CREDENTIALED_READS),
                                                                              sub), args)
-    if any(a == "--recurse-submodules" or a.startswith("--recurse-submodules=") and not a.endswith("=no")
-           for a in args[i + 1:]):
+    # Every --recurse-submodules* option (including --recurse-submodules-default) is refused unless its value is
+    # an explicit "no" (any case); --no-recurse-submodules is allowed.
+    if any(a.startswith("--recurse-submodules") and a.partition("=")[2].lower() != "no" for a in args[i + 1:]):
         raise _refuse("a private-read credential never follows submodules", args)
 
 

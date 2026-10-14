@@ -161,6 +161,8 @@ private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-rea
   but a key or deploy key with read access only is the safer choice (`identity_file = "..."` picks one).
 - Check it: `nanosoc-rm mirror sync --host gitlab`, then `nanosoc-rm mirror status --summary`. Repos read this way
   show `credentials:ssh` (or `credentials:token`); a key or token the host refuses shows `unreadable:<cause>` and
-  raises one alert group, "private repos the read credentials cannot read". The old anonymous alerts stay open
-  until you clear their group on `/alerts`.
+  raises one alert group, "private repos the read credentials cannot read" (a broken `private_read`, such as a
+  missing token file, raises the `private-read-config` group). These open even if you already cleared the old
+  anonymous alerts; the old anonymous alerts that were not cleared stay open until you clear their group on
+  `/alerts`.
 - The credential is never logged, stored or shown: not in commands, observations, alerts or pages.

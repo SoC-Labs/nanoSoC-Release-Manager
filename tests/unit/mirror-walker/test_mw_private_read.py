@@ -381,3 +381,95 @@ def test_mirror_status_access_column_and_summary(estate):
     rows = [json.loads(ln) for ln in summary.output.splitlines()]
     assert [(r["access"], r["method"], r["count"]) for r in rows] == [("credentials", "ssh", 1),
                                                                        ("anonymous", None, 1)]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Review follow-ups
+# ---------------------------------------------------------------------------------------------------------
+def _tick(monkeypatch, start="2026-10-14T01:00:00Z"):
+    """A clock that moves one minute per call to clock.now, so each step is later than the one before (as the
+    real syncs and a person's clearing are; the stored clock has one-second resolution)."""
+    from nanosoc_rm import clock
+    state = {"t": clock.parse(start)}
+
+    def now():
+        state["t"] += __import__("datetime").timedelta(minutes=1)
+        return state["t"]
+    monkeypatch.setattr(clock, "now", now)
+
+
+def test_cleared_alert_reopens_when_the_credentials_are_refused(estate, monkeypatch):
+    """PR-R1: a person clears the anonymous private-anon alert, then a refused token raises it again, open."""
+    _tick(monkeypatch)
+    estate.configure()
+    sync_component("priv")
+    subject = "alert:mirror_failed:mirror_status:gitlab:soclabs/priv"
+    db.clear_alert(subject, by="david")
+    assert not [a for a in db.alerts() if a["subject"] == subject]
+    bad = estate.tmp / "wrong.token"
+    bad.write_text("nope\n")
+    estate.configure('private_read = { method = "token", token_file = "%s" }' % bad)
+    sync_component("priv")
+    alert = next(a for a in db.alerts() if a["subject"] == subject)
+    assert alertgroups.cause_of(alert)[0] == "private-creds"
+    sync_component("priv")                                      # same failure again: no new raise, stays open
+    assert [a for a in db.alerts() if a["subject"] == subject]
+
+
+def test_mirrors_page_shows_the_access_summary(estate):
+    """PR-R2: /mirrors shows the same counts as `mirror status --summary`."""
+    from fastapi.testclient import TestClient
+    from nanosoc_rm import auth
+    from nanosoc_rm.web import create_app
+    cfg = estate.configure('private_read = "ssh"')
+    sync_component("pub")
+    sync_component("priv")
+    cfg.write_text(cfg.read_text() + '[roles]\n"default" = ["member"]\n')
+    text = TestClient(create_app(cfg, auth=auth.FakeMembership(login="alice"))).get("/mirrors").text
+    table = re.search(r'<table class="mirror-summary">(.*?)</table>', text, re.S)
+    assert table is not None
+    rows = re.findall(r"<tr><td>(\d+)</td><td><span class=\"pill [^\"]+\">(\w+)</span> ([^<]*)</td><td>([^<]*)</td>",
+                      table.group(1))
+    assert [(n, access, hosts) for n, access, _, hosts in rows] == [("1", "credentials", "1 gitlab"),
+                                                                     ("1", "anonymous", "1 gitlab")]
+    assert "ssh" in rows[0][2]
+
+
+@pytest.mark.parametrize("argv", [
+    ("-C", "/m.git", "fetch", "--recurse-submodules-default=yes", "u"),
+    ("-C", "/m.git", "fetch", "--recurse-submodules-default", "yes", "u"),
+    ("-C", "/m.git", "fetch", "--recurse-submodules=on-demand", "u"),
+    ("-c", "submodule.recurse=true", "-C", "/m.git", "fetch", "u"),
+    ("-c", "fetch.recurseSubmodules=yes", "-C", "/m.git", "fetch", "u"),
+    ("-c", "core.sshCommand=ssh -i k", "-C", "/m.git", "ls-remote", "u"),
+])
+def test_credentialed_guard_refuses_submodule_and_config_bypasses(argv):
+    """PR-R3: no option or -c setting can make a credentialed fetch follow submodules or change its transport."""
+    with pytest.raises(gitrun.GitRefused):
+        gitrun.check_credentialed(argv)
+
+
+@pytest.mark.parametrize("argv", [
+    ("-C", "/m.git", "fetch", "--recurse-submodules=No", "u"),
+    ("-C", "/m.git", "fetch", "--no-recurse-submodules", "u"),
+    ("-C", "/m.git", "fetch", "--recurse-submodules-default=no", "u"),
+])
+def test_credentialed_guard_allows_explicit_no_recursion(argv):
+    gitrun.check_credentialed(argv)
+
+
+def test_cleared_alert_reopens_when_private_read_is_misconfigured(estate, monkeypatch):
+    """PR-R1: anonymous failure, cleared; then a private_read whose token file is missing raises it again, open,
+    under the config group (the method tried is None both times, so the method alone cannot tell)."""
+    _tick(monkeypatch)
+    estate.configure()
+    sync_component("priv")
+    subject = "alert:mirror_failed:mirror_status:gitlab:soclabs/priv"
+    db.clear_alert(subject, by="david")
+    estate.configure('private_read = { method = "token", token_file = "%s" }' % (estate.tmp / "absent.token"))
+    sync_component("priv")
+    alert = next(a for a in db.alerts() if a["subject"] == subject)
+    assert alertgroups.cause_of(alert)[0] == "private-read-config"
+    db.clear_alert(subject, by="david")
+    sync_component("priv")                                      # the same config failure again: stays cleared
+    assert not [a for a in db.alerts() if a["subject"] == subject]

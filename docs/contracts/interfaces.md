@@ -162,7 +162,7 @@ git -C <id>.git fetch --no-tags --prune --filter=blob:none <https url> \
   git -C <id>.git fetch --no-tags --prune --filter=blob:limit=1m <ssh or https url> +refs/heads/*:... +refs/tags/*:...
   ```
   `gitrun` enforces the scope: an environment carrying `NANOSOC_RM_PRIVATE_READ` may run only `fetch` and
-  `ls-remote` (no `--recurse-submodules`), on top of every other refusal (`gitrun.check_credentialed`). The
+  `ls-remote` (no `--recurse-submodules*` option unless its value is `no`, no global `-c` or `--config-env`), on top of every other refusal (`gitrun.check_credentialed`). The
   credential is in no argv, URL, observation, alert or error text; a missing or empty token file is cause `config`,
   naming the host only. The T0 gates, `compat`, tiers and matrix cells never read it: they judge public
   fetchability and stay anonymous (section 9a).
@@ -175,8 +175,10 @@ git -C <id>.git fetch --no-tags --prune --filter=blob:none <https url> \
 - **Alerts by cause:** the `mirror_failed` text leads with its cause (`failure_message`): "failed with read
   credentials (<method>)", "private_read is misconfigured", "private or missing, no private_read for <host>", or the
   plain error. `web.alertgroups` groups them as `private-creds`, `private-read-config`, `private-anon` (and the
-  existing ssh-key, repo-gone, unreachable). An open alert is raised again when the method tried changes (the
-  repo now fails WITH credentials), so it moves to the right group; a recovery does not clear an alert (a person
+  existing ssh-key, repo-gone, unreachable). An alert is raised again, open even if a person cleared it, when the
+  method tried changes (the repo now fails WITH credentials) or when the failure becomes or stops being a
+  `private_read` misconfiguration (cause `config`), so it moves to the right group; other cause changes (a network
+  flap) do not raise it again; a recovery does not clear an alert (a person
   does, one group at a time, CR-W3).
 - **Blobs:** `.gitmodules` blobs arrive on demand and are then cached.
 - **git environment:** the service's git subprocesses inherit the process environment (tests route them with `GIT_CONFIG_GLOBAL` and `url.insteadOf`). Only the T0 runner forces `GIT_CONFIG_GLOBAL=/dev/null`.
