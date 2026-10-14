@@ -49,8 +49,9 @@ def _under(url: str, api: str) -> bool:
         (u.path == b.path or u.path.startswith(b.path + "/"))
 
 
-def list_host(config: Config, host: str) -> list[tuple[dict, dict]]:
-    """[(item, source)] for every repo the host lists for the configured org or group, all pages."""
+def list_host(config: Config, host: str, *, anonymous: bool = False) -> list[tuple[dict, dict]]:
+    """[(item, source)] for every repo the host lists for the configured org or group, all pages. `anonymous`
+    sends no credential (section 23.2: the host then lists only what it shows anyone)."""
     table = config.host(host)
     if host == "github":
         owner = table.get("org")
@@ -66,7 +67,7 @@ def list_host(config: Config, host: str) -> list[tuple[dict, dict]]:
     with httpx.Client(timeout=API_TIMEOUT_S, follow_redirects=True) as client:
         url, page = None, 1
         for _ in range(MAX_PAGES):
-            ans = api_get(config, host, path, None if url else params, url=url, client=client)
+            ans = api_get(config, host, path, None if url else params, url=url, client=client, anonymous=anonymous)
             if ans.status != 200 or not isinstance(ans.body, list):
                 raise InventoryError("%s listing failed at %s: %s" % (host, ans.source["command"],
                                                                      ans.error or "HTTP %s" % ans.status))

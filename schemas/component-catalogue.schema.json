@@ -106,6 +106,37 @@
           "$ref": "defs.schema.json#/$defs/component_class",
           "description": "B1. `legacy` = watch-only: listed, never tested."
         },
+        "group": {
+          "$ref": "#/$defs/group",
+          "description": "CR-WF-catalogue (David 2026-10-14, chat: front page approved): where the repo sits on the front page's ladder (project, soc, subsystem or component, arch, generator) or beside it (toolkit, flow, lib, infra, legacy). Optional: when absent the loader derives it from `class` (nanosoc_rm.catalogue.model.DEFAULT_GROUP) and reports it as derived, never as confirmed."
+        },
+        "type": {
+          "description": "Groups project, soc and subsystem only, and required there: what it builds. A project builds a `chip` or a `chiplet`; a soc is `soc`; a subsystem is `subsystem`.",
+          "enum": ["chip", "chiplet", "soc", "subsystem"]
+        },
+        "role": {
+          "description": "Groups project, soc and subsystem only, and required there: a specific `implementation`, a `forkable` template to start a new design from, or an `example`.",
+          "enum": ["implementation", "forkable", "example"]
+        },
+        "wraps": {
+          "description": "Groups project and soc only: the catalogue components this one integrates as its next level down the ladder (a project its SoC; a SoC its subsystems and integrated components). Loader rule 15 checks each target's group. A SoC that no `forkable` project wraps is the gap the pages flag.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "defs.schema.json#/$defs/component_id" }
+        },
+        "guessed": {
+          "description": "Fields of this entry that are a judgement still to confirm by the registry owner (`inside`: which project or SoC wraps this one). Confirming a field removes it from the list.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["group", "type", "role", "wraps", "inside"] }
+        },
+        "question": {
+          "description": "The open question to the registry owner about this entry, e.g. 'Generator or toolkit?'. Only with `guessed`.",
+          "type": "string",
+          "minLength": 1
+        },
         "canonical": {
           "$ref": "defs.schema.json#/$defs/repo",
           "description": "A1: the one canonical host. Release tags are made only here (C10)."
@@ -139,7 +170,37 @@
             }
           }
         }
-      }
+      },
+      "dependentRequired": { "question": ["guessed"] },
+      "allOf": [
+        {
+          "description": "CR-WF-catalogue: `type` and `role` belong to the ladder groups (project, soc, subsystem) and are required there; no other entry, and no entry without a `group`, may carry them.",
+          "if": { "required": ["group"], "properties": { "group": { "enum": ["project", "soc", "subsystem"] } } },
+          "then": { "required": ["type", "role"] },
+          "else": { "not": { "anyOf": [{ "required": ["type"] }, { "required": ["role"] }] } }
+        },
+        {
+          "if": { "required": ["group"], "properties": { "group": { "const": "project" } } },
+          "then": { "properties": { "type": { "enum": ["chip", "chiplet"] } } }
+        },
+        {
+          "if": { "required": ["group"], "properties": { "group": { "const": "soc" } } },
+          "then": { "properties": { "type": { "const": "soc" } } }
+        },
+        {
+          "if": { "required": ["group"], "properties": { "group": { "const": "subsystem" } } },
+          "then": { "properties": { "type": { "const": "subsystem" } } }
+        },
+        {
+          "description": "Only a project or a soc wraps anything.",
+          "if": { "not": { "required": ["group"], "properties": { "group": { "enum": ["project", "soc"] } } } },
+          "then": { "not": { "required": ["wraps"] } }
+        }
+      ]
+    },
+    "group": {
+      "description": "CR-WF-catalogue: the front page's grouping of a catalogue component. The ladder is project -> soc -> subsystem / component -> arch -> generator; toolkit, flow, lib (technology libraries), infra (boards, benches, lab tooling) and legacy (watch-only, exactly the class-legacy entries: loader rule 15) sit beside it.",
+      "enum": ["project", "soc", "subsystem", "component", "toolkit", "flow", "generator", "arch", "lib", "infra", "legacy"]
     },
     "external": {
       "type": "object",

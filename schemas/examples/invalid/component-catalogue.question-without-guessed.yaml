@@ -1,0 +1,5 @@
+# expect-error: dependentRequired at /components/0 ~ 'guessed'
+# CR-WF-catalogue: an open question goes with the fields it leaves unconfirmed.
+schema: 1
+components:
+  - {id: tidechart, class: ip_tech, group: component, question: "Component or toolkit?", canonical: {host: gitlab, path: soclabs/tidechart}}

@@ -1,0 +1,5 @@
+# expect-error: const at /components/0/type
+# CR-WF-catalogue: a SoC is type soc; chip and chiplet are what a project builds.
+schema: 1
+components:
+  - {id: nanosoc-multicore-system, class: soc_ref, group: soc, type: chip, role: implementation, canonical: {host: gitlab, path: soclabs/nanosoc-multicore-system}}

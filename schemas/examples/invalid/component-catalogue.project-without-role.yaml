@@ -1,0 +1,5 @@
+# expect-error: required at /components/0 ~ 'role'
+# CR-WF-catalogue: a project, SoC or subsystem states its role (implementation, forkable or example).
+schema: 1
+components:
+  - {id: nanosoc-ethernet-chiplet, class: soc_ref, group: project, type: chiplet, canonical: {host: github, path: SoC-Labs/NanoSoC-Ethernet-Chiplet}}

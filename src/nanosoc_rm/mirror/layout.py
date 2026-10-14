@@ -143,9 +143,10 @@ def _token_headers(config: Config, host: str) -> dict[str, str]:
 
 
 def api_get(config: Config, host: str, path: str, params: dict | None = None, *, url: str | None = None,
-            client: httpx.Client | None = None) -> ApiAnswer:
+            client: httpx.Client | None = None, anonymous: bool = False) -> ApiAnswer:
     """GET `<hosts.<host>.api>/<path>` (or the absolute `url`, e.g. a pagination link) with the host's read
-    token. Never raises for an HTTP or network failure: the answer says what happened."""
+    token, or with no credential at all when `anonymous` (the catalogue org scan, section 23.2). Never raises
+    for an HTTP or network failure: the answer says what happened."""
     base = config.host(host)["api"].rstrip("/")
     target = url or "%s/%s" % (base, path.lstrip("/"))
     shown = target[len(base) + 1:] if target.startswith(base + "/") else target
@@ -154,7 +155,7 @@ def api_get(config: Config, host: str, path: str, params: dict | None = None, *,
         target = target + ("&" if "?" in target else "?") + query
         shown = shown + ("&" if "?" in shown else "?") + query
     source = {"kind": "%s_api" % host, "command": "GET %s" % shown}
-    headers = {"Accept": "application/json", **_token_headers(config, host)}
+    headers = {"Accept": "application/json", **({} if anonymous else _token_headers(config, host))}
     own = client is None
     client = client or httpx.Client(timeout=API_TIMEOUT_S, follow_redirects=True)
     try:
