@@ -211,10 +211,15 @@ def test_one_navigation_holds_every_wave_b_page_once(site):
         r = _settle(c, url, site["cfg"]) if url.startswith("/quality") else c.get(url)
         assert r.status_code in (200, 503), (url, r.status_code, r.text[:300])
         assert r.text.count("<html") == 1, url
-        nav = _re.findall(r'<nav aria-label="main">(.*?)</nav>', r.text, _re.S)
-        assert len(nav) == 1, url
-        for label in labels:
-            assert nav[0].count(">%s</a>" % label) == 1, (url, label)
+        # the header holds each plug-in once (main entries or More; CR-WF-gui); pages with the rail also list
+        # them once in its Tools block. The projects home is full width (no rail).
+        head = _re.findall(r'<nav aria-label="Main" class="topnav">(.*?)</nav>', r.text, _re.S)
+        assert len(head) == 1, url
+        navs = head + _re.findall(r'<nav aria-label="main">(.*?)</nav>', r.text, _re.S)
+        assert len(navs) == (1 if url == "/" else 2) or url == "/matrix/", url    # /matrix/: full width when it answers
+        for nav in navs:
+            for label in labels:
+                assert nav.count(">%s</a>" % label) == 1, (url, label)
 
 
 def test_comments_page_hides_banners_by_default_and_shows_the_real_line_text(site, tmp_path):

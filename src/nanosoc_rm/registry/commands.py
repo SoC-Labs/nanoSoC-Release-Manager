@@ -55,7 +55,7 @@ def register(main: click.Group) -> None:
     @json_option
     def validate_cmd(path: Path | None, as_json: bool) -> int:
         """Load PATH (default: [registry] path) and check every file against its schema and the cross-file rules
-        1 to 13. Exit 0 valid, 1 with every problem listed."""
+        1 to 15. Exit 0 valid, 1 with every problem listed."""
         from nanosoc_rm.registry import RegistryError, load_registry
         root = _registry_path(path)
         try:

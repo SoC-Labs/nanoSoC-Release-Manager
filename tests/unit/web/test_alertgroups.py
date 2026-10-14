@@ -110,6 +110,8 @@ def test_the_board_and_the_rail_show_one_line_per_cause(site):
     text = site["client"].get("/").text
     assert text.count('data-alert-group="private-anon"') == 1
     assert "50 private repos cannot be mirrored anonymously" in text
+    # CR-WF-gui: the projects home is full width (no rail); the rail is on every workspace page
+    text = site["client"].get("/configurations/eth-rc4").text
     rail = re.search(r'id="rail-h-alerts">Alerts</p>(.*?)</div>', text, re.S).group(1)
     assert rail.count('class="rail-item"') == 2 and "50 private repos cannot be mirrored anonymously" in rail
 

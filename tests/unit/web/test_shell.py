@@ -17,7 +17,10 @@ from nanosoc_rm.web import create_app, plugins, routers, shell
 from webfix import make_registry, seed, write_config
 
 CSS = Path(shell.__file__).resolve().parent / "static" / "rm.css"
-PLUGIN_PAGES = ("/quality/", "/matrix/", "/versions/", "/bumps/", "/releases/")
+PLUGIN_PAGES = ("/quality/", "/versions/", "/bumps/", "/releases/")
+# CR-WF-gui (David 2026-10-14: front page approved): these pages are full width under the header, as the approved
+# artboards draw them: no rail, no breadcrumb trail (each prints its own title).
+FULL_WIDTH = ("/", "/notifications", "/catalogue/", "/matrix/")
 
 
 @pytest.fixture
@@ -36,7 +39,7 @@ def _load_config(site):
 
 # ----- rail -----------------------------------------------------------------------------------------------
 def test_the_rail_lists_every_registered_configuration_with_a_text_chip(site):
-    text = site["client"].get("/").text
+    text = site["client"].get("/alerts").text                 # CR-WF-gui: the home page has no rail
     rows = re.findall(r'<a class="rail-item[^"]*" href="([^"]+)"[^>]*data-rail-configuration="([^"]+)">(.*?)</a>',
                       text, re.S)
     assert [r[1] for r in rows] == ["eth-rc4", "eth-main", "multicore-master"]
@@ -134,6 +137,10 @@ def test_every_page_has_one_data_age_breadcrumbs_and_the_rail(site):
         if not r.headers.get("content-type", "").startswith("text/html") or r.status_code in (301, 302, 303, 307, 308):
             continue
         assert r.text.count("data-age-seconds=") == 1, path
+        assert r.text.count('<nav aria-label="Main" class="topnav">') == 1 and 'href="/notifications"' in r.text, path
+        if path in FULL_WIDTH:
+            assert "data-rail" not in r.text, path
+            continue
         assert r.text.count('<nav class="crumbs" aria-label="Breadcrumb">') == 1, path
         assert "data-rail" in r.text, path
         seen += 1
@@ -147,7 +154,7 @@ def test_plugin_pages_render_inside_the_new_shell(site):
         assert r.status_code in (200, 503), (url, r.status_code)          # 503: this site has no stored walk
         assert r.text.count("<html") == 1 and "data-rail" in r.text, url
         crumbs = re.search(r'<nav class="crumbs" aria-label="Breadcrumb"><ol>(.*?)</ol></nav>', r.text, re.S).group(1)
-        assert '<a href="/">Inbox</a>' in crumbs and 'aria-current="page"' in crumbs, (url, crumbs)
+        assert '<a href="/">Projects</a>' in crumbs and 'aria-current="page"' in crumbs, (url, crumbs)
 
 
 # ----- the core-router seam -----------------------------------------------------------------------------
@@ -167,12 +174,13 @@ def _fake_workspace(monkeypatch, name="inbox", answer="inbox here"):
 
 
 def test_a_workspace_router_mounts_before_the_app_routes_and_takes_over_its_page(site, monkeypatch):
-    _fake_workspace(monkeypatch)
+    _fake_workspace(monkeypatch)                                               # first in ROUTERS: its tree route
+    _fake_workspace(monkeypatch, name="home")                                  # CR-WF-gui: `/` is the home module's
     c = TestClient(create_app(site["cfg"], auth=auth.FakeMembership(login="alice")))
     assert c.get("/").text == "inbox here"                                     # the delegation seam
     assert c.get("/configurations/eth-rc4/tree").text == "tree of eth-rc4"     # matched before /configurations/{id}
     assert c.get("/configurations/eth-rc4").status_code == 200
-    _fake_workspace(monkeypatch, answer=None)                                  # a module that declines
+    _fake_workspace(monkeypatch, name="home", answer=None)                     # a module that declines
     c = TestClient(create_app(site["cfg"], auth=auth.FakeMembership(login="alice")))
     assert "data-configuration" in c.get("/").text                             # the older page answers
 

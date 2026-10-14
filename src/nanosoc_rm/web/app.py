@@ -289,27 +289,37 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         config, ident = _ctx(request)
         path = request.url.path
         problems = list(problems or [])
-        try:
-            rail = shell.rail(config, ident, path, state.nav)
-        except Exception as e:                       # noqa: BLE001 - the rail never takes a page down
-            rail = None
-            problems.append("the navigation rail could not be read: %s" % str(e)[:200])
+        no_rail = bool(ctx.pop("no_rail", False))    # Wave F pages (Home, Notifications, Catalogue) are full width
+        rail = None
+        if not no_rail:
+            try:
+                rail = shell.rail(config, ident, path, state.nav)
+            except Exception as e:                   # noqa: BLE001 - the rail never takes a page down
+                problems.append("the navigation rail could not be read: %s" % str(e)[:200])
+        bell = None
+        notes = routers.optional("notifications")
+        if notes is not None:
+            try:
+                bell = int(notes.unread_count(config, getattr(ident, "login", "") or ""))
+            except Exception:                        # noqa: BLE001 - the bell never takes a page down
+                bell = None
         if ctx.get("crumbs") is None:
             ctx["crumbs"] = _default_crumbs(path, title)
         html = render(template, title=title, identity=ident, problems=problems, csrf=state.csrf_for(ident, config),
                       nav=state.nav, path=path, auth_mode=config.auth_mode, rail=rail,
-                      local_ci=jobs.is_local_ci(config), actions=state.local_routes, **ctx)
+                      local_ci=jobs.is_local_ci(config), actions=state.local_routes, bell=bell, **ctx)
         return HTMLResponse(html, status_code=status)
     state.page = page
 
     def _default_crumbs(path: str, title: str) -> list[tuple[str, str | None]]:
-        """Spec 1.5: Inbox, then the navigation entry the page sits under (a plug-in's or a Tools page's), then
-        the page. A workspace handler passes its own."""
+        """Spec 1.5 (CR-WF-gui: the trail starts at Projects, the home since Wave F): Projects, then the navigation
+        entry the page sits under (a plug-in's or a Tools page's), then the page. A workspace handler passes its
+        own."""
         if path == "/":
-            return [("Inbox", None)]
+            return [("Projects", None)]
         entry = next((n for n in state.nav if n[1] != "/" and any(
             path == p or path.startswith(p.rstrip("/") + "/") for p in n[2])), None)
-        trail: list[tuple[str, str | None]] = [("Inbox", "/")]
+        trail: list[tuple[str, str | None]] = [("Projects", "/")]
         if entry is not None and entry[1].rstrip("/") != path.rstrip("/"):
             trail.append((entry[0], entry[1]))
         return shell.crumbs(trail + [(title, None)])

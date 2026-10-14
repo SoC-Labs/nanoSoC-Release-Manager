@@ -1,0 +1,33 @@
+{% if local %}
+<form class="row" method="post" action="/freshness/scan" data-freshness-scan="true">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <label>Configuration <input name="configuration" placeholder="every registered one"></label>
+  <button type="submit" title="queue `nanosoc-rm freshness scan --store` as a local job; it reads the stored walks and the mirrors">Scan now</button>
+</form>
+{% endif %}
+{% if job %}<div hx-get="/jobs/{{ job }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p class="note">Job {{ job }}: <a href="/jobs/{{ job }}/log">log</a></p></div>{% endif %}
+
+<details class="panel">
+  <summary>How is this judged?</summary>
+  <p>How far each submodule pin lags its upstream default branch, and when its parent last moved it: read from the last stored scan, judged today. A scan runs after every poll and measures the last stored walk (walk a configuration first to see a new commit){% if not local %}; to scan by hand run <code>nanosoc-rm freshness scan --store</code> on a login server{% endif %}.</p>
+  <p><strong>Outdated</strong>: {{ OUTDATED_BEHIND }} or more commits behind the upstream default branch, or behind and not bumped for {{ OUTDATED_DAYS }} days. <strong>Behind</strong>: 1 to {{ OUTDATED_BEHIND - 1 }} behind. <strong>Unpushed</strong>: no branch or tag on any host holds the pinned commit. <strong>Not measured</strong>: the commits behind could not be counted (the reason is on the pin).</p>
+  <p>A tree's verdict is its worst direct pin. Updated = days since anyone last moved a pin in the tree: Fresh under {{ FRESH_DAYS }} d, Aging {{ FRESH_DAYS }} to {{ STALE_DAYS - 1 }} d, Stale {{ STALE_DAYS }} d or more. A frozen silicon tree is old on purpose: it shows what it would be, is never counted as outdated, and its age is how long ago it was frozen, with no Fresh/Aging/Stale grade.</p>
+</details>
+
+{% if rows %}
+<div class="scroll"><table data-freshness="trees">
+  <thead><tr><th>Configuration</th><th>Verdict</th><th class="num">Direct pins lagging</th><th class="num">Pins lagging (whole tree)</th><th>Updated</th><th>Root</th></tr></thead>
+  <tbody>
+  {% for s in rows %}
+    <tr data-configuration="{{ s.configuration }}" data-verdict="{{ s.state }}">
+      <td><a href="/configurations/{{ s.configuration }}">{{ s.configuration }}</a></td>
+      <td>{{ fact(s, '') }}<span class="pill {{ STATE_CLASS.get(s.state, '') }}">{{ s.word }}</span>{% if s.would_be_word %} <span class="note">would be {{ s.would_be_word|lower }} if live; not counted</span>{% endif %}{% if s.not_measured %} <span class="note">{{ s.not_measured }}</span>{% endif %}</td>
+      <td class="num">{% if s.counted %}{{ s.direct_lagging }}{% else %}({{ s.would_be_direct_lagging }}){% endif %} of {{ s.direct }}</td>
+      <td class="num">{% if s.counted %}{{ s.lagging }}{% else %}({{ s.would_be_lagging }}){% endif %} of {{ s.pins }}{% if s.any_lower_bound %} <span class="note">some counts are lower bounds</span>{% endif %}</td>
+      <td>{% if s.frozen %}Frozen{% if s.root.days is not none %} {{ s.root.days }} d ago{% endif %}{% elif s.age %}<span class="pill {{ AGE_CLASS.get(s.age, '') }}">{{ s.age_word }}</span> {{ s.updated_days }} d{% if s.newest_bump %} <span class="note">({{ s.newest_bump.tree_path }})</span>{% endif %}{% else %}<span class="note">no bump date</span>{% endif %}</td>
+      <td>{% if s.root.commit %}<code>{{ s.root.commit[:12] }}</code>{% if s.root.days is not none %} <span class="note">{{ s.root.days }} d old</span>{% endif %}{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}<p class="empty">No freshness scan is stored yet. Press Scan now (or run <code>nanosoc-rm freshness scan --store</code>).</p>{% endif %}

@@ -402,7 +402,7 @@ def _known(config: Any, comp: str) -> bool:
 
 
 def _crumbs(comp: str, tab: str) -> list[tuple[str, str | None]]:
-    return shell.crumbs([("Inbox", "/"), ("Components", "/components"), (comp, _href(comp)),
+    return shell.crumbs([("Projects", "/"), ("Components", "/components"), (comp, _href(comp)),
                          (TAB_LABEL[tab], None)])
 
 
@@ -686,7 +686,7 @@ def branches(request: Request) -> Response | None:
               for c in sorted((mirrored | set(stored)) - set(in_tree) - {None})]
     return request.app.state.rm.page(request, "branches.html", "Branches", problems=problems, mine=mine,
                                      others=others, component="", choices=sorted((mirrored | set(stored) | set(in_tree)) - {None}),
-                                     crumbs=shell.crumbs([("Inbox", "/"), ("Branches", None)]))
+                                     crumbs=shell.crumbs([("Projects", "/"), ("Branches", None)]))
 
 
 def router(app: Any) -> APIRouter:

@@ -60,7 +60,8 @@ __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "j
 KINDS = ("compat", "mirror-sync", "walk")
 KIND_MODULES = ("nanosoc_rm.matrix.jobkind", "nanosoc_rm.bumps.jobkind", "nanosoc_rm.quality.jobkinds",
                 "nanosoc_rm.releases.jobkinds", "nanosoc_rm.versioning.jobkinds",
-                "nanosoc_rm.regen.jobkind", "nanosoc_rm.store.jobkind", "nanosoc_rm.publish.jobkinds")
+                "nanosoc_rm.regen.jobkind", "nanosoc_rm.store.jobkind", "nanosoc_rm.publish.jobkinds",
+                "nanosoc_rm.catalogue.jobkind", "nanosoc_rm.freshness.jobkind")
 _KINDS_LOADED = False
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")

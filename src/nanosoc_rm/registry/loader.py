@@ -13,7 +13,7 @@ The registry is a directory (a checkout of the registry repo's main) laid out as
 
 Every file is read with the strict YAML reader (timestamps stay strings, a duplicate key is refused: rule 8),
 must carry a `schema` version this reader knows (README section 2 rule 2), and is validated against its
-schema; then the cross-file rules 1 to 13 run (registry/rules.py). Problems are collected from every file and
+schema; then the cross-file rules 1 to 15 run (registry/rules.py). Problems are collected from every file and
 raised together, so one `registry validate` shows all of them.
 
 Records come back as schema documents (plain dicts, deep copies: a caller cannot change the loaded registry).
@@ -204,6 +204,12 @@ class Registry:
     def component(self, component_id: str) -> dict | None:
         c = self._components.get(component_id)
         return copy.deepcopy(c) if c is not None else None
+
+    def characterisations(self) -> dict:
+        """CR-WF-catalogue (interfaces.md section 23.1): {component id: Characterisation} in catalogue order, the
+        front page's group, type, role, wraps and wrapped_by of every component, defaults derived from class."""
+        from nanosoc_rm.catalogue.model import characterise_all
+        return characterise_all(self._components.values())
 
     def externals(self) -> list[dict]:
         return copy.deepcopy(list(self._externals.values()))

@@ -1,0 +1,56 @@
+{# The freshness matrix (CR-WF-gui; Matrix.dc.html). `fm` is web.fmatrix.matrix_view(). A cell is a link that
+   opens one detail line under its row; state is a shape plus its word, never colour alone. #}
+{% import "_fp.html" as fpm %}
+<div class="fp-toolbar">
+  <div role="group" aria-label="Rows: repository kind" class="fp-seg">
+  {% for t in fm.tabs %}
+    <a class="fp-chipbtn{% if t.on %} is-on{% endif %}" href="{{ t.href }}" aria-pressed="{{ 'true' if t.on else 'false' }}">{% if t.tone %}<span class="fp-kdot" style="background: {{ t.tone }}" aria-hidden="true"></span>{% endif %}{{ t.label }} <span class="mono">{{ t.n }}</span></a>
+  {% endfor %}
+  </div>
+  <div role="group" aria-label="Which rows" class="fp-seg">
+  {% for s in fm.segs %}<a class="fp-chipbtn{% if s.on %} is-on{% endif %}" href="{{ s.href }}" aria-pressed="{{ 'true' if s.on else 'false' }}">{{ s.label }}</a>{% endfor %}
+  </div>
+  <div role="group" aria-label="Sort rows" class="fp-seg">
+  {% for s in fm.sorts %}<a class="fp-chipbtn{% if s.on %} is-on{% endif %}" href="{{ s.href }}" aria-pressed="{{ 'true' if s.on else 'false' }}">{{ s.label }}</a>{% endfor %}
+  </div>
+</div>
+<div class="fp-toolbar" style="margin: 4px 0 8px; font-size: 13px; color: var(--fp-muted)">
+  <span>Each cell is the worst pin of that repo in that tree: state, commits behind, days since bump. {{ fm.n_shown }} of {{ fm.n_group }} repos shown.</span>
+  {{ fpm.judged() }}
+</div>
+<div class="fp-mx">
+<div class="fp-mx-scroll">
+<table aria-label="Repository freshness in each tree">
+  <thead><tr>
+    <th scope="col" class="repo"><span class="fp-facet-h">Repository</span></th>
+    {% for c in fm.cols %}<th scope="col" class="{% if c.frozen %}frozen{% endif %}" data-column="{{ c.id }}"><span class="colid">{{ c.id }}</span><span class="colsub">{{ c.sub }}</span></th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for r in fm.rows %}
+    {% if r.group is defined %}
+    <tr class="grp"><th scope="rowgroup" colspan="{{ fm.cols|length + 1 }}"><span class="fp-kdot" style="background: {{ r.tone }}" aria-hidden="true"></span> {{ r.label }} <span class="mono">{{ r.n }}</span></th></tr>
+    {% elif r.detail is defined %}
+    {% set d = r.detail %}
+    <tr class="detail" data-detail="{{ d.comp }}"><td colspan="{{ fm.cols|length + 1 }}"><strong>{{ d.head }}</strong> {{ d.body }} {% if d.also %}<span class="{{ 'fs-out' if d.also_strong else 'fp-muted' }}" style="font-weight: {{ 700 if d.also_strong else 400 }}">{{ d.also }}</span>{% endif %} {% if d.extra %}<span class="fp-muted">{{ d.extra }}</span>{% endif %} {{ fact(d.obs, "stored fact") }} <a href="{{ d.home }}">Open in the project tree</a></td></tr>
+    {% else %}
+    <tr id="{{ r.anchor }}" data-matrix-row="{{ r.comp }}"{% if r.sel %} class="is-sel"{% endif %}>
+      <th scope="row" class="repo"><span class="repo-in"><span class="fp-kdot" style="background: {{ r.tone }}" aria-hidden="true"></span><span class="repo-id" title="{{ r.comp }}">{{ r.comp }}</span><span class="spread">{{ r.spread }}</span></span></th>
+      {% for x in r.cells %}
+      <td{% if fm.cols[loop.index0].frozen %} class="frozen"{% endif %}>
+        {% if x %}<a class="fp-cell c-{{ x.css }}" href="{{ x.href }}" aria-label="{{ x.aria }}"{% if x.on %} aria-current="true"{% endif %} data-cell-state="{{ x.css }}" {{ page.mark(x.obs) }}>{{ fpm.mark(x.css) }}<span class="w">{{ x.word }}</span><span class="mono">{{ x.num }}</span><span class="age">{{ x.age }}</span></a>
+        {% else %}<span class="fp-cell-empty">not used</span>{% endif %}
+      </td>
+      {% endfor %}
+    </tr>
+    {% endif %}
+  {% endfor %}
+  </tbody>
+</table>
+{% if not fm.rows %}<p class="fp-empty">{% if fm.scanned %}No repository of this kind lags in a live tree. <a href="{{ fm.show_all }}">Show all</a>{% else %}No tree has a stored freshness scan yet: run <code>nanosoc-rm freshness scan --store</code>, or wait for the scheduler (it scans after each poll).{% endif %}</p>{% endif %}
+</div>
+<div class="fp-mx-foot">
+  {% if fm.hidden and fm.lag_only %}<span>{{ fm.hidden }} repo{{ ' is' if fm.hidden == 1 else 's are' }} current in every live tree and hidden. <a href="{{ fm.show_all }}">Show all</a></span>{% endif %}
+  {% if fm.unpinned %}<span>Not pinned in any measured tree: <span class="mono">{{ fm.unpinned|join(', ') }}</span></span>{% endif %}
+  <a href="/catalogue/" style="margin-left:auto">Wrong kind? Re-characterise</a>
+</div>
+</div>

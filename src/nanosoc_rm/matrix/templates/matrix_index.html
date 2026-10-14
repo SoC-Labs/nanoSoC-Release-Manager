@@ -1,3 +1,15 @@
+{# GET /matrix/ (CR-WF-gui): two tabs. Freshness (default; Matrix.dc.html, web.fmatrix) and Compatibility (the D3
+   index below, unchanged). Both panels are in the page; the inactive one is hidden. #}
+<div class="fp">
+<h1 class="sr">Matrix</h1>
+<nav class="fp-tabs" aria-label="Matrix kind" data-tabs>
+  <a href="/matrix/" id="tab-freshness" aria-controls="panel-freshness" aria-selected="{{ 'true' if tab == 'freshness' else 'false' }}" data-tab="freshness"{% if tab == 'freshness' %} aria-current="page"{% endif %}>Freshness</a>
+  <a href="/matrix/?tab=compat" id="tab-compat" aria-controls="panel-compat" aria-selected="{{ 'true' if tab == 'compat' else 'false' }}" data-tab="compat"{% if tab == 'compat' %} aria-current="page"{% endif %}>Compatibility</a>
+</nav>
+<section id="panel-freshness" aria-labelledby="tab-freshness"{% if tab != 'freshness' %} hidden{% endif %}>
+{% include "_fmatrix.html" %}
+</section>
+<section id="panel-compat" aria-labelledby="tab-compat"{% if tab != 'compat' %} hidden{% endif %}>
 {% include '_mstyle.html' %}
 <p class="note">For each configuration: one row per component of its stored tree, one column per version of that component (pinned, latest tag in range, latest tag, default-branch head). Each cell is a local T0 compat run with that one component moved. Same as <code>nanosoc-rm matrix CONFIG</code>.</p>
 <p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is automation and waits for the {{ nightly.gate }}. Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers }}.</p>
@@ -11,3 +23,5 @@
   {% endfor %}
   </tbody>
 </table>
+</section>
+</div>

@@ -1,0 +1,126 @@
+{# GET /catalogue/ (Wave F, CR-WF-gui; Characterise.dc.html). `c` is catalogue.web.catalogue_view(); `preview` the
+   result of POST /catalogue/patch (do=preview) or None. One form holds every choice; Save builds a patch for a
+   person to apply: nothing here writes the registry. #}
+<div class="fp fp-cat">
+{% if local %}<form method="post" action="/catalogue/patch" id="catalogue-form">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">{% endif %}
+<div class="fp-headrow">
+  <div>
+    <h1 class="fp-h1 big">Characterise repos</h1>
+    <p class="fp-muted">Give every nanoSoC repo one group. Repos that are not nanoSoC go to Ignored: the tool stops syncing, checking and showing them.</p>
+  </div>
+  <div class="fp-headctl">
+    <span class="fp-pending" data-pending="{{ preview.n if preview else 0 }}">{% if preview and preview.n %}{{ preview.n }} change{{ '' if preview.n == 1 else 's' }} in the patch{% elif preview %}No changes chosen{% else %}{{ c.unconfirmed }} to confirm{% endif %}</span>
+    {% if local %}<button type="submit" name="do" value="preview" class="fp-primary">Save to catalogue</button>{% endif %}
+  </div>
+</div>
+{% if not local %}<p class="fp-note">This deployment has no local actions. Build the same patch on a login server: <code>nanosoc-rm catalogue preview CHOICES.json</code> (interfaces.md section 23.3).</p>{% endif %}
+
+<section aria-labelledby="h-new" class="fp-sec" id="new">
+  <div class="fp-sec-h">
+    <h2 id="h-new">New repos found <span class="mono fp-muted">{{ c.new|length }}</span></h2>
+    <p>Seen by the anonymous org scan in the GitHub org or the GitLab group, not yet in the catalogue. Nothing is checked until you decide.</p>
+  </div>
+  {% for n in c.new %}
+  <div class="fp-newrow" {{ page.mark(n.doc) }} data-new-repo="{{ n.repo }}">
+    <div class="who">
+      <div class="mono"><strong>{{ n.repo }}</strong></div>
+      <div class="fp-muted" style="margin:0">{{ n.hint }}</div>
+      {% if n.suggest %}<div class="fp-muted" style="margin:0" data-suggest="{{ n.suggest }}">Suggested: {{ GROUP_LABELS[n.suggest] }} (not chosen until you pick it)</div>{% endif %}
+    </div>
+    <input type="hidden" name="new.{{ n.i }}.repo" value="{{ n.repo }}"{% if not local %} disabled{% endif %}>
+    <fieldset class="fp-radio">
+      <legend class="sr">Group for {{ n.repo }}</legend>
+      {% for g in QUICK %}
+      <label><input type="radio" name="new.{{ n.i }}.group" value="{{ g }}"{% if n.picked == g %} checked{% endif %}{% if not local %} disabled{% endif %}>{{ GROUP_LABELS[g] }}</label>
+      {% endfor %}
+      <label><input type="radio" name="new.{{ n.i }}.group" value="ignore"{% if n.picked == 'ignore' %} checked{% endif %}{% if not local %} disabled{% endif %}>Not nanoSoC</label>
+      <label><input type="radio" name="new.{{ n.i }}.group" value=""{% if not n.picked %} checked{% endif %}{% if not local %} disabled{% endif %}>Decide later</label>
+      <label for="new-{{ n.i }}-other" class="sr">Another group for {{ n.repo }}</label>
+      <select id="new-{{ n.i }}-other" name="new.{{ n.i }}.other"{% if not local %} disabled{% endif %}>
+        <option value="">More…</option>
+        {% for g in GROUPS if g not in QUICK %}<option value="{{ g }}"{% if n.other == g %} selected{% endif %}>{{ GROUP_LABELS[g] }}</option>{% endfor %}
+      </select>
+      <label for="new-{{ n.i }}-type" class="sr">A project of {{ n.repo }} builds a</label>
+      <select id="new-{{ n.i }}-type" name="new.{{ n.i }}.type"{% if not local %} disabled{% endif %}>
+        <option value="">Builds a…</option>
+        {% for t in ('chip', 'chiplet') %}<option value="{{ t }}"{% if n.type == t %} selected{% endif %}>{{ TYPE_LABELS[t] }}</option>{% endfor %}
+      </select>
+      <label for="new-{{ n.i }}-role" class="sr">Role of {{ n.repo }}</label>
+      <select id="new-{{ n.i }}-role" name="new.{{ n.i }}.role"{% if not local %} disabled{% endif %}>
+        <option value="">Role…</option>
+        {% for r, label in ROLE_LABELS.items() %}<option value="{{ r }}"{% if n.role == r %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </fieldset>
+  </div>
+  {% else %}
+  <p class="fp-empty">No new repo: the last org scan found nothing outside the catalogue{% if not c.new %} (or no scan is stored yet: <code>nanosoc-rm catalogue org-scan --store</code>){% endif %}.</p>
+  {% endfor %}
+</section>
+
+<section aria-labelledby="h-call" class="fp-sec">
+  <div class="fp-sec-h">
+    <h2 id="h-call">Needs your call <span class="mono fp-muted">{{ c.ask|length }}</span></h2>
+    <p>Catalogued repos where the group is a guess. The suggestion is pre-selected; change it if wrong, or tick Confirm to keep it.</p>
+  </div>
+  <div class="fp-mx-scroll">
+  <table class="fp-table">
+    <thead><tr><th scope="col">Repository</th><th scope="col">Question</th><th scope="col">Class today</th><th scope="col">Group</th><th scope="col">Confirm</th></tr></thead>
+    <tbody>
+    {% for a in c.ask %}
+      <tr data-ask="{{ a.id }}">
+        <td class="mono">{{ a.id }}</td>
+        <td class="fp-ask">{{ a.question }}</td>
+        <td class="mono fp-muted">{{ a.cls }}</td>
+        <td><label for="ask-{{ loop.index }}" class="sr">Group for {{ a.id }}</label>
+          <select id="ask-{{ loop.index }}" name="ask.{{ a.id }}"{% if not local %} disabled{% endif %}>
+          {% for g in GROUPS %}<option value="{{ g }}"{% if a.picked == g %} selected{% endif %}>{{ GROUP_LABELS[g] }}{% if g == a.group %} (now){% endif %}</option>{% endfor %}
+          </select></td>
+        <td><input type="checkbox" id="confirm-{{ loop.index }}" name="confirm.{{ a.id }}" value="1"{% if a.confirm %} checked{% endif %}{% if not local or not a.guessed %} disabled{% endif %}><label for="confirm-{{ loop.index }}" class="sr">Confirm the group of {{ a.id }}</label></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="fp-empty">No open question.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<div class="fp-split">
+<section aria-labelledby="h-all" class="fp-sec fp-list" style="margin-top:0">
+  <div class="fp-sec-h"><h2 id="h-all">All groups</h2><p>{{ c.n_components }} catalogued · {{ c.ignored|length }} ignored · {{ c.new|length }} new · {{ c.unconfirmed }} with a guessed or derived field (marked ?)</p></div>
+  <div class="fp-groups">
+  {% for g in c.groups %}
+    <div data-group="{{ g.key }}">
+      <h3><span class="fp-kdot" style="background: {{ GROUP_TONE[g.key] }}" aria-hidden="true"></span>{{ g.label }} <span class="mono fp-muted">{{ g.ids|length }}</span></h3>
+      <div class="fp-tags">{% for id in g.ids %}<span class="fp-tag">{{ id }}{% if id in g.guessed %} ?{% endif %}</span>{% else %}<span class="fp-muted">none</span>{% endfor %}</div>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+
+<aside class="fp-panel" style="display:flex;flex-direction:column;gap:16px">
+  <section aria-labelledby="h-ign">
+    <h2 id="h-ign" class="fp-h2">Ignored: not nanoSoC <span class="mono fp-muted">{{ c.ignored|length }}</span></h2>
+    <ul class="fp-ign">
+    {% for i in c.ignored %}<li><span class="mono">{{ i.repo.host }}:{{ i.repo.path }}</span><br><span class="fp-muted">{{ i.reason }}</span></li>{% else %}<li class="fp-muted">None.</li>{% endfor %}
+    </ul>
+    <p class="fp-muted">Un-ignore: remove its line from <code>ignored</code> in catalogue.yaml.</p>
+  </section>
+  <section aria-labelledby="h-y">
+    <h2 id="h-y" class="fp-h2">What Save writes</h2>
+    <p class="fp-muted">A catalogue.yaml change for review: <code>git apply</code> it in the registry checkout and open a merge request (the registry is the source of truth). Nothing is written here.</p>
+    {% if preview %}
+      {% for ch in preview.changes %}<p class="fp-muted" style="margin:0">{{ ch }}</p>{% endfor %}
+      {% for s in preview.skipped %}<p class="fp-note">Not used: {{ s }}</p>{% endfor %}
+      {% if preview.problems %}<div class="fp-note" role="status" data-preview-valid="false"><strong>The registry loader would refuse this patch:</strong><ul>{% for p in preview.problems %}<li class="mono">{{ p }}</li>{% endfor %}</ul></div>
+      {% elif preview.patch %}<p class="fp-muted" data-preview-valid="true">The patched catalogue loads (the registry's own checks pass).</p>{% endif %}
+    {% endif %}
+    <label for="patch" class="sr">Catalogue change</label>
+    <textarea id="patch" class="fp-patch" readonly>{{ preview.patch if preview and preview.patch else '# Choose groups above, then Save to catalogue: the patch shows here.' }}</textarea>
+    {% if local %}<p><button type="submit" name="do" value="download" class="fp-btn"{% if not (preview and preview.patch) %} aria-describedby="dl-note"{% endif %}>Download the patch</button> <span id="dl-note" class="fp-muted">catalogue.patch, built from the choices on this page</span></p>{% endif %}
+  </section>
+</aside>
+</div>
+{% if local %}</form>{% endif %}
+</div>

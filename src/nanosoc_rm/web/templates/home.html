@@ -1,0 +1,117 @@
+{# GET / (Wave F, CR-WF-gui; Home.dc.html): one toolbar line, the projects tree, the detail panel, and the
+   section 13 configuration board closed under the tree. `home` is web.home.home_view(). Every row is a real link
+   (the page state is in its URL); htmx swaps #home only. State is never colour alone: a word beside a shape. #}
+{% import "_fp.html" as fp %}
+{% set h = home %}
+<div id="home" class="fp" hx-boost="true" hx-target="#home" hx-select="#home" hx-swap="outerHTML show:none">
+<div class="fp-toolbar">
+  <h1 class="fp-h1">Projects</h1>
+  <div role="group" aria-label="Filter by freshness" class="fp-pills">
+  {% for pl in h.pills %}
+    <a class="fp-pill{% if pl.on %} is-on{% endif %}" href="{{ pl.href }}" aria-pressed="{{ 'true' if pl.on else 'false' }}" title="{{ pl.rule }}" data-fresh-pill="{{ pl.key }}">{{ fp.mark(pl.css) }}<span class="fs-{{ pl.css }} fp-w">{{ pl.word }}</span> <span class="mono">{{ pl.n }}</span></a>
+  {% endfor %}
+  </div>
+  <a class="fp-btn{% if h.show_filters %} is-on{% endif %}" href="{{ h.filters_href }}" aria-expanded="{{ 'true' if h.show_filters else 'false' }}" aria-controls="filters"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M3 5h18"></path><path d="M7 12h10"></path><path d="M10 19h4"></path></svg>Filters{% if h.n_active %} ({{ h.n_active }}){% endif %}</a>
+  {% if h.timeline.local %}
+  <form method="post" action="/home/timeline" class="fp-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="timeline" value="{{ 'off' if h.timeline.on else 'on' }}">
+    <input type="hidden" name="return" value="{{ h.timeline.return_to }}">
+    <button type="submit" class="fp-btn{% if h.timeline.on %} is-on{% endif %}" aria-pressed="{{ 'true' if h.timeline.on else 'false' }}" data-timeline="{{ 'on' if h.timeline.on else 'off' }}">Timeline {{ 'on' if h.timeline.on else 'off' }}</button>
+  </form>
+  {% else %}
+  <a class="fp-btn{% if h.timeline.on %} is-on{% endif %}" href="{{ h.timeline.href }}" aria-pressed="{{ 'true' if h.timeline.on else 'false' }}" data-timeline="{{ 'on' if h.timeline.on else 'off' }}">Timeline {{ 'on' if h.timeline.on else 'off' }}</a>
+  {% endif %}
+  {{ fp.judged() }}
+</div>
+
+{% if h.show_filters %}
+<div id="filters" class="fp-filters">
+  {% for f in h.facets %}
+  <div role="group" aria-label="{{ f.label }}" class="fp-facet">
+    <span class="fp-facet-h">{{ f.label }}</span>
+    {% for o in f.opts %}
+    <a class="fp-chipbtn{% if o.on %} is-on{% endif %}" href="{{ o.href }}" aria-pressed="{{ 'true' if o.on else 'false' }}">{{ o.label }} <span class="mono">{{ o.n }}</span></a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  <a class="fp-chipbtn{% if h.gap.on %} is-on{% endif %}" href="{{ h.gap.href }}" aria-pressed="{{ 'true' if h.gap.on else 'false' }}" data-gap-filter>No forkable project <span class="mono">{{ h.gap.n }}</span></a>
+  <a class="fp-link" href="{{ h.clear_href }}">Clear</a>
+</div>
+{% endif %}
+
+<div class="fp-split">
+<section aria-label="Project tree" class="fp-tree{% if h.timeline.on %} has-tl{% endif %}">
+  {% if h.timeline.on %}
+  <div class="fp-row-grid fp-axis" aria-hidden="true"><span></span><span></span><span></span>
+    <span class="fp-tl">{% for a in h.timeline.axis %}<span class="fp-tick" style="left: {{ a.x }}%">{{ a.label }}</span>{% endfor %}</span>
+  </div>
+  {% endif %}
+  <ul aria-label="Projects, configurations and pins" class="fp-rows">
+  {% for r in h.rows %}
+    <li class="fp-li lvl{{ [r.level, 3]|min }}{% if r.sel %} is-sel{% endif %}" id="{{ r.id }}" data-row="{{ r.key }}" data-state="{{ r.state }}"{% if r.fact %} {{ page.mark(r.fact) }}{% endif %}>
+      <a class="fp-row" href="{{ r.href }}" aria-label="{{ r.aria }}"{% if r.branch %} aria-expanded="{{ 'true' if r.open else 'false' }}"{% endif %}{% if r.sel %} aria-current="true"{% endif %}>
+        <span class="fp-row-grid">
+          <span class="fp-name-cell">
+            <span class="fp-indent" style="width: {{ r.indent }}px" aria-hidden="true"></span>
+            <svg class="fp-chev{% if r.open %} is-open{% endif %}{% if not r.branch %} is-leaf{% endif %}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+            <span class="fp-name k-{{ r.kind }}">{{ r.name }}</span>
+            {% if r.chip %}<span class="fp-chip">{{ r.chip }}</span>{% endif %}
+          </span>
+          {{ fp.state(r.css, r.word) }}
+          <span class="fp-ago">{{ r.ago }}</span>
+          {% if h.timeline.on %}
+          <span class="fp-tl" aria-hidden="true">
+            {% if r.bar %}<span class="fp-bar{% if r.bar.frozen %} is-frozen{% endif %}" style="left: {{ r.bar.left }}%; width: {{ r.bar.width }}%"></span>{% endif %}
+            {% for m in h.timeline.marks %}<span class="fp-mark" style="left: {{ m.x }}%"></span>{% endfor %}
+            <span class="fp-today" style="left: {{ h.timeline.today }}%"></span>
+          </span>
+          {% endif %}
+        </span>
+      </a>
+    </li>
+  {% endfor %}
+  </ul>
+  {% if not h.rows %}
+  <p class="fp-empty">{% if h.n_projects %}No project matches these filters. <a href="{{ h.clear_href }}">Clear filters</a>{% else %}No project is characterised and no configuration is registered yet. Set <code>[registry] path</code> to a registry checkout.{% endif %}</p>
+  {% endif %}
+  {% if h.timeline.on %}
+  <p class="fp-foot">Bar = last bump to today ({{ h.timeline.span }}). Solid line = today. {% for m in h.timeline.marks %}Dashed line = {{ m.cid }} frozen {{ m.date }}. {% endfor %}</p>
+  {% endif %}
+  {% if not h.scanned %}
+  <p class="fp-foot">No tree has a stored freshness scan yet: the scheduler queues one after each poll, or run <code>nanosoc-rm freshness scan --store</code>.</p>
+  {% endif %}
+</section>
+
+<aside aria-label="Details" aria-live="polite" class="fp-panel" id="detail">
+{% set d = h.detail %}
+{% if not d %}
+  <p class="fp-muted">Select a row to see its details.</p>
+{% else %}
+  <p class="fp-kind">{{ d.kind }}</p>
+  <h2 class="fp-title {{ d.title_cls }}">{{ d.title }}</h2>
+  <p class="fp-stateline">{{ fp.state(d.css, d.word) }}{% if d.sub %}<span class="fp-sub">{{ d.sub }}</span>{% endif %}</p>
+  {% if d.chips %}<p class="fp-chips">{% for c in d.chips %}<span class="fp-chip">{{ c }}</span>{% endfor %}</p>{% endif %}
+  {% if d.blurb %}<p class="fp-blurb">{{ d.blurb }}</p>{% endif %}
+  <dl class="fp-facts">
+  {% for f in d.facts %}
+    <dt>{{ f.label }}</dt><dd class="{% if f.mono %}mono{% endif %}{% if f.strong %} is-strong{% endif %}">{{ f.value }}</dd>
+  {% endfor %}
+  </dl>
+  {% if d.obs %}<p class="fp-src">{{ fact(d.obs, "Stored fact") }}</p>{% endif %}
+  {% if d.note %}<p class="fp-note">{{ d.note }}</p>{% endif %}
+  <p class="fp-links">
+  {% for label, href in d.links %}<a href="{{ href }}" hx-boost="false">{{ label }}</a>{% endfor %}
+  {% for f in d.forms %}
+    <form method="post" action="{{ f.action }}" hx-boost="false" class="fp-inline"><input type="hidden" name="csrf_token" value="{{ csrf }}">{% for k, v in f.fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<button type="submit" class="fp-btn">{{ f.label }}</button></form>
+  {% endfor %}
+  </p>
+{% endif %}
+</aside>
+</div>
+</div>
+
+<details id="home-checks" class="fp-checks">
+  <summary>Checks per configuration: T0, red pins, errata, host drift, Run</summary>
+  {% include "_board.html" %}
+</details>

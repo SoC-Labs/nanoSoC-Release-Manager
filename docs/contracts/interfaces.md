@@ -86,6 +86,7 @@ class Registry:
     def resolve_repo(self, repo: Repo) -> tuple[str | None, Literal["canonical","copy","alias","external","ignored","unknown"]]
     def configurations(self) -> list[dict]
     def defects(self) -> list[dict];  def errata(self) -> list[dict];  def imports(self) -> dict
+    def characterisations(self) -> dict[str, Characterisation]   # section 23.1 (CR-WF-catalogue)
     commit: str                                   # the registry commit it was read at
 def normalise_url(url: str, hosts: HostTable, parent: Repo | None = None) -> tuple[UrlKind, Repo | None]   # B9; from walk.py norm()
 ```
@@ -98,7 +99,7 @@ returns dicts or models whose `model_dump(mode="json", by_alias=True)` is the do
   - `nanosoc-rm registry imports [PATH] [--json]`: the F5 census (section 2a). Exit 0 only when every source is censused and nothing is pending or missing.
 - **Checks:**
   - every file against its schema;
-  - the cross-file rules in README section 3 (rules 1 to 12);
+  - the cross-file rules in README section 3 (rules 1 to 15);
   - `imports.yaml` items with `disposition: pending` are reported; they make `registry imports` exit 1.
 - **URL normalisation (B9):**
   - https and ssh forms of both hosts, with the host names taken from the config's host table, never hard-coded;
@@ -776,7 +777,8 @@ def tick(now: datetime) -> list[str]             # nanosoc_rm.schedule: runs eve
 ```
 
 `serve` calls `tick(utcnow())` every 30 s. Tests call it with an injected time, so a schedule test never waits
-on the wall clock. Job names: `poll`, `nightly_t0`, `fetch`, `inventory`, `credentials`, `runner`.
+on the wall clock. Job names: `poll`, `freshness_scan` (section 23.4, right after `poll`), `nightly_t0`, `fetch`, `inventory`,
+`credentials`, `runner`.
 A `Job` carries optional `phase` (default `"v1"`; CR-VER-a), `enabled` (default true) and `gate` (CR-R8). A later
 phase's job may be registered built with `enabled=False` and `gate="Phase N"` (CR-15); `tick` never runs a disabled
 job, and the phase-gate check (section 17.6, rule 5) counts every enabled job of a later phase, by its declared
@@ -1309,6 +1311,7 @@ contract examples do.
 | `draft`, `verify`, `drafts`, `forks`, `ReleaseUsage`, `ReleaseError` (CR-R1, section 14c) | `nanosoc_rm.releases` |
 | `render`, `measure_class`, `stored_signals`, `pending`, `tree_paths`, `SandboxRegenerator`, `RegenUsage`, `RegenerationError` (section 20) | `nanosoc_rm.regen` |
 | `regen_signals` (section 20.3) | `nanosoc_rm.versioning.consumers` |
+| `scan`, `FreshnessUsage` / `judge_pin`, `judge_tree`, `age_word`, `days_since`, `SEVERITY` / `stored`, `trees`, `tree`, `pin`, `grid`, `same_pin_lags` (section 23) | `nanosoc_rm.freshness.scan` / `.rules` / `.view` |
 | `JobKind`, `register_kind`, `registered`, `KIND_MODULES`, `all_kinds` (CR-VER, CR-R2, CR-WC-seams, section 13a) | `nanosoc_rm.jobs` |
 | `ROUTERS`, `WAVE_C_POSTS`, `DELEGATES`, `mount`, `optional`, `route_table`, `writes` (CR-W1, CR-W6) | `nanosoc_rm.web.routers` |
 | `deciding`, `causes`, `next_action`, `unused_waivers`, `Decision`, `Cause`, `GATE_LABEL`, `GATE_ITEM` (CR-W1) | `nanosoc_rm.web.verdict` |
@@ -1352,6 +1355,8 @@ init` (CR-VER, C1-C12, F6, G1, G5, G6): section 14b.
 CR-15): section 14c.
 `nanosoc-rm regen run|class|pending` (C3 3/3, C7; built per CR-15): section 20.
 `nanosoc-rm store index|show|search|findings` (B10, G8, D12; CR-WE-index): section 22.
+`nanosoc-rm freshness scan|show` (B2, B3, H1; CR-WF-fresh): section 24.
+`nanosoc-rm catalogue show|org-scan|preview` (A1, B1, H1; CR-WF-catalogue): section 23.
 
 ### 17.4 Test infrastructure
 
@@ -2054,3 +2059,282 @@ deployment only `POST /store/index` (queues one `store-index` job; a second pres
 reuses it). No GET calls the store or queues work. Scheduler job `store_index` (nightly, v1, enabled): queues one
 `store-index` job when `[stores.artifactory]` is configured and none is queued or running; the worker runs it as a
 child process.
+
+## 23. Catalogue characterisation (CR-WF-catalogue; A1, B1, H1)
+
+David 2026-10-14 (chat): front page approved. The front page groups the catalogue as a ladder: a **project** (the
+top-level repo that builds a chip or a chiplet: "the plate") wraps a **SoC** ("the meat"), which integrates
+**subsystems** and **components** ("the potatoes"), built from **arch** tech units and **generators**; **toolkits**,
+**flows**, technology **libs**, **infra** and **legacy** sit beside it. This section is the data model and the two
+read paths the GUI unit builds on. Nothing here writes the registry. Package `nanosoc_rm.catalogue`.
+
+### 23.1 The model (`catalogue.model`, `Registry.characterisations()`)
+
+Catalogue schema (additive, `schema` stays 1): each component may carry
+
+| field | values | where |
+|---|---|---|
+| `group` | project, soc, subsystem, component, toolkit, flow, generator, arch, lib, infra, legacy | any entry; `legacy` exactly when `class: legacy` (rule 15) |
+| `type` | chip, chiplet (project); soc (soc); subsystem (subsystem) | required on the three ladder groups, refused elsewhere |
+| `role` | implementation, forkable, example | required on the ladder groups, refused elsewhere |
+| `wraps` | component ids | project (a soc or subsystem) and soc (a subsystem or component) only (rule 15) |
+| `guessed` | subset of group, type, role, wraps, inside | fields still a judgement; `inside` = which project or SoC wraps it |
+| `question` | text | the open question to the owner; needs `guessed` |
+
+`ignored` entries keep their `reason` (unchanged). Defaults for a catalogue without these fields (every old
+catalogue loads unchanged): group from class (`DEFAULT_GROUP`: soc_ref and example -> project, generator ->
+generator, arch_tech -> arch, ip_tech -> component, toolkit -> toolkit, infra -> infra, legacy -> legacy), role
+from class (`DEFAULT_ROLE`: soc_ref -> implementation, example -> example), type unknown (None) unless the
+group fixes it; each field filled this way is listed in `derived`.
+
+```python
+@dataclass(frozen=True) class Characterisation:
+    id: str; cls: str; group: str; type: str | None; role: str | None
+    wraps: tuple[str, ...]; wrapped_by: tuple[str, ...]     # wrapped_by: the entries whose wraps name it
+    guessed: tuple[str, ...]; derived: tuple[str, ...]; question: str | None
+    top_level: bool                                         # group == "project"
+    unconfirmed -> tuple[str, ...]                          # guessed + derived, in GUESSABLE order
+    def as_doc(self) -> dict                                # the fields above plus unconfirmed, JSON-ready
+Registry.characterisations() -> dict[str, Characterisation]   # catalogue order, wrapped_by filled
+model.characterise(component_dict) -> Characterisation        # one entry, wrapped_by empty
+model.characterise_all(component_dicts) -> dict[str, Characterisation]
+model.socs_without_forkable_project(chars) -> list[str]       # group soc, no `forkable` project in wrapped_by
+model.effective_group(component_dict) -> str | None; model.class_for(group, role=None) -> str
+constants: GROUPS, LADDER_GROUPS, TYPES, ROLES, GUESSABLE, WRAP_TARGETS, DEFAULT_GROUP, DEFAULT_ROLE,
+           CLASS_FOR_GROUP, GROUP_LABELS, TYPE_LABELS, ROLE_LABELS (display words: "Forkable template", ...)
+```
+
+CLI: `nanosoc-rm catalogue show [PATH] [--group G]... [--gaps] [--unconfirmed] [--json]`, one row (or
+`as_doc()` plus `gap: bool`) per component. Exit 0; with `--gaps`, 1 when any SoC has no forkable project.
+Examples: `component-catalogue.example.yaml` (8 entries characterised, the rest derived); invalid
+`component-catalogue.type-on-toolkit.yaml`, `.project-without-role.yaml`, `.question-without-guessed.yaml`,
+`.soc-typed-chip.yaml`.
+
+### 23.2 The org scan (`catalogue.orgscan.org_scan`, job `org-scan`)
+
+`org_scan(config=None, hosts=None, store=False) -> ScanResult(docs, errors, listed)`: lists the configured GitHub
+org and GitLab group (with subgroups) through `mirror.inventory.list_host(..., anonymous=True)`: GET only, every
+page, **no credential** even when the service has read tokens (`mirror.layout.api_get(..., anonymous=True)` sends
+no Authorization header). Each listed repo the catalogue does not hold (not a component's canonical, copy or
+alias, not external, not ignored) becomes a `repo_seen` observation (set kind, scope `repo_seen:<host>`, one
+complete snapshot per host per scan; empty when nothing is new, so a repo catalogued or ignored since drops out).
+Fact (`observation.schema.json#/$defs/repo_seen`): `repo`, `visibility`, `default_branch`, `created_on` (date or
+null), `description` (whitespace-collapsed, at most 300 characters, or null), `mentions_nanosoc` (name or
+description matches nano-soc: a hint, not a judgement), `first_seen` (carried from the current stored fact),
+`listing: anonymous`. A host whose listing fails stores nothing; `errors[host]` says why; the other host is still
+scanned. Limit: an anonymous listing cannot see a private repo; `nanosoc-rm inventory` (with the read token) stays
+the A1 census.
+
+CLI: `nanosoc-rm catalogue org-scan [--host github|gitlab]... [--store] [--json]`; exit 0 nothing new, 1 new repos
+seen, 2 a host could not be listed; the last stderr line is the summary (`org-scan: N new repo(s) ...`, with
+`could not list <host>` on a failure). Job kind `org-scan` (params `{host?}`; runs
+`catalogue org-scan [--host H] --store --json`; verdict PASS when every host was listed, UNVERIFIED otherwise;
+result `{new, repos}`). A page reads `db.latest("repo_seen")`; it queues the job only from a POST, never from a
+GET. The job name holds no word a later phase's gate governs (phasegates rule 5a); it is not scheduled.
+Examples: `observation.catalogue.example.jsonl`; invalid `observation.repo-seen-with-credentials.yaml`.
+
+### 23.3 The catalogue-change preview (`catalogue.preview.preview`)
+
+`preview(registry_or_path, choices) -> Preview(patch, changes, problems, catalogue)`; `Preview.valid` is
+`not problems`; `Preview.as_doc()` gives `{patch, changes, problems, valid}`. Like the review basket, the tool
+never writes the registry: `patch` is a unified diff of `catalogue.yaml` (`a/`, `b/` prefixes, path relative to
+the registry repo's top, so `git apply` works there) that a person reviews and applies by merge request.
+`problems` is what the loader would say about the patched catalogue against the registry's other files (schema,
+then rules 1 to 15), formatted `file:pointer: message [rule]`; an empty list means the patch loads. Each
+component entry is one flow-mapping line and only its mapping is rewritten (comment kept; characterisation fields
+right after `class`); an entry written over several lines is a problem, not an edit. `PreviewUsage` (CLI exit 3)
+for a choice it cannot read. Choices, applied in order:
+
+```
+{"op": "set",     "id": ID, "fields": {group|type|role|wraps|question: VALUE or null}}   # confirms what it sets
+{"op": "confirm", "id": ID, "fields": [group|type|role|wraps|inside, ...]}           # drops them from guessed
+{"op": "add",     "repo": {"host", "path"}, "group": G, "id"?, "type"?, "role"?, "wraps"?}  # class = class_for
+{"op": "ignore",  "repo": {"host", "path"}, "reason": TEXT}                            # "Not nanoSoC"
+```
+
+`set` of group soc/subsystem fills the matching type; a group off the ladder drops type, role and their guesses;
+off project/soc it drops wraps. `question` goes once `group` is no longer guessed. `confirm` of a derived field
+writes the derived value out. CLI: `nanosoc-rm catalogue preview CHOICES|- [--registry PATH] [--out FILE]
+[--json]`: the patch on stdout (or the `as_doc()` JSON); exit 0 valid, 1 the patched catalogue would be
+refused, 3 a bad choice or an `--out` inside the registry.
+## 24. Submodule-tree freshness (CR-WF-fresh; B2, B3, H1, A3)
+
+How far each pin of each registered configuration lags its upstream default branch, when its parent last moved
+it, and one verdict per tree, for the projects home page (Home), the freshness grid and the detail panel (David
+2026-10-14: "a very clear indication of whether a submodule tree is outdated or not and how long since it's been
+updated last"). v1 monitoring, no later-phase automation: the job and route names carry no LATER_AUTOMATION word.
+(Sections 21 and 22 belong to Wave E.)
+
+### 24.1 The scan (`nanosoc_rm.freshness.scan`)
+
+```python
+def scan(configurations: list[str] | None = None, *, config=None, store: bool = True,
+         today: datetime.date | None = None) -> list[dict]   # FreshnessUsage for an unregistered id (exit 3)
+```
+
+- **Inputs, read-only:** the latest stored walk per configuration (`walker.stored_pins`; nothing is re-walked),
+  the catalogue (`mirror.catalogue.load_catalogue`), the latest `mirror_status` per repo, and the component
+  mirrors through `gitrun` (`git -C <mirror> --no-optional-locks ...`): `rev-list -n1 --missing=print --no-walk`
+  (is the commit here; never lazy-fetches), `log -1 --format=%cI`, `for-each-ref --contains` (every host's heads
+  and tags), `rev-parse --verify` (the canonical default head), `rev-list --count A..B` both ways, `merge-base
+  --is-ancestor`, and in the parent's mirror `log -1 --format=%H%x1f%cI%x1f%an%x1f%s <parent commit> -- <path>`
+  and `rev-list --count <parent commit> -- <path>` (the bump). No network, no write outside the store. A pin
+  shared by several trees is measured once. Four eth/multicore/quickstart trees (140 pins): 4.1 s on the service host.
+- **Default branch:** the canonical repo's, as the mirror records it (`layout.default_branch`), else the stored
+  walk's, else `main`/`master` if present.
+- **`lower_bound`:** the canonical repo's latest `mirror_status` is not ok but its refs are still in the mirror:
+  the counts are against the last good sync, so upstream may be further ahead.
+- **`unpushed`:** no head or tag of any host of the entry holds the pin and every host's refs are from a good sync;
+  null (not decided) when a host could not be read. **`not_measured`** (string) says why `behind` is null;
+  **`caveat`** what was not measured although `behind` was.
+- **Output:** one snapshot per configuration, scope `freshness:<configuration>`, holding a `level: tree` document
+  (subject `freshness:<configuration>`) and one `level: pin` document per pin (subject
+  `freshness:<configuration>:<first tree path>`). Facts: observation.schema.json `$defs/freshness_pin` and
+  `$defs/freshness_tree`. `observed_at` is the oldest of the walk and the canonical repo's last good sync.
+  A configuration with no stored walk gets only its tree document, `state: not_measured`, with the reason.
+- **Stored `state`** is the judgement on `judged_on`. Pages re-judge (23.3): "not bumped for 90 days" moves with
+  the calendar.
+
+### 24.2 The rule (`nanosoc_rm.freshness.rules`, pure: no git, store or clock)
+
+Per pin, first match wins: **frozen** (the configuration is `frozen` or `silicon`: `would_be` holds the ladder's
+answer, never counted) > **unpushed** > **not_measured** (`behind` is null) > **current** (0 behind) >
+**outdated** (`behind >= OUTDATED_BEHIND` (10), or behind and `days_since_bump >= OUTDATED_DAYS` (90)) >
+**behind** (1 to 9, bumped within 90 days, or the bump date is unknown). A pin not on the default branch counts
+by its commits behind like any other (the view flags it `diverged`, or `unmerged` with 0 behind).
+
+Per tree (`judge_tree(frozen, pins, today)`): `state` = the worst DIRECT pin (depth 1) by `SEVERITY` = unpushed 4 >
+outdated 3 > behind 2 > not_measured 1 > current 0, so a tree is Current only when every direct pin was measured
+at its head; no pins = not_measured; a frozen tree is `frozen` with `would_be` = that verdict. `counts` per live
+state over the whole tree; `lagging`/`direct_lagging` = unpushed + outdated + behind pins (0 when frozen;
+`would_be_lagging`/`would_be_direct_lagging` keep a frozen tree's numbers); `total_behind`, `any_lower_bound`;
+`newest_bump` / `newest_direct_bump` {tree_path, component, date, days}; `updated_days` = days since the newest
+bump in the tree and `age` = fresh (< 30) / aging (30 to 89) / stale (>= 90); `stalest_lagging` (longest unbumped
+lagging pin) and `worst_lagging` (most severe, then most behind). A frozen tree is old on purpose and never reads as
+lagging: its `counts` are all 0, `age`, `stalest_lagging` and `worst_lagging` are null, and its live numbers sit
+under `would_be_counts`, `would_be_stalest_lagging` and `would_be_worst_lagging` (null for a live tree);
+`updated_days` stays as a fact. Days are whole UTC calendar days (`days_since(ts, today)`).
+
+```python
+STATES, LIVE_STATES, WORDS, SEVERITY, LAGGING, OUTDATED_BEHIND, OUTDATED_DAYS, FRESH_DAYS, STALE_DAYS, AGE_WORDS
+def judge_pin(pin_fact: dict, today: date) -> dict   # {state, would_be, live, lagging, days_since_bump, pin_age_days}
+def judge_tree(frozen: bool, pin_facts: list[dict], today: date) -> dict   # the tree fields above
+def live_state(pin_fact, today) -> str;  def worst(states) -> str | None;  def age_word(days) -> str | None
+def days_since(ts: str | None, today: date) -> int | None;  def day_of(ts) -> date | None
+```
+
+### 24.3 What pages call (`nanosoc_rm.freshness.view`; stored facts only)
+
+Every function reads `db.latest("freshness")` and re-judges with `rules` on `today` (default: today, UTC). None
+runs git, starts a job or touches the network (`test_no_view_function_runs_git`). The stored registry records
+(`registry_record`, kept current by the pages' registry refresh) decide which configurations are listed and
+whether each is frozen (frozen or silicon): a configuration dropped from `eligibility.yaml` leaves the pages, and
+a newly frozen one reads Frozen, without waiting for a scan. With no registry record stored at all, every stored
+scan is listed as stored. Each returned row carries the
+`subject` and `observed_at` of its observation, so a template prints the section 13 hooks with `fact(row, label)`.
+
+```python
+def stored(*, config=None) -> dict[str, list[dict]]           # configuration -> [tree doc, pin docs by path]
+def trees(*, today=None, config=None) -> list[dict]             # one summary per scanned tree, live first
+def tree(configuration, *, today=None, config=None) -> {"tree": summary, "nodes": [node]} | None
+def pin(configuration, tree_path, *, today=None, config=None) -> node + {configuration, same_pin_lags_in} | None
+def grid(*, today=None, config=None, live_only=False) -> {"components", "configurations", "cells"}
+def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration]
+```
+
+- **summary** = `judge_tree` fields + `configuration`, `frozen`, `silicon`, `root` {component, commit, date, days},
+  `walk` {snapshot, observed_at}, `not_measured`, `scanned_on`, `word`, `would_be_word`, `age_word` (display words:
+  "Outdated", "Not measured", "Fresh"...), `subject`, `observed_at`.
+- **node** (one per tree path; a pin reached at two paths shows at both, `first_path` marks its own) = `tree_path`,
+  `name`, `display_depth`, `parent_path`, `children` [tree paths], `component`, `catalogued_as`, `pinned`,
+  `pin_date`, `behind`, `ahead`, `lower_bound`, `on_default`, `diverged`, `unmerged`, `reachable`, `unpushed`,
+  `branches`, `branches_more`, `upstream` {repo, default_branch, head, head_date}, `bump` {commit, date, author,
+  subject, total}, `not_measured`, `caveat`, `parent_component`, `parent_commit`, `frozen`, `judge_pin` fields
+  (`state`, `would_be`, `live`, `lagging`, `days_since_bump`, `pin_age_days`), `word`, `would_be_word`, `rollup`
+  (worst live state at or under it, for "a parent row shows the worst state beneath it"; `frozen` on every node
+  of a frozen tree, which carries the live answer as `would_be_rollup`, null otherwise), `rollup_word`,
+  `rollup_behind`, `subject`, `observed_at`. Nodes come depth first, siblings by path; grouping siblings by kind
+  (SoC, custom peripherals, tooling) is the page's, from the catalogue.
+- **`same_pin_lags_in`**: other LIVE configurations pinning the same component at the same commit and lagging on it.
+- **grid cell** (component x configuration; the worst pin of that component in that tree) = `state`, `live`,
+  `would_be`, `word`, `behind`, `lower_bound`, `days_since_bump`, `tree_path`, `pins` (how many pins of it the
+  tree has), `counted` (false for a frozen tree), `subject`, `observed_at`. `components` puts the most lagging
+  live rows first; `configurations` live first.
+
+### 24.4 Job, schedule, CLI, route
+
+- **Job kind** `freshness-scan` (`nanosoc_rm.freshness.jobkind`, in `jobs.KIND_MODULES`): params
+  `{configuration: id | null}`; runs `nanosoc-rm freshness scan [CONFIG] --store --json`; outcome PASS, or
+  UNVERIFIED when a tree had no stored walk; result `{trees: {id: state}, pins, not_measured}`; ceiling 900 s.
+- **Scheduler** job `freshness_scan` (every `poll_minutes`, immediately after `poll`, so after its walks): queues one
+  `freshness-scan` job unless one is queued or running. Not a CI job: it runs in a local deployment too.
+- **CLI:** `nanosoc-rm freshness scan [CONFIG]... [--store] [--today YYYY-MM-DD] [--json]` (exit 0 answered, 2 a tree
+  has no stored walk, 3 unknown configuration or bad date; an outdated tree is not exit 1: the scan measures, it
+  does not gate). `nanosoc-rm freshness show [CONFIG] [--tree] [--today] [--json]` prints the stored facts
+  re-judged (exit 2 when none is stored).
+- **Routes** (plug-in `nanosoc_rm.freshness.web`, navigation "Freshness"): `GET /freshness/` lists every scanned
+  tree (verdict word, direct and whole-tree lagging, Updated with Fresh/Aging/Stale, or "Frozen N d ago" for a
+  frozen tree, root), stored facts only; one compact scan toolbar, the explanations behind "How is this judged?";
+  `POST /freshness/scan` (field `configuration`, optional; local deployments only, CSRF-checked; elsewhere 403
+  with the CLI command) queues the job, or shows the one already queued that covers it, and redirects to
+  `/freshness/?job=N`. 400 for an unregistered configuration.
+- **Observation kind** `freshness` (set kind; `db.SET_KINDS`); example `observation.freshness.example.jsonl`
+  (hermetic fixture, no lab data).
+
+## 25. The front pages: Projects, Matrix, Catalogue, Notifications (CR-WF-gui; H1, A3, A4, A5, PR4)
+
+Requirements: H1, A3, A4, A5, PR4. Agreed: David 2026-10-14 (chat): front page approved. This section REVERSES
+CR-W1's inbox at `/`: `/` is the projects home and the inbox is Notifications behind the bell. Section 13's `GET /`
+hooks (AT-H1: `data-configuration`, `data-item`, `data-verdict`, `data-run-t0`) stay on `/`, in the configuration
+board closed under the tree. Every page reads stored facts only: a GET never walks, scans, fetches, queues a job or
+creates gui.sqlite. Every page keeps one data-age element; a state is always a word beside a shape.
+
+| Route | Shows or does | Module |
+|---|---|---|
+| `GET /` | the header and toolbar, the project -> configuration -> pin tree, the detail panel, the board (closed). Query (all optional; every row and control is a link carrying it): `v=1` (an explicit view: no default opening), `o` (repeatable; an open row key), `sel` (the selected row key), `f` (a freshness state), `lv` (project, soc, subsystem), `ty` (chip, chiplet), `ro` (implementation, forkable, example), `gap=1` (No forkable project), `filters=1` (the Filters disclosure open), `tl=on\|off` (the timeline for this view only) | `web.home` (`routers.DELEGATES["dashboard"]`) |
+| `GET /matrix/` | tab **Freshness** (default): one row per repository, one column per stored tree; query `group` (`all`, project, toolkit, flow, component, generator, arch, lib, infra, legacy, ext), `rows=all` (also rows with no lag), `sort=behind\|age`, `comp` + `cfg` (the cell whose detail line is open). `?tab=compat`: the section 18 configuration list, unchanged; `/matrix/{configuration}` and every other matrix route are unchanged | `matrix.web`, `web.fmatrix` |
+| `GET /catalogue/` | the new-repo queue (current `repo_seen` snapshots), "needs your call" (entries with a `question`), every group, the ignored list, "What Save writes" | `catalogue.web` (plug-in) |
+| `GET /notifications` | one line per item (`?show=all`: read items too), "notify me about" | `web.notifications` |
+| `GET /inbox` | the inbox cards (Wave C section 2) with evidence, snooze and undo; `?cat=` as before | `web.inbox` |
+| `POST /home/timeline` | field `timeline` (`on`\|`off`), `return` (a `/` or `/?...` URL); saves the login's `timeline` preference; 303 back | `web.home` |
+| `POST /notifications/read` | fields `item`, `fp` (the item's fingerprint), `read` (`0` = mark unread); 303 to `/notifications` | `web.notifications` |
+| `POST /notifications/read-all` | repeated `item` + `fp` pairs: exactly the items the page showed (400 when none); a later item stays unread | `web.notifications` |
+| `POST /notifications/prefs` | repeated `listed` (each preference the form showed) and `on` (the ticked ones); an unticked listed name is saved `off`, a ticked one removed; 400 for a name `uistate.PREF_NAME` refuses | `web.notifications` |
+| `POST /catalogue/patch` | the page's choices (`new.<i>.repo`, `new.<i>.group`, `new.<i>.other`, `new.<i>.type`, `new.<i>.role`, `ask.<id>`, `confirm.<id>`) -> `catalogue.preview` (section 23.3). A new-repo choice applies to the repo its row's hidden `new.<i>.repo` (`<host>:<path>`) names, never to whatever repo now sits at row `i`; a repo no longer in the queue (or a row without the key) is skipped and listed as not used. Every new repo starts on Decide later: the suggested group is a hint (`data-suggest`), so an untouched Save changes nothing; `do=preview` shows the patch, its changes and whether it would load; `do=download` returns `catalogue.patch` (`text/x-diff`; 400 when nothing changes). Writes nothing (no registry, no store, no gui.sqlite) | `catalogue.web` |
+
+The five POSTs are local-only (`web.plugins.local_routes`; `web.routers.WAVE_F_POSTS` lists the core four) and
+CSRF-checked by the section 14 guard; a GitHub + CI deployment keeps section 13's two Run routes as its only writes
+and its pages show no button for a missing route (the timeline toggle is then a link changing `tl` in the URL).
+
+- **The tree.** Projects are the catalogue's ladder entries (group project, soc, subsystem; `catalogue.model`, from
+  the stored `registry_record` component records) plus any configuration root the catalogue does not characterise.
+  A configuration row is its `freshness.view.trees` summary (its verdict = worst DIRECT pin; a frozen tree says
+  Frozen and "not counted"); a pin row's state is its `rollup` (the worst live state at or beneath it). Siblings
+  sort by `home.sibling_rank`: SoC, custom peripherals (a direct component or subsystem of the configuration
+  root), subsystems and components, arch tech, generator, libraries and infra, toolkits and flows; then worst state
+  first. A project with no measured configuration folds into one "Not measured yet" group (`grp:unk`).
+- **Pills** count live configurations by tree verdict and frozen ones as Frozen; the Not measured pill adds the
+  projects with no stored scan to the scanned live trees that read Not measured, so every configuration is in one
+  pill, and its filter keeps both.
+- **Default view** (no `v=1`): the most lagging project with an Outdated or Unpushed live configuration is open,
+  with its first live configuration; everything else (frozen trees included) is closed. **Timeline**: a bar from each row's newest bump to today on one axis (`_TL_MONTHS` whole months before
+  today's month to `_TL_AFTER` days after today), the today line, and a dashed line at each frozen configuration's
+  root commit date (its tapeout).
+- **Page hooks** (tests read pages only through these): `data-row` (row key: `p:<project>`, `c:<configuration>`,
+  `n:<configuration>:<tree path>`, `grp:unk`) and `data-state` (a `freshness.rules.STATES` value) on each tree row,
+  with `data-subject`/`data-observed-at` when the row is a stored fact; `data-fresh-pill` (state) on each pill;
+  `data-timeline` (`on`\|`off`); `data-gap-filter`; `data-bell` (unread count, empty when unknown) on the bell;
+  `data-matrix-row` (component), `data-column` (configuration), `data-cell-state` and `data-detail` on the matrix;
+  `data-new-repo` (`<host>:<path>`), `data-ask` (component id), `data-group` (group), `data-pending`,
+  `data-preview-valid` on the Catalogue page; `data-item` (item id) and `data-read` (`true`\|`false`) on each
+  notification.
+- **Notifications.** Items are `inbox.cards` (one per card; kind = the card's category) plus `catalogue:new-repos`
+  (kind `catalogue`) when the current `repo_seen` snapshots hold any repo. Read state is the inbox's done state
+  (`uistate.set_card` with the item's fingerprint): an item read here is done in the card view, and it comes back
+  unread when its facts change. The bell counts unread items of kinds and projects the login has not muted.
+  An item's projects (`Item.about`) are those of the configuration or project its id names and of every
+  configuration its facts or evidence name (an erratum's exposures, `never_checked:all`); muting projects hides an
+  item only when all of its projects are muted, and an item about no project is muted only by its kind.
+- **gui.sqlite** (`web.uistate`, `user_version` 2): table `pref (login, name, value, at)`; names `timeline`
+  (`on`\|`off`; absent = off), `notify.kind.<kind>` and `notify.project.<id>` (`off` mutes). `prefs()` never
+  creates the file; a version-1 file gains the table the next time it is opened, other tables untouched.

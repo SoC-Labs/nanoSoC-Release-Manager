@@ -36,6 +36,33 @@ environment plus the `env` its tiers.yaml entry declares.
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then
 `nanosoc-rm serve --host 127.0.0.1` and reach it through an SSH tunnel. Pages, jobs and set-up: `docs/GUI.md`; as a systemd service: `docs/DEPLOY.md`.
 
+## The front page: projects, freshness, catalogue, notifications (CR-WF-gui)
+
+`/` is the projects home: one tree of projects, their configurations and their pins, each row with its freshness
+state as a word beside a shape and the days since the pin last moved, and a detail panel on the right. Freshness
+pills and Filters (Type, Builds a, Role, No forkable project) narrow it; Timeline (off by default, saved per login)
+adds a bar per row from its last bump to today. The inbox is now **Notifications** behind the bell
+(`/notifications`; the cards stay at `/inbox`). `/matrix/` opens on the freshness matrix, with the compatibility
+matrix as its second tab. `/catalogue/` characterises repos: the new-repo queue from the org scan, the open
+questions, every group, and a downloadable `catalogue.yaml` patch (the tool never writes the registry). Pages read
+stored facts only. Page map: `docs/GUI.md`; contracts: interfaces.md section 25.
+
+## Submodule-tree freshness (CR-WF-fresh)
+
+How far each pin lags its upstream default branch, and how long since its parent last moved it. Read-only: the last
+stored walk plus the mirrors; nothing is re-walked or fetched.
+
+```
+nanosoc-rm freshness scan --store              # every registered configuration; the scheduler runs it after each poll
+nanosoc-rm freshness show                      # one line per tree: verdict, lagging pins, days since the newest bump
+nanosoc-rm freshness show eth-main --tree      # every pin, depth first, with the worst state beneath it
+```
+
+Per pin: Outdated (10+ commits behind, or behind and not bumped for 90 days), Behind (1 to 9), Current, Unpushed
+(no host holds the commit), Not measured (with the reason). A tree's verdict is its worst direct pin; a frozen
+silicon tree says Frozen and what it would be, and is never counted. Page: `/freshness/`. Details: interfaces.md
+section 24.
+
 ## Code and documentation quality (CR-14, Q1-Q6)
 
 Read-only reports on any catalogued repo at any ref, or a local checkout; every fix is a patch you review and
@@ -104,6 +131,22 @@ checked out anonymously in a sandbox with the component moved, the command runs 
 set_env.sh, PYTHONDONTWRITEBYTECODE=1, under nice), and the vendor-library variables are never set: the vendor
 renderers are skipped and listed as coverage. `[regen] read_only_roots` refuses any path under a shared library
 tree. `version next` and the bump engine read the stored class. Details: interfaces.md section 20.
+
+## Catalogue characterisation (CR-WF-catalogue)
+
+Every catalogue component has a group (project, soc, subsystem, component, toolkit, flow, generator, arch, lib,
+infra, legacy); projects, SoCs and subsystems also a type (chip, chiplet, soc, subsystem) and a role
+(implementation, forkable, example). A catalogue without these fields still loads: they are derived from `class`.
+
+```
+nanosoc-rm catalogue show --gaps            # SoCs that no forkable project wraps (exit 1 when any)
+nanosoc-rm catalogue show --unconfirmed     # entries with a guessed or derived field, and the open question
+nanosoc-rm catalogue org-scan --store       # anonymous org/group listing: repos not in the catalogue (repo_seen)
+nanosoc-rm catalogue preview choices.json --out cat.patch   # then, in the registry: git apply cat.patch
+```
+
+The tool never writes the registry: `preview` turns choices (set, confirm, add, ignore) into a patch and says
+whether the patched catalogue would load. Details: interfaces.md section 23.
 
 ## Bump proposals, shadow mode (Phase 4 E1-E7, built per CR-15, not enabled)
 

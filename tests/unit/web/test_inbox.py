@@ -1,4 +1,5 @@
-"""The Inbox at `/` (Wave C spec section 2, 7.1 unit I): one test per card kind (built from stored facts, absent
+"""The inbox cards (Wave C spec section 2, 7.1 unit I; GET /inbox since CR-WF-gui, the board on the projects
+home): one test per card kind (built from stored facts, absent
 without them), the ranking table, done / snooze / undo per login, the board under the inbox, and no job from a GET.
 Fixtures follow the SHAPES of the facts.md world (synthetic where it matters, example.invalid URLs)."""
 from __future__ import annotations
@@ -421,22 +422,22 @@ def _cards_on(text):
 def test_done_hides_until_the_facts_change_and_undo_restores(site):
     world(site["cfg"])
     c = site["client"]
-    page = c.get("/").text
+    page = c.get("/inbox").text
     assert "compat_fail:eth-main" in _cards_on(page)
     fp = re.search(r'data-card="compat_fail:eth-main".*?name="fp" value="([0-9a-f]+)"', page, re.S).group(1)
     r = c.post("/inbox/done", data={"csrf_token": _csrf(page), "card": "compat_fail:eth-main", "fp": fp},
                follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/"
-    page = c.get("/").text
+    assert r.status_code == 303 and r.headers["location"] == "/inbox"
+    page = c.get("/inbox").text
     assert "compat_fail:eth-main" not in _cards_on(page) and "Done (1) today" in page
     # a new compat result changes the card's facts: it reopens
     db.put(eth_main(nonce="cfde584f53c4" + "0" * 20, at=clock.iso(NOW - dt.timedelta(minutes=5))), config=site["cfg"])
-    page = c.get("/").text
+    page = c.get("/inbox").text
     assert "compat_fail:eth-main" in _cards_on(page) and "Done (0) today" in page
     # done again, then undo
     fp = re.search(r'data-card="compat_fail:eth-main".*?name="fp" value="([0-9a-f]+)"', page, re.S).group(1)
     c.post("/inbox/done", data={"csrf_token": _csrf(page), "card": "compat_fail:eth-main", "fp": fp})
-    assert "compat_fail:eth-main" not in _cards_on(c.get("/").text)
+    assert "compat_fail:eth-main" not in _cards_on(c.get("/inbox").text)
     r = c.post("/inbox/undo", data={"csrf_token": _csrf(page), "card": "compat_fail:eth-main"},
                headers={"HX-Request": "true"})
     assert r.status_code == 200 and r.text.lstrip().startswith('<section id="inbox"')
@@ -446,11 +447,11 @@ def test_done_hides_until_the_facts_change_and_undo_restores(site):
 def test_snooze_hides_until_the_date(site):
     world(site["cfg"])
     c = site["client"]
-    page = c.get("/").text
+    page = c.get("/inbox").text
     r = c.post("/inbox/snooze", data={"csrf_token": _csrf(page), "card": "silicon_uncovered:eth-rc4", "days": "7",
                                       "cat": "silicon"}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/?cat=silicon"
-    assert "silicon_uncovered:eth-rc4" not in _cards_on(c.get("/").text)
+    assert r.status_code == 303 and r.headers["location"] == "/inbox?cat=silicon"
+    assert "silicon_uncovered:eth-rc4" not in _cards_on(c.get("/inbox").text)
     v = inbox.inbox_view(site["config"], "alice", now=NOW + dt.timedelta(days=8))
     assert "silicon_uncovered:eth-rc4" in [x.id for x in v["cards"]]
     assert c.post("/inbox/snooze", data={"csrf_token": _csrf(page), "card": "x:y", "days": "3"}).status_code == 400
@@ -458,22 +459,22 @@ def test_snooze_hides_until_the_date(site):
 
 def test_two_logins_do_not_see_each_others_state(site):
     world(site["cfg"])
-    page = site["client"].get("/").text
+    page = site["client"].get("/inbox").text
     fp = re.search(r'data-card="compat_fail:eth-rc4".*?name="fp" value="([0-9a-f]+)"', page, re.S).group(1)
     site["client"].post("/inbox/done", data={"csrf_token": _csrf(page), "card": "compat_fail:eth-rc4", "fp": fp})
     carol = TestClient(create_app(site["cfg"], auth=auth.FakeMembership(login="carol")))
-    assert "compat_fail:eth-rc4" in _cards_on(carol.get("/").text)
-    assert "compat_fail:eth-rc4" not in _cards_on(site["client"].get("/").text)
+    assert "compat_fail:eth-rc4" in _cards_on(carol.get("/inbox").text)
+    assert "compat_fail:eth-rc4" not in _cards_on(site["client"].get("/inbox").text)
     assert set(uistate.card_state(site["config"], "carol")) == set()
 
 
 def test_the_inbox_posts_need_csrf_and_a_local_deployment(site, service, registry_spy, tmp_path):
     lc = local_client(site)
     assert lc.post("/inbox/done", data={"card": "x:y", "fp": "ab"}).status_code == 403          # no CSRF token
-    assert lc.post("/inbox/done", data={"csrf_token": _csrf(lc.get("/").text), "card": "x:y", "fp": "ab"},
+    assert lc.post("/inbox/done", data={"csrf_token": _csrf(lc.get("/inbox").text), "card": "x:y", "fp": "ab"},
                    follow_redirects=False).status_code == 303
     ci = _site(service, tmp_path, local=False)
-    page = ci["client"].get("/").text
+    page = ci["client"].get("/inbox").text
     assert ci["client"].post("/inbox/done", data={"csrf_token": _csrf(page), "card": "x:y", "fp": "ab"}
                              ).status_code in (404, 405)
     assert 'action="/inbox/done"' not in page                                    # no buttons for a missing route
@@ -489,14 +490,15 @@ def test_a_get_never_submits_a_job_or_creates_gui_state(site, monkeypatch):
     for name in ("queue", "nightly_plan"):
         if hasattr(matrix, name):
             monkeypatch.setattr(matrix, name, lambda *a, **k: pytest.fail("a GET reached the matrix queue"))
-    for path in ("/", "/?cat=compat", "/?cat=silicon", "/alerts", "/configurations/eth-rc4"):
+    for path in ("/", "/inbox", "/inbox?cat=compat", "/inbox?cat=silicon", "/notifications", "/alerts",
+                 "/configurations/eth-rc4"):
         assert site["client"].get(path).status_code == 200, path
     assert not uistate.path(site["config"]).exists()
 
 
 def test_filters_show_their_counts_and_press_state(site):
     world(site["cfg"])
-    text = site["client"].get("/?cat=silicon").text
+    text = site["client"].get("/inbox?cat=silicon").text
     pressed = re.findall(r'name="cat" value="([a-z]+)" class="seg" aria-pressed="(true|false)">([^<]+)<span class="mono">(\d+)',
                          text)
     assert [p[0] for p in pressed] == [k for k, _ in inbox.CATS]
@@ -508,7 +510,7 @@ def test_filters_show_their_counts_and_press_state(site):
 
 def test_every_status_chip_on_the_inbox_carries_text(site):
     world(site["cfg"])
-    text = site["client"].get("/").text
+    text = site["client"].get("/inbox").text
     chips = re.findall(r'<span class="chip (c-[a-z]+)">([^<]*)</span>', text)
     assert chips and all(t.strip() for _, t in chips)
     assert text.count("data-age-seconds") == 1
@@ -559,19 +561,19 @@ def _restore_host_compares(cfg, change=None, minutes_ago=2):
 def test_done_holds_across_a_producer_run_that_changed_nothing(site):
     card = "host_drift:asic-flow:gitlab:soclabs/asic_flow"
     c = site["client"]
-    page = c.get("/").text
+    page = c.get("/inbox").text
     assert card in _cards_on(page)
     r = c.post("/inbox/done", data={"csrf_token": _csrf(page), "card": card, "fp": _fp_of(page, card)},
                follow_redirects=False)
-    assert r.status_code == 303 and card not in _cards_on(c.get("/").text)
+    assert r.status_code == 303 and card not in _cards_on(c.get("/inbox").text)
     _restore_host_compares(site["cfg"])                                   # the next mirror sync: same facts
-    assert card not in _cards_on(c.get("/").text), "a done card reopened though no fact changed"
+    assert card not in _cards_on(c.get("/inbox").text), "a done card reopened though no fact changed"
 
     def more(d):
         if d["fact"]["component"] == "asic-flow":
             d["fact"]["copy_only"] = (d["fact"].get("copy_only") or 0) + 1
     _restore_host_compares(site["cfg"], more, minutes_ago=1)                             # a fact changed: it reopens
-    assert card in _cards_on(c.get("/").text)
+    assert card in _cards_on(c.get("/inbox").text)
 
 
 def _t0(cid, nonce, verdict, acceptance="rejected", reason="captured commit differs from the requested one",
@@ -597,7 +599,7 @@ def test_a_stored_t0_result_is_a_verdict_in_a_ci_deployment(service, registry_sp
     red = [c for c in cs if c.id == "compat_fail:eth-rc4"]
     assert red and red[0].chip[0] == "UNVERIFIED" and "T0 run" in red[0].title
     assert red[0].primary["href"] == "/runs/%s" % nonce and "captured commit differs" in red[0].why
-    head = re.search(r'<h2[^>]*id="h-next"[^>]*>(.*?)</h2>', s["client"].get("/").text, re.S).group(1)
+    head = re.search(r'<h2[^>]*id="h-next"[^>]*>(.*?)</h2>', s["client"].get("/inbox").text, re.S).group(1)
     assert "eth-rc4" in head and "never been checked: eth-rc4" not in head
 
 
@@ -612,7 +614,7 @@ def test_an_unverified_compat_result_is_a_card(site):
 
 def test_every_card_button_names_its_card(site):
     world(site["cfg"])
-    text = site["client"].get("/").text
+    text = site["client"].get("/inbox").text
     heads = set(re.findall(r'<h3 id="(card-h-\d+)"', text))
     assert heads
     for label in ("Mark done", "Snooze", "1 day", "7 days", "30 days"):

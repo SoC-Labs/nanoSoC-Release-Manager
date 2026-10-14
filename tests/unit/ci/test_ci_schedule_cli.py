@@ -34,8 +34,9 @@ def recorder():
 
 def test_job_names_are_the_contracted_ones():
     # CR-WE-index: store_index (section 22) queues the read-only store-index job once a night
-    assert [j.name for j in schedule.JOBS] == ["poll", "inventory", "nightly_t0", "fetch", "credentials", "runner",
-                                               "store_index"]
+    # CR-WF-fresh: freshness_scan queues the read-only freshness-scan job right after poll's walks
+    assert [j.name for j in schedule.JOBS] == ["poll", "freshness_scan", "inventory", "nightly_t0", "fetch",
+                                               "credentials", "runner", "store_index"]
 
 
 def test_first_tick_after_the_nightly_time_runs_everything_in_order(ci_config, recorder):
@@ -55,11 +56,12 @@ def test_a_disabled_job_never_runs(ci_config):
 
 def test_cadence_poll_fetch_and_nightly(ci_config, recorder):
     calls, jobs = recorder
-    assert tick(utc("2026-10-01T01:00:00Z"), jobs=jobs) == ["poll", "inventory", "fetch", "runner"]  # before 02:00
+    assert tick(utc("2026-10-01T01:00:00Z"), jobs=jobs) == ["poll", "freshness_scan", "inventory", "fetch",
+                                                            "runner"]                     # before 02:00
     assert tick(utc("2026-10-01T01:00:30Z"), jobs=jobs) == []
     assert tick(utc("2026-10-01T01:02:00Z"), jobs=jobs) == ["fetch"]
     assert tick(utc("2026-10-01T01:14:59Z"), jobs=jobs) == ["fetch"]
-    assert tick(utc("2026-10-01T01:15:00Z"), jobs=jobs) == ["poll", "inventory", "runner"]
+    assert tick(utc("2026-10-01T01:15:00Z"), jobs=jobs) == ["poll", "freshness_scan", "inventory", "runner"]
     assert tick(utc("2026-10-01T01:29:00Z"), jobs=jobs) == ["fetch"]
     assert tick(utc("2026-10-01T02:00:00Z"), jobs=jobs) == [j.name for j in jobs]     # poll is due too
     assert tick(utc("2026-10-01T02:00:30Z"), jobs=jobs) == []

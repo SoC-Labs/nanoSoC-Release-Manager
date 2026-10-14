@@ -1,6 +1,10 @@
 """The matrix pages (D3, D8, D9, B7), mounted at /matrix through the web plug-in seam (nanosoc_rm.web.plugins).
 
-    GET  /matrix/                                     configurations, each with its matrix link; the nightly status
+    GET  /matrix/                                     two tabs (CR-WF-gui, David 2026-10-14): Freshness (default; the
+                                                      freshness matrix of web.fmatrix, ?group= &rows= &sort= &comp=
+                                                      &cfg=) and Compatibility (?tab=compat: configurations, each with
+                                                      its matrix link; the nightly status). Both panels are in the page;
+                                                      the tab strip shows one (links work without JavaScript)
     GET  /matrix/{configuration}                      the grid: cell verdict (text and colour), age, Run buttons
          ?component=C (repeatable) &columns=a,b       the same filters as the CLI
          &tiers=t1                                    adds a t1 cell beside each cell (CR-WD-matrix-t1)
@@ -38,7 +42,9 @@ COLUMN_LABEL = {"pinned": "pinned", "in-range": "latest tag in range", "latest-t
 
 
 def _env() -> Environment:
-    env = Environment(loader=ChoiceLoader([FileSystemLoader(str(HERE / "templates"))]),
+    web = HERE.parent / "web" / "templates"                  # _fp.html and _fmatrix.html (CR-WF-gui)
+    env = Environment(loader=ChoiceLoader([FileSystemLoader(str(HERE / "templates"))]
+                                          + ([FileSystemLoader(str(web))] if web.is_dir() else [])),
                       autoescape=select_autoescape(["html"]), trim_blocks=True, lstrip_blocks=True)
     env.globals.update(CELL_CLASS=CELL_CLASS, COLUMN_LABEL=COLUMN_LABEL, murl=_murl, quote=urllib.parse.quote)
     return env
@@ -104,7 +110,11 @@ def router(app: Any = None) -> APIRouter:
             confs = I.registry(config).configurations()
         except Exception as e:                                   # noqa: BLE001 - shown, never a bare 500
             return _error(request, e)
-        return _page(request, "matrix_index.html", "Compatibility matrix", confs=confs, nightly=M.NIGHTLY)
+        from nanosoc_rm.web import fmatrix
+        tab = "compat" if request.query_params.get("tab") == "compat" else "freshness"
+        fm = fmatrix.matrix_view(config, request.query_params)
+        return _page(request, "matrix_index.html", "Matrix", confs=confs, nightly=M.NIGHTLY, tab=tab, fm=fm,
+                     problems=fm["problems"], bare=True, crumbs=[], no_rail=True)
 
     def grid(request: Request, configuration: str) -> HTMLResponse:
         config = _config(request)

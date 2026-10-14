@@ -1,6 +1,4 @@
-{# GET / (spec section 2): the inbox, then the configuration board with every section 13 dashboard hook. #}
+{# GET /inbox (CR-WF-gui): the inbox cards with evidence, snooze and undo. Notifications (/notifications) is the
+   one-line view of the same cards; the configuration board is on the projects home. #}
+<p class="note">The same items as <a href="/notifications">Notifications</a>, as cards with their evidence. The configuration board is on <a href="/">Projects</a>, under the tree.</p>
 {% include "_inbox.html" %}
-<section aria-labelledby="h-board">
-  <h2 id="h-board">Configurations</h2>
-  {% include "_board.html" %}
-</section>

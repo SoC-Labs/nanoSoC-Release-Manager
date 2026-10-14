@@ -1,10 +1,10 @@
-"""The registry loader's cross-file rules (docs/contracts/README.md section 3, rules 1 to 13).
+"""The registry loader's cross-file rules (docs/contracts/README.md section 3, rules 1 to 15).
 
 JSON Schema checks one document; these check what one document cannot see. Every rule runs on every parsed
 document, schema-valid or not, and reads it defensively: a record that breaks its schema AND names a detector
 its defect lacks gets both problems (AT-F2's control relies on this), and a broken field never crashes a rule.
 
-Each problem is (file, JSON pointer, rule id, message). Rule ids are `rule-1` .. `rule-13` as numbered in the
+Each problem is (file, JSON pointer, rule id, message). Rule ids are `rule-1` .. `rule-15` as numbered in the
 README, plus `unique-id` for a configuration or erratum id used twice (no numbered rule covers it, and the
 pages, the walker and `imports.yaml` records all address records by id).
 """
@@ -442,6 +442,48 @@ def _rule14(docs: Docs) -> Iterator[Problem]:
                    "tiers for configuration %s, which eligibility.yaml does not register" % cid)
 
 
+def _rule15(docs: Docs) -> Iterator[Problem]:
+    """CR-WF-catalogue: the characterisation fields agree across entries. Each `wraps` id is another catalogue
+    component whose group the wrapper may wrap (model.WRAP_TARGETS, the target's group explicit or derived from
+    its class); `group: legacy` exactly when `class: legacy` (watch-only stays one fact); `guessed` names only
+    fields the entry has (`type`/`role` on a ladder group, `wraps` with wraps, `inside` on a soc or subsystem)."""
+    from nanosoc_rm.catalogue.model import LADDER_GROUPS, WRAP_TARGETS, effective_group
+    if not docs.catalogue:
+        return
+    file, doc = docs.catalogue
+    comps = {_str(c.get("id")): c for _i, c in _items(_dict(doc).get("components"))}
+    for i, c in _items(_dict(doc).get("components")):
+        cid, group = _str(c.get("id")), _str(c.get("group"))
+        if group is not None and (group == "legacy") != (c.get("class") == "legacy"):
+            yield (file, ptr("components", i, "group"), "rule-15",
+                   "group %s with class %s: group legacy goes with class legacy and only with it"
+                   % (group, c.get("class")))
+        mine = effective_group(c)
+        for j, w in enumerate(_list(c.get("wraps"))):
+            where = ptr("components", i, "wraps", j)
+            if not isinstance(w, str):
+                continue
+            if w == cid:
+                yield (file, where, "rule-15", "component %s wraps itself" % cid)
+            elif w not in comps:
+                yield (file, where, "rule-15", "component %s wraps %s, which is not a catalogue component" % (cid, w))
+            else:
+                theirs = effective_group(comps[w])
+                allowed = WRAP_TARGETS.get(mine or "", ())
+                if theirs not in allowed:
+                    yield (file, where, "rule-15", "a %s wraps only %s; %s is group %s"
+                           % (mine, " or ".join(allowed) or "nothing", w, theirs))
+        for j, g in enumerate(_list(c.get("guessed"))):
+            where = ptr("components", i, "guessed", j)
+            if g in ("type", "role") and group not in LADDER_GROUPS:
+                yield (file, where, "rule-15", "guessed %s on a %s entry, which has no %s" % (g, group or "derived-group", g))
+            elif g == "wraps" and not c.get("wraps"):
+                yield (file, where, "rule-15", "guessed wraps on an entry with no wraps")
+            elif g == "inside" and group not in ("soc", "subsystem"):
+                yield (file, where, "rule-15", "guessed inside (which project or SoC wraps it) on a %s entry"
+                       % (group or "derived-group"))
+
+
 def _unique_errata(docs: Docs) -> Iterator[Problem]:
     seen: dict[str, str] = {}
     for file, doc in docs.errata:
@@ -454,12 +496,12 @@ def _unique_errata(docs: Docs) -> Iterator[Problem]:
 
 
 def check_all(docs: Docs) -> list[Problem]:
-    """Every cross-file problem (README section 3 rules 1 to 7 and 9 to 14; rule 8 is the YAML reader's and the
+    """Every cross-file problem (README section 3 rules 1 to 7 and 9 to 15; rule 8 is the YAML reader's and the
     schema enforces the first half of rule 12)."""
     ix = _index(docs)
     out: list[Problem] = []
     for gen in (_rule1(docs), _rule2(docs, ix), _rule3(docs, ix), _rule4_6_10_11_12(docs, ix),
                 _rule11_prefix(docs, ix), _rule5(docs), _rule7(docs), _rule9(docs), _rule13(docs),
-                _rule14(docs), _unique_errata(docs)):
+                _rule14(docs), _rule15(docs), _unique_errata(docs)):
         out.extend(gen)
     return out

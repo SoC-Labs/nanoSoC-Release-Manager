@@ -26,10 +26,10 @@ def test_the_file_is_created_0600_with_its_schema_version(cfg):
     assert stat.S_IMODE(p.stat().st_mode) == 0o600
     import sqlite3
     con = sqlite3.connect(str(p))
-    assert con.execute("PRAGMA user_version").fetchone()[0] == uistate.VERSION == 1
+    assert con.execute("PRAGMA user_version").fetchone()[0] == uistate.VERSION == 2      # CR-WF-gui: + pref
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")} == {
-        "inbox_state", "review_decision", "basket_flag"}
+        "inbox_state", "review_decision", "basket_flag", "pref"}
 
 
 def test_each_login_sees_only_its_own_state(cfg):

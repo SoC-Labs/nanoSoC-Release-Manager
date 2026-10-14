@@ -1,0 +1,69 @@
+{# GET /notifications (Wave F, CR-WF-gui; Notifications.dc.html). `n` is web.notifications.view(). One line per
+   item, one action each, mark read; "notify me about" per login. The tone dot is decorative: the text says it. #}
+<div class="fp fp-notes">
+<div class="fp-headrow">
+  <h1 class="fp-h1 big">Notifications</h1>
+  <div class="fp-headctl">
+    <div role="group" aria-label="Show" class="fp-seg">
+      <a href="/notifications" class="fp-btn{% if n.show == 'unread' %} is-on{% endif %}" aria-pressed="{{ 'true' if n.show == 'unread' else 'false' }}">Unread ({{ n.unread }})</a>
+      <a href="/notifications?show=all" class="fp-btn{% if n.show == 'all' %} is-on{% endif %}" aria-pressed="{{ 'true' if n.show == 'all' else 'false' }}">All ({{ n.total }})</a>
+    </div>
+    {% if actions and n.unread %}
+    <form method="post" action="/notifications/read-all" class="fp-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="show" value="{{ n.show }}">
+      {% for i in n['items'] if not i.read %}<input type="hidden" name="item" value="{{ i.id }}"><input type="hidden" name="fp" value="{{ i.fingerprint }}">{% endfor %}
+      <button type="submit" class="fp-btn">Mark all read</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="fp-split">
+<section aria-label="Notification list" class="fp-list">
+  {% if not n['items'] %}
+  <p class="fp-empty center">{% if n.show == 'unread' %}All caught up.{% else %}Nothing to notify you about.{% endif %}</p>
+  {% endif %}
+  <ul>
+  {% for i in n['items'] %}
+    <li class="fp-note-row{% if not i.read %} is-unread{% endif %}" data-item="{{ i.id }}" data-read="{{ 'true' if i.read else 'false' }}"{% if i.fact %} {{ page.mark(i.fact) }}{% endif %}>
+      <span class="fp-tone t-{{ 'read' if i.read else i.tone }}" aria-hidden="true"></span>
+      <div class="fp-note-text">
+        <p class="fp-note-title">{% if not i.read %}<span class="sr">Unread: </span>{% endif %}{{ i.text }}</p>
+        <p class="fp-note-meta">{{ i.where }}{% if i.when %} · {{ i.when }}{% endif %}</p>
+      </div>
+      <a class="fp-note-act" href="{{ i.action[1] }}">{{ i.action[0] }}</a>
+      {% if actions %}
+      <form method="post" action="/notifications/read" class="fp-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="item" value="{{ i.id }}"><input type="hidden" name="fp" value="{{ i.fingerprint }}"><input type="hidden" name="show" value="{{ n.show }}"><input type="hidden" name="read" value="{{ '0' if i.read else '1' }}">
+        <button type="submit" class="fp-icon" aria-label="{{ 'Mark unread' if i.read else 'Mark read' }}: {{ i.text }}" title="{{ 'Mark unread' if i.read else 'Mark read' }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{% if i.read %}<path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v5h5"></path>{% else %}<path d="M20 6 9 17l-5-5"></path>{% endif %}</svg></button>
+      </form>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <p class="fp-foot">The same items as cards, with their evidence and snooze: <a href="/inbox">card view</a>.</p>
+</section>
+
+<aside class="fp-panel" aria-labelledby="h-notify">
+  <h2 id="h-notify" class="fp-h2">Notify me about</h2>
+  <p class="fp-muted">Everything else stays on the project pages. Saved for you only.</p>
+  {% if actions %}<form method="post" action="/notifications/prefs">
+  <input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="show" value="{{ n.show }}">{% endif %}
+  <fieldset class="fp-fieldset"><legend class="sr">Kinds</legend>
+  {% for k in n.kinds %}
+    <div class="fp-check"><input type="checkbox" id="nk-{{ k.key }}" name="on" value="notify.kind.{{ k.key }}"{% if k.on %} checked{% endif %}{% if not actions %} disabled{% endif %}><label for="nk-{{ k.key }}">{{ k.label }}</label>{% if actions %}<input type="hidden" name="listed" value="notify.kind.{{ k.key }}">{% endif %}</div>
+  {% endfor %}
+  </fieldset>
+  {% if n.projects %}
+  <h3 class="fp-h3">Projects</h3>
+  <fieldset class="fp-fieldset"><legend class="sr">Projects</legend>
+  {% for k in n.projects %}
+    <div class="fp-check"><input type="checkbox" id="np-{{ loop.index }}" name="on" value="notify.project.{{ k.key }}"{% if k.on %} checked{% endif %}{% if not actions %} disabled{% endif %}><label for="np-{{ loop.index }}" class="mono">{{ k.label }}</label>{% if actions %}<input type="hidden" name="listed" value="notify.project.{{ k.key }}">{% endif %}</div>
+  {% endfor %}
+  </fieldset>
+  {% endif %}
+  {% if actions %}<button type="submit" class="fp-btn">Save</button></form>{% else %}<p class="fp-muted">This deployment has no local actions: preferences cannot be saved here.</p>{% endif %}
+  <p class="fp-muted">Delivery: in the app. [Email digest: later]</p>
+</aside>
+</div>
+</div>

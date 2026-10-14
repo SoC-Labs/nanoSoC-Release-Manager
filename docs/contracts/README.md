@@ -120,7 +120,14 @@ JSON Schema checks one document. The registry loader (interfaces.md section 2) a
 14. **Tiers** (CR-12). A `tiers.yaml` naming a configuration that eligibility.yaml does not register. The schema
     already refuses a tier command that sources a set_env.sh. (D1)
 
-Rules 1 to 14 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
+15. **Characterisation** (CR-WF-catalogue). A `wraps` id that is not another catalogue component, or whose group
+    the wrapper may not wrap (a project wraps a soc or subsystem; a soc wraps a subsystem or component; the
+    target's group explicit or derived from its class); `group: legacy` without `class: legacy`, or the reverse;
+    a `guessed` field the entry does not have (`type`/`role` off the ladder groups, `wraps` without wraps,
+    `inside` off soc and subsystem). The schema already ties `type`/`role` to the ladder groups and refuses a
+    `question` without `guessed`. (A1, B1)
+
+Rules 1 to 15 need no network. Whether each cited commit exists is T0's job (gate `t0.registry.refs-resolve`, F3).
 
 Not enforced by any rule in v1, stated so nobody assumes otherwise: a registry change that deletes a silicon
 configuration from `eligibility.yaml` would silently drop its silicon-protection rows. Registry `main` is
@@ -139,10 +146,12 @@ Keys:
 | silicon_protection | `silicon_protection:<configuration>:<component>:<commit>:<host>` | set | `silicon_protection:<configuration>` |
 | mirror_status | `mirror_status:<host>:<path>` | set | `mirror_status:<component>` (one sync) |
 | repo_inventory | `repo_inventory:<host>:<path>` | set | `repo_inventory:<host>` (one listing) |
+| repo_seen | `repo_seen:<host>:<path>` | set (CR-WF-catalogue; only repos in no catalogue entry) | `repo_seen:<host>` (one anonymous org scan; empty when nothing is new) |
 | runner_settings | `runner_settings:<runner id>` | set | `runner_settings:<runner id>` |
 | credential_status | `credential_status:<name>` | set | `credential_status:all` (one check) |
 | registry_record | `registry_record:<file>#<pointer>` | set | `registry_record:<file>` (one registry read) |
 | branch_state | `branch_state:<host>:<path>:<branch>` | set | `branch_state:<host>:<path>` (one inventory of one repo; CR8) |
+| freshness | `freshness:<configuration>` (the tree) and `freshness:<configuration>:<first tree path>` (a pin) | set | `freshness:<configuration>` (one scan of one stored walk; interfaces section 24) |
 | rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
