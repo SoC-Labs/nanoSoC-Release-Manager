@@ -16,7 +16,9 @@ Rules (spec 2.2):
    cause, "{path} pinned by ssh URL" (fetchable + no-ssh is the known pair). Its not-reached count is the pins with
    a `not-reached` item below that path.
 5. The deciding cause has the most gates; a tie goes to the most not-reached pins, then to GATES order.
-6. Labels from GATE_LABEL; an unknown gate falls back to its id.
+6. Labels from GATE_LABEL; an unknown gate falls back to its id. A vendor gate's label follows its items: a
+   finding names the trees, an unscannable tree says "scan unverified", and a gate red only on unfetched trees
+   says "{n} trees not scanned (not fetched)" (review VS-1).
 7. `infra`: the tier row or a gate is INFRA ("This host cannot run {tier}. Nothing to fix in the design.").
 """
 from __future__ import annotations
@@ -45,12 +47,20 @@ GATE_LABEL = {
     "t0.manifest.valid": "manifest invalid in {paths}",
     "t0.infra.probe": "anonymous git does not work on this host",
 }
+# Review VS-1: a vendor gate red with no finding (only unscannable or unfetched trees) never says "Arm source in".
+GATE_LABEL_UNVERIFIED = {
+    "t0.vendor.no-arm-ip": "Arm source scan unverified in {paths}",
+    "t0.vendor.no-foundry-data": "foundry data scan unverified in {paths}",
+}
 # CR-6: what each vendor gate means, and what its amber says (the overview's gate table shows it).
 GATE_HELP = {
-    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner or a known vendor file by hash. An uncovered "
-                           "finding fails; catalogue vendor_allowlist entries make it clean (allow) or amber (warn).",
+    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner, a known vendor file by hash, or a "
+                           "revision-coded release name (the toolkit's ident rule, which covers Arm product codes "
+                           "and Artisan library stems as well as foundry release names, so it fails here). An "
+                           "uncovered finding fails; catalogue vendor_allowlist entries make it clean (allow) or "
+                           "amber (warn).",
     "t0.vendor.no-foundry-data": "Foundry data and site inventory: foundry file types, transcribed values, site "
-                                 "paths, release names, big files. Amber (WARN) by default, never a failure, "
+                                 "paths, licence servers, big files. Amber (WARN) by default, never a failure, "
                                  "unless the catalogue's foundry_rules marks a rule severity fail. NOT-RUN on a "
                                  "host with no foundry rule set (no toolkit scanner).",
 }
@@ -146,12 +156,30 @@ def _upgrade_from(f: dict, record: dict | None) -> str | None:
     return None
 
 
+def _vendor_label(gid: str, f: dict) -> str:
+    """Review VS-1: a vendor gate's label says only what its items show. A finding (item fail): GATE_LABEL. No
+    finding but an unscannable tree (item unverified): "... scan unverified in {paths}". Neither (the gate is red
+    only because trees were not fetched): "{n} trees not scanned (not fetched)"."""
+    col = GATE_ITEM[gid]
+    by: dict[str, list[str]] = {}
+    for p in f.get("pins") or []:
+        by.setdefault((p.get("items") or {}).get(col), []).append(p["tree_path"])
+    if by.get("fail"):
+        return GATE_LABEL[gid].format(paths=_join(by["fail"]))
+    if by.get("unverified"):
+        return GATE_LABEL_UNVERIFIED[gid].format(paths=_join(by["unverified"]))
+    n = len(by.get("not-reached") or [])
+    if n:
+        return "%d tree%s not scanned (not fetched)" % (n, "" if n == 1 else "s")
+    return GATE_LABEL_UNVERIFIED[gid].format(paths="the tree")
+
+
 def _label(gid: str, paths: list[str], f: dict, record: dict | None) -> tuple[str, str]:
     """(kind, label) of a single-gate cause."""
     if gid.startswith("tier."):
         return "tier", "%s is %s" % (gid.split(".", 1)[1].upper(), "red")
     if gid in ("t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data"):
-        return "vendor", GATE_LABEL[gid].format(paths=_join(paths) or "the tree")
+        return "vendor", _vendor_label(gid, f)
     if gid == "t0.clone.upgrade-path":
         frm = _upgrade_from(f, record)
         return "upgrade-path", (GATE_LABEL[gid].format(upgrade_from=frm) if frm

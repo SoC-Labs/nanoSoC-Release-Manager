@@ -4,12 +4,16 @@ The scanner's two engines report one list of `{rule, file, line}` findings. Two 
 
 - `t0.vendor.no-arm-ip` judges the **arm** family: Arm source in a tree. The rules are `arm.banner` (the Arm
   confidential-and-proprietary header, this package's own rule), any private rule whose id starts `arm.`, the
-  toolkit's `file.sha` (a known vendor file keyed by its sha256, so a rename does not evade it), and
-  `scan.unscannable` (a file this package could not read, so could not clear of a banner). An uncovered arm finding
-  is FAIL, as before.
+  toolkit's `file.sha` (a known vendor file keyed by its sha256, so a rename does not evade it), the toolkit's
+  `ident` (revision-coded vendor release names), and `scan.unscannable` (a file this package could not read, so
+  could not clear of a banner). An uncovered arm finding is FAIL, as before.
+  `ident` is here, fail-closed, because it is one rule id for Arm product (bundle) codes and Arm/Artisan library
+  stems as well as foundry release names: the findings file carries no sub-rule, so this package cannot tell an
+  Arm code from a foundry name, and an Arm code must not turn amber (review VS-2). A foundry release name
+  therefore FAILs the arm gate unless a vendor_allowlist entry covers it.
 - `t0.vendor.no-foundry-data` judges the **foundry** family: every other rule, which in practice is the toolkit's
-  foundry and site-inventory rules (foundry file types, transcribed layer values, site paths, revision-coded
-  release names, licence servers, big files) and any private rule not named `arm.*`. Its findings are WARN by
+  foundry and site-inventory rules (foundry file types, transcribed layer values, site paths, licence servers,
+  big files) and any private rule not named `arm.*`. Its findings are WARN by
   default (amber: listed, never FAIL); a rule the catalogue's `foundry_rules` marks `severity: fail` FAILs when
   uncovered.
 
@@ -27,9 +31,10 @@ __all__ = ["ARM", "FOUNDRY", "FAMILIES", "ARM_RULES", "family", "split"]
 ARM = "arm"
 FOUNDRY = "foundry"
 FAMILIES = (ARM, FOUNDRY)
-# Rule ids of the arm family besides the `arm.` prefix: the toolkit's content-hash rule and this package's
-# could-not-read finding (nanosoc_rm.scan.scan.UNSCANNABLE).
-ARM_RULES = frozenset({"arm.banner", "file.sha", "scan.unscannable"})
+# Rule ids of the arm family besides the `arm.` prefix: the toolkit's content-hash rule, its release-name rule
+# (`ident`, which also reports Arm product codes: module docstring) and this package's could-not-read finding
+# (nanosoc_rm.scan.scan.UNSCANNABLE).
+ARM_RULES = frozenset({"arm.banner", "file.sha", "ident", "scan.unscannable"})
 
 
 def family(rule_id: str) -> Literal["arm", "foundry"]:

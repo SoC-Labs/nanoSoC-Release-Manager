@@ -113,10 +113,14 @@ class FoundryRule:
 
 def foundry_rules(catalogue: Mapping | None) -> dict[str, FoundryRule]:
     """rule id -> its catalogue severity entry (schema-validated elsewhere). An entry without a rule id or with an
-    unknown severity is skipped; of two entries for one rule, `fail` wins."""
+    unknown severity is skipped, and so is one naming an arm-family rule (the schema refuses it; an arm finding is
+    never downgraded by severity); of two entries for one rule, `fail` wins."""
+    from nanosoc_rm.scan.families import ARM, family
     out: dict[str, FoundryRule] = {}
     for raw in (catalogue or {}).get("foundry_rules") or []:
         if not isinstance(raw, dict) or not isinstance(raw.get("rule"), str) or not raw["rule"]:
+            continue
+        if family(raw["rule"]) == ARM:
             continue
         sev = raw.get("severity")
         if sev not in RULE_SEVERITIES:

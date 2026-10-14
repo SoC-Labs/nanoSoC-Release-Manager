@@ -40,9 +40,11 @@ RULES = {"schema": 1, "rules": [
 
 
 def test_family_of_each_rule():
-    assert [family(r) for r in ("arm.banner", "arm.product-code", "file.sha", "scan.unscannable")] == [ARM] * 4
-    assert [family(r) for r in ("file.ext", "file.size", "path", "ident", "licence", "value.lef",
-                                "foundry.example", "armour.x")] == [FOUNDRY] * 8
+    # Review VS-2: the toolkit's one `ident` rule reports Arm product codes and Artisan library stems as well as
+    # foundry release names, under one id, so it stays in the arm family (fail-closed).
+    assert [family(r) for r in ("arm.banner", "arm.product-code", "file.sha", "scan.unscannable", "ident")] == [ARM] * 5
+    assert [family(r) for r in ("file.ext", "file.size", "path", "licence", "value.lef",
+                                "foundry.example", "armour.x")] == [FOUNDRY] * 7
 
 
 def test_split_keeps_one_family_and_unverified_stays():
@@ -61,11 +63,12 @@ def test_foundry_rules_loader_fail_wins_and_bad_entries_are_skipped():
     cat = {"foundry_rules": [
         {"rule": "path", "severity": "warn", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
         {"rule": "path", "severity": "fail", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
-        {"rule": "ident", "severity": "fail", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
-        {"rule": "ident", "severity": "warn", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
-        {"rule": "licence", "severity": "block"}, {"severity": "fail"}, "junk"]}
+        {"rule": "licence", "severity": "fail", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
+        {"rule": "licence", "severity": "warn", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"},
+        {"rule": "licence", "severity": "block"}, {"severity": "fail"}, "junk",
+        {"rule": "ident", "severity": "warn", "reason": "r", "approved_by": "D", "approved_on": "2026-10-14"}]}
     got = foundry_rules(cat)
-    assert {k: v.severity for k, v in got.items()} == {"path": "fail", "ident": "fail"}
+    assert {k: v.severity for k, v in got.items()} == {"path": "fail", "licence": "fail"}   # ident: arm family
 
 
 class Tree:
@@ -219,3 +222,53 @@ def test_the_arm_banner_still_fails_the_arm_gate_with_foundry_rules_on(at, tmp_p
     _, out = both(tree, tmp_path)
     assert out[ARM_GATE][0]["status"] == "FAIL" and "arm.banner at rtl/v.v:1" in out[ARM_GATE][2]["ip"]["why"]
     assert out[FOUNDRY_GATE][0]["status"] == "WARN"
+
+
+def test_foundry_rule_naming_ident_is_refused_by_the_schema():
+    def doc(rule):
+        return {"schema": 1, "components": [{"id": "c", "class": "ip_tech", "canonical": {"host": "github", "path": "o/c"}}],
+                "foundry_rules": [{"rule": rule, "severity": "warn", "reason": "r", "approved_by": "D",
+                                   "approved_on": "2026-10-14"}]}
+    assert contracts.validate("component-catalogue", doc("licence"), None) == []
+    assert contracts.validate("component-catalogue", doc("ident"), None) != []
+
+
+RC4_WAIVERS = [
+    {"gate": ARM_GATE, "tree_path": "tidelink", "result": "not-reached", "reason": "never fetched", "approved_by": "a",
+     "approved_on": "2026-10-01"},
+    {"gate": ARM_GATE, "tree_path": "ASIC/asic-toolkit", "result": "not-reached", "reason": "private",
+     "approved_by": "a", "approved_on": "2026-10-01"},
+]
+
+
+def _vendor_items(gid, extra=()):
+    return [{"tree_path": ".", "result": "pass"}, {"tree_path": "tidelink", "result": "not-reached"},
+            {"tree_path": "tidelink/deps/phy", "result": "not-reached"},
+            {"tree_path": "ASIC/asic-toolkit", "result": "not-reached"}] + list(extra)
+
+
+def test_an_arm_gate_not_reached_waiver_covers_the_same_unscanned_tree_in_the_foundry_gate():
+    """Review VS-3: both vendor gates read one scan, so "never fetched, so never scanned" is the same fact for
+    both. A t0.vendor.no-arm-ip waiver of a not-reached item also covers that item in t0.vendor.no-foundry-data;
+    frozen rc4 keeps its WAIVED roll-up when the toolkit scanner runs, and the waiver is not unused."""
+    rows = [{"id": g, "verdict": "UNVERIFIED", "control": "fired", "detail": "x"} for g in (ARM_GATE, FOUNDRY_GATE)]
+    out, unused = gates.apply_waivers(rows, {g: _vendor_items(g) for g in (ARM_GATE, FOUNDRY_GATE)}, RC4_WAIVERS)
+    assert [g["verdict"] for g in out] == ["WAIVED", "WAIVED"] and unused == []
+    assert sorted(w["tree_path"] for w in out[1]["waived"]) == ["ASIC/asic-toolkit", "tidelink", "tidelink/deps/phy"]
+    # only for the foundry gate alone, too (the arm gate clean): the waiver is used
+    out, unused = gates.apply_waivers(rows[1:], {FOUNDRY_GATE: _vendor_items(FOUNDRY_GATE)}, RC4_WAIVERS)
+    assert out[0]["verdict"] == "WAIVED" and unused == []
+
+
+def test_the_carry_over_never_covers_a_foundry_finding_or_another_gate():
+    rows = [{"id": FOUNDRY_GATE, "verdict": "FAIL", "control": "fired", "detail": "x"}]
+    items = {FOUNDRY_GATE: _vendor_items(FOUNDRY_GATE, [{"tree_path": "tidelink", "result": "fail"}])}
+    out, _ = gates.apply_waivers(rows, items, RC4_WAIVERS)
+    assert out[0]["verdict"] == "FAIL"                      # a real foundry finding stays red
+    fail_w = [dict(RC4_WAIVERS[0], result="fail")]
+    items = {FOUNDRY_GATE: [{"tree_path": "tidelink", "result": "fail"}]}
+    out, unused = gates.apply_waivers(rows, items, fail_w)
+    assert out[0]["verdict"] == "FAIL" and unused == fail_w   # an arm `fail` waiver never carries over
+    rows = [{"id": "t0.manifest.valid", "verdict": "UNVERIFIED", "control": "fired", "detail": "x"}]
+    out, _ = gates.apply_waivers(rows, {"t0.manifest.valid": _vendor_items("m")}, RC4_WAIVERS)
+    assert out[0]["verdict"] == "UNVERIFIED"

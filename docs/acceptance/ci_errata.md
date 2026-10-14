@@ -137,7 +137,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
 **Then**
 1. For every configuration and for `@registry`, there is exactly one run with `trigger: schedule` inside tonight's window, and it is `accepted`.
 2. Its gates cover every D2 check:
-   - a configuration run carries the 8 gates of interfaces §9;
+   - a configuration run carries the 9 gates of interfaces §9 (CR-6 added `t0.vendor.no-foundry-data`);
    - `@registry` carries `t0.registry.schema` and `t0.registry.refs-resolve`;
    - every gate that ran has `control: fired`; only a NOT-RUN gate has `not-applicable` (an "any valid value" check would pass vacuously);
    - eth-main declares `upgrade_from`, so its `t0.clone.upgrade-path` is not NOT-RUN.
@@ -152,6 +152,7 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    | `t0.manifest.valid` | NOT-RUN | no manifest anywhere |
    | `t0.clone.upgrade-path` | NOT-RUN | no `upgrade_from` |
    | `t0.vendor.no-arm-ip` | UNVERIFIED | 7 trees not fetched |
+   | `t0.vendor.no-foundry-data` | NOT-RUN | CR-6: no foundry rule on the example host (no toolkit scanner); with one, UNVERIFIED on the same 7 unfetched trees, covered by the no-arm-ip `not-reached` waivers (README §6) |
 
    **3b. Waivers (GATE2 Q1).** The reference oracle `reference_apply_waivers` (README §6) is applied to those raw
    verdicts, the live items of the four non-pass gates and rc4's `t0_waivers` from the live registry. The stored
@@ -305,12 +306,13 @@ OBSERVED 2026-09-30, read-only (`gh api`, `glab api`, `git` on local clones).
    | `t0.manifest.valid` | NOT-RUN | |
    | `t0.clone.upgrade-path` | NOT-RUN | |
    | `t0.vendor.no-arm-ip` | UNVERIFIED | fired |
+   | `t0.vendor.no-foundry-data` | NOT-RUN | |
    | `t0.runner.hardened` | PASS | fired |
 
-   Run verdict FAIL, 2 not run.
+   Run verdict FAIL, 3 not run (CR-6: the foundry gate is NOT-RUN without a foundry rule).
 7. **With rc4's waivers** (`gates.apply_waivers`, GATE2 Q1), the four FAIL and UNVERIFIED gates become WAIVED,
    each keeping its raw verdict and listing exactly its non-pass items as `waived`; no waiver is unused; the run
-   is WAIVED, 2 not run; the roll-up passed in is unchanged.
+   is WAIVED, 3 not run; the roll-up passed in is unchanged.
 8. The run page shows each WAIVED gate with `data-raw-verdict` and class `state-amber`, and one `data-waived`
    row per covered item.
 
@@ -641,8 +643,8 @@ are self-checks: each proves a control's input is what its AT claims, with an or
 | `test_selfcheck_D2_expected_sets` | the per-pin sets match the lock, the silicon rows, the catalogue and the golden TSV | (consistency of the goldens the AT reads) |
 | `test_selfcheck_D2_gate_fixtures` | the good upgrade pair updates without sync; the example manifest validates; the clean tree has no specimen; the example registry validates | the frozen-old-host pair fails without sync; `version: "1.0"` fails; the planted tree holds the specimen; the no-class catalogue fails |
 | `test_selfcheck_D5_tampers` | a reference verify accepts the genuine case | each of the 13 tampers fails exactly the check it is listed under; the control fails check 5 and differs only in provenance |
-| `test_selfcheck_D6_rollup_oracle` | a reference README section 6 roll-up of the golden TSV equals `EXPECTED_RC4_ROLLUP` (FAIL, 2 not run); the schema accepts it | control deleted, flipped, doubled: UNVERIFIED; all-skip and no gates: UNVERIFIED; the schema refuses the same gates claimed PASS, and a PASS over NOT-RUN gates only |
-| `test_selfcheck_D6_waiver_oracle` (GATE2 Q1) | rc4's 7 waivers turn exactly its 4 non-pass gates WAIVED (run WAIVED, 2 not run, none unused); the stored example equals it item for item and validates | a new failure, a `fail` below a waived pin, an unfired control and an orphaned `not-reached` item each stay FAIL; the retired ahb_qspi waiver (CR-2) is unused against today's items and covers the pre-push item; the schema refuses a WAIVED run with a FAIL gate and a WAIVED gate without `raw_verdict`. Three mutants of the oracle (ignore the control, let a prefix cover any result, never report unused) each fail it |
+| `test_selfcheck_D6_rollup_oracle` | a reference README section 6 roll-up of the golden TSV equals `EXPECTED_RC4_ROLLUP` (FAIL, 3 not run; CR-6); the schema accepts it | control deleted, flipped, doubled: UNVERIFIED; all-skip and no gates: UNVERIFIED; the schema refuses the same gates claimed PASS, and a PASS over NOT-RUN gates only |
+| `test_selfcheck_D6_waiver_oracle` (GATE2 Q1) | rc4's 7 waivers turn exactly its 4 non-pass gates WAIVED (run WAIVED, 3 not run, none unused; CR-6); the stored example equals it item for item and validates | a new failure, a `fail` below a waived pin, an unfired control and an orphaned `not-reached` item each stay FAIL; the retired ahb_qspi waiver (CR-2) is unused against today's items and covers the pre-push item; the schema refuses a WAIVED run with a FAIL gate and a WAIVED gate without `raw_verdict`. Three mutants of the oracle (ignore the control, let a prefix cover any result, never report unused) each fail it |
 | `test_selfcheck_D10_environments` | the good job environment breaks nothing | each synthetic environment breaks exactly its one property |
 | `test_selfcheck_D11_planted_line` | the bundle writer writes exactly 3 files | the planted specimen starts at `logs/t0.log` line 3 |
 | `test_selfcheck_F1_F2_variants` | the rc4 erratum validates and is permanent on a silicon configuration | the eth-main copy breaks rule 6 only; form C and D9 are not in the defect; the ancestry example fails `required` at `/exposure`; D2's pattern matches only the fired netlist |

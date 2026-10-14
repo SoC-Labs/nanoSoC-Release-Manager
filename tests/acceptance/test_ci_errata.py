@@ -729,7 +729,8 @@ def reference_run_verdict(items):
 def reference_apply_waivers(rolled, items, waivers):
     """README section 6 "T0 waivers" on reference_rollup output: ({gate: (verdict, control)}, unused).
     An item is covered by a waiver naming its gate, tree path and result, or, when `not-reached`, by a
-    covered item above it. Only a FAIL or UNVERIFIED gate whose control fired, with at least one non-pass
+    covered item above it. A t0.vendor.no-arm-ip waiver of a not-reached item also names it in
+    t0.vendor.no-foundry-data (CR-6: one scan). Only a FAIL or UNVERIFIED gate whose control fired, with at least one non-pass
     item and every one covered, becomes WAIVED. A waiver matching no item at all is unused."""
     out, used = dict(rolled), set()
     for gid, (verdict, control) in rolled.items():
@@ -737,7 +738,10 @@ def reference_apply_waivers(rolled, items, waivers):
         direct = {}
         for n, w in enumerate(waivers):
             for i in bad:
-                if (w["gate"], w["tree_path"], w["result"]) == (gid, i["tree_path"], i["result"]):
+                # CR-6 / review VS-3: an arm-gate not-reached waiver also names the foundry gate's same item
+                wg = {w["gate"]} | ({"t0.vendor.no-foundry-data"} if (w["gate"], w["result"]) == (
+                    "t0.vendor.no-arm-ip", "not-reached") else set())
+                if gid in wg and (w["tree_path"], w["result"]) == (i["tree_path"], i["result"]):
                     direct[i["tree_path"]] = n
         used.update(direct.values())
         covered = 0

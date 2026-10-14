@@ -1322,11 +1322,24 @@ def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
     return out
 
 
+# Review VS-3 (CR-6): the two vendor gates judge one scan, so a tree that was never fetched is unscanned for both.
+# A waiver of a `not-reached` item in the arm gate covers the same item in the foundry gate (never a `fail` or
+# `unverified` item: those are findings of one family only).
+_SHARED_NOT_REACHED = {"t0.vendor.no-arm-ip": ("t0.vendor.no-foundry-data",)}
+
+
+def _waiver_gates(w: Mapping) -> tuple:
+    """The gates a waiver applies to: its own, plus the foundry gate for an arm-gate `not-reached` waiver."""
+    gid = w.get("gate")
+    return (gid,) + (_SHARED_NOT_REACHED.get(gid, ()) if w.get("result") == "not-reached" else ())
+
+
 def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: list[dict]) -> tuple[list[dict], list[dict]]:
     """GATE2 Q1 (README section 6): (gates with WAIVED, raw_verdict and waived set where every non-pass item is
     covered, the waivers that covered nothing). An item is covered by a waiver naming its gate, tree path and
     result, or, when it is `not-reached`, by a directly covered item above it in the same gate (the superproject's
-    item, tree path '.', is above every other). A gate becomes
+    item, tree path '.', is above every other). A `t0.vendor.no-arm-ip` waiver of a `not-reached` item also names
+    that item in `t0.vendor.no-foundry-data` (one scan, so one unscanned tree; review VS-3). A gate becomes
     WAIVED only when its verdict is FAIL or UNVERIFIED, its control fired, it has at least one non-pass item and
     every one is covered. Pure: the inputs are never changed."""
     out, used = [], set()
@@ -1336,7 +1349,7 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
         bad = [i for i in (items.get(gid) or []) if i.get("result") != "pass"]
         direct: dict[tuple[str, str], int] = {}          # (tree path, result) -> the waiver naming that item
         for n, w in enumerate(waivers):
-            if w.get("gate") != gid:
+            if gid not in _waiver_gates(w):
                 continue
             for i in bad:
                 if i.get("tree_path") is not None and (w.get("tree_path"), w.get("result")) == (i["tree_path"], i["result"]):
