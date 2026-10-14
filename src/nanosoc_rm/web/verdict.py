@@ -25,23 +25,34 @@ import dataclasses
 import re
 from typing import Any
 
-__all__ = ["Decision", "Cause", "GATE_ITEM", "GATE_LABEL", "GATE_ORDER", "deciding", "causes", "next_action",
+__all__ = ["Decision", "Cause", "GATE_ITEM", "GATE_LABEL", "GATE_HELP", "GATE_ORDER", "deciding", "causes", "next_action",
            "unused_waivers", "https_url", "verdict_of", "NO_RESULT"]
 
 # t0.gates.GATES order (configuration gates; registry gates never appear in a configuration's compat result).
 GATE_ORDER = ("t0.infra.probe", "t0.runner.hardened", "t0.pins.fetchable", "t0.pins.reachable",
               "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-arm-ip",
-              "t0.registry.schema", "t0.registry.refs-resolve")
+              "t0.vendor.no-foundry-data", "t0.registry.schema", "t0.registry.refs-resolve")
 # A gate's per-pin item column (analysis.compat.GATE_COLUMNS).
 GATE_ITEM = {"t0.pins.fetchable": "fetchable", "t0.pins.reachable": "reachable", "t0.urls.no-ssh-public": "no_ssh",
-             "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor"}
+             "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor",
+             "t0.vendor.no-foundry-data": "foundry"}
 GATE_LABEL = {
-    "t0.vendor.no-arm-ip": "vendor scan on {paths}",
+    "t0.vendor.no-arm-ip": "Arm source in {paths}",
+    "t0.vendor.no-foundry-data": "foundry data marked blocking in {paths}",
     "ssh-pin": "{path} pinned by ssh URL",
     "t0.clone.upgrade-path": "upgrade path from {upgrade_from} does not clone anonymously",
     "t0.pins.reachable": "{n} pins not reachable",
     "t0.manifest.valid": "manifest invalid in {paths}",
     "t0.infra.probe": "anonymous git does not work on this host",
+}
+# CR-6: what each vendor gate means, and what its amber says (the overview's gate table shows it).
+GATE_HELP = {
+    "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner or a known vendor file by hash. An uncovered "
+                           "finding fails; catalogue vendor_allowlist entries make it clean (allow) or amber (warn).",
+    "t0.vendor.no-foundry-data": "Foundry data and site inventory: foundry file types, transcribed values, site "
+                                 "paths, release names, big files. Amber (WARN) by default, never a failure, "
+                                 "unless the catalogue's foundry_rules marks a rule severity fail. NOT-RUN on a "
+                                 "host with no foundry rule set (no toolkit scanner).",
 }
 RED = ("FAIL", "UNVERIFIED")
 GREEN = ("PASS", "WARN", "WAIVED")
@@ -139,7 +150,7 @@ def _label(gid: str, paths: list[str], f: dict, record: dict | None) -> tuple[st
     """(kind, label) of a single-gate cause."""
     if gid.startswith("tier."):
         return "tier", "%s is %s" % (gid.split(".", 1)[1].upper(), "red")
-    if gid == "t0.vendor.no-arm-ip":
+    if gid in ("t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data"):
         return "vendor", GATE_LABEL[gid].format(paths=_join(paths) or "the tree")
     if gid == "t0.clone.upgrade-path":
         frm = _upgrade_from(f, record)

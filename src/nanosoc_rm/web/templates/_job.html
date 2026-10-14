@@ -63,7 +63,7 @@
     {% endif %}
     <h3>Pins ({{ f.pins|length }})</h3>
     <div class="scroll"><table>
-      <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>State</th><th>URL</th><th>fetchable</th><th>reachable</th><th>no ssh</th><th>manifest</th><th>vendor</th></tr></thead>
+      <thead><tr><th>Tree path</th><th>Component</th><th>Commit</th><th>State</th><th>URL</th><th>fetchable</th><th>reachable</th><th>no ssh</th><th>manifest</th><th>Arm IP</th><th>foundry</th></tr></thead>
       <tbody>
       {% for p in f.pins %}
         <tr>
@@ -72,7 +72,7 @@
           <td><code>{{ short(p.commit) }}</code>{% if p.overridden %} <span class="pill state-info">override</span> <span class="note">was {{ short(p.replaces) }}</span>{% endif %}</td>
           <td><span class="{{ STATE_CLASS.get(p.state, 'state-red' if p.state else '') }}">{{ p.state or '' }}</span></td>
           <td>{{ p.url_kind }}</td>
-          {% for col in ('fetchable', 'reachable', 'no_ssh', 'manifest', 'vendor') %}
+          {% for col in ('fetchable', 'reachable', 'no_ssh', 'manifest', 'vendor', 'foundry') %}
           {% set v = p['items'].get(col) %}
           <td>{% if v %}<span class="pill {{ ITEM_CLASS.get(v, '') }}">{{ v }}</span>{% endif %}</td>
           {% endfor %}

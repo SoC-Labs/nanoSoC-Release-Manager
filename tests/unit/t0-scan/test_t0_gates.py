@@ -205,8 +205,9 @@ def test_details_never_hold_a_tab_or_newline(tmp_path, monkeypatch):
 def test_gate_table_matches_the_contract():
     assert list(gates.GATES) == ["t0.infra.probe", "t0.runner.hardened", "t0.pins.fetchable", "t0.pins.reachable",
                                  "t0.urls.no-ssh-public", "t0.manifest.valid", "t0.clone.upgrade-path",
-                                 "t0.vendor.no-arm-ip", "t0.registry.schema", "t0.registry.refs-resolve"]
-    assert gates.MAY_SKIP == {"t0.manifest.valid", "t0.clone.upgrade-path"}
+                                 "t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data", "t0.registry.schema",
+                                 "t0.registry.refs-resolve"]
+    assert gates.MAY_SKIP == {"t0.manifest.valid", "t0.clone.upgrade-path", "t0.vendor.no-foundry-data"}
     assert gates.gates_for("registry") == ["t0.registry.schema", "t0.registry.refs-resolve"]
     with pytest.raises(ValueError):
         gates.gates_for("nope")

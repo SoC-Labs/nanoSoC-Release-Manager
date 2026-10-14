@@ -100,7 +100,7 @@ def test_waivers_turn_rc4_waived_and_match_the_stored_example(at):
     import json
     stored = json.loads((at.EX / "observation.t0-result-waived.example.jsonl").read_text())
     assert out == stored["fact"]["gates"]                    # item for item, reasons and covered_by included
-    assert gates.run_verdict(out) == ("WAIVED", 2)
+    assert gates.run_verdict(out) == ("WAIVED", 3)   # CR-6: + no-foundry-data NOT-RUN
     ref, ref_unused = at.reference_apply_waivers(at.reference_rollup(at.parse_rows(at.example_verdicts()),
                                                                      at.CONFIG_GATES), items, waivers)
     assert {g["id"]: (g["verdict"], g["control"]) for g in out} == ref and ref_unused == unused

@@ -31,7 +31,7 @@
     <tbody>
     {% for g in gates %}
       <tr id="gate-{{ g.id }}" data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}" data-raw-verdict="{{ g.raw_verdict or '' }}"{% if g.deciding %} class="is-deciding"{% endif %}>
-        <td><code>{{ g.id }}</code>{% if g.deciding %} <span class="sr">(the deciding gate)</span>{% endif %}</td>
+        <td><code>{{ g.id }}</code>{% if g.deciding %} <span class="sr">(the deciding gate)</span>{% endif %}{% if g.help %}<br><span class="note" data-gate-help>{{ g.help }}</span>{% endif %}</td>
         <td>{{ ui.chip(g.verdict, g.tone) }}</td>
         <td>{{ g.raw_verdict or '' }}</td>
         <td>{{ g.detail }}{% for w in g.waived or [] %}<br><span class="note">waived {{ w.tree_path }} ({{ w.result }}), approved by {{ w.approved_by }}</span>{% endfor %}</td>

@@ -68,8 +68,8 @@ def eth_rc4():
 def test_eth_rc4_is_decided_by_the_vendor_scan_and_waived_gates_never_decide():
     d = V.deciding(eth_rc4())
     assert (d.verdict, d.gate, d.kind) == ("FAIL", "t0.vendor.no-arm-ip", "vendor")
-    assert d.label == "vendor scan on nanosoc-multicore-system"
-    assert d.sentence == "FAIL: vendor scan on nanosoc-multicore-system"
+    assert d.label == "Arm source in nanosoc-multicore-system"
+    assert d.sentence == "FAIL: Arm source in nanosoc-multicore-system"
     assert not {"t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-public"} & set(d.same_cause_gates + d.separate_gates)
     assert d.infra is False
     a = V.next_action(d, "eth-rc4")

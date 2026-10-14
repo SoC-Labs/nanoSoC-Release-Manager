@@ -16,6 +16,18 @@ entry covers them: clean, recorded in the item's `why`). An `allow` entry wins o
 finding. The verdict follows: `finding` > `warn` > `clean`; `unverified` is never changed by the allowlist, since
 an unarmed rule or an empty corpus proves nothing whatever the registry says.
 
+CR-6 (the vendor gate split) adds `foundry_rules`, the severity of a foundry-family rule (nanosoc_rm.scan.families):
+
+    foundry_rules:
+      - rule: path                                               # a rule id as the scanner reports it
+        severity: fail                                           # fail | warn (warn is the default for any rule)
+        reason: "..."
+        approved_by: David
+        approved_on: "2026-10-14"
+
+`apply_allowlist(..., uncovered=)` takes the severity of a finding no entry covers: `fail` (the default, and
+always for the arm family) keeps it a finding; `warn` moves it to `warnings`, named as the default it is.
+
 This is a separate list from the scanner's own `allow` entries (nanosoc_rm.scan.rules): those belong to the
 private rule file and silence a finding before it exists; these belong to the registry, are approved by name
 and date, and keep the finding visible as `allowed` or `warn`.
@@ -26,13 +38,16 @@ import fnmatch
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 from nanosoc_rm.contracts import load_yaml
 
-__all__ = ["VendorAllow", "vendor_allowlist", "load_vendor_allowlist", "apply_allowlist", "SEVERITIES"]
+__all__ = ["VendorAllow", "vendor_allowlist", "load_vendor_allowlist", "apply_allowlist", "SEVERITIES",
+           "FoundryRule", "foundry_rules", "load_foundry_rules", "RULE_SEVERITIES", "DEFAULT_FOUNDRY_SEVERITY"]
 
 SEVERITIES = ("allow", "warn")
+RULE_SEVERITIES = ("fail", "warn")         # catalogue foundry_rules[].severity (CR-6)
+DEFAULT_FOUNDRY_SEVERITY = "warn"          # a foundry-family rule the catalogue does not name
 
 
 @dataclass(frozen=True)
@@ -83,6 +98,47 @@ def vendor_allowlist(catalogue: Mapping | None) -> tuple[VendorAllow, ...]:
     return tuple(out)
 
 
+@dataclass(frozen=True)
+class FoundryRule:
+    rule: str
+    severity: str                   # fail | warn
+    reason: str
+    approved_by: str
+    approved_on: str
+
+    def describe(self) -> str:
+        return "severity %s for rule %s by %s %s: %s" % (self.severity, self.rule, self.approved_by,
+                                                          self.approved_on, self.reason)
+
+
+def foundry_rules(catalogue: Mapping | None) -> dict[str, FoundryRule]:
+    """rule id -> its catalogue severity entry (schema-validated elsewhere). An entry without a rule id or with an
+    unknown severity is skipped; of two entries for one rule, `fail` wins."""
+    out: dict[str, FoundryRule] = {}
+    for raw in (catalogue or {}).get("foundry_rules") or []:
+        if not isinstance(raw, dict) or not isinstance(raw.get("rule"), str) or not raw["rule"]:
+            continue
+        sev = raw.get("severity")
+        if sev not in RULE_SEVERITIES:
+            continue
+        prev = out.get(raw["rule"])
+        if prev is not None and prev.severity == "fail":
+            continue                                   # two entries for one rule: the stricter one stands
+        out[raw["rule"]] = FoundryRule(raw["rule"], sev, str(raw.get("reason") or ""),
+                                       str(raw.get("approved_by") or ""), str(raw.get("approved_on") or ""))
+    return out
+
+
+def load_foundry_rules(registry_dir: str | os.PathLike | None) -> dict[str, FoundryRule]:
+    """The foundry_rules of the registry checkout's catalogue.yaml; {} when there is no checkout or no file."""
+    if registry_dir is None:
+        return {}
+    path = Path(registry_dir) / "catalogue.yaml"
+    if not path.is_file():
+        return {}
+    return foundry_rules(load_yaml(path.read_text()))
+
+
 def load_vendor_allowlist(registry_dir: str | os.PathLike | None) -> tuple[VendorAllow, ...]:
     """The allowlist of the registry checkout's catalogue.yaml; () when there is no checkout or no file."""
     if registry_dir is None:
@@ -103,16 +159,23 @@ def _covering(entries: Iterable[VendorAllow], finding: dict, component: str | No
     return hits[0] if hits else None
 
 
-def apply_allowlist(res, entries: Sequence[VendorAllow], component: str | None, shas: Mapping[str, str] | None = None):
+def apply_allowlist(res, entries: Sequence[VendorAllow], component: str | None, shas: Mapping[str, str] | None = None,
+                    uncovered: Callable[[str], tuple[str, str]] | None = None):
     """A new ScanResult with `res.findings` sorted into findings (uncovered), warnings and allowed, each covered
     one carrying the entry that covers it (`by`: its description). `shas` maps a finding's file to its blob id
-    (scan_tree collects them); without it, `file_sha` entries never match. Pure: `res` is not changed."""
+    (scan_tree collects them); without it, `file_sha` entries never match. `uncovered(rule) -> (severity, by)`
+    (CR-6, the foundry gate): the severity of a finding no entry covers; `warn` moves it to `warnings` with that
+    `by`, `fail` keeps it a finding. Default: every uncovered finding is a finding. Pure: `res` is not changed."""
     shas = shas or {}
     keep, warn, allow = [], [], []
     for f in res.findings:
         e = _covering(entries, f, component, shas) if f.get("rule") != "scan.unscannable" else None
         if e is None:
-            keep.append(dict(f))
+            sev, by = uncovered(f["rule"]) if uncovered is not None else ("fail", "")
+            if sev == "warn":
+                warn.append(dict(f, by=by))
+            else:
+                keep.append(dict(f))
         elif e.severity == "allow":
             allow.append(dict(f, by=e.describe()))
         else:

@@ -230,7 +230,16 @@ MISSING). PR/MR refs are never mirrored.
 **Gates that may never SKIP** (listed in `gates.py` as `may_skip = False`): `t0.infra.probe`,
 `t0.runner.hardened`, `t0.pins.fetchable`, `t0.pins.reachable`, `t0.urls.no-ssh-public`,
 `t0.vendor.no-arm-ip`, `t0.registry.schema`, `t0.registry.refs-resolve`. Only `t0.manifest.valid` (no manifest
-anywhere) and `t0.clone.upgrade-path` (no `upgrade_from`) may skip.
+anywhere), `t0.clone.upgrade-path` (no `upgrade_from`) and `t0.vendor.no-foundry-data` (CR-6: no foundry rule on
+the host, so nothing could judge foundry data) may skip.
+
+**The two vendor gates (CR-6).** One scan per tree feeds both; each rule belongs to one gate
+(`nanosoc_rm.scan.families`). `t0.vendor.no-arm-ip` judges Arm source (the Arm banner, a known vendor file by
+hash, a file that could not be read): an uncovered finding is FAIL. `t0.vendor.no-foundry-data` judges foundry
+data and site inventory (foundry file types, values, site paths, release names, big files): an uncovered finding
+is WARN unless the catalogue's `foundry_rules` gives its rule `severity: fail`. So foundry and site-inventory
+findings show amber on every run that has them and stop no run, unless the registry owner marks a rule blocking.
+Both rows need a fired control like any other (D6); a foundry WARN row rolls up WARN by the table above.
 
 **T0 waivers (GATE2 Q1, decided 2026-10-01).** A frozen configuration's tree never changes, so a failure in
 it is permanent, and a permanent red hides any new red. `eligibility.yaml` may therefore list `t0_waivers`
@@ -260,7 +269,7 @@ too. Frozen trees make that rare, and the item's own `why` is still shown.
 3. any gate INFRA → **INFRA**;
 4. any gate WAIVED → **WAIVED** (amber: only a frozen configuration's known failures);
 5. any gate WARN → **WARN** (amber; CR-9: checked, passed, with warnings a catalogue entry lists, such as the
-   CR-6a `warn` vendor trees);
+   CR-6a `warn` vendor trees, or CR-6 foundry findings at their default severity);
 6. otherwise → **PASS**.
 
 **WARN below WAIVED (CR-9).** Both are amber. A WAIVED gate hides a real failure (its raw verdict is FAIL or

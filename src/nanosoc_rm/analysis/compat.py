@@ -42,7 +42,8 @@ __all__ = ["compat", "parse_pins", "CompatUsage", "exit_for", "ladder", "GATE_CO
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 # per-pin item columns: gate id -> short column name
 GATE_COLUMNS = {"t0.pins.fetchable": "fetchable", "t0.pins.reachable": "reachable", "t0.urls.no-ssh-public": "no_ssh",
-                "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor"}
+                "t0.manifest.valid": "manifest", "t0.vendor.no-arm-ip": "vendor",
+                "t0.vendor.no-foundry-data": "foundry"}
 UPGRADE_NOT_RUN = ("pin overrides given: the upgrade-path clone checks out the registered commit, not the "
                    "what-if tree")
 

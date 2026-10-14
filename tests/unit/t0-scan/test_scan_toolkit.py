@@ -31,6 +31,7 @@ mkdir -p "$CI_VERDICT_DIR/vendor"
 v="$CI_VERDICT_DIR/vendor/verdicts.tsv"
 rec() { printf '2026-01-01T00:00:00Z\t%s\t%s\t%s\n' "$1" "$2" "$3" >> "$v"; }
 [ -n "${ENVDUMP:-}" ] && env > "$ENVDUMP"
+[ -n "${COUNTFILE:-}" ] && echo "$rev" >> "$COUNTFILE"
 case "$MODE" in
     unarmed) rec UNVERIFIED vendor.arm "a rule did not fire on its specimen"; exit 1 ;;
     crash)   exit 2 ;;
@@ -45,6 +46,7 @@ while IFS= read -r -d '' path; do
     n=$((n + 1))
     printf '%s\n' "$allow" | grep -qxF "$path" && continue          # the project waives this path
     case "$path" in *.lef) printf 'file.ext\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
+    case "$path" in *.knownvendor) printf 'file.sha\t%s\t0\t%s\n' "$path" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT" ;; esac
     git cat-file -p "$rev:$path" | grep -n 'FAKE-FOUNDRY-VALUE' | cut -d: -f1 | while read -r ln; do
         printf 'value.fake\t%s\t%s\t%s\n' "$path" "$ln" "SECRET-WHY-TEXT" >> "$VENDOR_CHECK_FINDINGS_OUT"
     done
@@ -56,10 +58,13 @@ exit 0
 """
 
 
-def fake_toolkit(d: Path, mode: str = "normal", envdump: Path | None = None) -> Path:
+def fake_toolkit(d: Path, mode: str = "normal", envdump: Path | None = None, countfile: Path | None = None) -> Path:
+    """The fake: `*.lef` is a file.ext finding (foundry family), `*.knownvendor` a file.sha finding (arm family,
+    CR-6), FAKE-FOUNDRY-VALUE a value.fake finding (foundry family). `countfile` gets one line per run."""
     d.mkdir(parents=True, exist_ok=True)
     (d / "check-vendor-collateral.sh").write_text(FAKE)
-    (d / "lib.sh").write_text("MODE=%s\n%s" % (mode, "ENVDUMP=%s\n" % envdump if envdump else ""))
+    (d / "lib.sh").write_text("MODE=%s\n%s%s" % (mode, "ENVDUMP=%s\n" % envdump if envdump else "",
+                                                  "COUNTFILE=%s\n" % countfile if countfile else ""))
     return d / "check-vendor-collateral.sh"
 
 
@@ -204,7 +209,10 @@ def test_finalise_bundle_with_an_unusable_toolkit_keeps_only_provenance(at, tmp_
     assert json.loads((b / "provenance.json").read_text())["scan"]["verdict"] == "unverified"
 
 
-def test_vendor_gate_uses_the_toolkit_and_a_broken_one_is_unverified(at, tmp_path, monkeypatch):
+def test_vendor_gates_use_the_toolkit_and_a_broken_one_is_unverified(at, tmp_path, monkeypatch):
+    """CR-6: the toolkit's file.ext finding is foundry-family: no-arm-ip does not report it, no-foundry-data
+    reports it WARN (its default severity); file.sha is arm-family and FAILs no-arm-ip. A toolkit that cannot be
+    used makes both gates UNVERIFIED."""
     from nanosoc_rm.t0 import gates
     bare = tmp_path / "rm-tk.git"
     sha = at.fx_commit(bare, files={"lib/cells.lef": "x\n", "rtl/a.v": "module a; endmodule\n"}, ref="refs/heads/main")
@@ -214,12 +222,34 @@ def test_vendor_gate_uses_the_toolkit_and_a_broken_one_is_unverified(at, tmp_pat
                                   url_map={"https://github.com/SoC-Labs/rm-tk.git": str(bare)})
     monkeypatch.setenv(TOOLKIT_ENV, str(fake_toolkit(tmp_path / "tk")))
     status, detail = gates.GATES["t0.vendor.no-arm-ip"].check(ctx)
-    assert status == "FAIL" and "1 with findings" in detail, detail
+    assert status == "PASS" and "0 with findings" in detail, detail
     (item,) = ctx.items("t0.vendor.no-arm-ip")
-    assert item["tree_path"] == "." and "file.ext at lib/cells.lef:-" in item["why"]
+    assert item["result"] == "pass" and "file.ext" not in item["why"], item
+    status, detail = gates.GATES["t0.vendor.no-foundry-data"].check(ctx)
+    assert status == "WARN" and "1 with foundry findings at severity warn only" in detail, detail
+    (item,) = ctx.items("t0.vendor.no-foundry-data")
+    assert item["tree_path"] == "." and item["result"] == "pass" and item["why"].startswith("WARN:")
+    assert "file.ext at lib/cells.lef:- (severity warn by default)" in item["why"], item["why"]
     monkeypatch.setenv(TOOLKIT_ENV, str(tmp_path / "absent.sh"))
+    for gid in ("t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data"):
+        status, detail = gates.GATES[gid].check(ctx)
+        assert status == "UNVERIFIED" and "not a file" in detail, (gid, detail)
+
+
+def test_the_toolkit_file_sha_rule_fails_the_arm_gate(at, tmp_path, monkeypatch):
+    from nanosoc_rm.t0 import gates
+    bare = tmp_path / "rm-sha.git"
+    sha = at.fx_commit(bare, files={"rtl/x.knownvendor": "x\n"}, ref="refs/heads/main")
+    req = {"configuration": "rm-sha", "repo": {"host": "github", "path": "SoC-Labs/rm-sha"}, "commit": sha,
+           "upgrade_from": None, "canonical_urls": {}}
+    ctx = gates.Context.for_tests(nonce="4" * 32, workdir=tmp_path / "w", request=req,
+                                  url_map={"https://github.com/SoC-Labs/rm-sha.git": str(bare)})
+    monkeypatch.setenv(TOOLKIT_ENV, str(fake_toolkit(tmp_path / "tk")))
     status, detail = gates.GATES["t0.vendor.no-arm-ip"].check(ctx)
-    assert status == "UNVERIFIED" and "not a file" in detail
+    assert status == "FAIL" and "1 with findings" in detail, detail
+    assert "file.sha at rtl/x.knownvendor:-" in ctx.items("t0.vendor.no-arm-ip")[0]["why"]
+    status, detail = gates.GATES["t0.vendor.no-foundry-data"].check(ctx)
+    assert status == "PASS" and "0 with findings at severity fail" in detail, detail
 
 
 def test_cli_scan_bundle_toolkit_option(tmp_path):
