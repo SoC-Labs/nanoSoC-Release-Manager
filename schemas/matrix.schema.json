@@ -428,6 +428,7 @@
             "same",
             "new-failure",
             "fixed",
+            "unanswered",
             "changed"
           ]
         },

@@ -1516,7 +1516,10 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
    start is nearest within 12 hours (the same night); the comparison names that run (`baseline.subject`, `nonce`).
    With none, it says so and compares with nothing: never with older history. A pinned run with no gate results
    (INFRA, unanswered) or one that read moved pins is used only when no other run of that night is usable; it is
-   then named, and the comparison has no rows and a note saying why it was not compared.
+   then named, and the comparison has no rows and a note saying why it was not compared. Each row's `change` is
+   `same`, `new-failure` (the cell FAILs or is UNVERIFIED where the baseline was not), `fixed` (the baseline failed and
+   the cell answered PASS, WARN or WAIVED), `unanswered` (the baseline failed and the cell gave no answer: INFRA,
+   NOT-RUN or no row; never shown as fixed) or `changed`.
 6. **Jobs.** Kind `matrix-cell` (params `configuration`, `component`, `column`) through `jobs.register_kind`
    (`nanosoc_rm.matrix.jobkind`: params, cli_args, outcome, limit_s, action): the worker runs
    `nanosoc-rm matrix cell CONFIG --column COL [--component C] --store --json`; the cell takes its job id from

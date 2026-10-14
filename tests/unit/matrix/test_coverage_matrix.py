@@ -63,13 +63,16 @@ def test_compare_refuses_a_baseline_without_gates_or_with_moved_pins():
         assert out["rows"] == [] and "cannot be compared" in out["note"] and out["baseline"]["verdict"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-6: compare() reports a gate the cell did not answer (INFRA, "
-                                       "NOT-RUN) or did not report as 'fixed' when the baseline FAILed "
-                                       "(matrix/cells.py compare: 'fixed' if b in bad and c not in bad)")
 @pytest.mark.parametrize("cell", ["INFRA", "NOT-RUN", None])
 def test_an_unanswered_gate_is_never_fixed(cell):
     cell_gates = {"a": cell} if cell else {}
-    assert _changes(cell_gates, {"a": "FAIL"})["a"] != "fixed"
+    assert _changes(cell_gates, {"a": "FAIL"})["a"] == "unanswered"
+
+
+@pytest.mark.parametrize("cell", ["PASS", "WARN", "WAIVED"])
+def test_a_gate_that_held_after_a_baseline_failure_is_fixed(cell):
+    """The control for the test above: an answer that the gate held is still "fixed"."""
+    assert _changes({"a": cell}, {"a": "FAIL"})["a"] == "fixed"
 
 
 def test_baseline_is_the_nearest_usable_pinned_run_of_the_same_tier_and_commit():

@@ -180,11 +180,15 @@ def compare(cell_fact: Mapping, baseline: Mapping | None, quarantined: set[str] 
                 % (bf["nonce"][:12], why)}
     mine, theirs = _gates(cell_fact), _gates(bf)
     bad = ("FAIL", "UNVERIFIED")
+    answered_good = ("PASS", "WARN", "WAIVED")          # the cell checked the gate and it held
     rows = []
     for gid in sorted(set(mine) | set(theirs)):
         b, c = theirs.get(gid), mine.get(gid)
+        # A baseline failure is "fixed" only by an answer that the gate held; a cell that gave no answer (INFRA,
+        # NOT-RUN, or no row) is "unanswered": missing evidence is never shown as an improvement (ROB-coverage-6).
         change = ("same" if b == c else "new-failure" if c in bad and b not in bad else
-                  "fixed" if b in bad and c not in bad else "changed")
+                  "fixed" if b in bad and c in answered_good else
+                  "unanswered" if b in bad and c not in bad else "changed")
         rows.append({"gate": gid, "baseline": b, "cell": c, "change": change, "quarantined": gid in quarantined})
     return {"baseline": named, "rows": rows, "note": None}
 
