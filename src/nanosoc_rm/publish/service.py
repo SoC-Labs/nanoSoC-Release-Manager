@@ -12,8 +12,9 @@ id, its draft in the registry's `tapeouts/`). Publishing, in order, stopping at 
  2. build the record again and refuse unless its sha256 equals `confirm`, the digest of the preview a person saw;
  3. HEAD every target under `asic-release/<project>/<version>/`: a path that holds other bytes refuses the whole
     publish (never overwrite); a path that holds the same bytes is a retry and is not uploaded again;
- 4. sign the record (SSHSIG, namespace nanosoc-rm), upload the documents, the record and its `.sig`, each with its
-    deploy-time `rm.*` properties and checksum headers;
+ 4. sign the record (SSHSIG, namespace nanosoc-rm) and verify that signature against the allowed keys BEFORE the
+    first upload (a .sig the store keeps for good must already verify); then upload the documents, the record and
+    its `.sig`, each with its deploy-time `rm.*` properties and checksum headers;
  5. read back: every path's stored sha256, the record's and signature's bytes, the signature against the allowed
     keys, the record's `rm.manifest_sha256` property;
  6. a build-info record (`rm-release-<project>` / `rm-tapeout-<project>`, number = version / tapeout id) and a
@@ -314,6 +315,10 @@ def _publish(config: Config, s: Any, kind: str, key: str, confirm: str, login: s
                                  "preview; preview again" % (plan.sha256, confirm))
         sig = signing.sign(plan.data, s.signing_key, ssh_keygen=s.ssh_keygen)
         sig_bytes = sig.text.encode("ascii")
+        # The signature must verify against the allowed keys BEFORE anything is uploaded: the store is never
+        # overwritten, so an unverifiable .sig left in the folder could only be removed by an admin.
+        allowed = signing.load_allowed(s.allowed_file(), s.signer_identity)
+        signing.verify(plan.data, sig.text, allowed, ssh_keygen=s.ssh_keygen)
         files = plan.files(sig_bytes)
         states = {path: _state(store, path, data) for path, _, data in files}
         clash = [p for p, st in states.items() if st == "differs"]
@@ -340,7 +345,6 @@ def _publish(config: Config, s: Any, kind: str, key: str, confirm: str, login: s
         got_sig = store.get_bytes(plan.store_path + ".sig")
         if got != plan.data or got_sig != sig_bytes:
             raise PublishRefused("read-back: the record or its signature came back different")
-        allowed = signing.load_allowed(s.allowed_file(), s.signer_identity)
         fpr = signing.verify(got, got_sig.decode("ascii"), allowed, ssh_keygen=s.ssh_keygen)
         props = store.properties(plan.store_path)
         if (props.get("rm.manifest_sha256") or [None])[0] != plan.sha256:

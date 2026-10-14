@@ -112,9 +112,12 @@ def _file_problem(path: str | None, what: str, key: str) -> str | None:
     return None
 
 
-def readiness(config: Config, login: str | None = None, *, today: dt.date | None = None) -> list[str]:
-    """Why publishing cannot run here now (empty = it can). Reads no secret's content and calls nothing remote;
-    `login` adds the GUI rule (a listed publisher, never a shared login)."""
+def readiness(config: Config, login: str | None = None, *, today: dt.date | None = None,
+              probe_signer: bool = True) -> list[str]:
+    """Why publishing cannot run here now (empty = it can). Calls nothing remote; `login` adds the GUI rule (a
+    listed publisher, never a shared login). `probe_signer=False` (the web process) only stats the key and token
+    files: it never parses the private key nor starts ssh-keygen, so secrets stay with the publish job's process;
+    the job itself (probe_signer=True) also asks whether this host can sign with the key."""
     from nanosoc_rm.publish import signing
     s = settings(config)
     out = []
@@ -133,7 +136,7 @@ def readiness(config: Config, login: str | None = None, *, today: dt.date | None
     p = _file_problem(s.signing_key, "signing key", "signing_key")
     if p:
         out.append(p)
-    else:
+    elif probe_signer:
         which, why = signing.backend(s.signing_key, s.ssh_keygen)
         if which is None:
             out.append("this host cannot sign with the key: %s" % why)

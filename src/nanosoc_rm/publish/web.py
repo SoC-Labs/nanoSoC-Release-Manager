@@ -107,7 +107,7 @@ def _recent(config: Config, match: dict | None = None, limit: int = 10) -> list[
 def _blocked(config: Config, login: str) -> list[str]:
     from nanosoc_rm.publish.core import readiness
     try:
-        return readiness(config, login)
+        return readiness(config, login, probe_signer=False)
     except Exception as e:                              # noqa: BLE001 - say why, never hide the page
         return ["the publish settings do not read: %s" % str(e)[:200]]
 
@@ -153,7 +153,7 @@ async def _submit(request: Request, kind: str, params: dict, back: str, *, confi
     if refused:
         return PlainTextResponse("403 Forbidden: %s" % "; ".join(refused), 403)
     if confirm:
-        blocked = readiness(config)
+        blocked = readiness(config, probe_signer=False)
         if blocked:
             return PlainTextResponse("409 Conflict: publishing cannot run here: %s" % "; ".join(blocked), 409)
     params = dict(params, by=login)

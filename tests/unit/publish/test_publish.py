@@ -209,6 +209,20 @@ def test_the_client_refuses_every_call_off_its_allow_list_before_any_io(fake):
     assert fake.requests == [], "a refused call reached the store"
     assert s.check("PUT", "asic-release/p/1.0.0/release-manifest.json").endswith("/release-manifest.json")
     assert s.check("POST", "api/build/promote/rm-release-p/1.0.0")
+    # PUB-R4: only the tool's own builds are written or promoted, and a promotion body only sets a status
+    for rel in ("api/build/promote/nanosoc-ethernet-chiplet/rc4", "api/build/promote/rm-release-/1",
+                "api/build/promote/someone-elses-build/1"):
+        with pytest.raises(C.StoreRefused, match="did not write"):
+            s.check("POST", rel)
+    for body in ({"status": "X", "properties": {"evil": ["1"]}}, {"status": "X", "dependencies": True},
+                 {"status": "X", "scopes": ["compile"]}, {"comment": "no status"}):
+        with pytest.raises(C.StoreRefused, match="only sets a status"):
+            s.promote("rm-release-p", "1.0.0", body)
+    with pytest.raises(C.StoreRefused, match="not one of this tool's records"):
+        s.put_build({"name": "nanosoc-ethernet-chiplet", "number": "rc4"})
+    from nanosoc_rm.publish.core import BUILD_PREFIX
+    assert set(BUILD_PREFIX.values()) == set(C.BUILD_NAME_PREFIXES)
+    assert fake.requests == [], "a refused build call reached the store"
     # the token goes as a Bearer header only, never Basic
     s.head("asic-release/p/1.0.0/none.json")
     assert fake.requests == [("HEAD", "/artifactory/asic-release/p/1.0.0/none.json", "bearer")] and fake.basic == 0
@@ -306,6 +320,35 @@ def test_publish_refuses_what_it_must_and_writes_nothing(world):
     assert len(refusals) == 4 and {a["login"] for a in refusals} == {"alice", "soclabs", "mallory"}
 
 
+def test_an_existing_build_for_another_record_is_refused_before_upload(world):
+    fake, cfg = world.fake, world.config
+    prev = S.preview(cfg, "release", KEY, by="alice")
+    fake.builds[("rm-release-demochip", "1.0.0")] = {"name": "rm-release-demochip", "number": "1.0.0",
+                                                      "properties": {"rm.manifest_sha256": "0" * 64}}
+    assert any("already exists for another record" in p for p in S.preview(cfg, "release", KEY)["problems"])
+    with pytest.raises(PublishRefused, match="nothing uploaded: build rm-release-demochip/1.0.0 already exists"):
+        S.publish(cfg, "release", KEY, confirm=prev["sha256"], by="alice")
+    assert fake.writes() == []
+
+
+def test_readiness_refuses_open_secret_files_and_an_expired_token(world):
+    import datetime as dt
+    cfg = world.config
+    assert readiness(cfg) == []
+    for key in ("token_file", "signing_key"):
+        f = Path(cfg["stores"]["artifactory"][key])
+        f.chmod(0o644)
+        try:
+            assert any("readable by others" in p and "chmod 600" in p for p in readiness(cfg)), key
+        finally:
+            f.chmod(0o600)
+    with open(world.scene.env.config, "a") as fh:
+        fh.write('token_expires = "2026-06-30"\n')
+    cfg = load_config(world.scene.env.config)
+    assert readiness(cfg, today=dt.date(2026, 6, 30)) == []
+    assert readiness(cfg, today=dt.date(2026, 7, 1)) == ["the store token expired on 2026-06-30: mint a new one"]
+
+
 def test_read_back_and_signature_must_verify(world):
     fake, cfg = world.fake, world.config
     prev = S.preview(cfg, "release", KEY, by="alice")
@@ -313,13 +356,27 @@ def test_read_back_and_signature_must_verify(world):
     with pytest.raises(PublishRefused, match="read-back"):
         S.publish(cfg, "release", KEY, confirm=prev["sha256"], by="alice")
     assert db.latest("release_publication", config=cfg) == []
-    # a signature by a key that is not the allowed one is caught at read-back
-    fake.serve_wrong.clear()
+
+
+def test_a_signature_that_does_not_verify_is_refused_before_any_upload(world):
+    """PUB-R1: the store is never overwritten, so the signature is verified against the allowed keys before the
+    first PUT; otherwise an unverifiable .sig would stay in the folder and block every later publish."""
+    fake, cfg = world.fake, world.config
+    prev = S.preview(cfg, "release", KEY, by="alice")
     other = _keygen(world.tmp / "other")
     with open(world.scene.env.config, "a") as fh:
         fh.write('allowed_signers = "%s.pub"\n' % other)
     with pytest.raises(SG.SignatureError, match="not an allowed signer"):
         S.publish(load_config(world.scene.env.config), "release", KEY, confirm=prev["sha256"], by="alice")
+    # PUB-R1: refused BEFORE the first upload, so no unverifiable .sig is left in a folder that is never overwritten
+    assert fake.writes() == [], "a signature that does not verify was uploaded"
+    assert not any(p.endswith(".sig") for p in fake.files)
+    assert db.latest("release_publication", config=cfg) == []
+    # signing with the allowed key then publishes into the same, still clean folder
+    text = Path(world.scene.env.config).read_text()
+    Path(world.scene.env.config).write_text(text.replace('signing_key = "%s"' % world.key, 'signing_key = "%s"' % other))
+    cfg2 = load_config(world.scene.env.config)
+    assert S.publish(cfg2, "release", KEY, confirm=prev["sha256"], by="alice")["fact"]["outcome"] == "published"
 
 
 def test_a_draft_that_is_not_ready_is_refused(world, monkeypatch):
@@ -352,13 +409,22 @@ def test_a_referenced_artefact_joins_by_raw_md5(world):
         S.preview(cfg, "release", KEY, artefacts=[("gds", "asic-candidate/demochip/run2/stream/chip.gds.zst")])
     with pytest.raises(PublishRefused, match="not in the store"):
         S.preview(cfg, "release", KEY, artefacts=[("logs", "asic-record/nothing/here.txt")])
+    # a compressed artefact the lock does not name and with no raw-md5 property: its stored (compressed) md5 is
+    # NEVER recorded as its raw md5; an uncompressed one's stored md5 is its raw md5
+    fake.seed("asic-record/demochip/run1/logs/run.log.zst", gz)
+    fake.seed("asic-record/demochip/run1/logs/run.log", b"log text\n")
+    rec = S.preview(cfg, "release", KEY, artefacts=[("logs", "asic-record/demochip/run1/logs/run.log.zst"),
+                                                     ("other", "asic-record/demochip/run1/logs/run.log")])["record"]
+    got = {a["role"]: a for a in rec["artefacts"]}
+    assert got["logs"]["raw_md5"] is None and got["logs"]["raw_md5_from"] is None
+    assert got["other"]["raw_md5"] == hashlib.md5(b"log text\n").hexdigest() and got["other"]["raw_md5_from"] == "stored"
     assert fake.writes() == []
 
 
 # ---------------------------------------------------------------------------------------------------------
 # Tapeout
 # ---------------------------------------------------------------------------------------------------------
-def _tapeout_draft(world, status="accepted", raw=None, **extra):
+def _tapeout_draft(world, status="accepted", raw=None, gds_extra=None, **extra):
     data = world.gds.read_bytes()
     raw = raw or hashlib.md5(data).hexdigest()
     import zlib
@@ -380,6 +446,7 @@ def _tapeout_draft(world, status="accepted", raw=None, **extra):
            "errata": {"configuration": "soc-v1", "ids": ["DEMO-R0P0-ERR-001"], "doc_revision": 1},
            "documents": [{"kind": "reference-manual", "store_path": "asic-record/demochip/run1/docs/m.tar.zst"}]}
     rec.update(extra)
+    rec["gds"].update(gds_extra or {})
     if status is None:
         del rec["status"]                         # a backfill draft: only the free-text tapeout_status
     d = Path(world.config["registry"]["path"]) / "tapeouts"
@@ -420,6 +487,46 @@ def test_a_draft_tapeout_is_not_promoted_and_bad_facts_are_refused(world):
         S.preview(cfg, "tapeout", "demochip-r0")
     _tapeout_draft(world, pdk={"name": None, "version": None})
     with pytest.raises(PublishRefused, match="/pdk/name"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    # the stored GDS must agree with the draft on its layout hash and its stored sha256
+    _tapeout_draft(world, gds_extra={"canonical_sha256": "d" * 64})
+    with pytest.raises(PublishRefused, match="layout hash property"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    _tapeout_draft(world, gds_extra={"stored_sha256": "e" * 64})
+    with pytest.raises(PublishRefused, match="stored GDS's sha256"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    # a foundry return that cites other bytes than the draft's GDS
+    _tapeout_draft(world, foundry_returns=[{"archive": "Archive_x", "cites_raw_md5": "9" * 32}])
+    with pytest.raises(PublishRefused, match="cites raw md5"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+
+
+def test_a_tapeout_record_joins_its_own_release_folder(world):
+    """PUB-R2: the tapeout record is filed in its release's folder; the draft's release project, the configuration's
+    mapped project and the release manifest sha256 must agree with that folder and what is stored there."""
+    fake, cfg = world.fake, world.config
+    _tapeout_draft(world, release={"project": "otherchip", "version": "1.0.0", "manifest_sha256": "f" * 64})
+    with pytest.raises(PublishRefused, match="must agree"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    _tapeout_draft(world, project="otherchip", release={"project": "otherchip", "version": "1.0.0"})
+    with pytest.raises(PublishRefused, match="filed under project demochip"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    _tapeout_draft(world, release={"project": "demochip", "version": "1.0.0", "manifest_sha256": "f" * 64})
+    with pytest.raises(PublishRefused, match="not in the store"):
+        S.preview(cfg, "tapeout", "demochip-r0")
+    # with no release published and none claimed, the record says so (null), and nothing was written
+    _tapeout_draft(world)
+    assert S.preview(cfg, "tapeout", "demochip-r0")["record"]["release"]["manifest_sha256"] is None
+    assert fake.writes() == []
+    # once the release is published, the record carries the STORED manifest's sha256, and a draft that claims
+    # another one is refused
+    rel = S.preview(cfg, "release", KEY, by="alice")
+    S.publish(cfg, "release", KEY, confirm=rel["sha256"], by="alice")
+    prev = S.preview(cfg, "tapeout", "demochip-r0")
+    assert prev["problems"] == [] and prev["record"]["release"] == {"project": "demochip", "version": "1.0.0",
+                                                                   "manifest_sha256": rel["sha256"]}
+    _tapeout_draft(world, release={"project": "demochip", "version": "1.0.0", "manifest_sha256": "f" * 64})
+    with pytest.raises(PublishRefused, match="the stored"):
         S.preview(cfg, "tapeout", "demochip-r0")
 
 
@@ -508,6 +615,42 @@ def test_gui_is_disabled_with_a_reason_without_token_or_key(world):
     assert r.status_code == 409
     with pytest.raises(PublishError, match="token_file"):
         S.publish(world.config, "release", KEY, confirm="3" * 64, by="alice")
+
+
+def test_gui_confirm_refuses_a_preview_with_problems(world):
+    fake, cfg = world.fake, world.config
+    fake.seed(FOLDER + "/ERRATA.md", b"someone else's errata\n")
+    prev = S.preview(cfg, "release", KEY, by="alice")
+    assert prev["problems"]
+    c, csrf = _client(world, "alice")
+    r = c.post("/publish/release/soc-v1/1.0.0/confirm", data={"csrf_token": csrf, "sha256": prev["sha256"], "ack": "1"})
+    assert r.status_code == 409 and "found problems" in r.text
+    assert jobs.jobs(cfg, kind="publish-release") == []
+
+
+def test_gui_gets_never_read_the_private_key_nor_run_ssh_keygen(world, monkeypatch):
+    """PUB-R5: the web process only stats the signing key; parsing it and running ssh-keygen belong to the job."""
+    prev = S.preview(world.config, "release", KEY, by="alice")      # (the job's work, before the spies)
+    world.fake.requests.clear()
+    seen = []
+    real_load, real_run = SG._load_private, SG._run
+    monkeypatch.setattr(SG, "_load_private", lambda *a, **k: seen.append("parse") or real_load(*a, **k))
+    monkeypatch.setattr(SG, "_run", lambda *a, **k: seen.append("ssh-keygen") or real_run(*a, **k))
+    SG.ssh_keygen_supports_y.cache_clear()
+    try:
+        for who in ("bob", "alice"):
+            c, csrf = _client(world, who)
+            for url in ("/publish/", "/publish/release/soc-v1/1.0.0"):
+                assert c.get(url).status_code == 200
+        r = c.post("/publish/release/soc-v1/1.0.0/confirm",
+                   data={"csrf_token": csrf, "sha256": prev["sha256"], "ack": "1"}, follow_redirects=False)
+        assert r.status_code == 303, r.text
+        assert seen == [], seen
+        assert world.fake.requests == []
+        # the job's own readiness still probes the signer
+        assert readiness(world.config) == [] and seen
+    finally:
+        SG.ssh_keygen_supports_y.cache_clear()
 
 
 def test_scheduler_reaching_the_publish_unit_is_soc_release_automation(tmp_path):

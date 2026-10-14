@@ -337,10 +337,68 @@ def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str 
     }
     if cites and cites != raw_md5:
         raise PublishRefused("the foundry return cites raw md5 %s, the draft's GDS is %s" % (cites, raw_md5))
+    record["release"]["manifest_sha256"] = _release_join(config, rec, release, version, store)
     problems = contracts.validate("tapeout-record", record)
     if problems:
         raise PublishRefused("the tapeout record does not meet its contract: %s" % "; ".join(problems[:5]))
     return record
+
+
+def _configured_project(config: Config, configuration: Any) -> str | None:
+    """The store project a release of `configuration` is filed under (its component through `[stores.artifactory]
+    projects`), or None when the registry does not name that configuration."""
+    if not configuration:
+        return None
+    try:
+        from nanosoc_rm.releases.builder import _registry
+        cfg = _registry(config).configuration(str(configuration))
+    except Exception:                                     # noqa: BLE001 - no registry here: nothing to compare
+        return None
+    return settings(config).project(cfg["component"]) if cfg and cfg.get("component") else None
+
+
+def _release_join(config: Config, rec: dict, release: dict, version: str, store: Any) -> str | None:
+    """The tapeout record is filed in its release's folder `<release_repo>/<project>/<version>/`. Refuse a draft
+    whose release names another project, whose configuration's release is filed under another project, or whose
+    release manifest sha256 is not the one stored there. Returns the release manifest's sha256 (the stored one when
+    the store has it; None when no release manifest is published there and the draft names none)."""
+    from nanosoc_rm.publish.core import MANIFEST_NAME
+    project = rec["project"]
+    named = release.get("project")
+    if named and named != project:
+        raise PublishRefused("the draft's release is %s/%s but the record's project is %s: a tapeout record is filed "
+                             "in its release's folder, so record.project and record.release.project must agree"
+                             % (named, version, project))
+    mapped = _configured_project(config, rec.get("configuration"))
+    if mapped and mapped != project:
+        raise PublishRefused("configuration %s releases are filed under project %s, not the draft's %s: set "
+                             "[stores.artifactory] projects (or record.project) so both records share one folder"
+                             % (rec.get("configuration"), mapped, project))
+    claimed = release.get("manifest_sha256")
+    if store is None:
+        return claimed
+    path = "%s/%s/%s/%s" % (settings(config).release_repo, project, version, MANIFEST_NAME)
+    data = store.get_bytes(path)
+    if data is None:
+        if claimed:
+            raise PublishRefused("the draft names release manifest sha256 %s, but %s is not in the store: publish "
+                                 "the release first, or clear record.release.manifest_sha256" % (claimed, path))
+        return None
+    stored = hashlib.sha256(data).hexdigest()
+    if claimed and claimed != stored:
+        raise PublishRefused("the draft names release manifest sha256 %s, the stored %s is %s" % (claimed, path, stored))
+    try:
+        man = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise PublishRefused("the stored %s does not read as JSON" % path) from None
+    if not isinstance(man, dict) or (man.get("project"), man.get("version")) != (project, version):
+        raise PublishRefused("the stored %s names %s/%s, not %s/%s" % (
+            path, (man or {}).get("project") if isinstance(man, dict) else None,
+            man.get("version") if isinstance(man, dict) else None, project, version))
+    if rec.get("configuration") and man.get("configuration") and man["configuration"] != rec["configuration"]:
+        raise PublishRefused("the stored %s is configuration %s, the tapeout draft's is %s"
+                             % (path, man["configuration"], rec["configuration"]))
+    return stored
 
 
 # ---------------------------------------------------------------------------------------------------------

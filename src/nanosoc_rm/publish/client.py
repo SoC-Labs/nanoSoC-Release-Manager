@@ -6,8 +6,10 @@ Every call is checked here BEFORE any network I/O, and anything else raises `Sto
     HEAD, GET   any path under `<url>/` (the base ends in /artifactory, so the Access API is out of reach:
                 Basic-auth calls there count as failed admin logins and lock the admin out)
     PUT         `<release_repo>/<project>/<version>/<file>` (a new release record; never overwritten: the
-                publish service HEADs first and refuses an existing path) and `api/build` (a build-info record)
-    POST        `api/build/promote/<name>/<number>` (a status-only promotion: no copy, no move, no target repo)
+                publish service HEADs first and refuses an existing path) and `api/build` (a build-info record
+                named `rm-release-<project>` or `rm-tapeout-<project>`, never a producer's build)
+    POST        `api/build/promote/<name>/<number>` for those names only (a status-only promotion: the body keys
+                are allow-listed, so no copy, no move, no target repo, no properties)
 
 There is no DELETE, PATCH or property-set call. `refuse_writes_here()` (called by `nanosoc-rm serve`) makes every
 PUT and POST refuse in the web process: the GUI only queues a publish job, which runs as a child process.
@@ -31,6 +33,11 @@ SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _PATH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+@=/-]{0,1023}$")
 _CHECKSUM_SUFFIX = (".md5", ".sha1", ".sha256", ".sha512")
+# The only builds this client writes or promotes: the tool's own records (never a producer's build).
+BUILD_NAME_PREFIXES = ("rm-release-", "rm-tapeout-")
+# A status-only promotion: these keys and no others (`properties` would tag the build's artefacts in other repos).
+PROMOTE_KEYS = frozenset(("status", "comment", "ciUser", "timestamp", "dryRun", "copy", "artifacts", "dependencies",
+                          "failFast"))
 TIMEOUT_S = 60.0
 _REFUSE_WRITES: str | None = None
 
@@ -114,6 +121,8 @@ class Store:
         if method == "POST":
             if len(parts) == 5 and parts[:3] == ["api", "build", "promote"] and all(SAFE_SEGMENT.match(p)
                                                                                      for p in parts[3:]):
+                if not _own_build(parts[3]):
+                    raise StoreRefused("refused: POST %s promotes a build this tool did not write" % rel)
                 return "%s/%s" % (self.base, rel)
             raise StoreRefused("refused: POST %s is not a build promotion" % rel)
         raise StoreRefused("refused: method %s is never used on the store" % method)
@@ -207,6 +216,9 @@ class Store:
 
     def put_build(self, build_info: dict) -> None:
         url = self.check("PUT", "api/build")
+        if not _own_build(build_info.get("name")) or not SAFE_SEGMENT.match(str(build_info.get("number") or "")):
+            raise StoreRefused("refused: build %r is not one of this tool's records (%s<project>)"
+                               % (str(build_info.get("name"))[:80], " or ".join(BUILD_NAME_PREFIXES)))
         self.calls.append(("PUT", "api/build"))
         try:
             r = self._http.put(url, content=json.dumps(build_info).encode(),
@@ -219,8 +231,11 @@ class Store:
     def promote(self, name: str, number: str, body: dict) -> None:
         rel = "api/build/promote/%s/%s" % (_seg(name), _seg(number))
         url = self.check("POST", rel)
-        if body.get("targetRepo") or body.get("copy") or body.get("artifacts"):
-            raise StoreRefused("refused: a promotion here only sets a status (no target repo, no copy)")
+        extra = sorted(set(body) - PROMOTE_KEYS)
+        if (extra or body.get("copy") or body.get("artifacts") or body.get("dependencies")
+                or not isinstance(body.get("status"), str)):
+            raise StoreRefused("refused: a promotion here only sets a status (no target repo, no copy, no properties%s)"
+                               % ("; not allowed: %s" % ", ".join(extra)[:120] if extra else ""))
         self.calls.append(("POST", rel))
         try:
             r = self._http.post(url, content=json.dumps(body).encode(),
@@ -229,6 +244,11 @@ class Store:
             raise self._fail("POST", rel, e) from None
         if r.status_code not in (200, 201, 204):
             raise StoreError("POST %s: HTTP %d %s" % (rel, r.status_code, _error_text(r)), r.status_code)
+
+
+def _own_build(name: object) -> bool:
+    return isinstance(name, str) and bool(SAFE_SEGMENT.match(name)) and name.startswith(BUILD_NAME_PREFIXES) \
+        and len(name) > max(len(p) for p in BUILD_NAME_PREFIXES if name.startswith(p))
 
 
 def _seg(value: str) -> str:
