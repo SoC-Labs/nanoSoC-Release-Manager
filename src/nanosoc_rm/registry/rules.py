@@ -445,19 +445,21 @@ def _rule14(docs: Docs) -> Iterator[Problem]:
 def _rule15(docs: Docs) -> Iterator[Problem]:
     """CR-WF-catalogue: the characterisation fields agree across entries. Each `wraps` id is another catalogue
     component whose group the wrapper may wrap (model.WRAP_TARGETS, the target's group explicit or derived from
-    its class); `group: legacy` exactly when `class: legacy` (watch-only stays one fact); `guessed` names only
+    its class); a stated group carries a class model.GROUP_CLASSES allows (so `group: legacy` exactly when
+    `class: legacy`: watch-only stays one fact, and group and class never drift apart); `guessed` names only
     fields the entry has (`type`/`role` on a ladder group, `wraps` with wraps, `inside` on a soc or subsystem)."""
-    from nanosoc_rm.catalogue.model import LADDER_GROUPS, WRAP_TARGETS, effective_group
+    from nanosoc_rm.catalogue.model import GROUP_CLASSES, LADDER_GROUPS, WRAP_TARGETS, effective_group
     if not docs.catalogue:
         return
     file, doc = docs.catalogue
     comps = {_str(c.get("id")): c for _i, c in _items(_dict(doc).get("components"))}
     for i, c in _items(_dict(doc).get("components")):
         cid, group = _str(c.get("id")), _str(c.get("group"))
-        if group is not None and (group == "legacy") != (c.get("class") == "legacy"):
+        if group in GROUP_CLASSES and c.get("class") not in GROUP_CLASSES[group]:
             yield (file, ptr("components", i, "group"), "rule-15",
-                   "group %s with class %s: group legacy goes with class legacy and only with it"
-                   % (group, c.get("class")))
+                   "group %s with class %s: group %s goes with class %s%s"
+                   % (group, c.get("class"), group, " or ".join(GROUP_CLASSES[group]),
+                      " and class legacy only with group legacy" if c.get("class") == "legacy" else ""))
         mine = effective_group(c)
         for j, w in enumerate(_list(c.get("wraps"))):
             where = ptr("components", i, "wraps", j)

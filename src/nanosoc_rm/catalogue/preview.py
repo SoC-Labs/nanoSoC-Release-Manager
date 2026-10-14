@@ -15,6 +15,8 @@ Choices (a list, applied in order):
         FIELD in group, type, role, wraps, question. null removes the field. Setting a field confirms it (it
         leaves `guessed`; `question` goes when `group` is no longer guessed). Setting group to soc or subsystem
         fills `type` to match; a group outside the ladder drops type and role, and outside project/soc, wraps.
+        A new group whose classes (model.GROUP_CLASSES) do not include the entry's class sets the class to
+        model.class_for(group, role), and the change line says so ("class toolkit -> legacy").
     {"op": "confirm", "id": ID, "fields": [FIELD, ...]}
         FIELD in group, type, role, wraps, inside: take it out of `guessed`. A field the entry does not state
         (derived from class) is written out with its derived value, so the confirmation is recorded.
@@ -38,7 +40,8 @@ from typing import Any
 import yaml
 
 from nanosoc_rm import contracts
-from nanosoc_rm.catalogue.model import (GROUPS, GUESSABLE, LADDER_GROUPS, ROLES, TYPES, characterise, class_for)
+from nanosoc_rm.catalogue.model import (GROUPS, GUESSABLE, LADDER_GROUPS, ROLES, TYPES, characterise, class_agrees,
+                                        class_for)
 
 __all__ = ["preview", "Preview", "PreviewUsage", "SETTABLE", "entry_line"]
 
@@ -216,11 +219,18 @@ def _apply(lines: list[str], choices: list[dict], ids: set[str]) -> tuple[list[s
                         doc[fname] = value
                     if fname != "question":
                         _drop_guess(doc, fname)
+                recls = ""
                 if "group" in fields:
                     _normalise(doc)
                     if doc.get("group") in LADDER_GROUPS and "role" not in doc and derived.role:
                         doc["role"] = derived.role
-                changes.append("%s: set %s" % (cid, ", ".join("%s=%s" % (f, json.dumps(v)) for f, v in fields.items())))
+                    g = doc.get("group")
+                    if g in GROUPS and not class_agrees(g, doc["class"]):
+                        new_cls = class_for(g, doc.get("role"))
+                        recls = " (class %s -> %s)" % (doc["class"], new_cls)
+                        doc["class"] = new_cls
+                changes.append("%s: set %s%s" % (cid, ", ".join("%s=%s" % (f, json.dumps(v)) for f, v in fields.items()),
+                                                 recls))
             else:
                 names = ch.get("fields")
                 if not isinstance(names, list) or not names or any(f not in GUESSABLE for f in names):

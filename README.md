@@ -112,7 +112,7 @@ infra, legacy); projects, SoCs and subsystems also a type (chip, chiplet, soc, s
 (implementation, forkable, example). A catalogue without these fields still loads: they are derived from `class`.
 
 ```
-nanosoc-rm catalogue show --gaps            # SoCs that no forkable project wraps (exit 1 when any)
+nanosoc-rm catalogue show --gaps            # SoCs that no forkable project wraps (exit 1 when any, 2 unverified)
 nanosoc-rm catalogue show --unconfirmed     # entries with a guessed or derived field, and the open question
 nanosoc-rm catalogue org-scan --store       # anonymous org/group listing: repos not in the catalogue (repo_seen)
 nanosoc-rm catalogue preview choices.json --out cat.patch   # then, in the registry: git apply cat.patch

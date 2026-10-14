@@ -3,6 +3,8 @@
     characterise(component) -> Characterisation             one catalogue component, defaults derived from class
     characterise_all(components) -> {id: Characterisation}  every component, with `wrapped_by` filled in
     socs_without_forkable_project(chars) -> [id]            the gap the front page flags
+    gap_unverified(chars) -> [id]                           soc_ref entries whose group is only derived: the gap
+                                                            check cannot see them, so "no gap" is UNVERIFIED
     effective_group(component) -> str                       the explicit group, else the class default
 
 Pure: no I/O, no registry import (the loader's rule 15 imports this module).
@@ -18,8 +20,9 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterable
 
 __all__ = ["GROUPS", "LADDER_GROUPS", "TYPES", "ROLES", "GUESSABLE", "DEFAULT_GROUP", "DEFAULT_ROLE",
-           "CLASS_FOR_GROUP", "WRAP_TARGETS", "GROUP_LABELS", "TYPE_LABELS", "ROLE_LABELS", "Characterisation",
-           "characterise", "characterise_all", "effective_group", "socs_without_forkable_project", "class_for"]
+           "CLASS_FOR_GROUP", "GROUP_CLASSES", "WRAP_TARGETS", "GROUP_LABELS", "TYPE_LABELS", "ROLE_LABELS", "Characterisation",
+           "characterise", "characterise_all", "effective_group", "socs_without_forkable_project", "gap_unverified",
+           "class_for", "class_agrees"]
 
 GROUPS = ("project", "soc", "subsystem", "component", "toolkit", "flow", "generator", "arch", "lib", "infra",
           "legacy")
@@ -27,9 +30,10 @@ LADDER_GROUPS = ("project", "soc", "subsystem")          # the groups that carry
 TYPES = ("chip", "chiplet", "soc", "subsystem")
 ROLES = ("implementation", "forkable", "example")
 GUESSABLE = ("group", "type", "role", "wraps", "inside")
-# What a group may wrap (loader rule 15): a project its SoC (or a subsystem it integrates directly); a SoC its
-# subsystems and the components it integrates.
-WRAP_TARGETS = {"project": ("soc", "subsystem"), "soc": ("subsystem", "component")}
+# What a group may wrap (loader rule 15): a project its SoC, a subsystem it integrates directly and its own
+# project-level components (custom peripherals and accelerators, DESIGN-BRIEF: the project card leads with its
+# SoC, then these); a SoC its subsystems and the components it integrates.
+WRAP_TARGETS = {"project": ("soc", "subsystem", "component"), "soc": ("subsystem", "component")}
 
 # Today's B1 class -> the default group and role, for entries that do not state them.
 DEFAULT_GROUP = {"soc_ref": "project", "example": "project", "generator": "generator", "arch_tech": "arch",
@@ -40,6 +44,15 @@ DEFAULT_ROLE = {"soc_ref": "implementation", "example": "example"}
 CLASS_FOR_GROUP = {"project": "soc_ref", "soc": "soc_ref", "subsystem": "ip_tech", "component": "ip_tech",
                    "toolkit": "toolkit", "flow": "toolkit", "generator": "generator", "arch": "arch_tech",
                    "lib": "ip_tech", "infra": "infra", "legacy": "legacy"}
+
+# The B1 classes each group may carry (loader rule 15: group and class never drift apart). A group change
+# whose current class is not listed takes class_for(group, role) (catalogue preview). The second class on
+# subsystem, generator and arch records the real registry's entries (a soc_ref subsystem, a toolkit-class
+# generator, ip_tech architecture units). Legacy is exactly class legacy, both ways (watch-only is one fact).
+GROUP_CLASSES = {"project": ("soc_ref", "example"), "soc": ("soc_ref", "example"),
+                 "subsystem": ("ip_tech", "soc_ref"), "component": ("ip_tech",), "toolkit": ("toolkit",),
+                 "flow": ("toolkit",), "generator": ("generator", "toolkit"), "arch": ("arch_tech", "ip_tech"),
+                 "lib": ("ip_tech",), "infra": ("infra",), "legacy": ("legacy",)}
 
 GROUP_LABELS = {"project": "Project", "soc": "SoC", "subsystem": "Subsystem", "component": "Component (tech)",
                 "toolkit": "Toolkit", "flow": "Flow", "generator": "Generator", "arch": "Architecture tech unit",
@@ -100,6 +113,11 @@ def class_for(group: str, role: str | None = None) -> str:
     return CLASS_FOR_GROUP[group]
 
 
+def class_agrees(group: str, cls: str) -> bool:
+    """True when `cls` is a class group `group` may carry (GROUP_CLASSES)."""
+    return cls in GROUP_CLASSES.get(group, ())
+
+
 def characterise(component: dict) -> Characterisation:
     """One schema-valid catalogue component as a Characterisation (wrapped_by empty)."""
     cls = component["class"]
@@ -144,3 +162,10 @@ def socs_without_forkable_project(chars: dict[str, Characterisation]) -> list[st
             if ch.group == "soc"
             and not any(chars[p].group == "project" and chars[p].role == "forkable"
                         for p in ch.wrapped_by if p in chars)]
+
+
+def gap_unverified(chars: dict[str, Characterisation]) -> list[str]:
+    """soc_ref entries whose group is derived, not stated (review F2). A soc_ref with no `group` defaults to
+    project, so a SoC the catalogue has not characterised is invisible to socs_without_forkable_project; while
+    this list is non-empty an empty gap list measured nothing and is reported UNVERIFIED, never as "no gaps"."""
+    return [cid for cid, ch in chars.items() if ch.cls == "soc_ref" and "group" in ch.derived]

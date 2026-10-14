@@ -1911,13 +1911,19 @@ Registry.characterisations() -> dict[str, Characterisation]   # catalogue order,
 model.characterise(component_dict) -> Characterisation        # one entry, wrapped_by empty
 model.characterise_all(component_dicts) -> dict[str, Characterisation]
 model.socs_without_forkable_project(chars) -> list[str]       # group soc, no `forkable` project in wrapped_by
+model.gap_unverified(chars) -> list[str]   # soc_ref entries with a derived group: while non-empty, an empty gap
+                                           # list measured nothing (an uncharacterised SoC reads as a project)
 model.effective_group(component_dict) -> str | None; model.class_for(group, role=None) -> str
+model.class_agrees(group, cls) -> bool                        # cls in GROUP_CLASSES[group]
 constants: GROUPS, LADDER_GROUPS, TYPES, ROLES, GUESSABLE, WRAP_TARGETS, DEFAULT_GROUP, DEFAULT_ROLE,
-           CLASS_FOR_GROUP, GROUP_LABELS, TYPE_LABELS, ROLE_LABELS (display words: "Forkable template", ...)
+           CLASS_FOR_GROUP, GROUP_CLASSES, GROUP_LABELS, TYPE_LABELS, ROLE_LABELS (display words: "Forkable template", ...)
 ```
 
 CLI: `nanosoc-rm catalogue show [PATH] [--group G]... [--gaps] [--unconfirmed] [--json]`, one row (or
-`as_doc()` plus `gap: bool`) per component. Exit 0; with `--gaps`, 1 when any SoC has no forkable project.
+`as_doc()` plus `gap: bool`) per component. Exit 0; with `--gaps`, 1 when any SoC has no forkable project,
+2 (UNVERIFIED, stderr names them) when `gap_unverified` is non-empty. A page shows the gap check as unverified in
+that case, never as "no gaps". WRAP_TARGETS: a project wraps soc, subsystem or component (its own custom
+peripherals and accelerators); a soc wraps subsystem or component.
 Examples: `component-catalogue.example.yaml` (8 entries characterised, the rest derived); invalid
 `component-catalogue.type-on-toolkit.yaml`, `.project-without-role.yaml`, `.question-without-guessed.yaml`,
 `.soc-typed-chip.yaml`.
@@ -1932,7 +1938,8 @@ alias, not external, not ignored) becomes a `repo_seen` observation (set kind, s
 complete snapshot per host per scan; empty when nothing is new, so a repo catalogued or ignored since drops out).
 Fact (`observation.schema.json#/$defs/repo_seen`): `repo`, `visibility`, `default_branch`, `created_on` (date or
 null), `description` (whitespace-collapsed, at most 300 characters, or null), `mentions_nanosoc` (name or
-description matches nano-soc: a hint, not a judgement), `first_seen` (carried from the current stored fact),
+description matches nano-soc: a hint, not a judgement), `fork` (the listing's own flag: GitHub `fork`, GitLab
+`forked_from_project` present), `first_seen` (carried from the current stored fact),
 `listing: anonymous`. A host whose listing fails stores nothing; `errors[host]` says why; the other host is still
 scanned. Limit: an anonymous listing cannot see a private repo; `nanosoc-rm inventory` (with the read token) stays
 the A1 census.
@@ -1965,7 +1972,9 @@ for a choice it cannot read. Choices, applied in order:
 ```
 
 `set` of group soc/subsystem fills the matching type; a group off the ladder drops type, role and their guesses;
-off project/soc it drops wraps. `question` goes once `group` is no longer guessed. `confirm` of a derived field
+off project/soc it drops wraps. A new group that may not carry the entry's class (`GROUP_CLASSES`) sets the
+class to `class_for(group, role)` and the change line says `(class OLD -> NEW)`; so moving into or out of
+legacy is one choice. `question` goes once `group` is no longer guessed. `confirm` of a derived field
 writes the derived value out. CLI: `nanosoc-rm catalogue preview CHOICES|- [--registry PATH] [--out FILE]
 [--json]`: the patch on stdout (or the `as_doc()` JSON); exit 0 valid, 1 the patched catalogue would be
 refused, 3 a bad choice or an `--out` inside the registry.

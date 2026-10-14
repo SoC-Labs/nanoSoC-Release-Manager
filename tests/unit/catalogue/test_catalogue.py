@@ -104,10 +104,13 @@ RULE15 = [
      "/components/10/wraps/0", "not a catalogue component"),
     ("wraps-self", "nanosoc-multicore-system", lambda d: d.update(wraps=["nanosoc-multicore-system"]),
      "/components/11/wraps/0", "wraps itself"),
-    ("project-wraps-component", "nanosoc-ethernet-chiplet", lambda d: d.update(wraps=["tidelink"]),
-     "/components/10/wraps/0", "a project wraps only soc or subsystem; tidelink is group component"),
+    ("project-wraps-toolkit", "nanosoc-ethernet-chiplet", lambda d: d.update(wraps=["asic-toolkit"]),
+     "/components/10/wraps/0", "a project wraps only soc or subsystem or component; asic-toolkit is group toolkit"),
     ("project-wraps-project", "nanosoc-multicore-system", lambda d: d.update(group="project", type="chip"),
-     "/components/10/wraps/0", "a project wraps only soc or subsystem; nanosoc-multicore-system is group project"),
+     "/components/10/wraps/0",
+     "a project wraps only soc or subsystem or component; nanosoc-multicore-system is group project"),
+    ("class-drift", "ahb_qspi", lambda d: d.update(group="infra"),
+     "/components/1/group", "group infra with class ip_tech"),
     ("legacy-group-live-class", "tidechart", lambda d: (d.update(group="legacy"), d.pop("question"), d.pop("guessed")),
      "/components/23/group", "group legacy goes with class legacy"),
     ("legacy-class-live-group", "secworks-sha256-project", lambda d: d.update(group="component"),
@@ -173,7 +176,7 @@ def test_preview_set_confirm_add_ignore_round_trip(reg_dir):
 def test_preview_reports_a_catalogue_the_loader_would_refuse(reg_dir):
     p = preview(reg_dir, [{"op": "set", "id": "ahb_qspi", "fields": {"group": "project"}}])
     assert not p.valid and any("'type' is a required property" in x for x in p.problems), p.problems
-    p = preview(reg_dir, [{"op": "set", "id": "nanosoc-ethernet-chiplet", "fields": {"wraps": ["tidelink"]}}])
+    p = preview(reg_dir, [{"op": "set", "id": "nanosoc-ethernet-chiplet", "fields": {"wraps": ["asic-toolkit"]}}])
     assert not p.valid and any("[rule-15]" in x for x in p.problems), p.problems
     p = preview(reg_dir, [{"op": "add", "repo": {"host": "github", "path": "SoC-Labs/x"}, "group": "project",
                            "role": "example"}])
@@ -226,6 +229,57 @@ def test_preview_cli_exit_codes_and_out_never_in_the_registry(reg_dir, tmp_path,
     assert usage.returncode == 3
 
 
+def test_preview_moves_an_entry_into_and_out_of_legacy_with_its_class(reg_dir):
+    """Review F1: a group change takes the class the new group needs (into legacy, out of it, across the ladder)."""
+    p = preview(reg_dir, [{"op": "set", "id": "soctools_flow", "fields": {"group": "legacy"}},
+                          {"op": "set", "id": "secworks-sha256-project", "fields": {"group": "component"}},
+                          {"op": "set", "id": "tidechart", "fields": {"group": "toolkit"}},
+                          {"op": "set", "id": "asic-toolkit", "fields": {"group": "flow"}}])
+    assert p.valid, p.problems
+    assert p.changes[0] == 'soctools_flow: set group="legacy" (class toolkit -> legacy)'
+    assert p.changes[3] == 'asic-toolkit: set group="flow"'          # toolkit is a flow's class: kept
+    _apply(reg_dir, p.patch)
+    reg = load_registry(reg_dir)
+    chars = reg.characterisations()
+    assert [(chars[c].group, chars[c].cls) for c in ("soctools_flow", "secworks-sha256-project", "tidechart")] == [
+        ("legacy", "legacy"), ("component", "ip_tech"), ("toolkit", "toolkit")]
+
+
+def test_project_wraps_its_own_component(reg_dir):
+    """Review F4: a project card leads with its SoC, then the project-level components it integrates."""
+    p = preview(reg_dir, [{"op": "set", "id": "nanosoc-ethernet-chiplet",
+                           "fields": {"wraps": ["nanosoc-multicore-system", "tidelink", "tidechart"]}}])
+    assert p.valid, p.problems
+    _apply(reg_dir, p.patch)
+    assert load_registry(reg_dir).characterisations()["tidelink"].wrapped_by == ("nanosoc-ethernet-chiplet",)
+
+
+def _strip_groups(root: Path) -> None:
+    lines = _cat_text(root).split("\n")
+    from nanosoc_rm.catalogue.preview import _render, entry_line
+    for cid in [c["id"] for c in load_registry(root).components()]:
+        n, lead, doc, tail = entry_line(lines, cid)
+        for f in ("group", "type", "role", "wraps", "guessed", "question"):
+            doc.pop(f, None)
+        lines[n] = lead + _render(doc) + tail
+    (root / "catalogue.yaml").write_text("\n".join(lines))
+
+
+def test_gap_check_is_unverified_on_an_uncharacterised_catalogue(reg_dir, rm_config):
+    """Review F2: with no stated groups every soc_ref reads as a project, so "no gaps" would measure nothing."""
+    chars = load_registry(reg_dir).characterisations()
+    assert model.gap_unverified(chars) == []
+    _strip_groups(reg_dir)
+    chars = load_registry(reg_dir).characterisations()
+    assert model.socs_without_forkable_project(chars) == []
+    assert model.gap_unverified(chars) == ["nanosoc-ethernet-chiplet", "nanosoc-multicore-system"]
+    exe = shutil.which("nanosoc-rm")
+    p = subprocess.run([exe, "catalogue", "show", str(reg_dir), "--gaps"], capture_output=True, text=True,
+                       env=dict(os.environ, NANOSOC_RM_CONFIG=str(rm_config)), timeout=300)
+    assert p.returncode == 2, (p.stdout, p.stderr)
+    assert "UNVERIFIED" in p.stderr.strip().splitlines()[-1]
+
+
 # ---------------------------------------------------------------------------------------------------- org scan
 @pytest.fixture
 def scan_env(tmp_path):
@@ -243,11 +297,12 @@ def scan_env(tmp_path):
         {"full_name": "SoC-Labs/Known", "private": False, "default_branch": "main"},
         {"full_name": "SoC-Labs/.github", "private": False, "default_branch": "main"},
         {"full_name": "SoC-Labs/nanoSoC-Shiny", "private": False, "default_branch": "main",
-         "created_at": "2026-10-13T08:00:00Z", "description": "  a new\n thing "}]))
+         "created_at": "2026-10-13T08:00:00Z", "description": "  a new\n thing ", "fork": True}]))
     gl.route("GET", r"/api/v4/groups/soclabs/projects", lambda m, q, hd, b: (200, {}, [
         {"path_with_namespace": "soclabs/known", "visibility": "public", "default_branch": "main"},
         {"path_with_namespace": "soclabs/lunch-menu", "visibility": "public", "default_branch": None,
-         "created_at": "2026-10-01T00:00:00.000Z", "description": None}]))
+         "created_at": "2026-10-01T00:00:00.000Z", "description": None,
+         "forked_from_project": {"id": 7, "path_with_namespace": "upstream/lunch"}}]))
     yield at, gh, gl, cfg, registry
     gh.close()
     gl.close()
@@ -266,6 +321,8 @@ def test_org_scan_is_anonymous_and_stores_only_uncatalogued_repos(scan_env, monk
     assert (shiny["created_on"], shiny["description"], shiny["mentions_nanosoc"], shiny["listing"]) == (
         "2026-10-13", "a new thing", True, "anonymous")
     assert facts["repo_seen:gitlab:soclabs/lunch-menu"]["mentions_nanosoc"] is False
+    # Review F5: the listing's fork flag is kept, for the queue's "fork of an upstream project" line.
+    assert (shiny["fork"], facts["repo_seen:gitlab:soclabs/lunch-menu"]["fork"]) == (True, True)
     # Tokens are configured for both hosts, and none was sent.
     assert gh.log and gl.log and all("Authorization" not in e["headers"] for e in gh.log + gl.log)
     assert gh.writes() == [] and gl.writes() == []

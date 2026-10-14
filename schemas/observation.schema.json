@@ -1869,7 +1869,7 @@
     "repo_seen": {
       "description": "CR-WF-catalogue (interfaces.md section 23.2): a repo the anonymous org scan listed in the GitHub org or the GitLab group that is in no catalogue entry (not a component's repo, external or ignored): the new-repo queue. One snapshot per host per scan; an empty snapshot means nothing new. `created_on` is the host's creation date; `mentions_nanosoc` is a name or description hint, not a judgement; `first_seen` is when a scan first stored it.",
       "type": "object",
-      "required": ["repo", "visibility", "default_branch", "created_on", "description", "mentions_nanosoc", "first_seen", "listing"],
+      "required": ["repo", "visibility", "default_branch", "created_on", "description", "mentions_nanosoc", "fork", "first_seen", "listing"],
       "additionalProperties": false,
       "properties": {
         "repo": { "$ref": "defs.schema.json#/$defs/repo" },
@@ -1878,6 +1878,7 @@
         "created_on": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/date" }, { "type": "null" }] },
         "description": { "type": ["string", "null"], "maxLength": 300 },
         "mentions_nanosoc": { "type": "boolean" },
+        "fork": { "type": "boolean", "description": "The host listing's fork flag (GitHub `fork`; GitLab: `forked_from_project` present). A listing fact, not a judgement." },
         "first_seen": { "$ref": "defs.schema.json#/$defs/utc" },
         "listing": { "const": "anonymous", "description": "The scan sends no credential (section 23.2)." }
       }

@@ -11,7 +11,8 @@ ignored); one the catalogue does not hold becomes a `repo_seen` observation:
     subject   repo_seen:<host>:<path>
     snapshot  scope repo_seen:<host>: one complete snapshot per host per scan (empty when nothing is new, so
               a repo that has since been catalogued or ignored stops being current)
-    fact      {repo, visibility, default_branch, created_on, description, mentions_nanosoc, first_seen, listing}
+    fact      {repo, visibility, default_branch, created_on, description, mentions_nanosoc, fork, first_seen,
+               listing}   (`fork`: the listing's own flag, GitHub `fork`, GitLab `forked_from_project`)
 
 `first_seen` carries over from the current stored fact of the same subject, so the new-repo queue can say how
 long a repo has waited. A host whose listing fails stores nothing (its previous snapshot stays current and shows
@@ -62,6 +63,7 @@ def _fact(host: str, path: str, item: dict, first_seen: str) -> dict:
     return {"repo": {"host": host, "path": path}, "visibility": _visibility(host, item),
             "default_branch": item.get("default_branch") or None, "created_on": m.group(1) if m else None,
             "description": desc, "mentions_nanosoc": bool(_NANOSOC.search(name) or _NANOSOC.search(desc or "")),
+            "fork": bool(item.get("fork")) if host == "github" else bool(item.get("forked_from_project")),
             "first_seen": first_seen, "listing": "anonymous"}
 
 
