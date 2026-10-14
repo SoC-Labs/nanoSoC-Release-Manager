@@ -1,0 +1,12 @@
+{# Component > Versions: per tag its commit link and the chips it went into (section 22). `sv`:
+   store.views.component_versions(config, comp). #}
+<h2>Tags, commits and chips</h2>
+{% if sv.rows %}
+<div class="scroll"><table data-tag-chips>
+  <thead><tr><th scope="col">Tag</th><th scope="col">Kind</th><th scope="col">Created</th><th scope="col">Commit</th><th scope="col">In silicon</th></tr></thead>
+  <tbody>{% for r in sv.rows %}<tr data-tag="{{ r.tag }}"><td>{{ fact(sv.doc, r.tag) }}</td><td>{{ r.kind }}</td><td>{{ r.created_at or '?' }}</td>
+    <td>{% if r.link %}<a href="{{ r.link }}" rel="noopener" data-commit-link>{{ short(r.commit, 12) }}</a>{% elif r.commit %}<code>{{ short(r.commit, 12) }}</code>{% else %}<span class="note">no commit recorded</span>{% endif %}</td>
+    <td>{% for ch in r.chips %}<span class="pill state-info">{{ ch }}</span> {% else %}<span class="note">none recorded</span>{% endfor %}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="note">"In silicon" reads the stored trees of the registered silicon configurations and the store's tapeout manifests{% if not sv.store %} (no store index is stored yet){% endif %}.</p>
+{% else %}<p class="note">No release, candidate or silicon tag in the stored tag check.</p>{% endif %}

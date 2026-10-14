@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/store.schema.json",
+  "title": "Artefact store index (Wave E; B10, G8, D12)",
+  "description": "Shared $defs only (no top-level document): the `fact` of the observation kind store_index (event, stored, subject store_index:<store>): what the artefact store holds, read by the store_index job with GET, HEAD and AQL only. interfaces.md section 22. Added without a schema bump (README section 2 rule 4): a new optional kind, a new source kind and new $defs. No hostname, URL or credential appears in a fact: repositories are {host key, path}, store files are repository-relative paths.",
+  "$defs": {
+    "md5_or_null": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/md5" }, { "type": "null" }] },
+    "time_or_null": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
+    "commit_or_null": {
+      "description": "A git commit as the store recorded it: full or short (7 to 40 hex); null when none is recorded.",
+      "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{7,40}$" }, { "type": "null" }]
+    },
+    "git_repo": {
+      "description": "A git repository by host key and owner/name path; null when the store records none.",
+      "oneOf": [
+        { "type": "object", "required": ["host", "path"], "additionalProperties": false,
+          "properties": { "host": { "type": "string", "minLength": 1 }, "path": { "type": "string" } } },
+        { "type": "null" }
+      ]
+    },
+    "section": {
+      "type": "object",
+      "required": ["verdict", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "enum": ["PASS", "NOT-RUN", "INFRA"] },
+        "reason": { "type": ["string", "null"] }
+      },
+      "if": { "properties": { "verdict": { "enum": ["NOT-RUN", "INFRA"] } } },
+      "then": { "properties": { "reason": { "type": "string", "minLength": 1 } } }
+    },
+    "probe": {
+      "description": "One server feature the index relies on, checked before it is used. NOT-RUN: the server lacks it (or there was nothing to read); the sections that need it are NOT-RUN with the reason.",
+      "type": "object",
+      "required": ["feature", "verdict", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "feature": { "enum": ["system.ping", "system.version", "aql.items", "aql.properties", "build.list", "build.info", "storage.release_repo", "download.manifest"] },
+        "verdict": { "enum": ["PASS", "FAIL", "NOT-RUN"] },
+        "detail": { "type": "string" }
+      }
+    },
+    "artefact": {
+      "type": "object",
+      "required": ["repo", "path", "name", "size", "created", "role", "raw_md5", "commit", "git_repo"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "type": "string", "minLength": 1 },
+        "path": { "type": "string" },
+        "name": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "created": { "$ref": "#/$defs/time_or_null" },
+        "created_by": { "type": ["string", "null"] },
+        "md5": { "$ref": "#/$defs/md5_or_null", "description": "The STORED object's md5 (a .zst checksum for a compressed stream); never a join key for GDS." },
+        "sha1": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }] },
+        "role": { "enum": ["stream", "source", "manifest", "signature", "doc"] },
+        "project": { "type": ["string", "null"] },
+        "block": { "type": ["string", "null"] },
+        "run_tag": { "type": ["string", "null"] },
+        "run_tag_from": { "type": ["string", "null"] },
+        "raw_md5": { "$ref": "#/$defs/md5_or_null", "description": "md5 of the uncompressed payload, from a raw-md5 property; the join key." },
+        "raw_md5_key": { "type": ["string", "null"] },
+        "subject_md5": { "$ref": "#/$defs/md5_or_null", "description": "Raw md5 of the stream this file describes (evidence, sources)." },
+        "build": {
+          "oneOf": [
+            { "type": "object", "required": ["name", "number"], "additionalProperties": false,
+              "properties": { "name": { "type": "string" }, "number": { "type": ["string", "null"] } } },
+            { "type": "null" }
+          ]
+        },
+        "commit": { "$ref": "#/$defs/commit_or_null" },
+        "commit_key": { "type": ["string", "null"] },
+        "git_repo": { "$ref": "#/$defs/git_repo" },
+        "dirty": { "type": ["string", "null"] },
+        "tag": { "type": ["string", "null"] },
+        "ships": { "type": ["string", "null"] },
+        "confidentiality": { "type": ["string", "null"] },
+        "kind": { "enum": ["errata", "datasheet", "release-notes", "manual", "document", null], "description": "Collateral kind, by name." },
+        "cached": { "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }], "description": "sha1 of a verified copy the GUI can serve, or null." },
+        "cache_reason": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "commit": { "type": "null" } } },
+          "then": { "properties": { "commit_key": { "type": "null" } } } }
+      ]
+    },
+    "foundry_return": {
+      "type": "object",
+      "required": ["repo", "path", "files", "bytes", "created", "subject_md5"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "type": "string" },
+        "path": { "type": "string" },
+        "files": { "type": "integer", "minimum": 1 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "created": { "$ref": "#/$defs/time_or_null" },
+        "subject_md5": { "$ref": "#/$defs/md5_or_null" }
+      }
+    },
+    "build": {
+      "description": "One build-info record. `vcs` is the publisher's tree at publish time (it may be dirty and is not the release commit).",
+      "type": "object",
+      "required": ["name", "number", "started", "vcs", "dirty", "raw_md5", "filed"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "number": { "type": "string", "minLength": 1 },
+        "started": { "$ref": "#/$defs/time_or_null" },
+        "agent": { "type": ["string", "null"] },
+        "vcs": {
+          "type": "array",
+          "items": {
+            "type": "object", "required": ["host", "path", "revision"], "additionalProperties": false,
+            "properties": { "host": { "type": "string" }, "path": { "type": "string" },
+                            "revision": { "$ref": "#/$defs/commit_or_null" }, "branch": { "type": ["string", "null"] } }
+          }
+        },
+        "dirty": { "type": ["boolean", "null"] },
+        "raw_md5": { "$ref": "#/$defs/md5_or_null" },
+        "stream_path": { "type": ["string", "null"] },
+        "artefact_md5": { "type": "array", "items": { "$ref": "defs.schema.json#/$defs/md5" } },
+        "filed": { "type": "integer", "minimum": 1, "description": "How many records share this build number (each was read)." }
+      }
+    },
+    "manifest": {
+      "description": "A release or tapeout manifest read from the release repository. Fields the manifest lacks are null and named in `problems`.",
+      "type": "object",
+      "required": ["path", "name", "kind", "problems"],
+      "additionalProperties": true,
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "commit": { "$ref": "#/$defs/commit_or_null" },
+        "repo": { "$ref": "#/$defs/git_repo" },
+        "gds_raw_md5": { "$ref": "#/$defs/md5_or_null" },
+        "signature": { "enum": ["present", "absent"] },
+        "problems": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "store_index": {
+      "type": "object",
+      "required": ["store", "release_repo", "started_at", "finished_at", "server", "verdict", "reason", "probes", "sections", "artefacts", "foundry", "builds", "manifests", "counts"],
+      "additionalProperties": false,
+      "properties": {
+        "store": { "const": "artifactory" },
+        "release_repo": { "type": "string", "minLength": 1 },
+        "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "finished_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "server": {
+          "type": "object", "required": ["version", "license"], "additionalProperties": false,
+          "properties": { "version": { "type": ["string", "null"] }, "license": { "type": ["string", "null"] } }
+        },
+        "verdict": { "enum": ["PASS", "UNVERIFIED", "INFRA"] },
+        "reason": { "type": ["string", "null"] },
+        "probes": { "type": "array", "items": { "$ref": "#/$defs/probe" } },
+        "sections": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "items": { "$ref": "#/$defs/section" }, "builds": { "$ref": "#/$defs/section" },
+                          "manifests": { "$ref": "#/$defs/section" } }
+        },
+        "artefacts": { "type": "array", "items": { "$ref": "#/$defs/artefact" } },
+        "foundry": { "type": "array", "items": { "$ref": "#/$defs/foundry_return" } },
+        "builds": { "type": "array", "items": { "$ref": "#/$defs/build" } },
+        "manifests": { "type": "array", "items": { "$ref": "#/$defs/manifest" } },
+        "counts": {
+          "type": "object",
+          "required": ["repos", "files", "bytes", "with_properties", "with_commit", "with_repo"],
+          "additionalProperties": false,
+          "properties": {
+            "repos": { "type": "array", "items": { "type": "object", "required": ["repo", "files", "bytes", "roles"],
+                                                    "additionalProperties": false,
+                                                    "properties": { "repo": { "type": "string" }, "files": { "type": "integer", "minimum": 0 },
+                                                                    "bytes": { "type": "integer", "minimum": 0 }, "roles": { "type": "object" } } } },
+            "files": { "type": "integer", "minimum": 0 },
+            "bytes": { "type": "integer", "minimum": 0 },
+            "with_properties": { "type": "integer", "minimum": 0 },
+            "with_commit": { "type": "integer", "minimum": 0 },
+            "with_repo": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "token": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "expires": { "oneOf": [{ "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }, { "type": "null" }] } }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "verdict": { "enum": ["UNVERIFIED", "INFRA"] } } },
+          "then": { "properties": { "reason": { "type": "string", "minLength": 1 } } } },
+        { "if": { "properties": { "verdict": { "const": "PASS" } } },
+          "then": { "properties": { "sections": { "required": ["items"], "properties": { "items": { "properties": { "verdict": { "const": "PASS" } } } } } } } }
+      ]
+    }
+  }
+}

@@ -1,0 +1,409 @@
+# expect-error: const at /sources/0/kind
+# Section 21: a store_index fact comes from the store's API (artifactory_api), never from another source.
+{
+ "fact": {
+  "artefacts": [
+   {
+    "block": "blk",
+    "build": {
+     "name": "chipa-blk",
+     "number": "run1"
+    },
+    "commit": null,
+    "commit_key": null,
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": null,
+    "md5": "cccccccccccccccccccccccccccccccc",
+    "name": "a.gds.zst",
+    "path": "chipa/blk/run1/stream",
+    "project": "chipa",
+    "raw_md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "raw_md5_key": "pnr.raw_md5",
+    "repo": "asic-candidate",
+    "role": "stream",
+    "run_tag": "run1",
+    "run_tag_from": "run.tag",
+    "sha1": "1111111111111111111111111111111111111111",
+    "ships": null,
+    "size": 100,
+    "subject_md5": null,
+    "tag": null
+   },
+   {
+    "block": "blk",
+    "build": null,
+    "commit": "9999999999999999999999999999999999999999",
+    "commit_key": "release.commit",
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": null,
+    "md5": "dddddddddddddddddddddddddddddddd",
+    "name": "b.gds.zst",
+    "path": "chipb/blk/run9/stream",
+    "project": "chipb",
+    "raw_md5": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "raw_md5_key": "submitted.raw_md5",
+    "repo": "asic-candidate",
+    "role": "stream",
+    "run_tag": "run9",
+    "run_tag_from": "path",
+    "sha1": "1111111111111111111111111111111111111111",
+    "ships": "yes",
+    "size": 90,
+    "subject_md5": null,
+    "tag": "chipb-rc"
+   },
+   {
+    "block": "blk",
+    "build": null,
+    "commit": null,
+    "commit_key": null,
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": "errata",
+    "md5": "00000000000000000000000000000000",
+    "name": "ERRATA.md",
+    "path": "chipa/blk/run1/docs",
+    "project": "chipa",
+    "raw_md5": null,
+    "raw_md5_key": null,
+    "repo": "asic-record",
+    "role": "doc",
+    "run_tag": "run1",
+    "run_tag_from": "path",
+    "sha1": "846abd24683b15520968cda76815d7c1977e20a3",
+    "ships": null,
+    "size": 19,
+    "subject_md5": null,
+    "tag": null
+   },
+   {
+    "block": "blk",
+    "build": null,
+    "commit": null,
+    "commit_key": null,
+    "confidentiality": "VENDOR_CONFIDENTIAL",
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": "manual",
+    "md5": "00000000000000000000000000000000",
+    "name": "secret_manual.pdf",
+    "path": "chipa/blk/run1/docs",
+    "project": "chipa",
+    "raw_md5": null,
+    "raw_md5_key": null,
+    "repo": "asic-record",
+    "role": "doc",
+    "run_tag": "run1",
+    "run_tag_from": "path",
+    "sha1": "1111111111111111111111111111111111111111",
+    "ships": null,
+    "size": 50,
+    "subject_md5": null,
+    "tag": null
+   },
+   {
+    "block": "blk",
+    "build": null,
+    "commit": "abcdef1",
+    "commit_key": "chipa.commit",
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": null,
+    "md5": "00000000000000000000000000000000",
+    "name": "build_soc.tar.gz",
+    "path": "chipa/blk/run1/source",
+    "project": "chipa",
+    "raw_md5": null,
+    "raw_md5_key": null,
+    "repo": "asic-record",
+    "role": "source",
+    "run_tag": "run1",
+    "run_tag_from": "path",
+    "sha1": "1111111111111111111111111111111111111111",
+    "ships": null,
+    "size": 10,
+    "subject_md5": null,
+    "tag": null
+   },
+   {
+    "block": "1.0.0",
+    "build": null,
+    "commit": null,
+    "commit_key": null,
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": null,
+    "md5": "00000000000000000000000000000000",
+    "name": "tapeout-demo.json",
+    "path": "chipa/1.0.0",
+    "project": "chipa",
+    "raw_md5": null,
+    "raw_md5_key": null,
+    "repo": "asic-release",
+    "role": "manifest",
+    "run_tag": null,
+    "run_tag_from": null,
+    "sha1": "0ce3adfbb97b997eebc541417da24b9b6dacd155",
+    "ships": null,
+    "size": 715,
+    "subject_md5": null,
+    "tag": null
+   },
+   {
+    "block": "1.0.0",
+    "build": null,
+    "commit": null,
+    "commit_key": null,
+    "confidentiality": null,
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "dirty": null,
+    "git_repo": null,
+    "kind": null,
+    "md5": "00000000000000000000000000000000",
+    "name": "tapeout-demo.json.sig",
+    "path": "chipa/1.0.0",
+    "project": "chipa",
+    "raw_md5": null,
+    "raw_md5_key": null,
+    "repo": "asic-release",
+    "role": "signature",
+    "run_tag": null,
+    "run_tag_from": null,
+    "sha1": "1111111111111111111111111111111111111111",
+    "ships": null,
+    "size": 10,
+    "subject_md5": null,
+    "tag": null
+   }
+  ],
+  "builds": [
+   {
+    "agent": "pub",
+    "artefact_md5": [
+     "cccccccccccccccccccccccccccccccc"
+    ],
+    "dirty": true,
+    "filed": 2,
+    "name": "chipa-blk",
+    "number": "run1",
+    "raw_md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "started": "2026-08-30T10:00:00Z",
+    "stream_path": null,
+    "vcs": [
+     {
+      "branch": "main",
+      "host": "github",
+      "path": "Demo-Org/Demo-Chip",
+      "revision": "fedcba0987654321fedcba0987654321fedcba09"
+     }
+    ]
+   },
+   {
+    "agent": "pub",
+    "artefact_md5": [],
+    "dirty": false,
+    "filed": 2,
+    "name": "chipa-blk",
+    "number": "run1",
+    "raw_md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "started": "2026-08-30T11:00:00Z",
+    "stream_path": null,
+    "vcs": [
+     {
+      "branch": "main",
+      "host": "github",
+      "path": "Demo-Org/Demo-Chip",
+      "revision": "1234567890abcdef1234567890abcdef12345678"
+     }
+    ]
+   }
+  ],
+  "counts": {
+   "bytes": 1034,
+   "files": 11,
+   "repos": [
+    {
+     "bytes": 190,
+     "files": 2,
+     "repo": "asic-candidate",
+     "roles": {
+      "stream": 2
+     }
+    },
+    {
+     "bytes": 119,
+     "files": 7,
+     "repo": "asic-record",
+     "roles": {
+      "doc": 2,
+      "evidence": 1,
+      "foundry-return": 2,
+      "other": 1,
+      "source": 1
+     }
+    },
+    {
+     "bytes": 725,
+     "files": 2,
+     "repo": "asic-release",
+     "roles": {
+      "manifest": 1,
+      "signature": 1
+     }
+    }
+   ],
+   "with_commit": 2,
+   "with_properties": 5,
+   "with_repo": 0
+  },
+  "finished_at": "2026-10-14T09:00:01Z",
+  "foundry": [
+   {
+    "bytes": 20,
+    "created": "2026-09-01T10:00:00Z",
+    "files": 2,
+    "path": "chipa/blk/_unbound/foundry/Archive_X",
+    "repo": "asic-record",
+    "subject_md5": null
+   }
+  ],
+  "manifests": [
+   {
+    "artefacts": [],
+    "commit": "1234567890abcdef1234567890abcdef12345678",
+    "component": null,
+    "configuration": "demo-si",
+    "created": "2026-09-01T10:00:00Z",
+    "created_by": "publisher",
+    "date": "2026-09-01",
+    "documents": [],
+    "foundry": "foundry-x",
+    "foundry_verdict": "accepted",
+    "gds_raw_md5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gds_store_path": "asic-candidate/chipa/blk/run1/stream/a.gds.zst",
+    "kind": "tapeout",
+    "md5": "00000000000000000000000000000000",
+    "name": "tapeout-demo.json",
+    "path": "chipa/1.0.0/tapeout-demo.json",
+    "pin_components": {},
+    "pins": {
+     "ip/demo-ip": "abababababababababababababababababababab"
+    },
+    "problems": [],
+    "project": "chipa",
+    "repo": {
+     "host": "github",
+     "path": "Demo-Org/Demo-Chip"
+    },
+    "schema": 1,
+    "shuttle": "mpw-1",
+    "signature": "present",
+    "status": "accepted",
+    "tag": "v1.0.0",
+    "tags": [
+     "v1.0.0"
+    ],
+    "tapeout_id": "demo-tapeout-1",
+    "version": "1.0.0"
+   }
+  ],
+  "probes": [
+   {
+    "detail": "the API answers",
+    "feature": "system.ping",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "7.0.0 Artifactory OSS",
+    "feature": "system.version",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "11 file(s)",
+    "feature": "aql.items",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "5 file(s) carry properties",
+    "feature": "aql.properties",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "1 build name(s)",
+    "feature": "build.list",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "2 record(s) read",
+    "feature": "build.info",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "asic-release exists",
+    "feature": "storage.release_repo",
+    "verdict": "PASS"
+   },
+   {
+    "detail": "1 manifest(s) read",
+    "feature": "download.manifest",
+    "verdict": "PASS"
+   }
+  ],
+  "reason": null,
+  "release_repo": "asic-release",
+  "sections": {
+   "builds": {
+    "reason": null,
+    "verdict": "PASS"
+   },
+   "items": {
+    "reason": null,
+    "verdict": "PASS"
+   },
+   "manifests": {
+    "reason": null,
+    "verdict": "PASS"
+   }
+  },
+  "server": {
+   "license": "Artifactory OSS",
+   "version": "7.0.0"
+  },
+  "started_at": "2026-10-14T09:00:00Z",
+  "store": "artifactory",
+  "token": {
+   "expires": "2027-10-14"
+  },
+  "verdict": "PASS"
+ },
+ "kind": "store_index",
+ "observed_at": "2026-10-14T09:00:00Z",
+ "schema": 1,
+ "sources": [
+  {
+   "command": "git ls-remote origin",
+   "kind": "git"
+  }
+ ],
+ "subject": "store_index:artifactory"
+}

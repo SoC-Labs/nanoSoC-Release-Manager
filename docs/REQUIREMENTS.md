@@ -216,6 +216,14 @@ Recognise the same repo under different URLs (redirects, moved groups) and flag 
 - **Done when:** All current URL variants map to one component each.
 - **Source:** §2.3
 
+### B10 · Should · v1.2 *(added 2026-10-14 by CR-WE-B10)*
+
+Keep a tapeout index read from the artefact store: which configurations and commits went to silicon (chip, revision, foundry run, date, the GDS raw md5 matched against the store and the release lock), every catalogue component a tapeout pins, and every stream the store marks shipped that no registered silicon configuration covers.
+
+- **Why:** The store holds the shipped bytes; without an index nothing says which commit they came from, and an unregistered tapeout goes unnoticed.
+- **Done when:** On the live store, the index lists every stored stream with its raw md5 and the git identity the store records (or says none is recorded), and a shipped stream with no registered configuration raises a finding.
+- **Source:** Artifactory design 2026-10-14
+
 ## C · Versions and change classes
 
 ### C1 · Must · Phase 3

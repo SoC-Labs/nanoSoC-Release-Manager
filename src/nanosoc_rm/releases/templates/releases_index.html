@@ -33,7 +33,7 @@
 <h2>Drafts</h2>
 {% if rows %}
 <div class="scroll"><table>
-  <thead><tr><th>Configuration</th><th>Version</th><th>Verdict</th><th>Ready</th><th>Lock</th><th>Errata</th><th>Generated</th></tr></thead>
+  <thead><tr><th>Configuration</th><th>Version</th><th>Verdict</th><th>Ready</th><th>Lock</th><th>Errata</th><th>Generated</th>{% if store %}<th>Published</th><th>Store</th>{% endif %}</tr></thead>
   <tbody>
   {% for r in rows %}{% set f = r.doc.fact if r.doc else none %}
     <tr data-draft="{{ r.configuration }}/{{ r.version }}"{% if f %} data-verdict="{{ f.verdict }}"{% endif %}>
@@ -48,8 +48,16 @@
       {% else %}
       <td colspan="5"><span class="pill state-red">UNREADABLE</span> {{ r.problems|join('; ') }}</td>
       {% endif %}
+      {% if store %}{% set s = store.get((r.configuration, r.version)) %}{% set sd = store.get(none) %}
+      <td data-published="{{ 'yes' if s else 'no' }}">{% if s %}{{ fact(sd.doc, 'manifest ' ~ (s.published or '')) }}{% elif sd and sd.doc %}{{ fact(sd.doc, 'not in the store') }}{% else %}<span class="note">no store index</span>{% endif %}</td>
+      <td>{% if s %}<span class="pill {{ 'state-green' if s.store[0] == 'MATCH' else ('state-grey' if s.store[0] == '-' else 'state-red') }}" title="{{ s.store[2] }}">{{ s.store[0] }}</span>{% else %}-{% endif %}</td>
+      {% endif %}
     </tr>
   {% endfor %}
   </tbody>
 </table></div>
 {% else %}<p class="empty">No release draft on this host yet.</p>{% endif %}
+{% if store is not none %}
+<h2>Documents and collateral in the store</h2>
+{% include "_store_collateral.html" %}
+{% endif %}

@@ -13,6 +13,9 @@ wall clock. Jobs, in the order they run within one tick:
     fetch        every schedule.fetch_minutes (2): fetch, verify and store pending T0 runs (A4, D5)
     credentials  once per UTC day, at or after schedule.nightly_utc: `credentials check` (H3 expiry warning)
     runner       every schedule.poll_minutes: `runner` (D10; the dashboard's runner status)
+    store_index  once per UTC day, at or after schedule.nightly_utc, when [stores.artifactory] is configured: queue
+                 one `store-index` local job (section 22; read-only: GET, HEAD and AQL), unless one is queued or
+                 running already. The worker runs it as a child process, never this process.
 
 With no `[ci] project` configured (a local deployment, CR-17), the CI jobs (nightly_t0, fetch, runner) are left
 out: there is nothing to trigger or fetch, and Run executes locally instead (nanosoc_rm.jobs).
@@ -135,6 +138,15 @@ def _runner(config: Config) -> None:
     runner_settings(config=config)
 
 
+def _store_index(config: Config) -> None:
+    if not (config.get("stores") or {}).get("artifactory"):
+        return                                    # no store configured: nothing to index
+    from nanosoc_rm import jobs
+    if any(j["kind"] == "store-index" for j in jobs.jobs(config, states=("queued", "running"))):
+        return
+    jobs.submit(config, "store-index", {}, by="schedule")
+
+
 JOBS: tuple[Job, ...] = (
     Job("poll", "poll", _poll),
     Job("inventory", "poll", _inventory),
@@ -142,6 +154,7 @@ JOBS: tuple[Job, ...] = (
     Job("fetch", "fetch", _fetch),
     Job("credentials", "nightly", _credentials),
     Job("runner", "poll", _runner),
+    Job("store_index", "nightly", _store_index),
 )
 CI_JOBS = ("nightly_t0", "fetch", "runner")          # need a CI project; skipped without one (CR-17)
 

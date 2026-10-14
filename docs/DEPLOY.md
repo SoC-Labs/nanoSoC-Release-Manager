@@ -178,3 +178,28 @@ Optional. To class generator moves by regeneration on this host:
    packages, else the render is INFRA "tool not on this host").
 3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
    per render; renders are cached by digest.
+
+## Artefact store index (Wave E, interfaces.md section 22)
+
+Optional. The tool reads Artifactory (GET, HEAD and one AQL search; it never writes there except the publish
+service's manifests) and shows what it holds on `/store/`, the Silicon and History tabs, Versions and Releases.
+
+1. Put the tool's own access token (one token, revocable, about a year) in a 0600 file. It must be a Bearer
+   access token: never the admin login. A Basic login against the store's Access API counts as a failed admin
+   login and locks the admin out.
+2. Add to the private config and restart the service:
+   ```toml
+   [stores.artifactory]
+   url = "http://localhost:8082/artifactory"         # on the store's own host; no user or token in the URL
+   token_file = "~/.config/nanosoc-rm/artifactory.token"
+   token_expires = "YYYY-MM-DD"                       # shown on /store/
+   # repo = "asic-release"                            # the release repository (default)
+   # repos = ["asic-candidate", "asic-record", "asic-release"]   # default: every repository
+   [stores.artifactory.projects]                      # optional: the store project folder of a component
+   <catalogue component> = "<store project>"
+   ```
+3. Check it: `nanosoc-rm store index --store` (about 10 s; prints each feature probe), then open `/store/`.
+   The index also runs once a night (scheduler job `store_index`) and on **Refresh the index**.
+
+Documents up to 16 MiB that carry no confidentiality marking are kept, verified by sha1, in
+`<data_dir>/store-cache/` so the pages can offer them for download; the token never reaches a page.

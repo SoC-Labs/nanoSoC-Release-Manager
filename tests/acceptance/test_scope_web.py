@@ -91,7 +91,8 @@ FOREIGN_REFS = {                                          # advertised, neither 
 RC4_T0_EXPECTED_FAIL = {"t0.pins.fetchable", "t0.urls.no-ssh-public"}  # raw verdicts; waivers may make them WAIVED (GATE2 Q1)
 EXAMPLE_NONCE = "5f0c3b1e9a7d4c2b8e6f1a0d3c5b7e9f"     # the t0_result in observation.example.jsonl
 READ_ONLY_POSTS = ("login/oauth/access_token",          # a POST that writes nothing: OAuth code exchange (§14)
-                   "v1/messages")                       # CR-14 (Q4): the optional Claude rewrite, a read-post
+                   "v1/messages",                       # CR-14 (Q4): the optional Claude rewrite, a read-post
+                   "api/search/aql")                    # CR-WE-index: the store index's AQL search (§22), a read-post
 B1_CLASSES = {"soc_ref", "example", "generator", "arch_tech", "ip_tech", "toolkit", "infra", "legacy"}
 LEAK_STRINGS = (RC4_COMMIT, RC4_COMMIT[:7], RC4, DEFECT, ERRATUM, "keep/eth-rc4")
 RED_STATES = {"LOCAL_URL", "NO_GITLINK", "UNREADABLE", "REWRITTEN", "PR_ONLY", "ORPHAN", "MISSING"}

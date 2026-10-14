@@ -53,7 +53,8 @@ EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
                "changelog_lint", "version_plan", "tag_check", "manifest_proposal",     # CR-VER (Wave B versioning)
                "tool_release_draft", "yank_proposal", "defect_trailers",
                "release_draft", "release_verify", "fork_status",                      # CR-R1
-               "regen_class")                                                         # C3, C7 (section 20)
+               "regen_class",                                                         # C3, C7 (section 20)
+               "store_index")                                                         # B10, G8 (section 22)
 ACTIONS = ("run_t0", "clear_alert")                   # interfaces.md section 14 Logging: the v1 write actions
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
@@ -126,6 +127,8 @@ _SUBJECT = {
     "fork_status": lambda f: "%s:%s:%s" % (f["component"], f["fork"]["host"], f["fork"]["path"]),
     # Wave D regenerator (section 20): one move of one component in one consumer configuration
     "regen_class": lambda f: "%s:%s:%s:%s" % (f["component"], f["from"]["commit"], f["to"]["commit"], f["configuration"]),
+    # Wave E store index (section 22): one per store
+    "store_index": lambda f: f["store"],
     **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
                                   "+worktree" if f["worktree"] and f["commit"] else ""))
        for k in ("quality_density", "quality_finding", "readme_check", "doc_score")},

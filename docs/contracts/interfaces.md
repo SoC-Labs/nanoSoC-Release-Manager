@@ -61,7 +61,7 @@ Keys (sections 17.1 lists them with types):
 | `ci` | `project`, `project_id`, `ref`, `job` (`t0`), `allowed_refs`, `allowed_runner_ids`, `runner_tag`, `service_account`, `runner_expected` (the hardened settings), `fetch_timeout_minutes` | A4, D5, D10 |
 | `credentials.<name>` | `token_file`, `scope` (as issued), `expires` (date), `project` (ci_trigger only), `client_id` (github_oauth only) | H3 (expiry warning 14 days ahead) |
 | `session` | `secret_file` | H2 |
-| `stores.*` | `artifactory` URL and repo, `disk` path | D12, G7 |
+| `stores.*` | `artifactory` URL, release repo, token file, repos, projects, and the publish unit's keys (section 22); `disk` path | D12, G7, B10, G8 |
 | `roles` | `default` (roles of every signed-in member), plus optional `"<login>" = [roles]` that add to it. v1 has one role, `member` (view + Run T0). An empty table refuses everyone. | H2 |
 | `schedule` | `poll_minutes` (15), `nightly_utc`, `fetch_minutes` (2) | H6, D2 |
 | `paths` | `quarantine` (defaults to `<data_dir>/quarantine`) | D11 |
@@ -1256,7 +1256,7 @@ builder who wants a different name changes it here, through a CR after gate 2, a
 [credentials.ci_trigger]   token_file = "..."  scope = ["trigger"]  project = "soclabs/nanosoc-compat-ci"  expires = "YYYY-MM-DD"
 [credentials.github_oauth] client_id = "..."  token_file = "..."  scope = ["read:org"]
 [session]      secret_file = "..."
-[stores.disk]  path = "..."          # [stores.artifactory] url, repo (Phase 2)
+[stores.disk]  path = "..."          # [stores.artifactory] url, release_repo, token_file, token_expires, repos, projects (section 22)
 [paths]        quarantine = "..."    # optional; default <data_dir>/quarantine
 [roles]        default = ["member"]  # plus "<login>" = [...]
 [schedule]     poll_minutes = 15  nightly_utc = "02:00"  fetch_minutes = 2
@@ -1308,6 +1308,9 @@ contract examples do.
 | `path`, `card_state`, `set_card`, `undo_card`, `decisions`, `decide`, `flags`, `set_flag`, `clear_basket` (CR-W2) | `nanosoc_rm.web.uistate` |
 | `trailer_text`, `build_allowed`, `build_phases`, `LATER_AUTOMATION`, `GOVERNED_AUTOMATION`, `AUTOMATION_CODE`, `scheduled_jobs`, `enabled_automation`, `automation_reached`, `automation_in_use`, `outbound_writes` (CR-R3, CR-R4, CR-VER-a, CR-18-matrix-r1, CR-15c) | `nanosoc_rm.phasegates` |
 | `automation_phase(name, declared=None)`, `LATER_SUBCOMMANDS`, `scheduled_jobs(enabled_only=True)` (CR-R8, CR-15c) | `nanosoc_rm.phasegates` |
+| `settings`, `StoreClient`, `check_request`, `StoreError`, `StoreRefused`, `AQL_PATH` (section 22) | `nanosoc_rm.store.client` |
+| `build_index`, `index`, `classify`, `parse_manifest`, `cache_collateral` (section 22) | `nanosoc_rm.store.index` |
+| `latest`, `shown`, `taped_out`, `timeline`, `component_versions`, `release_rows`, `collateral`, `findings`, `search`, `commit_link` (section 22) | `nanosoc_rm.store.views` |
 
 Every function that returns documents returns dicts, or pydantic models whose
 `model_dump(mode="json", by_alias=True)` is the document. The tests read both through one `as_doc()` helper.
@@ -1339,6 +1342,7 @@ init` (CR-VER, C1-C12, F6, G1, G5, G6): section 14b.
 `nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (CR-R1; G2, G3, G4, G7, F4, I1, I2, built under
 CR-15): section 14c.
 `nanosoc-rm regen run|class|pending` (C3 3/3, C7; built per CR-15): section 20.
+`nanosoc-rm store index|show|search|findings` (B10, G8, D12; CR-WE-index): section 22.
 
 ### 17.4 Test infrastructure
 
@@ -1356,7 +1360,7 @@ A static census of the package (AT-A2) must find every entry, and every call it 
 | effect | Meaning | Allowed |
 |---|---|---|
 | `write` | an outbound write | exactly one: `POST projects/:id/trigger/pipeline`, guard "target is `ci.project` only" |
-| `read-post` | a POST that writes nothing | the OAuth code exchange `login/oauth/access_token`; the Messages API `v1/messages` (CR-14, Q4 rewrite, only with a configured key) |
+| `read-post` | a POST that writes nothing | the OAuth code exchange `login/oauth/access_token`; the Messages API `v1/messages` (CR-14, Q4 rewrite, only with a configured key); the store's AQL search `api/search/aql` (section 22, CR-WE-index) |
 | `local` | a call the census mistakes for HTTP (a sqlite `delete`) | only in a file that imports no HTTP library |
 | `git-runner` | the one dynamic git runner (`nanosoc_rm.gitrun`) | at most one; guard: refuses `push`, `send-pack`, `receive-pack` at run time |
 
@@ -1865,3 +1869,73 @@ no baseline), INFRA (not run here), UNVERIFIED (override not reached). Exit 0, 1
 `nice` (int, default 15). No page in this wave: the measurements reach the GUI through the version plans and bump
 proposals that cite them. Phase 3 surfaces: the `regen` CLI group (`phasegates.LATER_SURFACES`); a scheduler job
 named with `regen` is Phase 3 automation (`LATER_AUTOMATION`).
+
+## 22. The artefact store index (Wave E; B10, G8, D12; CR-WE-index)
+
+The tool reads what the artefact store (Artifactory, `[stores.artifactory]`) holds and stores it as one fact;
+pages show that fact. Read-only: the store client admits GET and HEAD on any path except the Access and
+security APIs, and one POST, `api/search/aql` (WRITE_CALLS `read-post`). A PUT is admitted only to the publish
+service (`check_request(..., publish_repo=<release repo>)`, inside the release repository); the index never makes
+one. Bearer token only (`[stores.artifactory] token_file`); never Basic auth, never a netrc, never a redirect.
+
+### 22.1 Config (`[stores.artifactory]`)
+
+`url` (the API base, `http(s)://host[:port]/artifactory`, no user or token in it), `release_repo` (or the gate-2
+`repo`; default `asic-release`), `token_file` (a 0600 file holding one access token; the CR-PR1 pattern, NOT a fifth
+`[credentials]` name: AT-A2's credential set is unchanged), `token_expires` (YYYY-MM-DD, shown with the index),
+`repos` (the repositories AQL reads; default all), `projects` (`[stores.artifactory.projects] <component> = "<store
+project>"`, shared with the publish unit: a person's statement of which store project folder a component's uploads
+are in; a configuration's project is its component's; nothing else maps a store path to a configuration). The
+publish unit's keys (`publishers` logins, `shared_logins`, signing) are read by it, not by the index.
+
+### 22.2 One run (`store.index.build_index`, `nanosoc-rm store index [--store] [--no-cache]`, job `store-index`)
+
+Each server feature is probed before it is used; a feature the server lacks is a probe row NOT-RUN with its
+reason, and the sections that need it are NOT-RUN too: `system.ping`, `system.version`, `aql.items` (every file
+with repo, path, name, size, created, created_by, md5, sha1 and properties), `aql.properties`, `build.list` and
+`build.info` (every build record, a number filed twice read once per record with `?started=`; the vcs block is not
+AQL-queryable, so it is fetched per build and joined here), `storage.release_repo`, `download.manifest` (each
+`*.json` in the release repository, at most 1 MiB). Index verdict: INFRA when the store did not answer, refused the
+token or returned a cut answer; UNVERIFIED when the file listing could not run (AQL absent); else PASS.
+
+The fact keeps the rows a page needs: every stream (GDS), source archive, manifest, signature and document as a
+row; one row per foundry-return folder; every other file only in the per-repository counts by role. Join keys:
+the RAW md5 (`rm.raw_md5`, `submitted.raw_md5`, `pnr.raw_md5`, `file.raw_md5`), never the stored object's checksum
+(a `.zst` describes compressed bytes). Git identity is what the store records (`rm.repo`, `rm.commit`,
+`release.commit`, any `*.commit`, short ids kept as given); a row without one says "no git identity recorded".
+Documents up to 16 MiB that are not marked confidential are downloaded into `<data_dir>/store-cache/<sha1>` and kept
+only when their sha1 matches the store's; the GUI serves only those copies (`GET /store/file/{sha1}`).
+
+**Observation kind** `store_index` (event, no snapshot), subject `store_index:artifactory`, fact
+`store.schema.json#/$defs/store_index`, sources of kind `artifactory_api` (`METHOD path`, no host, no token).
+Examples: `store.index.example.json`, `observation.store.example.jsonl` (synthetic); invalid:
+`store.index-pass-without-items.yaml`, `observation.store-index-from-git.yaml`. Exit codes: 0 PASS, 2 UNVERIFIED or
+INFRA, 3 no `[stores.artifactory]` or no readable token file.
+
+### 22.3 What pages and commands derive (`store.views`, stored facts only)
+
+- Configuration > Silicon, **Taped out** (a frozen configuration, or any with a tapeout manifest): each tapeout
+  manifest naming it (or in its component's store project): foundry, shuttle, date, GDS raw md5 IN STORE / NOT IN
+  STORE / MISMATCH (against the stream at the manifest's store path), against the release lock's `outputs.gds.md5`
+  MATCH / MISMATCH / NO LOCK, and the commit linked on its host (`hosts.<host>.web`, https only). The streams of the
+  mapped store projects follow, each with its git identity or "no git identity recorded".
+- Configuration > History, **Timeline**: release, candidate and silicon tags (stored `tag_check`), release drafts,
+  manifests, and uploads in its component's store project, newest first.
+- Component > Versions (`/versions/{component}`), **Tags, commits and chips**: per tag its commit link and the
+  silicon configurations (stored trees, or their root) and tapeout manifests that pin it.
+- Releases: **Published** and **Store** columns per draft (a manifest for that configuration and version; its GDS
+  raw md5 in the store), and the documents with a download link when a verified copy is held.
+- Inbox cards (category silicon): `store_mismatch` (a manifest names a store path or raw md5 the store does not
+  hold, or disagrees with the release lock), `release_not_archived` (a silicon configuration with no manifest in
+  the release repository), `tapeout_unregistered` (streams the store marks shipped that no tapeout manifest of a
+  registered silicon configuration covers, one card per store project). `nanosoc-rm store findings` prints them.
+- Search (the command bar and `nanosoc-rm store search`): artefact path, name or run tag; a hex prefix of a commit,
+  a build revision, a raw md5 or a stored md5.
+
+### 22.4 Pages and schedule
+
+Plug-in `nanosoc_rm.store.web`, navigation "Store": `GET /store/` (`?q=`), `GET /store/file/{sha1}`, and in a local
+deployment only `POST /store/index` (queues one `store-index` job; a second press while one is queued or running
+reuses it). No GET calls the store or queues work. Scheduler job `store_index` (nightly, v1, enabled): queues one
+`store-index` job when `[stores.artifactory]` is configured and none is queued or running; the worker runs it as a
+child process.

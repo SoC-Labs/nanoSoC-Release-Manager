@@ -1,0 +1,76 @@
+{# /store/: the stored store index (section 22). Data from store.web.index_page; every row is from the stored fact. #}
+{% import "_ui.html" as ui %}
+<p class="note">What the artefact store holds, as the last <code>store_index</code> run read it (GET, HEAD and AQL only; the tool never writes here). Joins use the raw GDS md5, never the stored <code>.zst</code> checksum. A row without a commit says <em>{{ NO_IDENTITY }}</em>: the store never recorded one.</p>
+{% if not configured %}<p class="banner info">No <code>[stores.artifactory]</code> in the service config: nothing is indexed. See docs/DEPLOY.md.</p>{% endif %}
+{% if local and configured %}<form method="post" action="/store/index" class="row"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="primary">Refresh the index</button> <span class="note">queues <code>nanosoc-rm store index --store</code> as a local job (about a minute); it also runs once a night.</span></form>
+{% elif configured %}<p class="note">Refresh: <code>nanosoc-rm store index --store</code> on the service host (this deployment runs no local jobs).</p>{% endif %}
+{% if job_html %}{{ job_html }}{% endif %}
+
+{% if new and new.fact.verdict == 'INFRA' %}<p class="banner problem" data-store-infra>The last run could not read the store: {{ fact(new, new.fact.reason) }}{% if doc %} The rows below are from the run before it.{% endif %}</p>{% endif %}
+{% if doc %}
+<section class="panel" aria-labelledby="h-st">
+  <h2 id="h-st">Index: {{ fact(doc, doc.fact.verdict) }}</h2>
+  <p>Server {{ doc.fact.server.version or '?' }} ({{ doc.fact.server.license or 'licence unknown' }}); read {{ age_text(doc.observed_at) }} ago. {{ doc.fact.counts.files }} files: {{ doc.fact.counts.with_properties }} with properties, {{ doc.fact.counts.with_commit }} with a git commit, {{ doc.fact.counts.with_repo }} naming a repository.{% if doc.fact.reason %} <span class="note">{{ doc.fact.reason }}</span>{% endif %}</p>
+  {% if doc.fact.token and doc.fact.token.expires %}<p class="note">The store token expires on {{ doc.fact.token.expires }}.</p>{% endif %}
+  <details><summary>Feature probes ({{ doc.fact.probes|length }})</summary>
+  <table><thead><tr><th scope="col">Feature</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
+  <tbody>{% for p in doc.fact.probes %}<tr data-probe="{{ p.feature }}"><td><code>{{ p.feature }}</code></td><td>{{ ui.chip(p.verdict, 'c-pass' if p.verdict == 'PASS' else ('c-notrun' if p.verdict == 'NOT-RUN' else 'c-fail')) }}</td><td>{{ p.detail }}</td></tr>{% endfor %}</tbody></table>
+  <p class="note">Sections: {% for k, s in doc.fact.sections.items() %}{{ k }} {{ s.verdict }}{% if s.reason %} ({{ s.reason }}){% endif %}{{ '; ' if not loop.last }}{% endfor %}</p>
+  </details>
+  <details><summary>Repositories ({{ doc.fact.counts.repos|length }})</summary>
+  <table><thead><tr><th scope="col">Repository</th><th scope="col" class="num">Files</th><th scope="col" class="num">Bytes</th><th scope="col">Roles</th></tr></thead>
+  <tbody>{% for c in doc.fact.counts.repos %}<tr data-repo="{{ c.repo }}"><td>{{ c.repo }}</td><td class="num">{{ c.files }}</td><td class="num">{{ c.bytes }}</td><td>{% for k, n in c.roles|dictsort %}{{ k }} {{ n }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}</tbody></table>
+  </details>
+</section>
+
+<form method="get" action="/store/" class="row" role="search"><label>Find an artefact by path, name, run tag, commit or md5 <input name="q" value="{{ q }}" size="40" minlength="3"></label> <button type="submit">Find</button></form>
+{% if q %}
+<section aria-labelledby="h-q"><h2 id="h-q">{{ hits|length }} match(es) for "{{ q }}"</h2>
+{% if hits %}<div class="scroll"><table><thead><tr><th scope="col">Kind</th><th scope="col">Name</th><th scope="col">Where</th></tr></thead>
+<tbody>{% for h in hits %}<tr data-hit="{{ h.kind }}"><td>{{ ui.chip(h.kind, h.tone) }}</td><td>{{ h.label }}</td><td>{{ h.sub }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">Nothing in the stored index matches. The index holds streams, sources, manifests and documents by path; other files only as counts.</p>{% endif %}
+</section>
+{% endif %}
+
+<section aria-labelledby="h-streams"><h2 id="h-streams">GDS streams ({{ rows.stream|length }})</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Stream</th><th scope="col">Run tag</th><th scope="col">Raw md5</th><th scope="col">Build</th><th scope="col">Shipped</th><th scope="col">Git identity</th><th scope="col">Uploaded</th></tr></thead>
+<tbody>{% for row in rows.stream %}{% set a = row.a %}{% set i = row.i %}<tr data-stream="{{ a.name }}">
+  <td><code>{{ a.repo }}/{{ a.path }}/{{ a.name }}</code></td><td>{{ a.run_tag or '-' }}{% if a.run_tag_from == 'path' %} <span class="note">(from the path)</span>{% endif %}</td>
+  <td>{% if a.raw_md5 %}<code>{{ a.raw_md5 }}</code> <span class="note">{{ a.raw_md5_key }}</span>{% else %}{{ ui.chip('no raw md5', 'c-warn') }}{% endif %}</td>
+  <td>{% if a.build %}{{ a.build.name }} #{{ a.build.number }}{% else %}-{% endif %}</td><td>{{ a.ships or '-' }}</td>
+  <td>{% if a.commit %}{% if i and i.link %}<a href="{{ i.link }}" rel="noopener">{{ i.text }}</a>{% else %}{{ i.text if i else a.commit }}{% endif %}{% else %}<span class="note">{{ NO_IDENTITY }}</span>{% endif %}</td>
+  <td>{{ a.created or '?' }} by {{ a.created_by or '?' }}</td></tr>{% else %}<tr><td colspan="7">no stream</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section aria-labelledby="h-man"><h2 id="h-man">Release and tapeout manifests in {{ doc.fact.release_repo }} ({{ doc.fact.manifests|length }})</h2>
+{% if doc.fact.manifests %}<div class="scroll"><table><thead><tr><th scope="col">Manifest</th><th scope="col">Kind</th><th scope="col">Configuration</th><th scope="col">Tag</th><th scope="col">Commit</th><th scope="col">GDS raw md5</th><th scope="col">Signature</th><th scope="col">Problems</th></tr></thead>
+<tbody>{% for m in doc.fact.manifests %}<tr data-manifest="{{ m.path }}"><td><code>{{ m.path }}</code></td><td>{{ m.kind }}</td><td>{{ m.configuration or '-' }}</td><td>{{ m.tag or '-' }}</td><td>{{ short(m.commit, 12) if m.commit else NO_IDENTITY }}</td><td>{{ m.gds_raw_md5 or '-' }}</td><td>{{ m.signature or '?' }}</td><td>{{ m.problems|join('; ') }}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<p class="empty">{{ doc.fact.release_repo }} holds no manifest{% if doc.fact.sections.manifests and doc.fact.sections.manifests.reason %} ({{ doc.fact.sections.manifests.reason }}){% endif %}. Nothing has been published there yet.</p>{% endif %}
+</section>
+
+<section aria-labelledby="h-coll"><h2 id="h-coll">Documents and collateral ({{ coll|length }})</h2>
+{% include "_store_collateral.html" %}
+</section>
+
+<section aria-labelledby="h-src"><h2 id="h-src">Source archives ({{ rows.source|length }})</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Archive</th><th scope="col">Run tag</th><th scope="col">Git identity</th><th scope="col">Uploaded</th></tr></thead>
+<tbody>{% for row in rows.source %}{% set a = row.a %}{% set i = row.i %}<tr><td><code>{{ a.repo }}/{{ a.path }}/{{ a.name }}</code></td><td>{{ a.run_tag or '-' }}</td><td>{% if i and i.link %}<a href="{{ i.link }}" rel="noopener">{{ i.text }}</a>{% else %}{{ i.text if i else NO_IDENTITY }}{% endif %}</td><td>{{ a.created or '?' }}</td></tr>{% else %}<tr><td colspan="4">none</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section aria-labelledby="h-builds"><h2 id="h-builds">Build records ({{ doc.fact.builds|length }})</h2>
+<p class="note">A build record's vcs block is the publisher's tree when it published (it may be dirty and is not the release commit). A number filed more than once is shown once per record.</p>
+<div class="scroll"><table><thead><tr><th scope="col">Build</th><th scope="col">Started</th><th scope="col">Tree</th><th scope="col">Dirty</th><th scope="col">Raw md5</th></tr></thead>
+<tbody>{% for b in doc.fact.builds %}<tr data-build="{{ b.name }}/{{ b.number }}"><td>{{ b.name }} #{{ b.number }}{% if b.filed > 1 %} {{ ui.chip('filed x' ~ b.filed, 'c-warn') }}{% endif %}</td><td>{{ b.started or '?' }}</td>
+  <td>{% for v in b.vcs %}{{ v.path }} {{ short(v.revision, 12) }}{% if v.branch %} ({{ v.branch }}){% endif %}{{ '; ' if not loop.last }}{% else %}<span class="note">{{ NO_IDENTITY }}</span>{% endfor %}</td>
+  <td>{{ {True: 'yes', False: 'no'}.get(b.dirty, '?') }}</td><td>{{ b.raw_md5 or '-' }}</td></tr>{% else %}<tr><td colspan="5">no build record</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section aria-labelledby="h-fr"><h2 id="h-fr">Foundry returns ({{ doc.fact.foundry|length }})</h2>
+<div class="scroll"><table><thead><tr><th scope="col">Folder</th><th scope="col" class="num">Files</th><th scope="col">Cites raw md5</th><th scope="col">Uploaded</th></tr></thead>
+<tbody>{% for f in doc.fact.foundry %}<tr><td><code>{{ f.repo }}/{{ f.path }}</code></td><td class="num">{{ f.files }}</td><td>{{ f.subject_md5 or '-' }}</td><td>{{ f.created or '?' }}</td></tr>{% else %}<tr><td colspan="4">none</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% elif configured %}
+<p class="empty">No store index is stored yet. {% if local %}Press <strong>Refresh the index</strong>{% else %}Run <code>nanosoc-rm store index --store</code>{% endif %}.</p>
+{% endif %}
+{% if recent %}<details><summary>Recent index jobs ({{ recent|length }})</summary><table><thead><tr><th>Job</th><th>State</th><th>Result</th><th>By</th><th>Queued</th></tr></thead>
+<tbody>{% for j in recent %}<tr><td><a href="?job={{ j.id }}">{{ j.id }}</a></td><td>{{ j.state }}</td><td>{{ j.verdict or '' }}</td><td>{{ j.by }}</td><td>{{ age_text(j.created_at) }} ago</td></tr>{% endfor %}</tbody></table></details>{% endif %}

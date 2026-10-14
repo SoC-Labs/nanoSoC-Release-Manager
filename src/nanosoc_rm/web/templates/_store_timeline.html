@@ -1,0 +1,16 @@
+{# Configuration > History: one timeline of tags, release drafts, manifests and uploads (section 22). `tl`:
+   store.views.timeline(config, cid). Each row links the fact it comes from. #}
+{% import "_ui.html" as ui %}
+<section aria-labelledby="h-tl" data-timeline>
+  <h2 id="h-tl">Timeline ({{ tl.events|length }}{% if tl.more %} of {{ tl.events|length + tl.more }}{% endif %})</h2>
+  {% if not tl.tags_read %}<p class="note">No stored tag check for this configuration's component: tags appear after <code>nanosoc-rm version tags</code> (Versions, Refresh).</p>{% endif %}
+  {% if not tl.configured and tl.doc is none %}{% elif tl.doc is none %}<p class="note">No store index is stored: uploads and manifests appear after the first <code>store_index</code> run.</p>{% elif not tl.projects %}<p class="note">No store project is mapped to this configuration (<code>[stores.artifactory] projects</code>): its uploads are not listed.</p>{% endif %}
+  {% if tl.events %}
+  <div class="scroll"><table>
+    <thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">Name</th><th scope="col">Detail</th></tr></thead>
+    <tbody>{% for e in tl.events %}<tr data-event="{{ e.what }}"><td>{{ e.at }}</td><td>{{ ui.chip(e.what, 'c-ink' if e.what in ('tapeout', 'release') else 'c-neutral') }}</td>
+      <td>{% if e.href %}<a href="{{ e.href }}">{{ fact(e.doc, e.label) }}</a>{% else %}{{ fact(e.doc, e.label) }}{% endif %}</td>
+      <td>{{ e.detail }}{% if e.link %} <a href="{{ e.link }}" rel="noopener" data-commit-link>commit</a>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="empty">Nothing to show yet.</p>{% endif %}
+</section>

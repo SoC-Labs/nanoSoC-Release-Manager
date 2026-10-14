@@ -139,6 +139,17 @@ revision (F4), release notes, CHECKLIST.md (tag commands, approvals), GATES.md (
 generated-RTL md5 manifest (G7). Exit 0 PASS/WARN/WAIVED, 1 FAIL, 2 UNVERIFIED (gate evidence or a person step
 still open), 3 usage. The pages are under `/releases/`; details: `docs/contracts/interfaces.md` section 14c.
 
+## Artefact store index (Wave E; B10, G8)
+
+Read-only: what Artifactory holds, indexed once a night and on demand, shown on `/store/` and the configuration,
+version and release pages. Config `[stores.artifactory]` (docs/DEPLOY.md); contract: interfaces.md section 22.
+
+```
+nanosoc-rm store index --store     # GET, HEAD and one AQL search; probes each feature; stores the store_index fact
+nanosoc-rm store search 1a2b3c4d   # a stored artefact by path, name, run tag, commit or md5 prefix
+nanosoc-rm store findings          # mismatches, silicon not archived, shipped streams no configuration covers
+```
+
 ## Development
 
 Python 3.11 or later (the system `python3` may be older; the script below finds `/usr/bin/python3.11`).
