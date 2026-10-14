@@ -79,9 +79,6 @@ def test_relative_resolution_names_the_repo_git_fetches(tmp_path, parent, rel):
     assert ours == theirs and ours is not None
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-7: a relative URL whose `..` climbs past the parent's path is "
-                                       "resolved on the parent's host (github:evil/x), but git resolves it to "
-                                       "another host (https://evil/x): walker/urls.py join_relative")
 @pytest.mark.parametrize("parent,rel", [(PARENT, "../../../evil/x"), ("git@github.com:SoC-Labs/top.git",
                                                                       "../../../evil/x")])
 def test_a_relative_url_that_climbs_past_the_host_is_not_judged_on_the_parents_host(tmp_path, parent, rel):

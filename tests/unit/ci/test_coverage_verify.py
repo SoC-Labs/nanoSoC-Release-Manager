@@ -116,9 +116,6 @@ def test_check_6_needs_rows_and_the_jobs_times(tmp_path):
         V._check_rows(_run(nonce="cd" * 16), ok, tmp_path)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-8: a job whose API record has started_at/finished_at null makes "
-                                       "check 6 raise AttributeError out of verify() instead of rejecting at check 6 "
-                                       "(ci/verify.py _check_rows catches KeyError/TypeError/ValueError only)")
 def test_a_job_with_null_times_is_rejected_at_check_6_not_a_crash(tmp_path):
     (tmp_path / "verdicts.tsv").write_text("2026-10-14T00:00:00Z\tPASS\tt0.infra.probe\tok\t%s\n" % ("ab" * 16))
     with pytest.raises(V._Fail, match="no start and finish time"):

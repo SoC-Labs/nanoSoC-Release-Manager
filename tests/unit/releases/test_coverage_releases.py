@@ -200,9 +200,6 @@ def test_lock_of_reads_the_complete_lock_first(tmp_path):
     assert D._lock_of(tmp_path)["which"] == "complete"
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-4: an unparseable release lock in a draft folder raises "
-                                       "yaml.YAMLError out of _lock_of (it only catches OSError/ValueError), so "
-                                       "release verify and every later draft of the configuration crash")
 @pytest.mark.parametrize("text", ["pins: [\n", "pins: []\npins: []\n", "- just\n- a list\n"])
 def test_an_unreadable_lock_reads_as_no_lock(tmp_path, text):
     (tmp_path / D.LOCK).write_text(text)
