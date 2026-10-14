@@ -53,7 +53,8 @@
         "release_draft",
         "release_verify",
         "fork_status",
-        "regen_class"
+        "regen_class",
+        "freshness"
       ]
     },
     "subject": {
@@ -629,9 +630,751 @@
         },
         "not": { "required": ["snapshot"] }
       }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "freshness" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/freshness" },
+          "subject": { "pattern": "^freshness:" },
+          "snapshot": { "properties": { "scope": { "pattern": "^freshness:" } } }
+        },
+        "required": ["snapshot"]
+      }
     }
   ],
   "$defs": {
+    "freshness": {
+      "description": "Interfaces.md section 23 (CR-WF-fresh, David 2026-10-14): submodule-tree freshness. Set kind: one snapshot per configuration (scope `freshness:<configuration>`) holding one `level: tree` document (subject `freshness:<configuration>`) and one `level: pin` document per pin (subject `freshness:<configuration>:<first tree path>`). The stored state is the judgement on `judged_on`; pages re-judge the stored facts on their own day. Additive optional $defs and kind (README section 2 rule 4): no schema bump.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/freshness_pin"
+        },
+        {
+          "$ref": "#/$defs/freshness_tree"
+        }
+      ]
+    },
+    "freshness_pin": {
+      "description": "One pin of one configuration's stored walk, measured against the mirrors (interfaces.md section 23.1).",
+      "type": "object",
+      "required": [
+        "configuration",
+        "level",
+        "frozen",
+        "judged_on",
+        "tree_path",
+        "tree_paths",
+        "depth",
+        "parent",
+        "path",
+        "component",
+        "catalogued_as",
+        "pinned",
+        "pin_date",
+        "upstream",
+        "behind",
+        "ahead",
+        "lower_bound",
+        "on_default",
+        "reachable",
+        "unpushed",
+        "branches",
+        "branches_more",
+        "bump",
+        "not_measured",
+        "caveat",
+        "state",
+        "would_be"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "level": {
+          "const": "pin"
+        },
+        "frozen": {
+          "type": "boolean",
+          "description": "The configuration is frozen or silicon: `state` is frozen, `would_be` the live answer, never counted."
+        },
+        "judged_on": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+        },
+        "tree_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The first tree path (as the pin_state subject)."
+        },
+        "tree_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "parent": {
+          "type": "object",
+          "required": [
+            "component",
+            "commit"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "component": {
+              "oneOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/component_id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "commit": {
+              "$ref": "defs.schema.json#/$defs/sha"
+            }
+          }
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "component": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/component_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "catalogued_as": {
+          "enum": [
+            "component",
+            "external",
+            "unknown"
+          ]
+        },
+        "pinned": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/sha"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pin_date": {
+          "oneOf": [
+            {
+              "$ref": "defs.schema.json#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Committer date of the pinned commit."
+        },
+        "upstream": {
+          "description": "The canonical repo and its default branch head in the mirror.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "repo",
+                "default_branch",
+                "head",
+                "head_date"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "repo": {
+                  "$ref": "defs.schema.json#/$defs/repo"
+                },
+                "default_branch": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "head": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/sha"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "head_date": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/utc"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "behind": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "rev-list --count <pin>..<head>; null = not measured."
+        },
+        "ahead": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lower_bound": {
+          "type": "boolean",
+          "description": "The canonical repo's last sync failed, so its refs are older and upstream may be further ahead."
+        },
+        "on_default": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reachable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "unpushed": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "true: no branch or tag of any host holds the pin; null: a host could not be read."
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "branches_more": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bump": {
+          "description": "The parent's last commit that changed this gitlink (git log -1 <parent> -- <path>).",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "commit",
+                "date",
+                "author",
+                "subject",
+                "total"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "commit": {
+                  "$ref": "defs.schema.json#/$defs/sha"
+                },
+                "date": {
+                  "$ref": "defs.schema.json#/$defs/utc"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "subject": {
+                  "type": "string"
+                },
+                "total": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "not_measured": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why `behind` is null."
+        },
+        "caveat": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was not measured although `behind` was."
+        },
+        "state": {
+          "enum": [
+            "frozen",
+            "unpushed",
+            "not_measured",
+            "current",
+            "outdated",
+            "behind"
+          ],
+          "description": "The judgement on judged_on (freshness.rules.judge_pin)."
+        },
+        "would_be": {
+          "oneOf": [
+            {
+              "enum": [
+                "unpushed",
+                "not_measured",
+                "current",
+                "outdated",
+                "behind"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "freshness_tree": {
+      "description": "One configuration's tree summary on judged_on (freshness.rules.judge_tree, interfaces.md section 23.2).",
+      "type": "object",
+      "required": [
+        "configuration",
+        "level",
+        "frozen",
+        "silicon",
+        "judged_on",
+        "root",
+        "walk",
+        "not_measured",
+        "state",
+        "would_be",
+        "counted",
+        "pins",
+        "direct",
+        "counts",
+        "lagging",
+        "direct_lagging",
+        "would_be_lagging",
+        "would_be_direct_lagging",
+        "total_behind",
+        "any_lower_bound",
+        "newest_bump",
+        "newest_direct_bump",
+        "updated_days",
+        "age",
+        "stalest_lagging",
+        "worst_lagging"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "$ref": "defs.schema.json#/$defs/configuration_id"
+        },
+        "level": {
+          "const": "tree"
+        },
+        "frozen": {
+          "type": "boolean"
+        },
+        "silicon": {
+          "type": "boolean"
+        },
+        "judged_on": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+        },
+        "root": {
+          "type": "object",
+          "required": [
+            "component",
+            "commit",
+            "date"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "component": {
+              "$ref": "defs.schema.json#/$defs/component_id"
+            },
+            "commit": {
+              "oneOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/sha"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "date": {
+              "oneOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/utc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "walk": {
+          "type": "object",
+          "required": [
+            "snapshot",
+            "observed_at"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "snapshot": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "observed_at": {
+              "oneOf": [
+                {
+                  "$ref": "defs.schema.json#/$defs/utc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        "not_measured": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the tree has no pins (no stored walk)."
+        },
+        "state": {
+          "enum": [
+            "frozen",
+            "unpushed",
+            "not_measured",
+            "current",
+            "outdated",
+            "behind"
+          ]
+        },
+        "would_be": {
+          "oneOf": [
+            {
+              "enum": [
+                "unpushed",
+                "not_measured",
+                "current",
+                "outdated",
+                "behind"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "counted": {
+          "type": "boolean"
+        },
+        "pins": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "direct": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "unpushed",
+            "not_measured",
+            "current",
+            "outdated",
+            "behind"
+          ],
+          "properties": {
+            "unpushed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "not_measured": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "current": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outdated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "behind": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "lagging": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "direct_lagging": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "would_be_lagging": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "would_be_direct_lagging": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_behind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "any_lower_bound": {
+          "type": "boolean"
+        },
+        "newest_bump": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "date",
+                "days"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "newest_direct_bump": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "date",
+                "days"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updated_days": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "age": {
+          "enum": [
+            "fresh",
+            "aging",
+            "stale",
+            null
+          ]
+        },
+        "stalest_lagging": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "days",
+                "behind",
+                "state"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worst_lagging": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "tree_path",
+                "component",
+                "behind",
+                "state"
+              ],
+              "properties": {
+                "tree_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "component": {
+                  "oneOf": [
+                    {
+                      "$ref": "defs.schema.json#/$defs/component_id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "release_check": {
       "description": "Wave B releases (CR-R1): one check of a release draft or of its re-verification. `verdict` uses README section 6 gate verdicts (NOT-RUN with a reason never blocks); `person` marks a step only a person can complete (a tag, an approval, a tier with no runner here): the draft lists it, never does it.",
       "type": "object",

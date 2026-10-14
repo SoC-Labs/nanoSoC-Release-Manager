@@ -224,7 +224,8 @@ def test_the_scheduler_leaves_out_the_ci_jobs_without_a_ci_project(cfg, monkeypa
     fake = tuple(schedule.Job(j.name, j.every, lambda c, n=j.name: ran.append(n)) for j in schedule.JOBS)
     monkeypatch.setattr(schedule, "JOBS", fake)
     now = dt.datetime(2026, 10, 12, 3, 0, tzinfo=dt.timezone.utc)
-    assert schedule.tick(now, config=cfg) == ["poll", "inventory", "credentials"]
+    # CR-WF-fresh: freshness_scan is not a CI job, so it runs without a CI project too
+    assert schedule.tick(now, config=cfg) == ["poll", "freshness_scan", "inventory", "credentials"]
     with_ci = tmp_path / "ci.toml"
     with_ci.write_text('[service]\ndata_dir = "%s"\n[ci]\nproject = "soclabs/nanosoc-compat-ci"\n' % (tmp_path / "d2"))
     assert schedule.tick(now, config=load_config(with_ci)) == [j.name for j in schedule.JOBS]

@@ -42,13 +42,15 @@ def test_every_valid_example_observation_is_stored(rm_config):
     docs = examples("observation.example.jsonl") + examples("pin-state.example.jsonl") \
         + examples("observation.t0-result-waived.example.jsonl") + examples("observation.compat-result.example.jsonl") \
         + examples("observation.quality.example.jsonl") + examples("observation.versioning.example.jsonl") \
-        + examples("observation.release.example.jsonl") + examples("observation.regen.example.jsonl")
+        + examples("observation.release.example.jsonl") + examples("observation.regen.example.jsonl") \
+        + examples("observation.freshness.example.jsonl")
     for d in docs:
         db.put(d)
     counts = {k: len(db.latest(k)) for k in db.SET_KINDS + db.EVENT_KINDS}
     assert counts == {"pin_state": 3, "host_compare": 3, "containment": 1, "silicon_protection": 13,
                       "mirror_status": 1, "repo_inventory": 1, "runner_settings": 1, "credential_status": 1,
                       "registry_record": 1, "rewrite_alert": 1, "t0_result": 2, "alert": 1, "branch_state": 0,
+                      "freshness": 3,                                                  # section 23
                       "compat_result": 1, "quality_density": 1, "quality_finding": 1, "readme_check": 1,
                       "doc_score": 1, "matrix_cell": 0, "matrix_quarantine": 0,
                       "changelog_lint": 1, "version_plan": 1, "tag_check": 1,      # CR-VER

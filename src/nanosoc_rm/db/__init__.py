@@ -46,7 +46,8 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
            "clear_alert"]
 
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
-             "runner_settings", "credential_status", "registry_record", "branch_state")
+             "runner_settings", "credential_status", "registry_record", "branch_state",
+             "freshness")                                                            # section 23
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
                "quality_density", "quality_finding", "readme_check", "doc_score",      # CR-14 (Q5)
                "matrix_cell", "matrix_quarantine",                                    # D3, D8 (section 18)
@@ -117,6 +118,8 @@ _SUBJECT = {
     "t0_result": lambda f: "%s:%s" % (f["configuration"], f["run"]["nonce"]),
     "alert": lambda f: "%s:%s" % (f["alert_kind"], f["about"]),
     "branch_state": lambda f: "%s:%s" % (_repo_key(f["repo"]), f["branch"]),
+    # section 23: one tree document per configuration (`freshness:<configuration>`) and one per pin
+    "freshness": lambda f: f["configuration"] + (":" + f["tree_path"] if f["level"] == "pin" else ""),
     "compat_result": lambda f: "%s:%s" % (f["configuration"], f["nonce"]),
     "matrix_cell": lambda f: "%s:%s:%s:%s" % (f["configuration"], f["component"] or "-", f["column"], f["nonce"]),
     "matrix_quarantine": lambda f: "%s:%s" % (f["configuration"], f["test"]),
