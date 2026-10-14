@@ -50,7 +50,8 @@ RULE = {
     "behind": "Direct pins lag by 1 to 9 commits and were bumped within 90 days.",
     "current": "Every direct pin is at its upstream default-branch head.",
     "frozen": "A tagged silicon configuration. Drift is expected and is never a to-do.",
-    "not_measured": "No stored scan yet. Register a configuration and scan it to measure it.",
+    "not_measured": ("No stored scan yet, or a scanned tree with a direct pin that could not be counted. Register "
+                     "a configuration and scan it to measure it."),
 }
 # Sort order of the tree rows (worst first) and of projects.
 _ORDER = {"unpushed": 0, "outdated": 1, "behind": 2, "not_measured": 3, "current": 4, "frozen": 5}
@@ -271,8 +272,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
         f = st["fresh"]
         if not f:
             return True
-        if f == "not_measured":
-            return not p["measured"]
+        if f == "not_measured":                  # no stored scan, or a scanned live tree that reads Not measured
+            return not p["measured"] or any(_cfg_state(c) == "not_measured" for c in p["measured"])
         if f == "frozen":
             return any(c["frozen"] or c["tree"]["frozen"] for c in p["measured"])
         return any(_cfg_state(c) == f for c in p["measured"] if not (c["frozen"] or c["tree"]["frozen"]))
@@ -294,7 +295,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
     for p in data.projects:
         for c in p["measured"]:
             counts[_cfg_state(c)] += 1
-    counts["not_measured"] = sum(1 for p in data.projects if not p["measured"])
+    # Not measured: the scanned trees that read Not measured (counted above) plus the projects with no scan
+    counts["not_measured"] += sum(1 for p in data.projects if not p["measured"])
     pills = []
     for k in PILLS:
         if k == "unpushed" and not counts[k]:

@@ -2107,7 +2107,7 @@ creates gui.sqlite. Every page keeps one data-age element; a state is always a w
 | `POST /notifications/read` | fields `item`, `fp` (the item's fingerprint), `read` (`0` = mark unread); 303 to `/notifications` | `web.notifications` |
 | `POST /notifications/read-all` | repeated `item` + `fp` pairs: exactly the items the page showed (400 when none); a later item stays unread | `web.notifications` |
 | `POST /notifications/prefs` | repeated `listed` (each preference the form showed) and `on` (the ticked ones); an unticked listed name is saved `off`, a ticked one removed; 400 for a name `uistate.PREF_NAME` refuses | `web.notifications` |
-| `POST /catalogue/patch` | the page's choices (`new.<i>.group`, `new.<i>.other`, `new.<i>.type`, `new.<i>.role`, `ask.<id>`, `confirm.<id>`) -> `catalogue.preview` (section 23.3); `do=preview` shows the patch, its changes and whether it would load; `do=download` returns `catalogue.patch` (`text/x-diff`; 400 when nothing changes). Writes nothing (no registry, no store, no gui.sqlite) | `catalogue.web` |
+| `POST /catalogue/patch` | the page's choices (`new.<i>.repo`, `new.<i>.group`, `new.<i>.other`, `new.<i>.type`, `new.<i>.role`, `ask.<id>`, `confirm.<id>`) -> `catalogue.preview` (section 23.3). A new-repo choice applies to the repo its row's hidden `new.<i>.repo` (`<host>:<path>`) names, never to whatever repo now sits at row `i`; a repo no longer in the queue (or a row without the key) is skipped and listed as not used. Every new repo starts on Decide later: the suggested group is a hint (`data-suggest`), so an untouched Save changes nothing; `do=preview` shows the patch, its changes and whether it would load; `do=download` returns `catalogue.patch` (`text/x-diff`; 400 when nothing changes). Writes nothing (no registry, no store, no gui.sqlite) | `catalogue.web` |
 
 The five POSTs are local-only (`web.plugins.local_routes`; `web.routers.WAVE_F_POSTS` lists the core four) and
 CSRF-checked by the section 14 guard; a GitHub + CI deployment keeps section 13's two Run routes as its only writes
@@ -2120,6 +2120,9 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   sort by `home.sibling_rank`: SoC, custom peripherals (a direct component or subsystem of the configuration
   root), subsystems and components, arch tech, generator, libraries and infra, toolkits and flows; then worst state
   first. A project with no measured configuration folds into one "Not measured yet" group (`grp:unk`).
+- **Pills** count live configurations by tree verdict and frozen ones as Frozen; the Not measured pill adds the
+  projects with no stored scan to the scanned live trees that read Not measured, so every configuration is in one
+  pill, and its filter keeps both.
 - **Default view** (no `v=1`): the most lagging project with an Outdated or Unpushed live configuration is open,
   with its first live configuration; everything else (frozen trees included) is closed. **Timeline**: a bar from each row's newest bump to today on one axis (`_TL_MONTHS` whole months before
   today's month to `_TL_AFTER` days after today), the today line, and a dashed line at each frozen configuration's
@@ -2136,6 +2139,9 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   (kind `catalogue`) when the current `repo_seen` snapshots hold any repo. Read state is the inbox's done state
   (`uistate.set_card` with the item's fingerprint): an item read here is done in the card view, and it comes back
   unread when its facts change. The bell counts unread items of kinds and projects the login has not muted.
+  An item's projects (`Item.about`) are those of the configuration or project its id names and of every
+  configuration its facts or evidence name (an erratum's exposures, `never_checked:all`); muting projects hides an
+  item only when all of its projects are muted, and an item about no project is muted only by its kind.
 - **gui.sqlite** (`web.uistate`, `user_version` 2): table `pref (login, name, value, at)`; names `timeline`
   (`on`\|`off`; absent = off), `notify.kind.<kind>` and `notify.project.<id>` (`off` mutes). `prefs()` never
   creates the file; a version-1 file gains the table the next time it is opened, other tables untouched.

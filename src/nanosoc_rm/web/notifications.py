@@ -60,6 +60,7 @@ class Item:
     fingerprint: str
     read: bool = False
     fact: dict | None = None        # the observation it was built from, for the page's data age
+    about: frozenset = frozenset()  # every project it concerns; muted only when ALL of them are muted
 
 
 def _when(at: str | None, now: dt.datetime) -> str:
@@ -78,6 +79,24 @@ def _card_cfg(card_id: str, cfgs: dict[str, str]) -> str | None:
     rest = card_id.split(":", 1)[1] if ":" in card_id else ""
     head = rest.split(":", 1)[0]
     return head if head in cfgs else None
+
+
+def _card_projects(card: Any, cfgs: dict[str, str]) -> frozenset:
+    """Every project a card concerns: the configuration or project its id names (`compat_fail:<cfg>`,
+    `branches_deletable:<project>`), and the configurations its facts and evidence name (an erratum's
+    exposures, `never_checked:all`)."""
+    projects = set(cfgs.values())
+    rest = card.id.split(":", 1)[1] if ":" in card.id else ""
+    head = rest.split(":", 1)[0]
+    cids = {head} if head in cfgs else set()
+    out = {head} if head in projects else set()
+    for d in card.facts or []:
+        f = (d or {}).get("fact") or {}
+        rec = f.get("record") if isinstance(f.get("record"), dict) else {}
+        cids |= {x for x in (f.get("configuration"), rec.get("configuration"), f.get("id")) if x in cfgs}
+    cids |= {e.get("what") for e in card.evidence or [] if e.get("what") in cfgs}
+    out |= {cfgs[c] for c in cids if cfgs.get(c)}
+    return frozenset(out)
 
 
 def _new_repos(config, now: dt.datetime) -> Item | None:
@@ -109,7 +128,8 @@ def _all(config, now: dt.datetime) -> list[Item]:
             action = ("Open the card", "/inbox?cat=%s" % c.cat)
         out.append(Item(id=c.id, kind=c.cat, text=c.title, project=cfgs.get(cid) if cid else None,
                         where=cid or inbox.CAT_LABEL.get(c.cat, c.cat), when=_when(c.fact_at, now), action=action,
-                        tone=_TONE.get(c.chip[1], "info"), fingerprint=c.fingerprint, fact=c.fact))
+                        tone=_TONE.get(c.chip[1], "info"), fingerprint=c.fingerprint, fact=c.fact,
+                        about=_card_projects(c, cfgs)))
     extra = _new_repos(config, now)
     if extra is not None:
         out.append(extra)
@@ -133,7 +153,7 @@ def items(config, login: str | None, now: dt.datetime | None = None) -> list[Ite
         hidden, kinds, projects = {}, set(), set()
     out = []
     for i in all_:
-        if i.kind in kinds or (i.project and i.project in projects):
+        if i.kind in kinds or (i.about and i.about <= projects):
             continue
         i.read = i.id in hidden
         out.append(i)

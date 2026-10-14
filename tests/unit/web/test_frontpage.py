@@ -93,6 +93,25 @@ def test_a_frozen_tree_reads_frozen_and_not_counted_never_outdated(fp):
     assert pills["outdated"] == "1" and pills["frozen"] == "1"       # eth-main is the one outdated tree
 
 
+def _pills(text):
+    return {k: int(n) for k, n in re.findall(r'data-fresh-pill="(\w+)">.*?<span class="mono">(\d+)</span>', text, re.S)}
+
+
+def test_a_scanned_tree_that_reads_not_measured_is_in_the_not_measured_pill_and_filter(fp):
+    c = fp["client"]
+    before = _pills(c.get("/").text)
+    put_tree(fp["cfg"], "eth-main", "nanosoc-ethernet-chiplet", [
+        {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": 0},
+        {"tree_path": "tidelink", "component": "tidelink", "behind": None}])          # a direct pin not counted
+    text = c.get("/?v=1&o=p:nanosoc-ethernet-chiplet").text
+    assert {k: s for k, s, _, _ in rows(text)}["c:eth-main"] == "not_measured"
+    after = _pills(text)
+    assert after["outdated"] == before["outdated"] - 1 and after["not_measured"] == before["not_measured"] + 1
+    assert sum(after.values()) == sum(before.values())                      # every tree is in exactly one pill
+    text = c.get("/?f=not_measured&v=1&o=p:nanosoc-ethernet-chiplet").text
+    assert "p:nanosoc-ethernet-chiplet" in keys(text) and "c:eth-main" in keys(text)
+
+
 def test_a_configuration_is_judged_on_its_direct_pins_a_pin_row_on_what_is_beneath(fp):
     put_tree(fp["cfg"], "eth-main", "nanosoc-ethernet-chiplet", [
         {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": 0},
@@ -267,7 +286,8 @@ def test_save_builds_a_patch_and_writes_nothing(fp):
     reg = fp["registry"]
     before = (reg / "catalogue.yaml").read_text()
     page = c.get("/catalogue/").text
-    form = {"csrf_token": csrf(page), "new.0.group": "ignore", "ask.tidechart": "toolkit", "do": "preview"}
+    form = {"csrf_token": csrf(page), "new.0.repo": "github:SoC-Labs/example-new-repo", "new.0.group": "ignore",
+            "ask.tidechart": "toolkit", "do": "preview"}
     r = c.post("/catalogue/patch", data=form)
     assert r.status_code == 200
     patch = re.search(r'<textarea id="patch"[^>]*>(.*?)</textarea>', r.text, re.S).group(1)
@@ -284,6 +304,74 @@ def test_save_builds_a_patch_and_writes_nothing(fp):
     assert "tidechart: confirm group" in r.text
     assert c.post("/catalogue/patch", data={"new.0.group": "ignore"}).status_code == 403                # no CSRF
     assert c.post("/catalogue/patch", data={"csrf_token": csrf(page), "do": "download"}).status_code == 400
+
+
+def _seen(cfg, stamp, *repos):
+    """Store one complete repo_seen snapshot of `repos` [(path, mentions_nanosoc)], shaped like the example."""
+    import copy, json
+    from nanosoc_rm import db
+    from webfix import EXAMPLES
+    base = json.loads((EXAMPLES / "observation.catalogue.example.jsonl").read_text().splitlines()[0])
+    for path, mentions in repos:
+        d = copy.deepcopy(base)
+        d["subject"] = "repo_seen:github:" + path
+        d["observed_at"] = d["fact"]["first_seen"] = stamp
+        d["snapshot"]["id"] = "repo_seen:github@%s#%08x" % (stamp, abs(hash(stamp)) & 0xffffffff)
+        d["fact"]["repo"]["path"] = path
+        d["fact"]["mentions_nanosoc"] = mentions
+        d["fact"]["description"] = "a nanoSoC thing" if mentions else "something else"
+        db.put(d, config=cfg)
+
+
+def _as_browser(text, **extra):
+    """The form a browser submits for /catalogue/ untouched: every hidden input, every checked radio and each
+    select's selected (else first) option, plus `extra`."""
+    body = re.search(r'<form[^>]*action="/catalogue/patch".*?</form>', text, re.S).group(0)
+    pairs = []
+    for m in re.finditer(r"<input ([^>]*)>", body):
+        a = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', m.group(1)))
+        if "name" not in a or "disabled" in m.group(1):
+            continue
+        if a.get("type") == "hidden" or (a.get("type") == "radio" and " checked" in m.group(1)):
+            pairs.append((a["name"], a.get("value", "")))
+    for m in re.finditer(r'<select [^>]*name="([^"]+)"[^>]*>(.*?)</select>', body, re.S):
+        sel = re.search(r'<option value="([^"]*)"[^>]* selected', m.group(2)) or re.search(r'<option value="([^"]*)"', m.group(2))
+        pairs.append((m.group(1), sel.group(1)))
+    return pairs + list(extra.items())
+
+
+def test_a_new_repo_starts_on_decide_later_so_an_untouched_save_adds_nothing(fp):
+    _seen(fp["cfg"], "2026-10-14T10:00:00Z", ("SoC-Labs/nanoSoC-Gen", True), ("SoC-Labs/other-thing", False))
+    c = fp["client"]
+    text = c.get("/catalogue/").text
+    assert "Nothing is checked until you decide." in text
+    assert not re.search(r'name="new\.\d+\.group" value="(?!")[^"]+" checked', text)        # no group pre-picked
+    assert len(re.findall(r'name="new\.\d+\.group" value="" checked', text)) == 2           # Decide later
+    assert 'data-suggest="project"' in text and "Suggested: Project" in text                # a hint only
+    r = post_form(c, "/catalogue/patch", _as_browser(text, do="download"))
+    assert r.status_code == 400 and "no change chosen" in r.text, r.text[:400]
+
+
+def test_a_new_repo_choice_follows_its_repo_not_its_row(fp):
+    _seen(fp["cfg"], "2026-10-14T10:00:00Z", ("SoC-Labs/nanoSoC-Gen", True), ("SoC-Labs/other-thing", False))
+    c = fp["client"]
+    text = c.get("/catalogue/").text
+    i = re.search(r'name="new\.(\d+)\.repo" value="github:SoC-Labs/nanoSoC-Gen"', text).group(1)
+    # a newer scan lands between the GET and the Save, and sorts ahead of nanoSoC-Gen
+    _seen(fp["cfg"], "2026-10-14T11:00:00Z", ("SoC-Labs/aaa-nanosoc-new-chip", True),
+          ("SoC-Labs/nanoSoC-Gen", True), ("SoC-Labs/other-thing", False))
+    assert 'value="github:SoC-Labs/aaa-nanosoc-new-chip"' in c.get("/catalogue/").text
+    form = [("csrf_token", csrf(text)), ("new.%s.repo" % i, "github:SoC-Labs/nanoSoC-Gen"),
+            ("new.%s.group" % i, "ignore"), ("do", "download")]
+    patch = post_form(c, "/catalogue/patch", form).text
+    assert "SoC-Labs/nanoSoC-Gen" in patch and "aaa-nanosoc-new-chip" not in patch, patch
+    # a choice for a repo that left the queue is skipped and said so, never moved onto another row
+    gone = [("csrf_token", csrf(text)), ("new.0.repo", "github:SoC-Labs/vanished"), ("new.0.group", "ignore"),
+            ("do", "preview")]
+    r = post_form(c, "/catalogue/patch", gone)
+    assert "SoC-Labs/vanished is no longer in the queue" in r.text
+    patch = re.search(r'<textarea id="patch"[^>]*>(.*?)</textarea>', r.text, re.S)
+    assert patch is None or "nanosoc" not in patch.group(1).lower()
 
 
 # ----- Notifications ---------------------------------------------------------------------------------------------
@@ -356,6 +444,24 @@ def test_notify_me_about_mutes_kinds_and_projects_per_login(fp):
     assert not [i for i, _ in _items(c.get("/notifications").text)
                 if i.split(":", 1)[1].split(":")[0] in ("eth-rc4", "eth-main", "multicore-master", "quickstart-main")]
     assert projects
+
+
+def test_muting_a_project_hides_every_item_only_about_it(fp):
+    c = fp["client"]
+    text = c.get("/notifications").text
+    shown = [i for i, _ in _items(text)]
+    assert {"errata_exposure:SL-DEF-0001", "compat_fail:eth-rc4", "never_checked:all"} <= set(shown), shown
+    listed = re.findall(r'name="listed" value="([^"]+)"', text)
+    mute = "notify.project.nanosoc-ethernet-chiplet"
+    post_form(c, "/notifications/prefs", [("csrf_token", csrf(text))] + [("listed", x) for x in listed]
+              + [("on", x) for x in listed if x != mute])
+    after = c.get("/notifications?show=all").text
+    left = [i for i, _ in _items(after)]
+    assert "errata_exposure:SL-DEF-0001" not in left           # an erratum exposed only in eth-rc4
+    assert "compat_fail:eth-rc4" not in left
+    assert "never_checked:all" in left                         # it also names multicore-master (another project)
+    assert "host_drift:summary" in left                        # about no project: muted only by its kind
+    assert _bell(after) == len([i for i, r in _items(c.get("/notifications").text)])
 
 
 def test_preferences_are_validated_names():

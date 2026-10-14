@@ -26,7 +26,9 @@
     <div class="who">
       <div class="mono"><strong>{{ n.repo }}</strong></div>
       <div class="fp-muted" style="margin:0">{{ n.hint }}</div>
+      {% if n.suggest %}<div class="fp-muted" style="margin:0" data-suggest="{{ n.suggest }}">Suggested: {{ GROUP_LABELS[n.suggest] }} (not chosen until you pick it)</div>{% endif %}
     </div>
+    <input type="hidden" name="new.{{ n.i }}.repo" value="{{ n.repo }}"{% if not local %} disabled{% endif %}>
     <fieldset class="fp-radio">
       <legend class="sr">Group for {{ n.repo }}</legend>
       {% for g in QUICK %}

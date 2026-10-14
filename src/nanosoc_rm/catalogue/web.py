@@ -82,8 +82,20 @@ def _new_repos(config) -> list[dict]:
 
 
 def _suggest(doc: dict) -> str:
-    """The pre-selected answer of a new repo: Project when it says nanoSoC, else none (a person decides)."""
+    """The suggested answer of a new repo, shown as a hint and never pre-selected ("Nothing is checked until you
+    decide"): Project when it says nanoSoC, else none."""
     return "project" if doc["fact"].get("mentions_nanosoc") else ""
+
+
+def _posted_rows(form: Any) -> dict[str, str]:
+    """{repo key (host:path): the row index it was posted under} from the page's hidden `new.<i>.repo` fields.
+    A choice is matched to its repo by this key, never by the row's position: the queue can change between the
+    GET that drew the page and the Save."""
+    out: dict[str, str] = {}
+    for key in list(form.keys()):
+        if key.startswith("new.") and key.endswith(".repo"):
+            out[str(form.get(key) or "")] = key.split(".")[1]
+    return out
 
 
 def catalogue_view(config, *, form: dict | None = None) -> dict:
@@ -97,6 +109,7 @@ def catalogue_view(config, *, form: dict | None = None) -> dict:
         problems.append("the registry could not be read: %s" % str(e)[:300])
         reg, chars, ignored = None, {}, []
     form = form or {}
+    posted = _posted_rows(form)
     new = []
     for i, d in enumerate(_new_repos(config)):
         f = d["fact"]
@@ -108,10 +121,10 @@ def catalogue_view(config, *, form: dict | None = None) -> dict:
         if f.get("description"):
             hint.append(f["description"])
         hint.append("mentions nanoSoC" if f.get("mentions_nanosoc") else "no nanoSoC mention found")
-        picked = form.get("new.%d.group" % i, _suggest(d))
-        new.append({"i": i, "repo": repo, "doc": d, "hint": " · ".join(hint), "picked": picked,
-                    "other": form.get("new.%d.other" % i, ""), "type": form.get("new.%d.type" % i, ""),
-                    "role": form.get("new.%d.role" % i, "")})
+        j = posted.get(repo)                                     # this repo's row on the submitted page, if any
+        sub = (lambda f: form.get("new.%s.%s" % (j, f), "")) if j is not None else (lambda f: "")
+        new.append({"i": i, "repo": repo, "doc": d, "hint": " · ".join(hint), "picked": sub("group"),
+                    "suggest": _suggest(d), "other": sub("other"), "type": sub("type"), "role": sub("role")})
     ask = []
     for cid, ch in chars.items():
         if not ch.question:
@@ -134,17 +147,18 @@ def choices_from_form(form: Any, view: dict) -> tuple[list[dict], list[str]]:
     """The catalogue.preview choices for a submitted page, and the reasons any part was not usable."""
     out: list[dict] = []
     skipped: list[str] = []
-    by_i = {str(n["i"]): n for n in view["new"]}
+    by_repo = {n["repo"]: n for n in view["new"]}
     for key in list(form.keys()):
         if not (key.startswith("new.") and key.endswith(".group")):
             continue
         i = key.split(".")[1]
-        n = by_i.get(i)
-        if n is None:
-            skipped.append("new repo %s is no longer in the queue" % i)
-            continue
         group = str(form.get("new.%s.other" % i) or form.get(key) or "")
         if not group:
+            continue
+        rk = str(form.get("new.%s.repo" % i) or "")
+        n = by_repo.get(rk)
+        if n is None:
+            skipped.append("new repo %s is no longer in the queue" % (rk[:120] or "(row %s, no repo key)" % i[:10]))
             continue
         host, _, path = n["repo"].partition(":")
         if group == IGNORE:
