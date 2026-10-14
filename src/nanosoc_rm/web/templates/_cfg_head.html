@@ -9,8 +9,8 @@
   <p id="cfg-sentence" class="disp" style="font-size:1.2em;margin:.5rem 0">{{ head.sentence }}</p>
   <div class="row" style="align-items:center">
     {% set a = head.action %}
-    {% if a and a.method == 'get' %}<a class="prim" href="{{ a.href }}">{{ a.label }}</a>{% endif %}
-    {% with cid = c.cid %}{% include "_run_form.html" %}{% endwith %}
+    {% if a and a.method == 'get' %}<a class="{{ 'prim' if head.primary == 'action' else 'ghost' }}" href="{{ a.href }}">{{ a.label }}</a>{% endif %}
+    {% with cid = c.cid, run_class = ('primary' if head.primary == 'run' else 'ghost') %}{% include "_run_form.html" %}{% endwith %}
     {% if actions %}
     <form method="post" action="{{ base }}/walk"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" class="ghost" title="nanosoc-rm walk {{ c.cid }}">Walk now</button></form>
     {% endif %}

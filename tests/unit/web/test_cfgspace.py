@@ -291,3 +291,94 @@ def test_the_workspace_adds_get_routes_only_and_a_get_never_queues(ws, monkeypat
     monkeypatch.setattr(jobs, "submit", lambda *a, **k: (_ for _ in ()).throw(AssertionError("a GET queued a job")))
     for path in ("", "/tree", "/tree/node?path=tidelink", "/whatif?component=tidelink", "/silicon", "/history"):
         assert ws["client"].get("/configurations/%s%s" % (RC4, path)).status_code == 200, path
+
+
+# ----- review fixes (C-1 .. C-6) --------------------------------------------------------------------------------
+def test_overview_puts_the_deciding_gate_first_even_when_another_fail_is_stored_first(ws):
+    """C-1: same-verdict gates keep stored order only after the deciding rows."""
+    doc = copy.deepcopy(views_now(ws))
+    gates = doc["fact"]["gates"]
+    i = next(k for k, g in enumerate(gates) if g["id"] == "t0.vendor.no-arm-ip")
+    gates.insert(0, gates.pop(i))
+    doc["observed_at"] = doc["fact"]["finished_at"] = "2099-01-01T00:00:00Z"
+    db.put(doc, config=ws["cfg"])
+    dec = V.deciding(doc)
+    assert dec.gate and dec.gate != "t0.vendor.no-arm-ip"
+    rows = re.findall(r"<tr ([^>]*data-gate=[^>]*)>",
+                      _tbody(ws["client"].get("/configurations/%s" % RC4).text, "h-gates"))
+    flags = ['class="is-deciding"' in r for r in rows]
+    n = sum(flags)
+    assert n and flags[:n] == [True] * n, rows
+
+
+def test_hosts_paint_branch_only_red_on_a_frozen_tree_only():
+    """C-2a."""
+    p = _pin("tidelink", hosts={"github": {"state": "BRANCH_ONLY", "pinned": True}})
+    assert cfgspace._hosts(p, True) == [("github* BRANCH_ONLY", "c-fail")]
+    assert cfgspace._hosts(p, False)[0][1] != "c-fail"
+
+
+def test_overview_silicon_tile_counts_only_covered_rows(ws):
+    """C-2b: an uncovered row must not read as N of N."""
+    _put_uncovered(ws["cfg"])
+    text = ws["client"].get("/configurations/%s" % RC4).text
+    m = re.search(r'<div class="lbl">Silicon protection</div><div class="disp"[^>]*>([^<]+)</div>', text)
+    assert m and m.group(1) == "13 of 14", m and m.group(1)
+
+
+def test_whatif_refuses_a_job_of_another_configuration(ws):
+    """C-2c."""
+    cfg = ws["config"]
+    job = jobs.submit(cfg, "compat", {"configuration": "eth-main", "pins": ["tidelink=%s" % NEW]}, "alice")
+    jobs._update(cfg, job["id"], state="done", verdict="FAIL", started_at="2026-10-13T10:00:00Z",
+                 finished_at="2026-10-13T10:00:40Z", result=_after(views_now(ws)))
+    text = ws["client"].get("/configurations/%s/whatif" % RC4, params={"job": job["id"]}).text
+    assert "job %d is not a compat job of %s" % (job["id"], RC4) in text
+    assert "Now vs After, per gate" not in text
+
+
+def test_expectation_names_the_component_that_holds_the_deciding_cause():
+    """C-2d."""
+    d = V.Decision("FAIL", "t0.pins.reachable", "ahb_qspi unreachable", "ahb_qspi", ("ahb_qspi",),
+                   ("t0.pins.reachable",), (), False, kind="pin", component="ahb_qspi")
+    assert cfgspace.expectation(d, "ahb_qspi", "eth-main", ["ahb_qspi"]) == (
+        "ahb_qspi holds the deciding cause (ahb_qspi unreachable). A different commit may clear it; the run will tell.")
+
+
+def test_diff_gates_calls_an_equal_severity_move_changed_not_worse():
+    """C-3."""
+    a = _doc({"g1": "NOT-RUN", "g2": "WARN"})
+    b = _doc({"g1": "INFRA", "g2": "WAIVED"})
+    for x, y in ((a, b), (b, a)):
+        assert [(r["gate"], r["change"]) for r in cfgspace.diff_gates(x, y)] == [("g1", "changed"), ("g2", "changed")]
+    assert cfgspace.CHANGE_TONE["changed"] != cfgspace.CHANGE_TONE["worse"]
+
+
+def _primaries(html: str) -> int:
+    return len(re.findall(r'class="(?:prim|primary)"', html))
+
+
+def test_each_workspace_page_has_one_primary_action(ws):
+    """C-4: spec 3.1, the single primary action."""
+    c = ws["client"]
+    assert _primaries(c.get("/configurations/%s" % RC4).text) == 1
+    w = c.get("/configurations/%s/whatif" % RC4, params={"component": "tidelink", "target_other": NEW}).text
+    assert _primaries(w) == 1 and re.search(r'class="prim"[^>]*>Run what-if', w)
+    assert len(Hooks(w).with_attr("data-run-t0")) == 1
+
+
+def test_an_oversized_job_number_is_not_a_server_error(ws):
+    """C-5."""
+    big = "99999999999999999999999"
+    c = ws["client"]
+    for url in ("/configurations/%s/whatif" % RC4, "/compat", "/configurations/%s" % RC4):
+        assert c.get(url, params={"job": big}, follow_redirects=False).status_code < 500, url
+    assert jobs.get(ws["config"], int(big)) is None
+
+
+def test_picking_a_target_reloads_the_page_without_the_extra_button(ws):
+    """C-6: with htmx, a target radio change is enough; the button stays for no-JS."""
+    text = ws["client"].get("/configurations/%s/whatif" % RC4, params={"component": "tidelink"}).text
+    form = text[text.index('id="wi-target"'):]
+    form = form[:form.index("</form>")]
+    assert 'hx-trigger="change"' in form and 'hx-select="#main"' in form and 'hx-push-url="true"' in form

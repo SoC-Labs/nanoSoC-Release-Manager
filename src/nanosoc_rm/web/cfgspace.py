@@ -447,7 +447,7 @@ def _gate_rows(doc: dict | None) -> dict[str, dict]:
 
 def diff_gates(now_doc: dict | None, after_doc: dict | None) -> list[dict]:
     """Now vs After per gate: [{gate, now, after, change, detail}], changed rows first, each group in the
-    results' own gate order. change: same, better, worse, new (no Now row) or gone (no After row)."""
+    results' own gate order. change: same, better, worse, changed (another verdict of equal severity), new (no Now row) or gone (no After row)."""
     now, after = _gate_rows(now_doc), _gate_rows(after_doc)
     order = list(now) + [g for g in after if g not in now]
     rows = []
@@ -460,6 +460,8 @@ def diff_gates(now_doc: dict | None, after_doc: dict | None) -> list[dict]:
             change = "gone"
         elif nv == av:
             change = "same"
+        elif SEVERITY.get(av, 2) == SEVERITY.get(nv, 2):
+            change = "changed"
         else:
             change = "better" if SEVERITY.get(av, 2) < SEVERITY.get(nv, 2) else "worse"
         rows.append({"gate": gid, "now": nv or "-", "after": av or "-", "change": change,
@@ -468,7 +470,8 @@ def diff_gates(now_doc: dict | None, after_doc: dict | None) -> list[dict]:
     return sorted(rows, key=lambda r: r["change"] == "same")
 
 
-CHANGE_TONE = {"same": "c-neutral", "better": "c-pass", "worse": "c-fail", "new": "c-infra", "gone": "c-notrun"}
+CHANGE_TONE = {"same": "c-neutral", "better": "c-pass", "worse": "c-fail", "changed": "c-warn", "new": "c-infra",
+               "gone": "c-notrun"}
 
 
 def expectation(decision: V.Decision, component: str | None, cid: str, tree_paths: list[str] = ()) -> str:
@@ -638,11 +641,16 @@ def _crumbs(ctx: Ctx, tab: str) -> list[tuple[str, str | None]]:
 
 
 def _page(request: Request, ctx: Ctx, tab: str, template: str, problems: list[str] | None = None,
-          status: int = 200, **kw: Any) -> HTMLResponse:
+          status: int = 200, page_primary: bool = False, **kw: Any) -> HTMLResponse:
+    """`page_primary`: the page body holds its own primary action, so the header's are shown as ghosts."""
     config = request.state.config
+    head = header(config, ctx, request)
+    # spec 3.1: one primary action per page. The next action (a GET link) wins over Run; the page's own wins over both.
+    a = head["action"]
+    head["primary"] = None if page_primary else ("action" if a and a.get("method") == "get" else "run")
     return request.app.state.rm.page(
         request, template, ctx.cid, status=status, problems=problems, crumbs=_crumbs(ctx, tab), c=ctx, tab=tab,
-        head=header(config, ctx, request), tabs_=_tabs(request, ctx, tab, config), base=_base(ctx.cid),
+        head=head, tabs_=_tabs(request, ctx, tab, config), base=_base(ctx.cid),
         pending=[j for j in views.safe_jobs(config, states=("queued", "running"), configuration=ctx.cid)
                  if j["kind"] == "compat" and not j["params"].get("pins")]
         + views.pending_runs(views.runs(config, ctx.cid)), **kw)
@@ -684,7 +692,7 @@ def _gates_table(ctx: Ctx) -> list[dict]:
     rows = list(_gate_rows(ctx.doc).values())
     deciding = set(ctx.decision.same_cause_gates)
     rank = {v: i for i, v in enumerate(GATE_ROW_ORDER)}
-    rows = sorted(rows, key=lambda g: rank.get(g.get("verdict"), len(rank)))
+    rows = sorted(rows, key=lambda g: (g["id"] not in deciding, rank.get(g.get("verdict"), len(rank))))
     return [dict(g, deciding=g["id"] in deciding, tone=shell.tone(g.get("verdict"))) for g in rows]
 
 
@@ -819,6 +827,7 @@ def whatif_page(request: Request, id: str) -> Response:
         steps.append({"lead": "Then:", "rest": "%s (%s)" % (c.label, ", ".join(c.gates))})
     refs_by_kind = {"tag": [r for r in refs if r["kind"] == "tag"], "branch": [r for r in refs if r["kind"] == "branch"]}
     return _page(request, ctx, "whatif", "cfg_whatif.html", problems=problems, result=result,
+                 page_primary=bool(comp and target and request.app.state.rm.local_routes),
                  change_tone=CHANGE_TONE, comp=comp, comp_rows=comp_rows, flt=q.get("q") or "", targets=tg,
                  target=target, target_label=target_label, refs=refs_by_kind, n_refs=len(refs), paths=paths,
                  chosen=chosen, tiers=tiers, steps=steps, code=(act or {}).get("code"),
