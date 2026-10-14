@@ -36,14 +36,14 @@ import secrets
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.config import Config, load_config
 
 __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc", "subject_of",
            "check_observation", "database_path", "connect", "ensure_schema", "put", "put_snapshot", "new_snapshot_id",
-           "latest", "history",
+           "latest", "newest_per", "history",
            "data_age", "put_run", "get_run", "runs", "log_action", "actions", "raise_alert", "alerts",
            "clear_alert"]
 
@@ -436,6 +436,24 @@ def latest(kind: str, subject_prefix: str = "", *, config: Config | str | Path |
         raise ValueError("unknown observation kind %r" % kind)
     with connect(config) as con:
         return _latest(con, kind, subject_prefix)
+
+
+def newest_per(kind: str, group: Callable[[str], str], subject_prefix: str = "", *,
+               config: Config | str | Path | None = None) -> list[dict]:
+    """For an event kind: the newest observation (newest observed_at; on a tie, the one stored last) in each group
+    of subjects, where `group(subject)` names the group; in stored order. Only the chosen documents are read, so a
+    caller that wants one per target does not decode every commit's document (ROB-load-2)."""
+    if kind not in EVENT_KINDS:
+        raise ValueError("newest_per reads event kinds, not %r" % kind)
+    with connect(config) as con:
+        best: dict[str, Any] = {}
+        for r in _newest_rows(con, kind, subject_prefix):
+            g = group(r["subject"])
+            cur = best.get(g)
+            if cur is None or clock.parse(r["observed_at"]) >= clock.parse(cur["observed_at"]):
+                best[g] = r
+        docs = _docs(con, sorted(r["rid"] for r in best.values()))
+        return _overlay_alerts(con, docs) if kind == "alert" else docs
 
 
 def history(subject: str, *, config: Config | str | Path | None = None) -> list[dict]:

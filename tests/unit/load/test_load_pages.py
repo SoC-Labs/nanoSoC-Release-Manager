@@ -130,8 +130,6 @@ def _quality_history(cfg, commits: int) -> None:
             db._insert(con, d)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-load-2: the inbox reads every quality_finding document ever stored (one "
-                                       "per analysed commit) on every page (web/inbox.py _quality)")
 def test_a_page_reads_quality_findings_independent_of_their_history(local, monkeypatch):
     """/alerts shows no quality; its rail needs at most the newest finding document per target. With one target
     analysed at 30 commits, a GET must not decode all 30 (each is about 1 KB per finding: tidelink's 4092

@@ -371,3 +371,24 @@ def test_a_store_taken_off_wal_is_put_back_on_it(rm_config):
     assert len(db.latest("silicon_protection")) == len(silicon())
     assert rows(rm_config, "PRAGMA journal_mode")[0][0] == "wal"
 
+
+def test_newest_per_reads_only_the_newest_document_of_each_group(rm_config, monkeypatch):
+    """ROB-load-2: one quality_finding per target, newest observed_at, without decoding the older commits."""
+    base = [d for d in examples("observation.quality.example.jsonl") if d["kind"] == "quality_finding"][0]
+    for i, (target, at) in enumerate([("a", "2026-10-02T00:00:00Z"), ("a", "2026-10-03T00:00:00Z"),
+                                      ("a", "2026-10-01T00:00:00Z"), ("b", "2026-10-01T00:00:00Z")]):
+        d = copy.deepcopy(base)
+        d["fact"].update(target=target, commit="%040x" % (i + 1), worktree=False)
+        d["observed_at"] = at
+        d["subject"] = db.subject_of(d)
+        db.put(d)
+    decoded = []
+    real = db.json.loads
+    monkeypatch.setattr(db.json, "loads", lambda s, *a, **k: decoded.append(1) or real(s, *a, **k))
+    got = db.newest_per("quality_finding", lambda s: s.rsplit(":", 1)[0], "quality_finding:")
+    monkeypatch.undo()
+    assert [(d["fact"]["target"], d["observed_at"]) for d in got] == [("a", "2026-10-03T00:00:00Z"),
+                                                                       ("b", "2026-10-01T00:00:00Z")]
+    assert len(decoded) == 2
+    with pytest.raises(ValueError):
+        db.newest_per("pin_state", lambda s: s)
