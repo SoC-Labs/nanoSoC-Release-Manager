@@ -150,6 +150,34 @@ git -C <id>.git fetch --no-tags --prune --filter=blob:none <https url> \
 - `--no-tags` is required: without it git auto-follows tags and writes `refs/tags/*` outside the namespace, and in a store holding both hosts the first host fetched would own the bare tag names (reproduced with git 2.43, scope_web gap G19).
 - **Mirror config:** `core.logAllRefUpdates=always`, `gc.reflogExpire=never`, `gc.reflogExpireUnreachable=never`, `gc.pruneExpire=never`. Old heads and their objects stay inspectable (B3 REWRITTEN, B8).
 - **Private repos:** the read token goes in through a credential helper, never in the URL.
+- **Private repos, local deployment (CR-PR1, optional, off by default):** `[hosts.<host>] private_read` names one
+  READ-ONLY method: `"ssh"` (the service user's existing key; `ssh -o BatchMode=yes`, no password or keyboard
+  prompt; `{method = "ssh", identity_file = "..."}` restricts it to one key with `IdentitiesOnly`) or
+  `{method = "token", token_file = "...", username = "..."?}` (a read-scope token through a credential helper that
+  reads it from the environment; the user's own helpers are reset for the host's URL, so no `store` helper sees it).
+  It is used only when the anonymous fetch fails as a private repo does (`private_read.RETRY_CAUSES`: auth,
+  not-found), and only for that repo's `ls-remote --symref` and `fetch`, with `--filter=blob:limit=1m` so the
+  walker and the quality reports need no later lazy fetch:
+  ```
+  git -C <id>.git fetch --no-tags --prune --filter=blob:limit=1m <ssh or https url> +refs/heads/*:... +refs/tags/*:...
+  ```
+  `gitrun` enforces the scope: an environment carrying `NANOSOC_RM_PRIVATE_READ` may run only `fetch` and
+  `ls-remote` (no `--recurse-submodules`), on top of every other refusal (`gitrun.check_credentialed`). The
+  credential is in no argv, URL, observation, alert or error text; a missing or empty token file is cause `config`,
+  naming the host only. The T0 gates, `compat`, tiers and matrix cells never read it: they judge public
+  fetchability and stay anonymous (section 9a).
+- **How a repo was read** (CR-PR1, optional `mirror_status` fields): `access` = `anonymous` | `credentials`
+  (private, readable with credentials) | `unreadable`; `cause` of a failure = `auth` | `ssh-key` | `ssh-host` |
+  `not-found` | `network` | `timeout` | `config` | `other` (`private_read.classify` on git's stderr); `method` =
+  the method tried (`ssh` | `token`) or null. `nanosoc-rm mirror status` prints an `access` column
+  (`anonymous`, `credentials:<method>`, `unreadable:<cause>`); `mirror status --summary [--json]` counts repos per
+  (access, cause, method) with a per-host split; `/mirrors` shows the same summary above the table.
+- **Alerts by cause:** the `mirror_failed` text leads with its cause (`failure_message`): "failed with read
+  credentials (<method>)", "private_read is misconfigured", "private or missing, no private_read for <host>", or the
+  plain error. `web.alertgroups` groups them as `private-creds`, `private-read-config`, `private-anon` (and the
+  existing ssh-key, repo-gone, unreachable). An open alert is raised again when the method tried changes (the
+  repo now fails WITH credentials), so it moves to the right group; a recovery does not clear an alert (a person
+  does, one group at a time, CR-W3).
 - **Blobs:** `.gitmodules` blobs arrive on demand and are then cached.
 - **git environment:** the service's git subprocesses inherit the process environment (tests route them with `GIT_CONFIG_GLOBAL` and `url.insteadOf`). Only the T0 runner forces `GIT_CONFIG_GLOBAL=/dev/null`.
 
@@ -1186,6 +1214,7 @@ builder who wants a different name changes it here, through a CR after gate 2, a
 [paths]        quarantine = "..."    # optional; default <data_dir>/quarantine
 [roles]        default = ["member"]  # plus "<login>" = [...]
 [schedule]     poll_minutes = 15  nightly_utc = "02:00"  fetch_minutes = 2
+               # optional (CR-PR1), per host: private_read = "ssh"  or  { method = "token", token_file = "..." }
 [auth]         mode = "github"       # CR-16: or "local", with [[auth.users]] login = "..."  hash = "scrypt$..."  roles = [...]
 [quality]      api_key_file = "..."  model = "claude-sonnet-5-5"  paths = { <name> = "<local checkout>" }   # CR-14, all optional
 ```

@@ -157,6 +157,28 @@ def mirrors(config: Config) -> list[dict]:
     return sorted(db.latest("mirror_status", config=config), key=lambda d: d["subject"])
 
 
+_ACCESS_TEXT = {"anonymous": "public, read anonymously", "credentials": "private, readable with credentials",
+                "unreadable": "unreadable"}
+_CAUSE_TEXT = {"auth": "the host refused an anonymous read (private?)", "ssh-key": "the ssh key was refused",
+               "ssh-host": "the ssh host key is not known", "not-found": "not found on the host",
+               "network": "the host could not be reached", "timeout": "the fetch timed out",
+               "config": "private_read is misconfigured", "other": "other error"}
+
+
+def mirror_summary(rows: list[dict]) -> list[dict]:
+    """CR-PR1: the mirrors counted by how they were read, each with a sentence (`text`) for the page."""
+    from nanosoc_rm.mirror.sync import access_summary
+    out = []
+    for r in access_summary(rows):
+        text = _ACCESS_TEXT.get(r["access"], r["access"])
+        if r["method"]:
+            text += " (%s %s)" % ("tried" if r["access"] == "unreadable" else "with", r["method"])
+        if r["cause"]:
+            text += ": " + _CAUSE_TEXT.get(r["cause"], r["cause"])
+        out.append(dict(r, text=text, hosts_text=", ".join("%d %s" % (n, h) for h, n in sorted(r["by_host"].items()))))
+    return out
+
+
 def inventory(config: Config, unclassified: bool = False) -> list[dict]:
     docs = db.latest("repo_inventory", config=config)
     if unclassified:

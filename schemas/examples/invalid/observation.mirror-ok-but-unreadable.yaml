@@ -1,0 +1,9 @@
+# expect-error: enum at /fact/access
+# CR-PR1: a fetch that succeeded cannot report the repo unreadable.
+schema: 1
+kind: mirror_status
+subject: "mirror_status:gitlab:soclabs/private-ip"
+observed_at: "2026-10-14T02:00:05Z"
+sources: [{kind: git, command: "git -C mirrors/private-ip.git fetch --no-tags --prune --filter=blob:limit=1m git@<gitlab-host>:soclabs/private-ip.git"}]
+snapshot: {id: "mirror_status:private-ip@2026-10-14T02:00:05Z", scope: "mirror_status:private-ip"}
+fact: {repo: {host: gitlab, path: soclabs/private-ip}, component: private-ip, ok: true, last_success_at: "2026-10-14T02:00:05Z", error: null, access: unreadable, cause: null, method: ssh}

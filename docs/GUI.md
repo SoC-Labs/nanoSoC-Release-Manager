@@ -63,7 +63,7 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Hosts | canonical vs copy relation; **Compare now** (a POST: a link can never start one) |
 | Contains, Silicon | containment of a commit; silicon-protection rows |
 | Registry | components, defects, errata |
-| Mirrors | fetch status and age; **Sync** one component or all |
+| Mirrors | fetch status and age; how each repo was read (public, private with credentials, unreadable and why: `private_read`, CR-PR1, docs/DEPLOY.md); **Sync** one component or all |
 | Alerts | open alerts grouped by cause (messages redacted); **Clear all** of a group after fixing it (refused with 409 if the group changed since the page was drawn) and **Clear** one; each clear is logged with your login |
 | Matrix | per configuration: a row per component, columns pinned / latest tag in range / latest tag / default-branch head; each cell's verdict (text and colour), age and stale flag; **Run cell**, **Run row**, **Run column**, **Run all** queue local jobs (a T0 run each, about 3 minutes); a cell page with every attempt, the D4 provenance and the comparison with the same night's pinned run; the D8 quarantine list. The nightly matrix is disabled until the Phase 2 gate |
 | Quality | comment density, comment findings with a patch, README check with a layout patch, doc conciseness, trend; a page with no stored result queues a quality job and says "analysing, refresh" (about a minute on a large repository) |

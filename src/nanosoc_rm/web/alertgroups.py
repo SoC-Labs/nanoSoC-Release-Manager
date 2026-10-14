@@ -27,10 +27,18 @@ __all__ = ["CAUSES", "normalise", "cause_of", "groups", "group", "host_of", "see
 
 # (alert_kind or None for any kind, pattern on the normalised message, key, label, advice). First match wins.
 CAUSES: tuple[tuple[str | None, str, str, str, str], ...] = (
+    # CR-PR1: a failure WITH the host's private_read method is its own cause, before the anonymous ones.
+    ("mirror_failed", r"failed with read credentials",
+     "private-creds", "private repos the read credentials cannot read",
+     "Check that the host's private_read key or token can read these repos, then sync again"),
+    ("mirror_failed", r"private_read is misconfigured",
+     "private-read-config", "mirrors whose private_read setting cannot be used",
+     "Fix [hosts.<host>] private_read in the service config (docs/DEPLOY.md)"),
     ("mirror_failed", r"could not read (username|password).*terminal prompts disabled|authentication failed"
                       r"|terminal prompts disabled",
      "private-anon", "private repos cannot be mirrored anonymously",
-     "Fix the read credentials, or mark these repos private so the mirror skips them"),
+     "Set private_read for the host (one config line, docs/DEPLOY.md), or mark these repos private so the "
+     "mirror skips them"),
     ("mirror_failed", r"permission denied \(publickey\)|host key verification failed",
      "ssh-key", "repos the mirror reads over ssh without a key",
      "Mirror them over https, or give the service a read-only deploy key"),

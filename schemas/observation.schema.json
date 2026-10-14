@@ -1786,6 +1786,14 @@
         "error"
       ],
       "additionalProperties": false,
+      "allOf": [
+        {"if": {"properties": {"ok": {"const": true}}, "required": ["access"]},
+         "then": {"properties": {"access": {"enum": ["anonymous", "credentials"]}, "cause": {"type": "null"}}}},
+        {"if": {"properties": {"ok": {"const": false}}, "required": ["access"]},
+         "then": {"properties": {"access": {"const": "unreadable"}}}},
+        {"if": {"properties": {"access": {"const": "credentials"}}, "required": ["access"]},
+         "then": {"required": ["method"], "properties": {"method": {"enum": ["ssh", "token"]}}}}
+      ],
       "properties": {
         "repo": {
           "$ref": "defs.schema.json#/$defs/repo"
@@ -1818,6 +1826,18 @@
             "string",
             "null"
           ]
+        },
+        "access": {
+          "description": "CR-PR1: how the repo was read. anonymous = no credential; credentials = private, readable with the host's private_read method; unreadable = the fetch failed (see cause). Absent on rows stored before CR-PR1.",
+          "enum": ["anonymous", "credentials", "unreadable"]
+        },
+        "cause": {
+          "description": "CR-PR1: why a fetch failed, from git's error text (auth, ssh-key, ssh-host, not-found, network, timeout, config = private_read unusable, other); null when ok.",
+          "oneOf": [{"enum": ["auth", "ssh-key", "ssh-host", "not-found", "network", "timeout", "config", "other"]}, {"type": "null"}]
+        },
+        "method": {
+          "description": "CR-PR1: the private_read method this sync tried (ssh or token), null when only the anonymous fetch ran. Never the credential itself.",
+          "oneOf": [{"enum": ["ssh", "token"]}, {"type": "null"}]
         }
       }
     },

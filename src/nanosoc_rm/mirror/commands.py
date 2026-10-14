@@ -1,8 +1,11 @@
 """CLI of the mirror module (interfaces.md section 3):
 
     nanosoc-rm mirror sync [--component ID] [--host H] [--json]   exit 1 a rewrite was found, 2 a fetch failed
-    nanosoc-rm mirror status [--component ID] [--json]           the table prints each repo's `age` in seconds (H6);
+    nanosoc-rm mirror status [--component ID] [--json]           the table prints each repo's `age` in seconds (H6)
+                                                                  and how it was read (`access`, CR-PR1);
                                                                   exit 2 when a mirror's last fetch failed
+    nanosoc-rm mirror status --summary [--json]                  one line per (access, cause, method): how many
+                                                                  repos are public, private-and-read, unreadable
     nanosoc-rm inventory [--unclassified] [--json]               exit 1 if any repo is unclassified (A1), 2 when a
                                                                   host listing could not be read
 """
@@ -22,14 +25,26 @@ def _age(fact: dict, now) -> str:
     return str(max(0, int((now - clock.parse(fact["last_success_at"])).total_seconds())))
 
 
+def access_cell(fact: dict) -> str:
+    """One word: anonymous, credentials:<method> (private, readable with credentials), or unreadable:<cause>.
+    A row stored before CR-PR1 has no `access`: ok reads anonymous, a failure unreadable:<cause from its error>."""
+    from nanosoc_rm.mirror.private_read import classify
+    access = fact.get("access") or ("anonymous" if fact["ok"] else "unreadable")
+    if access == "credentials":
+        return "credentials:%s" % (fact.get("method") or "?")
+    if access == "unreadable":
+        return "unreadable:%s" % (fact.get("cause") or classify(fact.get("error")))
+    return access
+
+
 def status_table(docs: list[dict], now=None) -> str:
     """The `mirror status` table. Header names are lower case; every cell but the last is one word, so a reader
     can split rows on whitespace; `age` is now - last_success_at in whole seconds ("-" if never fetched)."""
     now = now or clock.now()
-    cols = ("host", "path", "component", "ok", "age", "last_success_at", "error")
+    cols = ("host", "path", "component", "ok", "age", "last_success_at", "access", "error")
     rows = [[d["fact"]["repo"]["host"], d["fact"]["repo"]["path"], d["fact"]["component"] or "-",
              "yes" if d["fact"]["ok"] else "NO", _age(d["fact"], now), d["fact"]["last_success_at"] or "-",
-             d["fact"]["error"] or ""] for d in docs]
+             access_cell(d["fact"]), d["fact"]["error"] or ""] for d in docs]
     widths = [max([len(c)] + [len(r[i]) for r in rows]) for i, c in enumerate(cols)]
     lines = ["  ".join(c.ljust(widths[i]) for i, c in enumerate(cols)).rstrip()]
     lines += ["  ".join(r[i].ljust(widths[i]) for i in range(len(cols))).rstrip() for r in rows]
@@ -78,12 +93,19 @@ def register(main: click.Group) -> None:
 
     @mirror_group.command("status")
     @click.option("--component", "component", default=None, help="One component or external.")
+    @click.option("--summary", is_flag=True, help="Count repos by how they were read and why a read failed.")
     @json_option
-    def status_cmd(component: str | None, as_json: bool) -> int:
+    def status_cmd(component: str | None, summary: bool, as_json: bool) -> int:
         """The latest mirror_status of every mirrored repo, with its age (now - last_success_at, seconds)."""
-        from nanosoc_rm.mirror.sync import mirror_status
+        from nanosoc_rm.mirror.sync import access_summary, mirror_status
         docs = mirror_status(component)
-        if as_json:
+        if summary:
+            rows = access_summary(docs)
+            emit(rows, as_json, ("count", "access", "cause", "method", "hosts"),
+                 lambda r: {"count": r["count"], "access": r["access"], "cause": r["cause"] or "-",
+                            "method": r["method"] or "-",
+                            "hosts": ", ".join("%d %s" % (n, h) for h, n in sorted(r["by_host"].items()))})
+        elif as_json:
             emit(docs, True)
         else:
             click.echo(status_table(docs))

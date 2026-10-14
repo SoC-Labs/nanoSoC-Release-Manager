@@ -1,4 +1,8 @@
-<p class="note">Local mirrors of every catalogued repo: heads and tags only, fetched anonymously (<code>nanosoc-rm mirror sync</code>). Every other page reads them.</p>
+<p class="note">Local mirrors of every catalogued repo: heads and tags only, fetched anonymously; a private repo is fetched again with the host's read-only <code>private_read</code> method when one is configured (<code>nanosoc-rm mirror sync</code>). Every other page reads them.</p>
+{% if summary %}<table class="mirror-summary">
+  <thead><tr><th>Repos</th><th>How they were read</th><th>Hosts</th></tr></thead>
+  <tbody>{% for s in summary %}<tr><td>{{ s.count }}</td><td><span class="pill {{ 'state-red' if s.access == 'unreadable' else ('state-amber' if s.access == 'credentials' else 'state-green') }}">{{ s.access }}</span> {{ s.text }}</td><td>{{ s.hosts_text }}</td></tr>{% endfor %}</tbody>
+</table>{% endif %}
 {% if actions %}<form class="panel" method="post" action="/mirrors/sync">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <div class="row">
@@ -24,7 +28,7 @@
     <tr>
       <td>{% if f.component %}<a href="/components/{{ f.component }}">{{ f.component }}</a>{% endif %}</td>
       <td>{{ fact(m, f.repo.host ~ ':' ~ f.repo.path) }}</td>
-      <td><span class="pill {{ 'state-green' if f.ok else 'state-red' }}">{{ 'ok' if f.ok else 'FAILED' }}</span>{% if f.error %} <span class="note">{{ f.error }}</span>{% endif %}</td>
+      <td><span class="pill {{ 'state-green' if f.ok else 'state-red' }}">{{ 'ok' if f.ok else 'FAILED' }}</span>{% if f.access == 'credentials' %} <span class="note">private, read with {{ f.method }}</span>{% elif f.cause %} <span class="note">[{{ f.cause }}{% if f.method %}, tried {{ f.method }}{% endif %}]</span>{% endif %}{% if f.error %} <span class="note">{{ f.error }}</span>{% endif %}</td>
       <td>{% if f.last_success_at %}{{ age_text(f.last_success_at) }} ago{% else %}never{% endif %}</td>
       
       <td>{% if f.component and actions %}<form method="post" action="/mirrors/sync"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="component" value="{{ f.component }}"><button type="submit">Sync</button></form>{% endif %}</td>

@@ -646,7 +646,8 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None) -
         config, _ = _ctx(request)
         q = request.query_params
         job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
-        return page(request, "mirrors.html", "Mirrors", rows=views.mirrors(config),
+        rows = views.mirrors(config)
+        return page(request, "mirrors.html", "Mirrors", rows=rows, summary=views.mirror_summary(rows),
                     job=job, job_html=job_fragment(request, job).body.decode() if job else "",
                     recent=views.safe_jobs(config, limit=10, kind="mirror-sync"))
 
