@@ -211,8 +211,6 @@ def test_a_red_run_with_an_infra_gate_still_reports_infra():
     assert dec.gate == "t0.manifest.valid" and dec.infra is True and "t0.infra.probe" in dec.infra_text
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-mutation-2: unused_waivers matches by tree_path only, so a waiver "
-                                       "of one gate hides an unused waiver of another gate at the same path")
 def test_an_unused_waiver_of_another_gate_at_the_same_path_is_reported():
     """A t0_waiver names ONE item: (gate, tree_path, result) (eligibility schema). t0.gates.apply_waivers -- the
     CLI's `unused_waivers` count -- reports the arm-gate waiver below as unused; web.verdict.unused_waivers (the
@@ -224,3 +222,14 @@ def test_an_unused_waiver_of_another_gate_at_the_same_path_is_reported():
                        waived=[{"tree_path": "tidelink", "result": "fail", "covered_by": "tidelink"}]),
                   gate("t0.vendor.no-arm-ip", "PASS")], [pin("tidelink")], verdict="WAIVED")
     assert V.unused_waivers(d, rec) == [unused]
+
+
+def test_an_arm_not_reached_waiver_used_by_the_foundry_gate_is_not_unused():
+    """The control for the (gate, tree_path) key: an arm-gate `not-reached` waiver also covers the foundry gate's
+    item (t0.gates._waiver_gates), so a foundry gate that names it has used it."""
+    w = {"gate": "t0.vendor.no-arm-ip", "tree_path": "tidelink", "result": "not-reached"}
+    rec = {"fact": {"record": {"frozen": True, "t0_waivers": [w]}}}
+    d = doc("x", [gate("t0.vendor.no-foundry-data", "WAIVED", raw_verdict="FAIL",
+                       waived=[{"tree_path": "tidelink", "result": "not-reached", "covered_by": "tidelink"}])],
+            [pin("tidelink")], verdict="WAIVED")
+    assert V.unused_waivers(d, rec) == []

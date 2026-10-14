@@ -101,9 +101,6 @@ def test_the_healthy_tree_walks_two_pins(at_pins, h):
     assert sorted(d["fact"]["tree_paths"][0] for d in docs) == ["a", "a/deps/leaf"]
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-9: a root commit whose tree object is missing (corrupt pack) walks "
-                                       "as a tree with NO pins: walker._read_node returns silently when "
-                                       "`ls-tree <c> -- .gitmodules` fails, and the empty walk is stored as current")
 def test_a_root_tree_missing_from_the_mirror_is_walkerror_not_no_pins(at_pins, h):
     fx = build(at_pins, h)
     env = fx["env"]
@@ -117,8 +114,6 @@ def test_a_root_tree_missing_from_the_mirror_is_walkerror_not_no_pins(at_pins, h
     assert walk_rows(env) == {"a", "a/deps/leaf"}                 # the last good walk is still the current one
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-9: a child commit whose tree object is missing (corrupt pack in "
-                                       "its mirror) silently drops every pin below it; the walk is stored complete")
 def test_a_child_tree_missing_from_its_mirror_never_drops_the_pins_below_it(at_pins, h):
     fx = build(at_pins, h)
     env = fx["env"]
@@ -131,6 +126,21 @@ def test_a_child_tree_missing_from_its_mirror_never_drops_the_pins_below_it(at_p
             return                                                # an honest "could not answer" is fine
     assert sorted(d["fact"]["tree_paths"][0] for d in docs) == ["a", "a/deps/leaf"], [
         d["fact"]["tree_paths"] for d in docs]
+
+
+def test_a_subtree_missing_under_a_readable_root_is_walkerror_not_absent(at_pins, h):
+    """Review of ROB-faults-9: mid's root tree (and its .gitmodules) reads, but the `deps` tree that holds the
+    leaf's gitlink is gone. The per-path `ls-tree` fails; that is WalkError, never "the pin is absent"."""
+    fx = build(at_pins, h)
+    env = fx["env"]
+    with env.active():
+        at_pins.rm("walker.walk")("top-main")                     # a good walk is stored first
+    sub = git("--git-dir", env.mirror("mid"), "rev-parse", fx["mid"] + ":deps", env=h.env)
+    explode_and_drop(env.mirror("mid"), sub, h, h.bare(GL, "soclabs/mid"))
+    with env.active():
+        with pytest.raises(WalkError, match="cannot read deps/leaf"):
+            at_pins.rm("walker.walk")("top-main")
+    assert walk_rows(env) == {"a", "a/deps/leaf"}                 # the last good walk is still the current one
 
 
 def test_a_gitmodules_blob_with_its_host_down_is_walkerror_and_stores_nothing(at_pins, h):

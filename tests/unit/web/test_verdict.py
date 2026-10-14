@@ -145,8 +145,10 @@ def test_an_infra_only_run_is_not_a_design_failure():
 
 
 def test_unused_waivers_are_those_no_gate_used():
-    rec = {"fact": {"record": {"frozen": True, "t0_waivers": [{"tree_path": "tidelink"}, {"tree_path": "gone/path"}]}}}
-    assert V.unused_waivers(eth_rc4(), rec) == [{"tree_path": "gone/path"}]
+    # A t0_waiver always names its gate (eligibility schema); unused is keyed on (gate, tree_path) (ROB-mutation-2).
+    rec = {"fact": {"record": {"frozen": True, "t0_waivers": [{"gate": "t0.pins.fetchable", "tree_path": "tidelink"},
+                                                             {"gate": "t0.pins.fetchable", "tree_path": "gone/path"}]}}}
+    assert V.unused_waivers(eth_rc4(), rec) == [{"gate": "t0.pins.fetchable", "tree_path": "gone/path"}]
     unfrozen = copy.deepcopy(rec)
     unfrozen["fact"]["record"]["frozen"] = False
     assert V.unused_waivers(eth_rc4(), unfrozen) == []

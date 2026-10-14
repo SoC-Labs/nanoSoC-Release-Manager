@@ -4,7 +4,8 @@ For one pinned commit and one host holding a copy of the child, first match wins
 
     UNREADABLE        the repo's latest mirror_status is not ok and the mirror holds no refs for it; or the host
                       answered 401/403/404 for the repo itself. A repo with no mirror_status at all (never
-                      synced) is asked the host: 401/403/404 is UNREADABLE, anything else is WalkError (exit 2)
+                      synced) is asked the host: 401/403/404 is UNREADABLE, anything else is WalkError (exit 2).
+                      A rate-limited answer (quota spent) is never UNREADABLE: it is WalkError (exit 2)
     TAGGED            a tag other than keep/* points exactly at the commit
     ON_DEFAULT        reachable from the default branch; lag = commits the pin lacks
     PROTECTED_BY_TAG  not on the default branch, reachable from at least one tag
@@ -12,7 +13,7 @@ For one pinned commit and one host holding a copy of the child, first match wins
     REWRITTEN         reachable now from no head or tag of this host, but an ancestor of an old head of the default
                       branch (this host's reflog in the mirror), or listed in catalogue known_rewrites for this host
     PR_ONLY           the host's API has the commit and links it to a pull or merge request
-    ORPHAN            the host's API has the commit and no ref of any kind reaches it
+    ORPHAN            the host's API has the commit (a 200 with a JSON object) and no ref of any kind reaches it
     MISSING           the host does not have the commit, and the repo itself is readable
 
 "Reachable" always means from a branch or tag OF THAT HOST: only the host's own namespace `refs/r/<key>/` is read,
@@ -104,6 +105,7 @@ class HostJudge:
             sources = []
             base = self._repo_api_path(repo)
             whole = self._get(repo["host"], base, sources)
+            _refuse_rate_limited(repo["host"], whole)
             if whole.status in (401, 403, 404):
                 return "UNREADABLE", None, None, [], [], sources, now
             raise WalkError("%s:%s (component %s) has never been synced, so the mirror cannot judge %s there "
@@ -199,8 +201,18 @@ class HostJudge:
             commit_path = "%s/repository/commits/%s" % (base, commit)
             prs_path = "%s/repository/commits/%s/merge_requests" % (base, commit)
         ans = self._get(host, commit_path, sources)
+        _refuse_rate_limited(host, ans)
+        if ans.status == 200 and not isinstance(ans.body, dict):
+            # A 200 that is not a JSON object (a proxy, sign-in or maintenance page) says nothing about the
+            # commit. Ask once more; a second such answer means the walk cannot answer (ROB-soak-3).
+            ans = self._get(host, commit_path, sources)
+            _refuse_rate_limited(host, ans)
+            if ans.status == 200 and not isinstance(ans.body, dict):
+                raise WalkError("%s: %s answered 200 without a JSON object (a proxy or maintenance page?)"
+                                % (host, ans.source["command"]))
         if ans.status == 200:
             prs = self._get(host, prs_path, sources)
+            _refuse_rate_limited(host, prs)
             if prs.status != 200 or not isinstance(prs.body, list):
                 raise WalkError("%s: %s answered %s" % (host, prs.source["command"], prs.error or prs.status))
             return "PR_ONLY" if prs.body else "ORPHAN"
@@ -208,9 +220,35 @@ class HostJudge:
             return "UNREADABLE"
         if ans.status in (404, 422):
             whole = self._get(host, base, sources)
-            if whole.status == 200:
+            _refuse_rate_limited(host, whole)
+            if whole.status == 200 and isinstance(whole.body, dict):
                 return "MISSING"
             if whole.status in (401, 403, 404):
                 return "UNREADABLE"
             raise WalkError("%s: %s answered %s" % (host, whole.source["command"], whole.error or whole.status))
         raise WalkError("%s: %s answered %s" % (host, ans.source["command"], ans.error or ans.status))
+
+
+def _rate_limited(ans) -> bool:
+    """True when a refusal is the host's request quota, not the repo's permissions: GitHub answers 403 (or 429)
+    with `x-ratelimit-remaining: 0` and a "rate limit" message; GitLab answers 429 with `ratelimit-remaining`
+    and `retry-after`. Such an answer decides nothing about the repo (ROB-soak-1/2)."""
+    if ans.status not in (401, 403, 404, 429):
+        return False
+    headers = ans.headers or {}
+    for name in ("x-ratelimit-remaining", "ratelimit-remaining"):
+        if str(headers.get(name, "")).strip() == "0":
+            return True
+    if ans.status == 429 or "retry-after" in headers:
+        return True
+    message = ans.body.get("message") if isinstance(ans.body, dict) else None
+    return isinstance(message, str) and "rate limit" in message.lower()
+
+
+def _refuse_rate_limited(host: str, ans) -> None:
+    """WalkError (exit 2, could not answer) for a rate-limited answer, never UNREADABLE (ROB-soak-1/2)."""
+    if _rate_limited(ans):
+        reset = (ans.headers or {}).get("x-ratelimit-reset") or (ans.headers or {}).get("ratelimit-reset")
+        raise WalkError("%s: %s answered %s: the host's API rate limit is spent%s, so it decided nothing (add a "
+                        "%s_read token, or wait)" % (host, ans.source["command"], ans.status,
+                                                     " until %s (epoch s)" % reset if reset else "", host))

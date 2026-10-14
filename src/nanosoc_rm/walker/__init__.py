@@ -89,7 +89,12 @@ def _read_node(config: Config, node: _Node, catalogue: Catalogue) -> None:
     if not present.ok:
         return
     has = run_in(mirror, "ls-tree", node.commit, "--", ".gitmodules", env=env)
-    if not has.ok or not has.stdout.strip():
+    if not has.ok:
+        # The commit is here but its tree is not readable (a corrupt or truncated pack): only a successful, empty
+        # answer means "no .gitmodules". Reading a failure as "no submodules" would store fewer pins (ROB-faults-9).
+        raise WalkError("cannot read the tree of %s at %s: %s" % (node.component, node.commit,
+                                                                  has.stderr.strip()[-300:]))
+    if not has.stdout.strip():
         return
     blob = run_in(mirror, "cat-file", "-p", "%s:.gitmodules" % node.commit, env=env)
     if not blob.ok:
@@ -102,6 +107,9 @@ def _read_node(config: Config, node: _Node, catalogue: Catalogue) -> None:
             continue
         path = path.strip("/")
         tree = run_in(mirror, "ls-tree", "-z", node.commit, "--", path, env=env)
+        if not tree.ok:
+            raise WalkError("cannot read %s in the tree of %s at %s: %s" % (path, node.component, node.commit,
+                                                                            tree.stderr.strip()[-300:]))
         entry_type, gitlink = "absent", None
         for rec in tree.stdout.split("\0"):
             meta, _, name = rec.partition("\t")

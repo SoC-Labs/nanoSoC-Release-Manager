@@ -9,7 +9,7 @@ UNREADABLE for public repos that had answered minutes before:
 `contains` then said "unknown" for those hosts, and silicon-protection listed the rows as uncovered and UNREADABLE.
 
 Hermetic: `nanosoc_rm.walker.states.api_get` is replaced with a stub, so no network and no mirror are used.
-The tests that record a defect are strict xfails. The tests without an xfail mark are the controls: they pin
+The tests that recorded a defect were strict xfails until ROB-soak-1/2/3 were fixed (2026-10-14). The tests without an xfail mark are the controls: they pin
 the behaviour that is correct today, so a fix for a defect cannot quietly break it.
 """
 from __future__ import annotations
@@ -64,6 +64,38 @@ def test_private_repo_403_is_unreadable(monkeypatch):
     assert _judge()._ask_host(GH_REPO, COMMIT, []) == "UNREADABLE"
 
 
+def test_private_repo_403_with_quota_left_is_unreadable(monkeypatch):
+    """Control: a refusal that carries rate-limit headers with quota left is a permission answer, not the quota."""
+    _stub(monkeypatch, {"/commits/" + COMMIT: (403, {"message": "Resource not accessible by integration"},
+                                               {"x-ratelimit-limit": "5000", "x-ratelimit-remaining": "4999"})})
+    assert _judge()._ask_host(GH_REPO, COMMIT, []) == "UNREADABLE"
+
+
+def test_non_json_200_for_the_repo_is_not_missing(monkeypatch):
+    """A 200 for the repo that is not a JSON object does not prove the repo readable, so never MISSING."""
+    _stub(monkeypatch, {"/commits/" + COMMIT: (404, {"message": "Not Found"}, {}),
+                        "repos/" + GH_REPO["path"]: (200, None, {"content-type": "text/html"})})
+    with pytest.raises(WalkError):
+        _judge()._ask_host(GH_REPO, COMMIT, [])
+
+
+def test_one_non_json_200_then_a_real_answer_is_judged(monkeypatch):
+    """A single proxy page is retried once; the real answer that follows is used."""
+    answers = iter([(200, None, {"content-type": "text/html"}), (200, {"sha": COMMIT}, {})])
+    calls = _stub(monkeypatch, {"/commits/%s/pulls" % COMMIT: (200, [], {})})
+
+    def fake(config, host, path, params=None, *, url=None, client=None):
+        calls.append(path)
+        if path.endswith("/pulls"):
+            return ApiAnswer(200, [], {}, {"kind": "github_api", "command": "GET %s" % path})
+        status, body, headers = next(answers)
+        return ApiAnswer(status, body, headers, {"kind": "github_api", "command": "GET %s" % path})
+
+    monkeypatch.setattr(states, "api_get", fake)
+    assert _judge()._ask_host(GH_REPO, COMMIT, []) == "ORPHAN"
+    assert len(calls) == 3
+
+
 def test_commit_absent_from_readable_repo_is_missing(monkeypatch):
     """Control: 422 for the commit and 200 for the repo is MISSING (GitHub's answer for an unknown sha)."""
     _stub(monkeypatch, {"/commits/" + COMMIT: (422, {"message": "No commit found for SHA"}, {}),
@@ -96,16 +128,12 @@ def test_never_synced_readable_repo_is_could_not_answer(monkeypatch):
 
 
 # ---------------------------------------------------------------------------------------------- defects
-@pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason="ROB-soak-1: GitHub rate-limit 403 on a commit is stored as UNREADABLE "
-                                       "(states.py _ask_host: 403 -> UNREADABLE without reading x-ratelimit-remaining)")
 def test_rate_limited_commit_lookup_is_could_not_answer(monkeypatch):
     _stub(monkeypatch, {"/commits/" + COMMIT: RATE_LIMITED})
     with pytest.raises(WalkError):
         _judge()._ask_host(GH_REPO, COMMIT, [])
 
 
-@pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason="ROB-soak-2: a rate-limited repo probe for a never-synced mirror turns "
-                                       "exit 2 'never synced' into a stored UNREADABLE (states.py _judge, 401/403/404)")
 def test_rate_limited_never_synced_repo_is_could_not_answer(monkeypatch):
     _stub(monkeypatch, {"repos/" + GH_REPO["path"]: RATE_LIMITED})
     j = _judge()
@@ -115,8 +143,6 @@ def test_rate_limited_never_synced_repo_is_could_not_answer(monkeypatch):
         j._judge(Path("/nonexistent"), entry, GH_REPO, COMMIT)
 
 
-@pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason="ROB-soak-1: a rate-limited repo probe after a 404/422 commit is stored as "
-                                       "UNREADABLE (states.py _ask_host, the whole-repo branch)")
 def test_rate_limited_repo_probe_after_missing_commit_is_could_not_answer(monkeypatch):
     _stub(monkeypatch, {"/commits/" + COMMIT: (404, {"message": "Not Found"}, {}),
                         "repos/" + GH_REPO["path"]: RATE_LIMITED})
@@ -124,10 +150,23 @@ def test_rate_limited_repo_probe_after_missing_commit_is_could_not_answer(monkey
         _judge()._ask_host(GH_REPO, COMMIT, [])
 
 
-@pytest.mark.xfail(strict=True, raises=pytest.fail.Exception, reason="ROB-soak-3: a 200 whose body is not JSON (a proxy or sign-in page) counts "
-                                       "as 'the host has the commit' (states.py _ask_host: status only, body unread)")
 def test_non_json_200_for_commit_is_not_orphan(monkeypatch):
     _stub(monkeypatch, {"/repository/commits/" + COMMIT: (200, None, {"content-type": "text/html"}),
                         "/repository/commits/%s/merge_requests" % COMMIT: (200, [], {})})
     with pytest.raises(WalkError):
+        _judge()._ask_host(GL_REPO, COMMIT, [])
+
+
+# Each rate-limit signal on its own (review of ROB-soak-1/2): RATE_LIMITED above carries several at once, so a fix
+# that read only one of them would still pass the tests above.
+@pytest.mark.parametrize("status, body, headers", [
+    (429, None, {}),                                                         # any 429 (GitLab, GitHub secondary)
+    (403, None, {"retry-after": "60"}),                                      # GitHub secondary limit
+    (403, {"message": "You have exceeded a secondary rate limit."}, {}),     # message only
+    (429, {"message": "Retry later"}, {"ratelimit-remaining": "0"}),         # GitLab header
+    (403, None, {"ratelimit-remaining": "0"}),                               # GitLab header on a 403
+], ids=["429", "retry-after", "message", "gitlab-429", "gitlab-header"])
+def test_each_rate_limit_signal_alone_is_could_not_answer(monkeypatch, status, body, headers):
+    _stub(monkeypatch, {"/repository/commits/" + COMMIT: (status, body, headers)})
+    with pytest.raises(WalkError, match="rate limit"):
         _judge()._ask_host(GL_REPO, COMMIT, [])

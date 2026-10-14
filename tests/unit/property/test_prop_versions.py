@@ -34,8 +34,8 @@ def verdicts(rng: str, v: tuple[int, int, int]) -> dict[str, bool]:
             "matrix": mv.satisfies("v%d.%d.%d" % v, mv.parse_range(rng))}
 
 
-# Operators whose partial forms all three read the same way (">" and "<=" are ROB-property-5).
-@given(ranges(["", "^", "~", "=", ">=", "<"]), CORE)
+# Every operator's partial forms: all three readers agree (">" and "<=" were ROB-property-5, fixed 2026-10-14).
+@given(ranges(OPS_ALL), CORE)
 def test_three_range_readers_agree_on_release_versions(rng, v):
     got = verdicts(rng, v)
     assert len(set(got.values())) == 1, (rng, v, got)
@@ -160,9 +160,6 @@ def test_range_parsers_never_raise_anything_but_their_error(rng):
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-5: matrix/versions.py reads a partial `>X`/`>X.Y` as `>X.0.0` "
-                                       "and `<=X.Y` as `<=X.Y.0` (matrix/versions.py:65), not Cargo's `>=X+1`/"
-                                       "`<X.Y+1`; the matrix then picks a version outside the declared range")
 @example(">0", (0, 0, 1))
 @example("<=1.2", (1, 2, 5))
 @given(st.tuples(st.sampled_from([">", "<="]), st.one_of(st.tuples(NUM, NUM).map("%d.%d".__mod__), NUM.map(str)))

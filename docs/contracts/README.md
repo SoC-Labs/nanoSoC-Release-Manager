@@ -217,7 +217,11 @@ Exactly one state per pin per host. First match wins:
 - **Unknown URL (B9)** is `child.catalogued_as: unknown`, and raises an `unknown_url` alert. A URL naming an `ignored`
   repo is unknown too when a registered tree pins it (K1 option a, 2026-10-10).
 - **UNREADABLE** means the host answered 401, 403 or 404 for the repo itself with the poller's token, or the
-  repo's latest `mirror_status` is not ok and the mirror holds no refs for it.
+  repo's latest `mirror_status` is not ok and the mirror holds no refs for it. A rate-limited answer (quota
+  spent: a rate-limit remaining header of 0, a `retry-after`, a 429, or a "rate limit" message) decides nothing:
+  the walk cannot answer (exit 2), never UNREADABLE (CR-ROB-soak-1).
+- **PR_ONLY, ORPHAN** need the host's 200 for the commit to be a JSON object, and **MISSING** needs the same for
+  the repo; a 200 that is not (a proxy or maintenance page) is asked once more, then the walk cannot answer (exit 2).
 
 "Reachable" always means from a branch or tag **of that host**. The mirror holds both hosts' objects in one
 store, so an object can be in the mirror and still absent on one host (TideLink `5e8bdb5` on GitLab, AHB-QSPI

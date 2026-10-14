@@ -6,6 +6,7 @@ is INFRA or UNVERIFIED with a reason, never PASS, and never left `running`.
 Robustness angle: faults. A test that exposes a defect is a strict xfail named ROB-faults-<n>."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import stat
@@ -60,18 +61,25 @@ def test_the_control_a_whole_pass_line_with_exit_0_is_pass(cfg, monkeypatch):
     assert job["state"] == "done" and job["verdict"] == "PASS", job
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-1: a compat job whose child printed a PASS compat_result but exited "
-                                       "2 (could not answer) is recorded verdict PASS; the exit code is ignored")
 def test_a_compat_job_that_exits_2_after_printing_pass_is_not_pass(cfg, monkeypatch):
     job = _run_one(cfg, monkeypatch, "pass_then_2", "compat", {"configuration": "eth-main"})
-    assert job["verdict"] != "PASS", job
+    assert job["verdict"] == "UNVERIFIED" and "exited 2" in job["reason"], job
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-faults-1: a compat job whose child printed a PASS compat_result but exited "
-                                       "1 (FAIL) is recorded verdict PASS; the exit code is ignored")
 def test_a_compat_job_that_exits_1_after_printing_pass_is_not_pass(cfg, monkeypatch):
     job = _run_one(cfg, monkeypatch, "pass_then_1", "compat", {"configuration": "eth-main"})
-    assert job["verdict"] != "PASS", job
+    assert job["verdict"] == "FAIL" and "exited 1" in job["reason"], job
+
+
+@pytest.mark.parametrize("printed, rc, want", [("FAIL", 0, "FAIL"), ("INFRA", 0, "INFRA"), ("WARN", 2, "UNVERIFIED"),
+                                                ("UNVERIFIED", 1, "FAIL"), ("WAIVED", 0, "WAIVED"), ("FAIL", 1, "FAIL"),
+                                                ("NOT-A-VERDICT", 0, "UNVERIFIED")])
+def test_a_compat_verdict_is_never_greener_than_its_exit_code(printed, rc, want):
+    """ROB-faults-1, the rule: when the exit code and the printed verdict disagree the worse one stands; when they
+    agree the printed verdict stands unchanged."""
+    doc = {"kind": "compat_result", "fact": {"verdict": printed, "run_verdict": printed, "reason": None}}
+    out = jobs._outcome({"kind": "compat"}, rc, json.dumps(doc) + "\n", "")
+    assert out["verdict"] == want, out
 
 
 # ----- the worker cannot record the result -------------------------------------------------------------------------
