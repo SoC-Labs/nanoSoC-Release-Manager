@@ -442,6 +442,8 @@ def test_commit_links_need_a_configured_https_host(stored, tmp_path):
     assert V.commit_link(c2, {"host": "github", "path": "O/R"}, COMMIT) == "https://github.example/O/R/tree/" + COMMIT
     assert V.commit_link(c2, {"host": "gitlab", "path": "g/r"}, COMMIT) == "https://gitlab.example/g/r/-/tree/" + COMMIT
     assert V.commit_link(c2, {"host": "github", "path": "O/R"}, "not-a-sha") is None
+    p.write_text('[service]\ndata_dir = "%s"\n[hosts.github]\nweb = "http://plain.example"\n' % (tmp_path / "data"))
+    assert V.commit_link(load_config(p), {"host": "github", "path": "O/R"}, COMMIT) is None   # https only
 
 
 def test_identity_says_so_when_nothing_is_recorded(stored):
@@ -485,6 +487,9 @@ def test_collateral_links_only_to_verified_copies(stored):
     assert rows["secret_manual.pdf"]["href"] is None
     assert V.cached_file(cfg, hashlib.sha1(DOC_BYTES).hexdigest())[0].read_bytes() == DOC_BYTES
     assert V.cached_file(cfg, "1" * 40) is None and V.cached_file(cfg, "../etc") is None
+    stray = cfg.data_dir / I.CACHE_DIR / ("2" * 40)                     # a file in the cache the index does not list
+    stray.write_bytes(b"not listed")
+    assert V.cached_file(cfg, "2" * 40) is None
 
 
 def test_versions_rows_link_each_tag_and_name_the_chips_it_went_into(stored, monkeypatch):
