@@ -105,6 +105,22 @@ set_env.sh, PYTHONDONTWRITEBYTECODE=1, under nice), and the vendor-library varia
 renderers are skipped and listed as coverage. `[regen] read_only_roots` refuses any path under a shared library
 tree. `version next` and the bump engine read the stored class. Details: interfaces.md section 20.
 
+## Catalogue characterisation (CR-WF-catalogue)
+
+Every catalogue component has a group (project, soc, subsystem, component, toolkit, flow, generator, arch, lib,
+infra, legacy); projects, SoCs and subsystems also a type (chip, chiplet, soc, subsystem) and a role
+(implementation, forkable, example). A catalogue without these fields still loads: they are derived from `class`.
+
+```
+nanosoc-rm catalogue show --gaps            # SoCs that no forkable project wraps (exit 1 when any)
+nanosoc-rm catalogue show --unconfirmed     # entries with a guessed or derived field, and the open question
+nanosoc-rm catalogue org-scan --store       # anonymous org/group listing: repos not in the catalogue (repo_seen)
+nanosoc-rm catalogue preview choices.json --out cat.patch   # then, in the registry: git apply cat.patch
+```
+
+The tool never writes the registry: `preview` turns choices (set, confirm, add, ignore) into a patch and says
+whether the patched catalogue would load. Details: interfaces.md section 23.
+
 ## Bump proposals, shadow mode (Phase 4 E1-E7, built per CR-15, not enabled)
 
 What the bump bot WOULD do, for a person to do: the tool never pushes, writes a branch or opens a pull request.

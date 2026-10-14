@@ -1,0 +1,5 @@
+# expect-error: not at /components/0
+# CR-WF-catalogue: `type` and `role` belong to projects, SoCs and subsystems only.
+schema: 1
+components:
+  - {id: asic-flow, class: toolkit, group: flow, type: chip, canonical: {host: github, path: SoC-Labs/ASIC-Flow}}

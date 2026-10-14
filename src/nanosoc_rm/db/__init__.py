@@ -46,7 +46,8 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
            "clear_alert"]
 
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
-             "runner_settings", "credential_status", "registry_record", "branch_state")
+             "runner_settings", "credential_status", "registry_record", "branch_state",
+             "repo_seen")                                                             # section 23.2 (CR-WF-catalogue)
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
                "quality_density", "quality_finding", "readme_check", "doc_score",      # CR-14 (Q5)
                "matrix_cell", "matrix_quarantine",                                    # D3, D8 (section 18)
@@ -110,6 +111,7 @@ _SUBJECT = {
                                                      f["repo"]["host"]),
     "mirror_status": lambda f: _repo_key(f["repo"]),
     "repo_inventory": lambda f: _repo_key(f["repo"]),
+    "repo_seen": lambda f: _repo_key(f["repo"]),                     # section 23.2: one per uncatalogued repo
     "runner_settings": lambda f: "%s" % f["runner_id"],
     "credential_status": lambda f: f["name"],
     "registry_record": lambda f: "%s#%s" % (f["file"], f["pointer"]),

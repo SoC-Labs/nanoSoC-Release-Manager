@@ -26,6 +26,7 @@
         "rewrite_alert",
         "mirror_status",
         "repo_inventory",
+        "repo_seen",
         "t0_result",
         "runner_settings",
         "credential_status",
@@ -272,6 +273,18 @@
         "required": [
           "snapshot"
         ]
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "repo_seen" } } },
+      "then": {
+        "properties": {
+          "fact": { "$ref": "#/$defs/repo_seen" },
+          "subject": { "pattern": "^repo_seen:(github|gitlab):" },
+          "snapshot": { "properties": { "scope": { "pattern": "^repo_seen:(github|gitlab)$" } } },
+          "sources": { "items": { "properties": { "kind": { "enum": ["github_api", "gitlab_api"] } } } }
+        },
+        "required": ["snapshot"]
       }
     },
     {
@@ -1851,6 +1864,22 @@
           "description": "CR-PR1: the private_read method this sync tried (ssh or token), null when only the anonymous fetch ran. Never the credential itself.",
           "oneOf": [{"enum": ["ssh", "token"]}, {"type": "null"}]
         }
+      }
+    },
+    "repo_seen": {
+      "description": "CR-WF-catalogue (interfaces.md section 23.2): a repo the anonymous org scan listed in the GitHub org or the GitLab group that is in no catalogue entry (not a component's repo, external or ignored): the new-repo queue. One snapshot per host per scan; an empty snapshot means nothing new. `created_on` is the host's creation date; `mentions_nanosoc` is a name or description hint, not a judgement; `first_seen` is when a scan first stored it.",
+      "type": "object",
+      "required": ["repo", "visibility", "default_branch", "created_on", "description", "mentions_nanosoc", "first_seen", "listing"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "$ref": "defs.schema.json#/$defs/repo" },
+        "visibility": { "enum": ["public", "private", "internal"] },
+        "default_branch": { "type": ["string", "null"] },
+        "created_on": { "oneOf": [{ "$ref": "defs.schema.json#/$defs/date" }, { "type": "null" }] },
+        "description": { "type": ["string", "null"], "maxLength": 300 },
+        "mentions_nanosoc": { "type": "boolean" },
+        "first_seen": { "$ref": "defs.schema.json#/$defs/utc" },
+        "listing": { "const": "anonymous", "description": "The scan sends no credential (section 23.2)." }
       }
     },
     "repo_inventory": {

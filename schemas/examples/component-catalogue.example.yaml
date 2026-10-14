@@ -4,22 +4,25 @@
 # JUDGEMENT, for the registry owner to confirm: every `class`, the canonical host of ahb_qspi and
 #   asic-flow (both DIVERGED; set here by the rule 'public components are canonical on GitHub'), and the
 #   `ignored` list (the org's other SoC families are listed as ignored with a reason: GATE2 Q6, decided 2026-10-01).
+# CR-WF-catalogue (David 2026-10-14, chat: front page approved): `group`, and `type`/`role` on projects, SoCs and
+#   subsystems, are optional. Entries below without them load with defaults derived from `class` (reported as
+#   derived, not confirmed); `guessed` + `question` mark a judgement the registry owner has still to make.
 schema: 1
 components:
   - {"id": "ahb-wb-bridges", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ahb-wb-bridges"}}
   - {"id": "ahb_qspi", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/AHB-QSPI"}, "copies": [{"host": "gitlab", "path": "soclabs/ahb_qspi"}]}
-  - {"id": "asic-flow", "class": "toolkit", "canonical": {"host": "github", "path": "SoC-Labs/ASIC-Flow"}, "copies": [{"host": "gitlab", "path": "soclabs/asic_flow"}]}
+  - {"id": "asic-flow", "class": "toolkit", "group": "flow", "canonical": {"host": "github", "path": "SoC-Labs/ASIC-Flow"}, "copies": [{"host": "gitlab", "path": "soclabs/asic_flow"}]}
   - {"id": "asic-toolkit", "class": "toolkit", "canonical": {"host": "github", "path": "SoC-Labs/nanoSoC-ASIC-Toolkit"}}
   - {"id": "axi-chiplet-controller", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/chiplets/axi-chiplet-controller"}}
   - {"id": "ethernet-mac-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ethernet-mac-ahb"}}
-  - {"id": "ethernet-subsystem-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ethernet-subsystem-ahb"}}
+  - {"id": "ethernet-subsystem-ahb", "class": "ip_tech", "group": "subsystem", "type": "subsystem", "role": "implementation", "canonical": {"host": "gitlab", "path": "soclabs/ethernet-subsystem-ahb"}}
   - {"id": "extio8x4-axis", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/extio8x4-axis"}}
   - {"id": "hostio4", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/hostio4"}}
   - {"id": "inter-processor-communications-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/inter-processor-communications-ahb"}}
-  - {"id": "nanosoc-ethernet-chiplet", "class": "soc_ref", "canonical": {"host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet"}}
-  - {"id": "nanosoc-multicore-system", "class": "soc_ref", "canonical": {"host": "gitlab", "path": "soclabs/nanosoc-multicore-system"}}
-  - {"id": "nanosoc_arch_tech", "class": "arch_tech", "canonical": {"host": "github", "path": "SoC-Labs/nanoSoC-Arch-Tech"}, "copies": [{"host": "gitlab", "path": "soclabs/nanosoc-m0/nanosoc_arch_tech"}]}
-  - {"id": "nanosoc_gen", "class": "generator", "canonical": {"host": "gitlab", "path": "soclabs/nanosoc_gen"}}
+  - {"id": "nanosoc-ethernet-chiplet", "class": "soc_ref", "group": "project", "type": "chiplet", "role": "implementation", "wraps": ["nanosoc-multicore-system"], "canonical": {"host": "github", "path": "SoC-Labs/NanoSoC-Ethernet-Chiplet"}}
+  - {"id": "nanosoc-multicore-system", "class": "soc_ref", "group": "soc", "type": "soc", "role": "implementation", "wraps": ["ethernet-subsystem-ahb"], "guessed": ["role"], "canonical": {"host": "gitlab", "path": "soclabs/nanosoc-multicore-system"}}
+  - {"id": "nanosoc_arch_tech", "class": "arch_tech", "group": "arch", "canonical": {"host": "github", "path": "SoC-Labs/nanoSoC-Arch-Tech"}, "copies": [{"host": "gitlab", "path": "soclabs/nanosoc-m0/nanosoc_arch_tech"}]}
+  - {"id": "nanosoc_gen", "class": "generator", "group": "generator", "canonical": {"host": "gitlab", "path": "soclabs/nanosoc_gen"}}
   - {"id": "ptp-hardware-clock-ahb", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/ptp-hardware-clock-ahb"}}
   - {"id": "sl_ams_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/sl_ams_tech"}}
   - {"id": "slcorem0_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/slcorem0_tech"}}
@@ -29,10 +32,10 @@ components:
   - {"id": "socdebug_tech", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/socdebug_tech"}}
   - {"id": "soctools_flow", "class": "toolkit", "canonical": {"host": "gitlab", "path": "soclabs/soctools_flow"}}
   - {"id": "synopsys_28nm_slm_integration", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/synopsys_28nm_slm_integration"}}
-  - {"id": "tidechart", "class": "ip_tech", "canonical": {"host": "gitlab", "path": "soclabs/tidechart"}}
+  - {"id": "tidechart", "class": "ip_tech", "group": "component", "guessed": ["group"], "question": "Component, or toolkit (it is firmware + host tools)?", "canonical": {"host": "gitlab", "path": "soclabs/tidechart"}}
   - {"id": "tidelink", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/TideLink-Chiplet-Interconnect-AHB"}, "copies": [{"host": "gitlab", "path": "soclabs/tidelink"}]}
   - {"id": "tidelink-gpio-phy", "class": "ip_tech", "canonical": {"host": "github", "path": "SoC-Labs/TideLink-Chiplet-GPIO-PHY"}}
-  - {"id": "secworks-sha256-project", "class": "legacy", "canonical": {"host": "gitlab", "path": "soclabs/secworks-sha256-project"}}  # watch-only (B1)
+  - {"id": "secworks-sha256-project", "class": "legacy", "group": "legacy", "canonical": {"host": "gitlab", "path": "soclabs/secworks-sha256-project"}}  # watch-only (B1)
 external:  # third-party repos pinned in rc4's tree (B9)
   - {"id": "core_dbg_bridge", "repo": {"host": "github", "path": "ultraembedded/core_dbg_bridge"}}
   - {"id": "picotcp", "repo": {"host": "github", "path": "tass-belgium/picotcp"}}
