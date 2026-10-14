@@ -177,3 +177,14 @@ def test_rob_property_5_matrix_partial_gt_and_le(rng, v):
 def test_rob_property_6_bumps_prerelease_order_is_numeric(pair):
     lo, hi = pair
     assert bv.parse_version(lo).key() < bv.parse_version(hi).key()
+
+
+def test_semver_11_4_example_chain_orders_as_the_spec_lists_it():
+    """SemVer 11.4's own example chain, in order: numeric identifiers below alphanumeric ones, a shorter list first
+    on a tie (review of ROB-property-6: the rc.N property alone let numeric-above-alphanumeric through)."""
+    chain = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11",
+             "1.0.0-rc.1", "1.0.0", "1.0.0-1"]
+    chain = chain[-1:] + chain[:-1]                         # 1.0.0-1: a numeric identifier sorts first of all
+    keys = [bv.parse_version(v).key() for v in chain]
+    assert keys == sorted(keys), chain
+    assert len(set(keys)) == len(keys)

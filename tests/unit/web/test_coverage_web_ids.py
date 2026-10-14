@@ -51,3 +51,13 @@ def test_a_superscript_job_id_is_404_not_500(client, route):
 def test_a_job_id_beyond_the_int_parsing_limit_is_404_not_500(client):
     c, _ = client
     assert c.get("/jobs/%s/log" % ("9" * 5000)).status_code == 404
+
+
+@pytest.mark.parametrize("page", ["/bumps/", "/releases/", "/releases/forks", "/versions/", "/compat"])
+@pytest.mark.parametrize("ident", ["%C2%B2", "9" * 5000])
+def test_every_page_that_reads_a_job_query_ignores_an_id_int_cannot_read(client, page, ident):
+    """The other `?job=` readers (plug-in and workspace pages), not only /mirrors: no job shown, never a 500
+    (review of ROB-coverage-2/3: those call sites had no test)."""
+    c, _ = client
+    r = c.get("%s?job=%s" % (page, ident))
+    assert r.status_code == 200, (page, r.status_code, r.text[:200])

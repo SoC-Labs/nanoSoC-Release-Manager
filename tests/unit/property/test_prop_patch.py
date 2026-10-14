@@ -170,7 +170,7 @@ def test_rob_property_13_gitlink_path_git_must_quote():
         git("apply", "--check", "--index", "p.diff", cwd=d)
 
 
-@pytest.mark.parametrize("name", ["plain.c", "t\tab.c", 'q"x.c', "b\\s.c", "café.c", "a b.c", "bell\x07.c"])
+@pytest.mark.parametrize("name", ["plain.c", "t\tab.c", 'q"x.c', "b\\s.c", "café.c", "a b.c", "bell\x07.c", "del\x7f.c"])
 def test_quote_path_is_gits_own_quoting(name):
     """gitquote.quote_path against git's quote_c_style, as `git ls-files` (core.quotePath on) prints a path."""
     from nanosoc_rm.gitquote import quote_path
