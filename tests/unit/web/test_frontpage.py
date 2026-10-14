@@ -157,6 +157,9 @@ def test_the_pin_panel_gives_behind_bump_sha_and_where_the_same_pin_lags(fp):
 def test_the_configuration_and_project_panels(fp):
     f = facts(fp["client"].get("/?sel=c:eth-rc4").text)
     assert f["Direct pins lagging"] == "1 of 2 (if live)" and f["Frozen"] == "46 d ago"
+    # its own counts are 0 (never lagging); the panel reads the would-be numbers (CR-WF-fresh-r1)
+    assert f["Most behind"] != "nothing behind" and "(0 outdated" not in f["Whole tree lagging"]
+    assert f["Waiting longest"] != "nothing lagging"
     d = detail(fp["client"].get("/?sel=c:eth-rc4").text)
     assert "frozen silicon, not counted; would be outdated if live" in d and "never count as outdated" in d
     f = facts(fp["client"].get("/?sel=c:eth-main").text)

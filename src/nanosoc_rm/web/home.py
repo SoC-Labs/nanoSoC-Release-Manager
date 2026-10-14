@@ -603,15 +603,15 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
                                                               _age_word(t["updated_days"]))))
     lag_d = t["would_be_direct_lagging"] if frozen else t["direct_lagging"]
     lag_a = t["would_be_lagging"] if frozen else t["lagging"]
-    cn = t["counts"]
+    cn = (t.get("would_be_counts") or t["counts"]) if frozen else t["counts"]     # a frozen tree counts 0 itself
     facts.append(_fact("Direct pins lagging", "%d of %d%s" % (lag_d or 0, t["direct"], " (if live)" if frozen else "")))
     facts.append(_fact("Whole tree lagging", "%d of %d (%d outdated, %d behind, %d unpushed, %d not measured)" % (
         lag_a or 0, t["pins"], cn["outdated"], cn["behind"], cn["unpushed"], cn["not_measured"])))
-    w = t.get("worst_lagging")
+    w = t.get("would_be_worst_lagging") if frozen else t.get("worst_lagging")
     facts.append(_fact("Most behind", "%s, %s commits" % (w["component"] or w["tree_path"],
                                                            _behind(w.get("behind"), w.get("lower_bound")))
                        if w else "nothing behind"))
-    s = t.get("stalest_lagging")
+    s = t.get("would_be_stalest_lagging") if frozen else t.get("stalest_lagging")
     facts.append(_fact("Waiting longest", "%s, %s" % (s["component"] or s["tree_path"], _ago(s["days"]))
                        if s else "nothing lagging"))
     note = None
