@@ -79,12 +79,19 @@ def test_relative_resolution_names_the_repo_git_fetches(tmp_path, parent, rel):
     assert ours == theirs and ours is not None
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-7: a relative URL whose `..` climbs past the parent's path is "
-                                       "resolved on the parent's host (github:evil/x), but git resolves it to "
-                                       "another host (https://evil/x): walker/urls.py join_relative")
 @pytest.mark.parametrize("parent,rel", [(PARENT, "../../../evil/x"), ("git@github.com:SoC-Labs/top.git",
                                                                       "../../../evil/x")])
 def test_a_relative_url_that_climbs_past_the_host_is_not_judged_on_the_parents_host(tmp_path, parent, rel):
     ours = classify(rel, HOSTS, parent)[1]
     theirs = classify(_git_resolves(tmp_path, parent, rel), HOSTS)[1]
     assert ours == theirs
+
+
+@pytest.mark.parametrize("parent,rel", [("top", "../../x"), ("foo/top", "../../../x")])
+def test_a_relative_parent_git_cannot_strip_is_refused_and_names_no_repo(tmp_path, parent, rel):
+    """git dies "cannot strip one component off url" when `../` climbs past a relative superproject URL; the
+    walker then names no repo (review of ROB-coverage-7: the refusal branch had no test)."""
+    with pytest.raises(ValueError, match="cannot strip"):
+        join_relative(parent, rel)
+    assert _git_resolves(tmp_path, parent, rel) == ""                   # git refuses it too
+    assert classify(rel, HOSTS, parent) == ("relative", None, rel)

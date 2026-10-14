@@ -32,9 +32,9 @@ from nanosoc_rm.versioning import semver
 __all__ = ["KINDS", "kind_of", "branch_ok", "read_tags", "check", "against_history", "SILICON_RX", "KEEP_RX", "BACKPORT_RX"]
 
 KINDS = ("release", "candidate", "silicon", "keep")
-SILICON_RX = re.compile(r"^silicon/[a-z0-9][a-z0-9-]*-r[0-9]+p[0-9]+$")
-KEEP_RX = re.compile(r"^keep/[A-Za-z0-9@][A-Za-z0-9_.@-]*/[a-z0-9][a-z0-9_.-]*$")
-BACKPORT_RX = re.compile(r"^release/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+SILICON_RX = re.compile(r"^silicon/[a-z0-9][a-z0-9-]*-r[0-9]+p[0-9]+\Z")
+KEEP_RX = re.compile(r"^keep/[A-Za-z0-9@][A-Za-z0-9_.@-]*/[a-z0-9][a-z0-9_.-]*\Z")
+BACKPORT_RX = re.compile(r"^release/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
 
 def kind_of(name: str) -> str | None:

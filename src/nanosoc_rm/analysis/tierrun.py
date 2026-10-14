@@ -58,7 +58,7 @@ STATUSES = ("PASS", "FAIL", "UNVERIFIED", "WARN", "SKIP", "INFRA")
 SOURCES_SET_ENV = re.compile(r"(^|[;&|(`]|\s)(source|\.)\s+[^;&|]*set_env")
 RESERVED_ENV = ("TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_VERDICTS", "NANOSOC_GEN_OK")
 LOG_TAIL = 20
-_UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+_UTC = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 _GATE_PART = re.compile(r"[^a-z0-9_.-]+")
 LAYOUT_RECORD = "tree-layout.json"  # in the work dir, beside the tree: what was laid out, as it stood before the command
 

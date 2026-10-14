@@ -145,9 +145,6 @@ def test_gitlink_patch_applies_to_the_index(path, a, b, state, title):
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-12: file_patch() on an empty file treats it as one empty line "
-                                       "without a newline (quality/patch.py:70-72), so the patch git is given "
-                                       "never applies")
 @example(["# header"])
 @given(st.lists(LINE, min_size=1, max_size=3))
 def test_rob_property_12_patch_for_an_empty_file(new):
@@ -157,17 +154,12 @@ def test_rob_property_12_patch_for_an_empty_file(new):
     assert git_apply("README.md", "", file_patch("README.md", "", lines)) == "\n".join(lines)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-13: file_patch() writes the path into the diff headers "
-                                       "unquoted (quality/patch.py:87,82); git C-quotes a path holding a tab or a "
-                                       "newline and refuses the unquoted header")
 @example("t\tab.c")
 @given(st.sampled_from(["t\tab.c", "doc/a\tb.md"]))
 def test_rob_property_13_paths_git_must_quote(path):
     assert git_apply(path, "a\n", file_patch(path, "a\n", ["b"])) == "b\n"
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-13: bumps/patchfile.py:91 writes the gitlink path unquoted "
-                                       "too; a submodule path holding a tab gives a patch git refuses")
 def test_rob_property_13_gitlink_path_git_must_quote():
     a, b, path = "1" * 40, "2" * 40, "deps/a\tb"
     text = patch_text(_fact(path, a, b, "proposed", "plain"))
@@ -176,3 +168,15 @@ def test_rob_property_13_gitlink_path_git_must_quote():
         git("update-index", "--add", "--cacheinfo", "160000,%s,%s" % (a, path), cwd=d)
         Path(d, "p.diff").write_bytes(text.encode("utf-8"))
         git("apply", "--check", "--index", "p.diff", cwd=d)
+
+
+@pytest.mark.parametrize("name", ["plain.c", "t\tab.c", 'q"x.c', "b\\s.c", "café.c", "a b.c", "bell\x07.c", "del\x7f.c"])
+def test_quote_path_is_gits_own_quoting(name):
+    """gitquote.quote_path against git's quote_c_style, as `git ls-files` (core.quotePath on) prints a path."""
+    from nanosoc_rm.gitquote import quote_path
+    with tempfile.TemporaryDirectory() as d:
+        git("init", "-q", cwd=d)
+        Path(d, name).write_text("x\n")
+        git("add", "--", name, cwd=d)
+        theirs = git("-c", "core.quotePath=true", "ls-files", cwd=d).stdout.decode("utf-8").rstrip("\n")
+    assert quote_path(name) == theirs

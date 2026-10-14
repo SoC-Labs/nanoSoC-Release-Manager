@@ -19,7 +19,7 @@ __all__ = ["VersioningError", "VersioningUsage", "RepoView", "open_repo", "read_
            "web_url", "component_for_url", "baseline", "GIT_TIMEOUT_S"]
 
 GIT_TIMEOUT_S = 300
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 
 
 class VersioningError(Exception):
@@ -310,7 +310,7 @@ def baseline(canonical_tags: dict[str, dict], yanked: set[str] | frozenset = fro
     date. {tag, version, kind: release|grandfathered|none, commit, created_at, notes, grandfathered}."""
     rel = [(semver.parse_tag(t), t, i) for t, i in canonical_tags.items() if semver.is_release_tag(t)]
     rel = [x for x in rel if x[0] is not None]
-    lenient_rx = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?$")
+    lenient_rx = re.compile(r"^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?\Z")
     gf = []
     for t, i in canonical_tags.items():
         m = lenient_rx.match(t)

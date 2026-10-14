@@ -11,7 +11,7 @@ from nanosoc_rm.releases.core import SEMVER, is_safe_id
 __all__ = ["draft_params", "draft_args", "verify_params", "verify_args", "forks_params", "forks_args"]
 
 _KINDS = ("fix", "feature", "tapeout")
-_WAIVER = re.compile(r"^[^=\n]+=[^\n]+$")
+_WAIVER = re.compile(r"^[^=\n]+=[^\n]+\Z")
 
 
 def _id(value, what: str) -> str:

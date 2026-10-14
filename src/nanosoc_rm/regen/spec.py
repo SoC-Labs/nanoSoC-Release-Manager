@@ -31,7 +31,7 @@ __all__ = ["RegenUsage", "Settings", "settings", "spec_for", "check", "VENDOR_EN
 VENDOR_ENV = ("ARM_IP_LIBRARY_PATH", "SOCLABS_DMA250_DIR")
 DEFAULT_NICE = 15
 DEFAULT_EXCLUDE = ("**/*.log", "**/logs/**", "**/__pycache__/**", "**/*.pyc")
-_REL = re.compile(r"^(?!/)(?!.*(^|/)\.\.(/|$)).+$")
+_REL = re.compile(r"^(?!/)(?!.*(^|/)\.\.(/|$)).+\Z")
 
 
 class RegenUsage(ValueError):

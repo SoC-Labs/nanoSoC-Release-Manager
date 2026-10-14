@@ -152,6 +152,11 @@ def _queue_data(config, q) -> dict:
             "configs": sorted({s["fact"]["configuration"] for s in scans})}
 
 
+def _job_id(text: str) -> int | None:
+    from nanosoc_rm import jobs
+    return jobs.parse_id(text)
+
+
 def _later_jobs(config, f: dict, since: str) -> dict[str, dict]:
     """BUMPS-R8: compat what-ifs for exactly this move's pins that the kept cell does not show (queued, running, or
     finished after the scan), newest per tier. Reads jobs.sqlite only (no git). The page then names them, asks for a
@@ -193,7 +198,7 @@ def router(app: Any = None) -> APIRouter:
         job = request.query_params.get("job") or ""
         problems = data.pop("problems")
         return _page(request, "bumps_queue.html", "Bump proposals (shadow mode)", problems=problems,
-                     job=int(job) if job.isdigit() else None, **data)
+                     job=_job_id(job), **data)
 
     async def proposal(request: Request, pid: str) -> Response:
         from nanosoc_rm import bumps
@@ -209,7 +214,7 @@ def router(app: Any = None) -> APIRouter:
         job = request.query_params.get("job") or ""
         return _page(request, "bumps_proposal.html", "Bump %s to %s" % (f["dependency"]["component"], f["to"]["tag"]),
                      problems=problems, obs=d, f=f, entry=entry, ledger_at=led_at,
-                     job=int(job) if job.isdigit() else None,
+                     job=_job_id(job),
                      missing_tiers=[t for t in ("t1", "t2") if not (f["matrix"].get("tiers") or {}).get(t)],
                      later_jobs=await run_in_threadpool(_later_jobs, config, f, d["observed_at"]),
                      marks=bumps.marks(pid, config=config), patch=bumps.patch_text(f),

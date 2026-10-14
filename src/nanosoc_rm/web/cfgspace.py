@@ -682,7 +682,7 @@ def _job_ctx(config: Any, job: dict | None) -> dict:
 
 def _job_arg(config: Any, request: Request) -> dict | None:
     q = request.query_params.get("job") or ""
-    return jobs.get(config, int(q)) if q.isdigit() else None
+    return jobs.get(config, n) if (n := jobs.parse_id(q)) is not None else None
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -727,8 +727,8 @@ def compat(request: Request) -> Response | None:
     anything else is the older page (the configuration picker)."""
     config = request.state.config
     q = request.query_params
-    if (q.get("job") or "").isdigit():
-        job = jobs.get(config, int(q["job"]))
+    if (n := jobs.parse_id(q.get("job"))) is not None:
+        job = jobs.get(config, n)
         cid = (job or {}).get("params", {}).get("configuration") if job and job["kind"] == "compat" else None
         if cid and views.is_valid_id(cid):
             return RedirectResponse("%s/whatif?job=%d" % (_base(cid), job["id"]), 303)

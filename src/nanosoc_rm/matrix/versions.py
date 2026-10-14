@@ -18,8 +18,8 @@ from typing import Callable, Iterable, Protocol
 __all__ = ["parse", "latest", "parse_range", "satisfies", "latest_in_range", "RangeError", "VersionPolicy",
            "DEFAULT_POLICY"]
 
-_TAG = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?$")
-_CMP = re.compile(r"^(\^|~|>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$")
+_TAG = re.compile(r"^v?(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:-([0-9A-Za-z][0-9A-Za-z.-]*))?\Z")
+_CMP = re.compile(r"^(\^|~|>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\Z")
 
 
 class RangeError(ValueError):

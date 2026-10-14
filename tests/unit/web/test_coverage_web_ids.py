@@ -42,16 +42,22 @@ def test_a_job_id_that_names_a_job_is_served(client):
     assert r.status_code == 200 and r.text == "(no output yet)"
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-2: a superscript digit in a job id passes str.isdigit() and "
-                                       "int() raises: HTTP 500 instead of 404 (web/app.py job routes)")
 @pytest.mark.parametrize("route", ["/jobs/%C2%B2/log", "/jobs/%C2%B2/fragment", "/mirrors?job=%C2%B2"])
 def test_a_superscript_job_id_is_404_not_500(client, route):
     c, _ = client
     assert c.get(route).status_code in (200, 404)
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-coverage-3: a 5000-digit job id passes str.isdigit() and int() "
-                                       "raises (int max str digits): HTTP 500 instead of 404")
 def test_a_job_id_beyond_the_int_parsing_limit_is_404_not_500(client):
     c, _ = client
     assert c.get("/jobs/%s/log" % ("9" * 5000)).status_code == 404
+
+
+@pytest.mark.parametrize("page", ["/bumps/", "/releases/", "/releases/forks", "/versions/", "/compat"])
+@pytest.mark.parametrize("ident", ["%C2%B2", "9" * 5000])
+def test_every_page_that_reads_a_job_query_ignores_an_id_int_cannot_read(client, page, ident):
+    """The other `?job=` readers (plug-in and workspace pages), not only /mirrors: no job shown, never a 500
+    (review of ROB-coverage-2/3: those call sites had no test)."""
+    c, _ = client
+    r = c.get("%s?job=%s" % (page, ident))
+    assert r.status_code == 200, (page, r.status_code, r.text[:200])

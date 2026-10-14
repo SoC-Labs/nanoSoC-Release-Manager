@@ -367,8 +367,8 @@ def _rule5(docs: Docs) -> Iterator[Problem]:
                                "%s %s names form %s, which %s does not define" % (key[:-1], x.get("id"), f, d.get("id")))
 
 
-_DEFECT_FILE = re.compile(r"^defects/(?P<name>[^/]+)\.yaml$")
-_ERRATUM_FILE = re.compile(r"^errata/(?P<dir>[^/]+)/ERR-(?P<num>[0-9]{3})\.yaml$")
+_DEFECT_FILE = re.compile(r"^defects/(?P<name>[^/]+)\.yaml\Z")
+_ERRATUM_FILE = re.compile(r"^errata/(?P<dir>[^/]+)/ERR-(?P<num>[0-9]{3})\.yaml\Z")
 
 
 def _rule7(docs: Docs) -> Iterator[Problem]:

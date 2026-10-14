@@ -7,19 +7,18 @@ sections, CRLF). Divergences found are recorded as xfail(strict) tests named ROB
 """
 from __future__ import annotations
 
-import re
-
 import pytest
+
 from prop_helpers import (as_set, assume, budget, example, git_config_modules, git_config_write, given,
                           st)
 
 from nanosoc_rm.gitmodules import parse_gitmodules
 
-# Characters git's config format cannot hold in a value or that only the known defects below mishandle.
-_LINE_BREAKS = "\0\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
+# Characters git's config format cannot hold in a value (NUL; a newline and CR need escapes the writer adds,
+# which the round trip does not need). The other line separators are ordinary characters (ROB-property-2).
+_LINE_BREAKS = "\0\n\r"
 _value_chars = st.characters(blacklist_categories=("Cs",), blacklist_characters=_LINE_BREAKS)
-VALUE = (st.text(_value_chars, min_size=1, max_size=12).map(str.strip)
-         .filter(lambda v: v != "" and not v.endswith("\\")))
+VALUE = st.text(_value_chars, min_size=1, max_size=12)        # edge whitespace and backslashes included
 NAME = st.text(_value_chars, min_size=1, max_size=8)
 KEYS = st.sampled_from(["path", "url", "branch", "update", "shallow", "ignore"])
 MODULES = st.lists(st.tuples(NAME, st.dictionaries(KEYS, VALUE, min_size=1, max_size=3)),
@@ -56,19 +55,11 @@ RAW = (st.lists(st.tuples(_LINE, st.sampled_from(["\n", "\r\n"])), max_size=8)
        .map(lambda ls: "".join(a + b for a, b in ls)))
 
 
-def _outside_known_defects(text: str, ref: list[dict]) -> bool:
-    """False for inputs that only hit ROB-property-1 (edge whitespace) or ROB-property-3 (continuations)."""
-    if re.search(r"(?<!\\)(\\\\)+\r?\n", text) or re.search(r"[#;][^\n]*\\\r?\n", text):
-        return False
-    return all(v == v.strip() for m in ref for v in m.values())
-
-
 @budget(120)
 @given(RAW)
 def test_raw_text_reads_as_git_reads_it(text):
     ref = git_config_modules(text)
     assume(ref is not None)                              # git refuses the file: nothing to compare
-    assume(_outside_known_defects(text, ref))
     assert as_set(parse_gitmodules(text)) == as_set(ref)
 
 
@@ -84,8 +75,6 @@ def test_raw_generator_reaches_quotes_comments_and_crlf():
 # ---------------------------------------------------------------------------------------------------------
 # Recorded defects
 # ---------------------------------------------------------------------------------------------------------
-@pytest.mark.xfail(strict=True, reason="ROB-property-1: quoted or escaped leading/trailing whitespace in a value "
-                                       "is stripped (gitmodules.py:33); git keeps it")
 @example('[submodule "a"]\n\tpath = " x"\n')
 @given(st.builds('[submodule "a"]\n\tpath = "{}{}{}"\n'.format, st.sampled_from([" ", "\\t", "\\n"]),
                  st.sampled_from(["x", "sub/dir"]), st.sampled_from(["", " "])))
@@ -93,9 +82,6 @@ def test_rob_property_1_quoted_edge_whitespace_is_kept(text):
     assert as_set(parse_gitmodules(text)) == as_set(git_config_modules(text))
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-2: str.splitlines() splits a value at \\x0b \\x0c \\x1c-\\x1e "
-                                       "\\x85 U+2028 U+2029 (gitmodules.py:41); git ends a line only at \\n, so a "
-                                       "crafted value makes the tool read a different url/path than git")
 @example("\u2028")
 @given(st.sampled_from(["\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029"]))
 def test_rob_property_2_only_newline_ends_a_line(sep):
@@ -104,9 +90,6 @@ def test_rob_property_2_only_newline_ends_a_line(sep):
     assert as_set(parse_gitmodules(text)) == as_set(git_config_modules(text))
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-3: line continuations are joined before quoting and comments "
-                                       "are read (gitmodules.py:39), so a value ending in an escaped backslash, or "
-                                       "a comment ending in a backslash, swallows the next line")
 @example('[submodule "a"]\n\tpath = x\\\\\n\turl = u\n')
 @example('[submodule "a"]\n\tpath = x # note \\\n\turl = u\n')
 @given(st.sampled_from(['[submodule "a"]\n\tpath = x\\\\\n\turl = u\n',
@@ -115,8 +98,16 @@ def test_rob_property_3_backslash_before_newline(text):
     assert as_set(parse_gitmodules(text)) == as_set(git_config_modules(text))
 
 
-@pytest.mark.xfail(strict=True, reason="ROB-property-4: the legacy [submodule.Name] form keeps the name's case "
-                                       "(gitmodules.py:50); git lower-cases it")
 def test_rob_property_4_legacy_section_name_is_lower_cased():
     text = "[submodule.Ethernet]\n\tpath = eth\n"
     assert as_set(parse_gitmodules(text)) == as_set(git_config_modules(text))
+
+
+@pytest.mark.parametrize("text", ['[]\n[submodule "a"]\n\tpath = x\n', '[submodule\n"a"]\n\tpath = x\n',
+                                  '[submodule \n "a"]\n\tpath = x\n'])
+def test_a_section_header_git_refuses_ends_the_read(text):
+    """git refuses an empty `[]` and a newline between the section name and its quoted subsection (config.c
+    get_base_var / get_extended_base_var), so nothing after it is read (review of ROB-property-1..4: the raw
+    property skips every file git refuses, so these two cases were never compared)."""
+    assert git_config_modules(text) is None
+    assert parse_gitmodules(text) == []

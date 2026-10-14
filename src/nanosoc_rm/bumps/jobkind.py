@@ -12,7 +12,7 @@ from nanosoc_rm.jobs import register_kind
 
 __all__ = ["job_params", "job_args"]
 
-_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z")
 
 
 def job_params(params: dict) -> dict:

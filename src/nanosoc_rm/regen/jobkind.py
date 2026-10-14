@@ -12,8 +12,8 @@ from nanosoc_rm.jobs import register_kind
 __all__ = ["params", "cli_args", "outcome", "limit_s", "LIMIT_S"]
 
 LIMIT_S = 3600                    # two renders, each a walk, a checkout and the generator
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 
 
 def params(p: dict) -> dict:

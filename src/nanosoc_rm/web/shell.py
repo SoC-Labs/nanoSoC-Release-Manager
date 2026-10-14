@@ -43,7 +43,7 @@ for _tone, _names in (
 MIN_QUERY = 2
 FLAG_ORDER = ("FAIL", "UNCOVERED", "UNREADABLE", "SSH PIN", "SPLIT")
 RAIL_COMPONENTS = 8                      # rows in the rail's "In my configurations" group
-_HEX = re.compile(r"^[0-9a-f]{3,40}$")          # spec 1.4 says 4; its test list searches "4de"
+_HEX = re.compile(r"^[0-9a-f]{3,40}\Z")          # spec 1.4 says 4; its test list searches "4de"
 _URL = re.compile(r"(?:https?|ssh|git|file)://[^\s'\"<>)]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s'\"<>)]+")
 
 

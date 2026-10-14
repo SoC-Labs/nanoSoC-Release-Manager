@@ -34,8 +34,8 @@ NAV_LABEL = "Versions"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
 _WEB_TEMPLATES = HERE.parent / "web" / "templates"
-_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-_VER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+_VER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 NOT_PUSHED = "Nothing here is pushed, tagged or opened: drafts and patches are files for a person to review and apply."
 CLASS_CLASS = {"breaking": "state-red", "feature": "state-amber", "fix": "state-green", "none": "state-grey"}
 
@@ -71,7 +71,7 @@ def _page(request: Request, template: str, title: str, status: int = 200, **ctx)
 def _job(config, q) -> dict | None:
     from nanosoc_rm import jobs
     j = q.get("job") or ""
-    return jobs.get(config, int(j)) if j.isdigit() else None
+    return jobs.get(config, n) if (n := jobs.parse_id(j)) is not None else None
 
 
 def _drafts(config, component: str) -> list[dict]:

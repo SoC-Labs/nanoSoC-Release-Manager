@@ -114,3 +114,20 @@ def test_write_calls_declare_the_v1_shape():
         assert w["effect"] in contracts.WRITE_EFFECTS and w["reason"]
         if w["effect"] in ("write", "git-runner"):
             assert w.get("guard")
+
+
+# ROB-coverage-5: JSON Schema patterns are ECMA-262, where `$` matches only at the very end; Python's `$` also
+# matches before a final newline. The validator reads `$` as `\Z`, so a trailing newline is never a valid value.
+@pytest.mark.parametrize("pointer,good", [("/$defs/semver", "1.0.0"), ("/$defs/sha", "0" * 40)])
+def test_a_schema_pattern_refuses_a_trailing_newline(pointer, good):
+    from nanosoc_rm import contracts
+    assert contracts.validate("defs", good, pointer) == []
+    assert contracts.validate("defs", good + "\n", pointer) != []
+
+
+@pytest.mark.parametrize("pattern,ecma", [(r"^[0-9]+$", r"^[0-9]+\Z"), (r"^(a|$)", r"^(a|\Z)"),
+                                          (r"^[$^]x$", r"^[$^]x\Z"), (r"^[]$]\$$", r"^[]$]\$\Z"),
+                                          (r"^[^$]$", r"^[^$]\Z")])
+def test_ecma_anchors_rewrites_only_anchor_dollars(pattern, ecma):
+    from nanosoc_rm import contracts
+    assert contracts.ecma_anchors(pattern) == ecma

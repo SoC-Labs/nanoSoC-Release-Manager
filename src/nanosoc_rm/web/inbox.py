@@ -84,8 +84,8 @@ STALE_AFTER = dt.timedelta(days=7)
 STALE_FACTOR = 0.8
 EVIDENCE_MAX = 5
 SNOOZE_DAYS = (1, 7, 30)
-_CARD_ID = re.compile(r"^[a-z_]+:[A-Za-z0-9_.@:/+-]{0,240}$")
-_FP = re.compile(r"^[0-9a-f]{0,64}$")
+_CARD_ID = re.compile(r"^[a-z_]+:[A-Za-z0-9_.@:/+-]{0,240}\Z")
+_FP = re.compile(r"^[0-9a-f]{0,64}\Z")
 
 
 @dataclasses.dataclass

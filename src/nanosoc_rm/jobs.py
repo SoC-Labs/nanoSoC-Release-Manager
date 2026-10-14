@@ -68,7 +68,7 @@ FINAL = ("done", "failed", "cancelled", "infra")
 JOB_LIMIT_S = 1800                    # ceiling for a job's T0 and walk, plus the tier kill limit when a tier runs
 LOG_TAIL_BYTES = 64 * 1024
 CLI_BOOT = "import sys; sys.argv[0] = 'nanosoc-rm'; from nanosoc_rm.cli import main; main()"
-_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}$")
+_ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
 _SCHEMA_VERSION = 1
 _SCHEMA = (                     # run once per store (db.ensure_schema), not on every connect (ROB-load-3)
     """CREATE TABLE IF NOT EXISTS jobs (
@@ -197,6 +197,18 @@ def _update(config: Config, job_id: int, **fields: Any) -> None:
     cols = ", ".join("%s = ?" % k for k in fields)
     with _connect(config) as con:
         con.execute("UPDATE jobs SET %s WHERE id = ?" % cols, (*fields.values(), job_id))
+
+
+_JOB_ID = re.compile(r"[0-9]{1,19}")
+
+
+def parse_id(text: str | None) -> int | None:
+    """A job id read from a URL, query or environment value: ASCII decimal digits only, at most 19 of them
+    (every SQLite INTEGER fits), else None. `str.isdigit()` also accepts superscripts and other Unicode digits
+    that int() refuses, and int() refuses a string longer than the interpreter's digit limit (ROB-coverage-2/3)."""
+    if not isinstance(text, str) or not _JOB_ID.fullmatch(text):
+        return None
+    return int(text)
 
 
 def get(config: Config, job_id: int) -> dict | None:

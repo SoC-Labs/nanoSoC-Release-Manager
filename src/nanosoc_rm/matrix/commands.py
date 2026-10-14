@@ -235,7 +235,7 @@ def register(main: click.Group) -> None:
         try:
             config = load_config()
             job_id = os.environ.get("NANOSOC_RM_JOB")
-            job = jobs.get(config, int(job_id)) if job_id and job_id.isdigit() else None
+            job = jobs.get(config, n) if (n := jobs.parse_id(job_id)) is not None else None
             docs = K.run_cell(configuration, column, component, config=config, store=store,
                               by=job["by"] if job else _login(), job=job["id"] if job else None,
                               tier=tier, force_tier=force_tier)

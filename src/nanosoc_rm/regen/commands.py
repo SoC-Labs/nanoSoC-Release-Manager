@@ -20,7 +20,7 @@ from nanosoc_rm.cliutil import EXIT_FINDING, EXIT_OK, EXIT_UNVERIFIED, EXIT_USAG
 
 __all__ = ["register"]
 
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"^[0-9a-f]{40}\Z")
 _EXIT = {"PASS": EXIT_OK, "FAIL": EXIT_FINDING, "INFRA": EXIT_UNVERIFIED, "UNVERIFIED": EXIT_UNVERIFIED}
 
 

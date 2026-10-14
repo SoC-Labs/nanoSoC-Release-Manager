@@ -35,7 +35,7 @@ __all__ = ["Rule", "AllowEntry", "RuleSet", "RulesError", "BUILTIN_RULES", "RULE
            "rule_set", "arm"]
 
 RULES_ENV = "RM_SCAN_RULES"           # path of the private rule file (compat-ci); optional
-_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+\Z")
 _FLAGS = {"i": re.I, "s": re.S, "m": re.M, "x": re.X}
 
 

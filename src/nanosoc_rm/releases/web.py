@@ -46,7 +46,7 @@ INPUTS = "release-inputs"
 JOB_KINDS = ("release-draft", "release-verify", "forks")
 HERE = Path(__file__).resolve().parent
 _WEB_TEMPLATES = HERE.parent / "web" / "templates"
-_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,200}$")
+_NAME = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,200}\Z")
 
 
 def _env() -> Environment:
@@ -208,7 +208,7 @@ def router(app: Any = None) -> APIRouter:
         config = _config(request)
         rows = drafts(config)
         q = request.query_params
-        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(q.get("job"))) is not None else None
         try:
             from nanosoc_rm.releases.builder import _registry
             configs = [c["id"] for c in _registry(config).configurations()]
@@ -239,7 +239,7 @@ def router(app: Any = None) -> APIRouter:
     def forks_page(request: Request) -> HTMLResponse:
         config = _config(request)
         q = request.query_params
-        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(q.get("job"))) is not None else None
         last = next((j for j in _recent(config, "forks", 50) if j["state"] == "done"), None)
         from nanosoc_rm import db
         try:
@@ -264,7 +264,7 @@ def router(app: Any = None) -> APIRouter:
         if doc is None:
             return _page(request, "releases_message.html", "Unreadable draft", status=503, message=problem)
         q = request.query_params
-        job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
+        job = jobs.get(config, n) if (n := jobs.parse_id(q.get("job"))) is not None else None
         verifies = [j for j in _recent(config, "release-verify", 50)
                     if j["params"].get("configuration") == configuration and j["params"].get("version") == version]
         lock = _lock(d)

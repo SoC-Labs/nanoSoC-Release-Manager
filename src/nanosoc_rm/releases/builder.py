@@ -199,9 +199,10 @@ def _lock_of(d: Path) -> dict | None:
     for name in (LOCK, DRAFT_LOCK):
         if (d / name).is_file():
             try:
-                return contracts.load_yaml((d / name).read_text())
-            except (OSError, ValueError):
+                lock = contracts.load_yaml((d / name).read_text())
+            except (OSError, ValueError, yaml.YAMLError):          # unreadable or not YAML: no lock (ROB-coverage-4)
                 return None
+            return lock if isinstance(lock, dict) else None
     return None
 
 
