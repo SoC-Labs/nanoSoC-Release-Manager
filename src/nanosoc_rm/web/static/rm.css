@@ -556,6 +556,7 @@ form.inline { display: inline; margin: 0; }
 .fp-sec-h { padding: 16px 20px; border-bottom: 1px solid var(--fp-line-soft); }
 .fp-sec-h h2 { margin: 0; font-family: var(--font-body); font-size: 18px; letter-spacing: 0; }
 .fp-sec-h p { margin: 4px 0 0; color: var(--fp-muted); font-size: 14px; }
+.fp-sec-h p.fp-scanline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; color: var(--fp-ink); }
 .fp-newrow { padding: 16px 20px; border-top: 1px solid var(--fp-line-soft); display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; }
 .fp-newrow .who { flex: 1 1 280px; min-width: 0; }
 .fp-radio { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; border: 0; margin: 0; padding: 0; }

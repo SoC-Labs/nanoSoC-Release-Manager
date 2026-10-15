@@ -19,6 +19,11 @@ wall clock. Jobs, in the order they run within one tick:
     store_index  once per UTC day, at or after schedule.nightly_utc, when [stores.artifactory] is configured: queue
                  one `store-index` local job (section 22; read-only: GET, HEAD and AQL), unless one is queued or
                  running already. The worker runs it as a child process, never this process.
+    org_scan     once per UTC day, at or after schedule.nightly_utc, when a GitHub org or GitLab group is configured:
+                 queue one `org-scan` local job (section 23.2; read-only, anonymous listing: GET with no credential),
+                 unless one is queued or running already, so the Catalogue page's new-repo queue is at most a day
+                 old (David 2026-10-15, CR-1015-orgscan; its Scan now button queues the same job). The worker runs
+                 it as a child process, never this process.
 
 With no `[ci] project` configured (a local deployment, CR-17), the CI jobs (nightly_t0, fetch, runner) are left
 out: there is nothing to trigger or fetch, and Run executes locally instead (nanosoc_rm.jobs).
@@ -158,6 +163,16 @@ def _store_index(config: Config) -> None:
     jobs.submit(config, "store-index", {}, by="schedule")
 
 
+def _org_scan(config: Config) -> None:
+    from nanosoc_rm.catalogue.orgscan import scanned_hosts
+    if not scanned_hosts(config):
+        return                                    # no org or group configured: nothing to list
+    from nanosoc_rm import jobs
+    if jobs.jobs(config, kind="org-scan", states=("queued", "running")):
+        return
+    jobs.submit(config, "org-scan", {}, by="schedule")
+
+
 JOBS: tuple[Job, ...] = (
     Job("poll", "poll", _poll),
     Job("freshness_scan", "poll", _freshness_scan),
@@ -167,6 +182,7 @@ JOBS: tuple[Job, ...] = (
     Job("credentials", "nightly", _credentials),
     Job("runner", "poll", _runner),
     Job("store_index", "nightly", _store_index),
+    Job("org_scan", "nightly", _org_scan),
 )
 CI_JOBS = ("nightly_t0", "fetch", "runner")          # need a CI project; skipped without one (CR-17)
 

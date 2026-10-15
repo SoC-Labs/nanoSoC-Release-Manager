@@ -6,11 +6,15 @@
                               and "What Save writes"
     POST /catalogue/patch     (local deployments) the page's choices -> catalogue.preview -> the catalogue.yaml
                               patch: `do=preview` shows it on the page, `do=download` returns it as a file
+    POST /catalogue/scan      (local deployments) "Scan now": queue one `org-scan` local job (section 23.2:
+                              read-only, anonymous listing), or show the one already queued or running; 303 to
+                              /catalogue/?job=N. The scheduler queues the same job nightly (CR-1015-orgscan)
 
 Nothing here writes the registry: the patch is for a person to review and apply by merge request (the registry
-is the source of truth). A GET reads the registry checkout's files and the store only: no scan, no job, no network.
-The POST writes nothing either (no gui.sqlite, no store); it is a POST because it carries the page's choices and
-the CSRF token, and only local deployments register it (section 13a).
+is the source of truth). A GET reads the registry checkout's files, the store and the job records only: no scan, no
+job, no network. The patch POST writes nothing either (no gui.sqlite, no store); it is a POST because it carries the
+page's choices and the CSRF token. The scan POST only queues the job; the worker runs it as a child process. Only
+local deployments register either (section 13a).
 """
 from __future__ import annotations
 
@@ -22,11 +26,11 @@ from fastapi import APIRouter
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, Response
+from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm.catalogue import model
 
-__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "QUICK", "catalogue_view", "choices_from_form"]
+__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "QUICK", "catalogue_view", "choices_from_form", "scan_status"]
 
 PREFIX = "/catalogue"
 NAV_LABEL = "Catalogue"
@@ -187,14 +191,39 @@ def choices_from_form(form: Any, view: dict) -> tuple[list[dict], list[str]]:
     return out, skipped
 
 
+def scan_status(config, job_id: int | None = None) -> dict:
+    """What the page says about the org scan, from the job records only: the job named by `?job=N` (an org-scan
+    job), else the latest org-scan job; and `hosts`, the configured hosts the scan lists (none: nothing to scan)."""
+    from nanosoc_rm import jobs
+    from nanosoc_rm.catalogue.orgscan import scanned_hosts
+    job = None
+    try:
+        if job_id is not None:
+            j = jobs.get(config, job_id)
+            job = j if j is not None and j.get("kind") == "org-scan" else None
+        if job is None:
+            recent = jobs.jobs(config, kind="org-scan", limit=1)
+            job = recent[0] if recent else None
+    except Exception:                                            # noqa: BLE001 - no job store yet
+        job = None
+    try:
+        hosts = scanned_hosts(config)
+    except Exception:                                            # noqa: BLE001
+        hosts = ()
+    return {"job": job, "hosts": hosts, "named": job is not None and job_id is not None and job["id"] == job_id}
+
+
 def _page(request: Request, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
     from nanosoc_rm.web import plugins
+    config = _config(request)
+    jq = request.query_params.get("job") or ""
+    ctx.setdefault("scan", scan_status(config, int(jq) if jq.isdigit() and len(jq) < 12 else None))
     return plugins.render_page(request, "catalogue.html", title, status=status, environment=ENV, local=_local(request),
                                no_rail=True, bare=True, crumbs=[], **ctx)
 
 
 def router(app: Any = None) -> APIRouter:
-    """GET /catalogue/ always; POST /catalogue/patch only in a local deployment (section 13a)."""
+    """GET /catalogue/ always; POST /catalogue/patch and POST /catalogue/scan only in a local deployment (13a)."""
     from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
@@ -227,9 +256,27 @@ def router(app: Any = None) -> APIRouter:
                                                          "skipped": skipped, "n": len(choices)},
                      problems=v["problems"])
 
+    async def post_scan(request: Request) -> Response:
+        from nanosoc_rm import jobs
+        from nanosoc_rm.catalogue.orgscan import scanned_hosts
+        config = _config(request)
+        if not scanned_hosts(config):
+            return PlainTextResponse("400 Bad Request: no [hosts.github] org or [hosts.gitlab] group is configured, "
+                                     "so there is nothing to scan\n", 400)
+        try:
+            running = jobs.jobs(config, kind="org-scan", states=("queued", "running"))
+            if running:
+                return RedirectResponse("%s/?job=%d#new" % (PREFIX, running[0]["id"]), 303)
+            login = getattr(getattr(request.state, "identity", None), "login", "") or ""
+            job = await run_in_threadpool(jobs.submit, config, "org-scan", {}, login)
+        except jobs.JobUsage as e:
+            return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
+        return RedirectResponse("%s/?job=%d#new" % (PREFIX, job["id"]), 303)
+
     r.add_api_route("/", index, methods=["GET"], include_in_schema=False)
     if local:
         r.add_api_route("/patch", post_patch, methods=["POST"], include_in_schema=False)
+        r.add_api_route("/scan", post_scan, methods=["POST"], include_in_schema=False)
     return r
 
 

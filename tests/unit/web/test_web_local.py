@@ -534,7 +534,8 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               ("POST", "/publish/release/{configuration}/{version}/confirm"),
               ("POST", "/publish/tapeout/{tapeout_id}/preview"), ("POST", "/publish/tapeout/{tapeout_id}/confirm"),
               ("POST", "/freshness/scan"),                    # CR-WF-fresh: queues the read-only freshness-scan job
-              ("POST", "/catalogue/patch")}                   # CR-WF-gui: builds a catalogue patch, writes nothing
+              ("POST", "/catalogue/patch"),                   # CR-WF-gui: builds a catalogue patch, writes nothing
+              ("POST", "/catalogue/scan")}                    # CR-1015-orgscan: queues the read-only org-scan job
     assert base | plugin | routers.WAVE_F_POSTS <= writes, sorted(base | plugin | routers.WAVE_F_POSTS - writes)
     allowed = base | plugin | routers.WAVE_C_POSTS | routers.WAVE_F_POSTS          # CR-WF-gui: + the Wave F POSTs
     assert writes <= allowed, sorted(writes - allowed)

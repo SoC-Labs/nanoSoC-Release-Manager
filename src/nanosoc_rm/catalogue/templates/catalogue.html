@@ -2,6 +2,9 @@
    result of POST /catalogue/patch (do=preview) or None. One form holds every choice; Save builds a patch for a
    person to apply: nothing here writes the registry. #}
 <div class="fp fp-cat">
+{# Scan now (CR-1015-orgscan): its own form, outside the patch form (forms do not nest); the button in the New repos
+   header names it with form="catalogue-scan". #}
+{% if local and scan.hosts %}<form method="post" action="/catalogue/scan" id="catalogue-scan"><input type="hidden" name="csrf_token" value="{{ csrf }}"></form>{% endif %}
 {% if local %}<form method="post" action="/catalogue/patch" id="catalogue-form">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">{% endif %}
 <div class="fp-headrow">
@@ -20,6 +23,15 @@
   <div class="fp-sec-h">
     <h2 id="h-new">New repos found <span class="mono fp-muted">{{ c.new|length }}</span></h2>
     <p>Seen by the anonymous org scan in the GitHub org or the GitLab group, not yet in the catalogue. Nothing is checked until you decide.</p>
+    {% set sj = scan.job %}
+    <p class="fp-scanline" data-org-scan{% if sj %} data-org-scan-job="{{ sj.id }}" data-job-state="{{ sj.state }}"{% endif %}>
+      {% if local and scan.hosts %}<button type="submit" form="catalogue-scan" class="fp-btn" title="queue `nanosoc-rm catalogue org-scan --store` as a local job: an anonymous, read-only listing of the org and the group">Scan now</button>{% endif %}
+      {% if sj %}<span>Org scan job {{ sj.id }} {{ sj.state }}{% if sj.verdict %} ({{ sj.verdict }}){% endif %}{% if sj.finished_at %}, finished {{ sj.finished_at }}{% elif sj.state in ('queued', 'running') %}: reload this page when it finishes{% endif %}. <a href="/jobs/{{ sj.id }}/log">Log</a></span>
+      {% elif scan.hosts %}<span class="fp-muted">No org scan has run yet.</span>{% endif %}
+      {% if scan.hosts %}<span class="fp-muted">The scheduler also scans every night.</span>
+      {% else %}<span class="fp-muted">No GitHub org or GitLab group is configured, so there is nothing to scan.</span>{% endif %}
+      {% if not local and scan.hosts %}<span class="fp-muted">Scan on a login server: <code>nanosoc-rm catalogue org-scan --store</code></span>{% endif %}
+    </p>
   </div>
   {% for n in c.new %}
   <div class="fp-newrow" {{ page.mark(n.doc) }} data-new-repo="{{ n.repo }}">

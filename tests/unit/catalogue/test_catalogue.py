@@ -366,3 +366,21 @@ def test_org_scan_job_kind():
     # The job's name holds no word a later phase's gate governs (phasegates rule 5a).
     from nanosoc_rm import phasegates
     assert phasegates.automation_phase("org-scan") == [] and phasegates.automation_phase("org_scan") == []
+
+
+# ----- David 2026-10-15: the new-repo queue refreshes nightly and on Scan now (CR-1015-orgscan) ------------------
+def test_the_scheduler_queues_one_org_scan_a_night_when_a_host_is_configured(scan_env, tmp_path):
+    from nanosoc_rm import phasegates, schedule
+    at, gh, gl, cfg, registry = scan_env
+    job = next(j for j in schedule.JOBS if j.name == "org_scan")
+    assert job.every == "nightly" and job.enabled and job.phase == "v1" and job.name not in schedule.CI_JOBS
+    assert phasegates.automation_phase(job.name) == []                     # rule 5a: no governed word
+    config = load_config(cfg)
+    job.run(config)
+    job.run(config)                                                         # one queued already: no second
+    assert [(j["kind"], j["params"], j["by"]) for j in jobs.jobs(config)] == [("org-scan", {"host": None}, "schedule")]
+    assert gh.log == [] and gl.log == []                                    # queuing lists nothing itself
+    plain = tmp_path / "plain.toml"
+    plain.write_text('[service]\ndata_dir = "%s"\n' % (tmp_path / "d1"))
+    job.run(load_config(plain))                                             # no org or group: nothing to scan
+    assert jobs.jobs(load_config(plain)) == []

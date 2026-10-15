@@ -786,8 +786,8 @@ def tick(now: datetime) -> list[str]             # nanosoc_rm.schedule: runs eve
 ```
 
 `serve` calls `tick(utcnow())` every 30 s. Tests call it with an injected time, so a schedule test never waits
-on the wall clock. Job names: `poll`, `freshness_scan` (section 23.4, right after `poll`), `nightly_t0`, `fetch`, `inventory`,
-`credentials`, `runner`.
+on the wall clock. Job names: `poll`, `freshness_scan` (section 24.4, right after `poll`), `nightly_t0`, `fetch`, `inventory`,
+`credentials`, `runner`, `store_index` (section 22.4), `org_scan` (section 23.2; nightly; CR-1015-orgscan).
 A `Job` carries optional `phase` (default `"v1"`; CR-VER-a), `enabled` (default true) and `gate` (CR-R8). A later
 phase's job may be registered built with `enabled=False` and `gate="Phase N"` (CR-15); `tick` never runs a disabled
 job, and the phase-gate check (section 17.6, rule 5) counts every enabled job of a later phase, by its declared
@@ -2157,7 +2157,11 @@ seen, 2 a host could not be listed; the last stderr line is the summary (`org-sc
 `could not list <host>` on a failure). Job kind `org-scan` (params `{host?}`; runs
 `catalogue org-scan [--host H] --store --json`; verdict PASS when every host was listed, UNVERIFIED otherwise;
 result `{new, repos}`). A page reads `db.latest("repo_seen")`; it queues the job only from a POST, never from a
-GET. The job name holds no word a later phase's gate governs (phasegates rule 5a); it is not scheduled.
+GET. The job name holds no word a later phase's gate governs (phasegates rule 5a). CR-1015-orgscan (David
+2026-10-15, "Nightly + Scan button"): the scheduler job `org_scan` (nightly, at or after `schedule.nightly_utc`;
+v1, enabled, not a CI job) queues one `org-scan` job with no params unless one is queued or running, and only when a
+GitHub org or GitLab group is configured (`orgscan.scanned_hosts`); the Catalogue page's **Scan now** is
+`POST /catalogue/scan` (section 25), which queues the same job.
 Examples: `observation.catalogue.example.jsonl`; invalid `observation.repo-seen-with-credentials.yaml`.
 
 ### 23.3 The catalogue-change preview (`catalogue.preview.preview`)
@@ -2338,9 +2342,10 @@ creates gui.sqlite. Every page keeps one data-age element; a state is always a w
 | `POST /notifications/read` | fields `item`, `fp` (the item's fingerprint), `read` (`0` = mark unread); 303 to `/notifications` | `web.notifications` |
 | `POST /notifications/read-all` | repeated `item` + `fp` pairs: exactly the items the page showed (400 when none); a later item stays unread | `web.notifications` |
 | `POST /notifications/prefs` | repeated `listed` (each preference the form showed) and `on` (the ticked ones); an unticked listed name is saved `off`, a ticked one removed; 400 for a name `uistate.PREF_NAME` refuses | `web.notifications` |
+| `POST /catalogue/scan` | **Scan now** (CR-1015-orgscan): no fields but the CSRF token; queues one `org-scan` job (section 23.2; read-only, anonymous listing) as the signed-in login, or finds the one queued or running, and 303s to `/catalogue/?job=N#new`; 400 when no org or group is configured. The page reads the job records only (`catalogue.web.scan_status`: the `?job=N` org-scan job, else the latest; hooks `data-org-scan`, `data-org-scan-job`, `data-job-state`); the button is a `form="catalogue-scan"` button whose form sits outside the patch form | `catalogue.web` |
 | `POST /catalogue/patch` | the page's choices (`new.<i>.repo`, `new.<i>.group`, `new.<i>.other`, `new.<i>.type`, `new.<i>.role`, `ask.<id>`, `confirm.<id>`) -> `catalogue.preview` (section 23.3). A new-repo choice applies to the repo its row's hidden `new.<i>.repo` (`<host>:<path>`) names, never to whatever repo now sits at row `i`; a repo no longer in the queue (or a row without the key) is skipped and listed as not used. Every new repo starts on Decide later: the suggested group is a hint (`data-suggest`), so an untouched Save changes nothing; `do=preview` shows the patch, its changes and whether it would load; `do=download` returns `catalogue.patch` (`text/x-diff`; 400 when nothing changes). Writes nothing (no registry, no store, no gui.sqlite) | `catalogue.web` |
 
-The five POSTs are local-only (`web.plugins.local_routes`; `web.routers.WAVE_F_POSTS` lists the core four) and
+The six POSTs are local-only (`web.plugins.local_routes`; `web.routers.WAVE_F_POSTS` lists the core four) and
 CSRF-checked by the section 14 guard; a GitHub + CI deployment keeps section 13's two Run routes as its only writes
 and its pages show no button for a missing route (the timeline toggle is then a link changing `tl` in the URL).
 

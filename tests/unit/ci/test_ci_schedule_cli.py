@@ -35,8 +35,9 @@ def recorder():
 def test_job_names_are_the_contracted_ones():
     # CR-WE-index: store_index (section 22) queues the read-only store-index job once a night
     # CR-WF-fresh: freshness_scan queues the read-only freshness-scan job right after poll's walks
+    # CR-1015-orgscan: org_scan queues the read-only, anonymous org-scan job once a night
     assert [j.name for j in schedule.JOBS] == ["poll", "freshness_scan", "inventory", "nightly_t0", "fetch",
-                                               "credentials", "runner", "store_index"]
+                                               "credentials", "runner", "store_index", "org_scan"]
 
 
 def test_first_tick_after_the_nightly_time_runs_everything_in_order(ci_config, recorder):

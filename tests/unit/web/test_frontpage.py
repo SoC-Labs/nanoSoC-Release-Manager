@@ -273,13 +273,14 @@ def test_no_github_ci_deployment_gets_a_wave_f_post(service, registry_spy, tmp_p
     reg = make_registry(tmp_path / "registry")
     cfg = write_config(service["cfg"], data=tmp_path / "data", github_url=service["github"].url, registry=reg)
     app = create_app(cfg, auth=auth.FakeMembership(login="alice"))
-    assert not (routers.WAVE_F_POSTS | {("POST", "/catalogue/patch")}) & routers.writes(app)
+    assert not (routers.WAVE_F_POSTS | {("POST", "/catalogue/patch"), ("POST", "/catalogue/scan")}) & routers.writes(app)
     c = TestClient(app)
     text = c.get("/").text
     assert 'action="/home/timeline"' not in text and 'data-timeline="off"' in text
     for path in ("/notifications", "/catalogue/"):
         body = c.get(path).text
         assert 'action="/notifications/' not in body and 'action="/catalogue/patch"' not in body, path
+        assert 'action="/catalogue/scan"' not in body and 'form="catalogue-scan"' not in body, path
 
 
 # ----- the header ------------------------------------------------------------------------------------------------
@@ -361,6 +362,37 @@ def test_save_builds_a_patch_and_writes_nothing(fp):
     assert "tidechart: confirm group" in r.text
     assert c.post("/catalogue/patch", data={"new.0.group": "ignore"}).status_code == 403                # no CSRF
     assert c.post("/catalogue/patch", data={"csrf_token": csrf(page), "do": "download"}).status_code == 400
+
+
+def test_scan_now_queues_one_org_scan_job_and_a_get_queues_nothing(fp, monkeypatch):
+    """David 2026-10-15 ("Nightly + Scan button"; CR-1015-orgscan): Scan now is a CSRF-checked POST that queues the
+    read-only org-scan job (or shows the one queued or running); the page reads job records only."""
+    c = fp["client"]
+    assert 'action="/catalogue/scan"' not in c.get("/catalogue/").text          # no org or group: nothing to scan
+    assert c.post("/catalogue/scan", data={"csrf_token": csrf(c.get("/catalogue/").text)}).status_code == 400
+    with open(fp["cfg"], "a") as f:
+        f.write('[hosts.github]\nweb = "https://github.invalid"\norg = "SoC-Labs"\n')
+    app = create_app(fp["cfg"])
+    c = sign_in(TestClient(app))
+    real_submit = jobs.submit
+    monkeypatch.setattr(jobs, "submit", lambda *a, **k: pytest.fail("a GET submitted a job"))
+    text = c.get("/catalogue/").text
+    assert re.search(r'<form method="post" action="/catalogue/scan" id="catalogue-scan"><input type="hidden" '
+                     r'name="csrf_token" value="[^"]+"></form>', text)
+    assert '<button type="submit" form="catalogue-scan"' in text and "No org scan has run yet." in text
+    assert "The scheduler also scans every night." in text
+    monkeypatch.setattr(jobs, "submit", real_submit)
+    assert c.post("/catalogue/scan", data={}).status_code == 403                                        # no CSRF
+    r = c.post("/catalogue/scan", data={"csrf_token": csrf(text)}, follow_redirects=False)
+    assert r.status_code == 303 and re.fullmatch(r"/catalogue/\?job=\d+#new", r.headers["location"]), r.headers
+    r2 = c.post("/catalogue/scan", data={"csrf_token": csrf(text)}, follow_redirects=False)
+    assert r2.headers["location"] == r.headers["location"], "one queued already: no second job"
+    q = jobs.jobs(fp["config"], kind="org-scan")
+    assert [(j["params"], j["by"]) for j in q] == [({"host": None}, "alice")]
+    monkeypatch.setattr(jobs, "submit", lambda *a, **k: pytest.fail("a GET submitted a job"))
+    page = c.get(r.headers["location"].split("#")[0]).text
+    assert 'data-org-scan-job="%d" data-job-state="queued"' % q[0]["id"] in page
+    assert len(jobs.jobs(fp["config"], kind="org-scan")) == 1
 
 
 def _seen(cfg, stamp, *repos):
