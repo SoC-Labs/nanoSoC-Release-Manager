@@ -1162,7 +1162,8 @@
             "not_measured",
             "current",
             "outdated",
-            "behind"
+            "behind",
+            "current_except"
           ]
         },
         "would_be": {
@@ -1173,7 +1174,8 @@
                 "not_measured",
                 "current",
                 "outdated",
-                "behind"
+                "behind",
+                "current_except"
               ]
             },
             {
@@ -1191,6 +1193,11 @@
         "direct": {
           "type": "integer",
           "minimum": 0
+        },
+        "direct_not_measured": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many direct pins could not be measured: the N of a current_except verdict (\"Current except N not measured\"; CR-1015-unmeasured). Absent from scans stored before it."
         },
         "counts": {
           "type": "object",

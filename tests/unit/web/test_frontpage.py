@@ -101,8 +101,8 @@ def test_a_scanned_tree_that_reads_not_measured_is_in_the_not_measured_pill_and_
     c = fp["client"]
     before = _pills(c.get("/").text)
     put_tree(fp["cfg"], "eth-main", "nanosoc-ethernet-chiplet", [
-        {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": 0},
-        {"tree_path": "tidelink", "component": "tidelink", "behind": None}])          # a direct pin not counted
+        {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": None},
+        {"tree_path": "tidelink", "component": "tidelink", "behind": None}])          # no direct pin counted
     text = c.get("/?v=1&o=p:nanosoc-ethernet-chiplet").text
     assert {k: s for k, s, _, _ in rows(text)}["c:eth-main"] == "not_measured"
     after = _pills(text)
@@ -110,6 +110,43 @@ def test_a_scanned_tree_that_reads_not_measured_is_in_the_not_measured_pill_and_
     assert sum(after.values()) == sum(before.values())                      # every tree is in exactly one pill
     text = c.get("/?f=not_measured&v=1&o=p:nanosoc-ethernet-chiplet").text
     assert "p:nanosoc-ethernet-chiplet" in keys(text) and "c:eth-main" in keys(text)
+
+
+def test_a_tree_with_an_unmeasured_direct_pin_is_never_current_on_home_or_the_matrix(fp):
+    """David 2026-10-15 ("Not Current"; CR-1015-unmeasured): a measured-current tree with direct pins nobody could
+    count reads "Current except N not measured", amber, in its own shape, on Home (row, project, pill, detail) and
+    in the Matrix column head and row. Red if the old behaviour (Current, or plain Not measured) returns."""
+    c = fp["client"]
+    before = _pills(c.get("/").text)
+    assert "current_except" not in before                                   # shown only when a tree reads so
+    put_tree(fp["cfg"], "eth-main", "nanosoc-ethernet-chiplet", [
+        {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": 0},
+        {"tree_path": "tidelink", "component": "tidelink", "behind": None},
+        {"tree_path": "asic-flow", "component": "asic-flow", "behind": None}])
+    text = c.get("/?v=1&o=p:nanosoc-ethernet-chiplet&sel=c:eth-main").text
+    by = {k: (s, w) for k, s, w, _ in rows(text)}
+    assert by["c:eth-main"] == ("current_except", "Current except 2 not measured"), by["c:eth-main"]
+    assert by["p:nanosoc-ethernet-chiplet"] == ("current_except", "Current except 2 not measured")
+    row = re.search(r'data-row="c:eth-main".*?</li>', text, re.S).group(0)
+    assert '<span class="fs fs-cxn"><span class="mk mk-cxn" aria-hidden="true"></span>' in row      # amber, own shape
+    after = _pills(text)
+    assert after["current_except"] == 1 and after["outdated"] == before["outdated"] - 1
+    assert after.get("current", 0) == before.get("current", 0)
+    assert sum(after.values()) == sum(before.values())                     # every tree in exactly one pill
+    assert "Current except 2 not measured" in detail(text)
+    assert facts(text)["Direct pins not measured"].startswith("2 of 3")
+    keys_f = keys(c.get("/?f=current_except&v=1&o=p:nanosoc-ethernet-chiplet").text)
+    assert "c:eth-main" in keys_f
+    mx = c.get("/matrix/").text
+    heads = dict(re.findall(r'data-column="([^"]+)"><span class="colid">[^<]+</span><span class="colsub">([^<]+)<', mx))
+    assert heads["eth-main"].startswith("Current except 2 not measured"), heads
+    spread = re.search(r'data-matrix-row="tidelink".*?<span class="spread">([^<]+)<', mx, re.S)
+    assert spread and spread.group(1) != "current", "a repo nobody could measure is listed, never called current"
+    # a worse direct pin still wins
+    put_tree(fp["cfg"], "eth-main", "nanosoc-ethernet-chiplet", [
+        {"tree_path": "nanosoc-multicore-system", "component": "nanosoc-multicore-system", "behind": 3},
+        {"tree_path": "tidelink", "component": "tidelink", "behind": None}])
+    assert {k: s for k, s, _, _ in rows(c.get("/?v=1&o=p:nanosoc-ethernet-chiplet").text)}["c:eth-main"] == "behind"
 
 
 def test_a_configuration_is_judged_on_its_direct_pins_a_pin_row_on_what_is_beneath(fp):

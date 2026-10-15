@@ -14,6 +14,7 @@ import importlib
 import click
 
 from nanosoc_rm.cliutil import EXIT_OK, EXIT_UNVERIFIED, EXIT_USAGE, emit, json_option, subgroup, table
+from nanosoc_rm.freshness.rules import tree_word
 
 __all__ = ["register"]
 
@@ -38,7 +39,9 @@ def _state(state, would_be) -> str:
 def _pin_row(d: dict) -> dict:
     f = d["fact"]
     if f["level"] == "tree":
-        return {"configuration": f["configuration"], "tree_path": "(tree)", "state": _state(f["state"], f["would_be"]),
+        n = f.get("direct_not_measured")
+        verdict = tree_word(f["state"], n) + (" (would be %s)" % tree_word(f["would_be"], n) if f["would_be"] else "")
+        return {"configuration": f["configuration"], "tree_path": "(tree)", "state": verdict,
                 "behind": f["total_behind"], "bumped": f["updated_days"], "note": "%s/%s direct lagging, %s/%s in tree"
                 % (f["direct_lagging"] if f["counted"] else f["would_be_direct_lagging"], f["direct"],
                    f["lagging"] if f["counted"] else f["would_be_lagging"], f["pins"])}

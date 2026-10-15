@@ -56,11 +56,56 @@ def test_the_tree_verdict_is_the_worst_direct_pin_and_unmeasured_is_never_curren
     deep = _pin(40, 300, depth=2, path="a/deep")
     assert rules.judge_tree(False, [_pin(0, 5, path="a"), deep], TODAY)["state"] == "current"   # direct only
     j = rules.judge_tree(False, [_pin(0, 5, path="a"), _pin(None, 5, path="b"), deep], TODAY)
-    assert j["state"] == "not_measured", "a direct pin nobody measured must not read as current"
+    assert j["state"] == "current_except", "a direct pin nobody measured must not read as current"
     assert rules.judge_tree(False, [_pin(3, 5, path="a"), _pin(None, 5, path="b")], TODAY)["state"] == "behind"
     assert rules.judge_tree(False, [], TODAY)["state"] == "not_measured"
     assert (j["direct"], j["direct_lagging"], j["lagging"], j["pins"]) == (2, 0, 1, 3)
     assert j["newest_bump"]["days"] == 5 and j["age"] == "fresh" and j["stalest_lagging"]["tree_path"] == "a/deep"
+
+
+# ----- David 2026-10-15: a tree with a pin that cannot be measured is Not Current (CR-1015-unmeasured) ------------
+def test_a_tree_with_an_unmeasured_direct_pin_reads_current_except_n_not_measured_never_current():
+    """Red if the pre-2026-10-15 behaviour returns: either Current (the unmeasured pin ignored) or plain Not measured
+    (the tree's measured pins ignored). Worse states still win; a tree with nothing measured stays Not measured."""
+    pins = [_pin(0, 5, path="a"), _pin(None, 5, path="b"), _pin(None, 7, path="c"), _pin(40, 300, depth=2, path="a/d")]
+    j = rules.judge_tree(False, pins, TODAY)
+    assert j["state"] == "current_except" and j["state"] != "current"
+    assert j["direct_not_measured"] == 2
+    assert rules.tree_word(j["state"], j["direct_not_measured"]) == "Current except 2 not measured"
+    assert rules.judge_tree(False, [_pin(0, 5, path="a"), _pin(0, 9, path="b")], TODAY)["state"] == "current"
+    for worse, state in ((_pin(3, 5, path="w"), "behind"), (_pin(12, 5, path="w"), "outdated"),
+                         (_pin(None, 5, unpushed=True, path="w"), "unpushed")):
+        assert rules.judge_tree(False, pins + [worse], TODAY)["state"] == state, state
+    assert rules.judge_tree(False, [_pin(None, 5, path="b")], TODAY)["state"] == "not_measured"
+    assert rules.judge_tree(False, [], TODAY)["direct_not_measured"] == 0
+    f = rules.judge_tree(True, pins, TODAY)
+    assert (f["state"], f["would_be"]) == ("frozen", "current_except"), "a frozen configuration stays Frozen"
+    assert rules.tree_word("current", 0) == "Current" and rules.tree_word(None, 3) is None
+
+
+def test_the_view_and_the_cli_say_current_except_n_not_measured(estate, tmp_path):
+    """The stored-facts view (Home and the Matrix read it) and `freshness show` print the same verdict: a stored
+    top-main whose direct pins are one current and the rest not measured."""
+    from nanosoc_rm.freshness import view
+    shadow = at_pins().make_shadow(estate["env"], tmp_path / "shadow")
+    docs = [dict(d, fact=dict(d["fact"])) for d in estate["docs"] if d["fact"]["configuration"] == "top-main"]
+    direct = [d for d in docs if d["fact"]["level"] == "pin" and d["fact"]["depth"] == 1]
+    for i, d in enumerate(direct):
+        d["fact"].update(behind=0 if i == 0 else None, unpushed=False, on_default=True if i == 0 else None,
+                         not_measured=None if i == 0 else "no mirror (fixture)", caveat=None)
+        d["fact"]["state"] = rules.judge_pin(d["fact"], TODAY)["state"]
+    tree = next(d for d in docs if d["fact"]["level"] == "tree")
+    tree["fact"].update(rules.judge_tree(False, [d["fact"] for d in docs if d["fact"]["level"] == "pin"], TODAY))
+    n = len(direct) - 1
+    assert n >= 1 and tree["fact"]["state"] == "current_except" and tree["fact"]["direct_not_measured"] == n
+    assert all(contracts.validate_observation(d) == [] for d in docs)
+    with shadow.active():
+        snap = {"id": db.new_snapshot_id("freshness:top-main"), "scope": "freshness:top-main"}
+        db.put_snapshot("freshness:top-main", [dict(d, snapshot=snap) for d in docs])
+        s = next(t for t in view.trees(today=TODAY) if t["configuration"] == "top-main")
+    assert (s["state"], s["word"]) == ("current_except", "Current except %d not measured" % n)
+    p = shadow.cli("freshness", "show", "top-main", "--today", TODAY.isoformat())
+    assert p.returncode == 0 and re.search(r"top-main\s+Current except %d not measured" % n, p.stdout), p.stdout
 
 
 def test_a_frozen_tree_counts_nothing_and_keeps_what_it_would_be():

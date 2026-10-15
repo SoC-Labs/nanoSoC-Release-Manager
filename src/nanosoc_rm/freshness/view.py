@@ -76,15 +76,16 @@ def _summary(docs: list[dict], today: dt.date) -> dict:
     return {"configuration": t["configuration"], "frozen": t["frozen"], "silicon": t.get("silicon", False),
             "root": root, "walk": t["walk"], "not_measured": t.get("not_measured"), "scanned_on": t["judged_on"],
             "subject": tree_doc["subject"], "observed_at": tree_doc["observed_at"],
-            "word": rules.WORDS[j["state"]], "would_be_word": rules.WORDS[j["would_be"]] if j["would_be"] else None,
+            "word": rules.tree_word(j["state"], j["direct_not_measured"]),
+            "would_be_word": rules.tree_word(j["would_be"], j["direct_not_measured"]),
             "age_word": rules.AGE_WORDS.get(j["age"]) if j["age"] else None, **j}
 
 
 def trees(*, today: dt.date | None = None, config: Config | str | Path | None = None) -> list[dict]:
     """One summary per scanned configuration, live ones first, then by id. Each is rules.judge_tree on `today`
     plus: configuration, frozen, silicon, root {component, commit, date, days}, walk {snapshot, observed_at},
-    not_measured (why a tree has no pins), scanned_on, word / would_be_word / age_word (display words), subject,
-    observed_at."""
+    not_measured (why a tree has no pins), scanned_on, word / would_be_word / age_word (display words; a
+    `current_except` verdict reads "Current except N not measured", rules.tree_word), subject, observed_at."""
     today = _today(today)
     out = [_summary(docs, today) for docs in stored(config=config).values() if docs[0]["fact"]["level"] == "tree"]
     return sorted(out, key=lambda s: (s["frozen"], s["configuration"]))

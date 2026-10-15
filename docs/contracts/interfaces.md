@@ -2234,7 +2234,13 @@ by its commits behind like any other (the view flags it `diverged`, or `unmerged
 
 Per tree (`judge_tree(frozen, pins, today)`): `state` = the worst DIRECT pin (depth 1) by `SEVERITY` = unpushed 4 >
 outdated 3 > behind 2 > not_measured 1 > current 0, so a tree is Current only when every direct pin was measured
-at its head; no pins = not_measured; a frozen tree is `frozen` with `would_be` = that verdict. `counts` per live
+at its head; no pins = not_measured; a frozen tree is `frozen` with `would_be` = that verdict. CR-1015-unmeasured
+(David 2026-10-15, "Not Current"): when that worst is `not_measured` and at least one direct pin is `current`, the
+verdict is **`current_except`** ("Current except N not measured", `tree_word(state, direct_not_measured)`; amber, its
+own shape on the pages); worse states (unpushed, outdated, behind) still win; a tree none of whose direct pins was
+measured stays `not_measured`; a frozen tree stays `frozen` (its `would_be` may be `current_except`).
+`direct_not_measured` = how many direct pins could not be measured. `current_except` is a tree verdict only
+(`TREE_STATES` = `STATES` + it): no pin, node rollup or grid cell has it. `counts` per live
 state over the whole tree; `lagging`/`direct_lagging` = unpushed + outdated + behind pins (0 when frozen;
 `would_be_lagging`/`would_be_direct_lagging` keep a frozen tree's numbers); `total_behind`, `any_lower_bound`;
 `newest_bump` / `newest_direct_bump` {tree_path, component, date, days}; `updated_days` = days since the newest
@@ -2245,7 +2251,9 @@ under `would_be_counts`, `would_be_stalest_lagging` and `would_be_worst_lagging`
 `updated_days` stays as a fact. Days are whole UTC calendar days (`days_since(ts, today)`).
 
 ```python
-STATES, LIVE_STATES, WORDS, SEVERITY, LAGGING, OUTDATED_BEHIND, OUTDATED_DAYS, FRESH_DAYS, STALE_DAYS, AGE_WORDS
+STATES, LIVE_STATES, TREE_STATES, CURRENT_EXCEPT, WORDS, SEVERITY, LAGGING, OUTDATED_BEHIND, OUTDATED_DAYS,
+FRESH_DAYS, STALE_DAYS, AGE_WORDS
+def tree_word(state, direct_not_measured) -> str | None   # "Current except 2 not measured"; else WORDS[state]
 def judge_pin(pin_fact: dict, today: date) -> dict   # {state, would_be, live, lagging, days_since_bump, pin_age_days}
 def judge_tree(frozen: bool, pin_facts: list[dict], today: date) -> dict   # the tree fields above
 def live_state(pin_fact, today) -> str;  def worst(states) -> str | None;  def age_word(days) -> str | None
@@ -2273,7 +2281,8 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
 
 - **summary** = `judge_tree` fields + `configuration`, `frozen`, `silicon`, `root` {component, commit, date, days},
   `walk` {snapshot, observed_at}, `not_measured`, `scanned_on`, `word`, `would_be_word`, `age_word` (display words:
-  "Outdated", "Not measured", "Fresh"...), `subject`, `observed_at`.
+  "Outdated", "Not measured", "Current except 2 not measured" (`rules.tree_word`), "Fresh"...), `subject`,
+  `observed_at`.
 - **node** (one per tree path; a pin reached at two paths shows at both, `first_path` marks its own) = `tree_path`,
   `name`, `display_depth`, `parent_path`, `children` [tree paths], `component`, `catalogued_as`, `pinned`,
   `pin_date`, `behind`, `ahead`, `lower_bound`, `on_default`, `diverged`, `unmerged`, `reachable`, `unpushed`,
@@ -2344,7 +2353,12 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   first. A project with no measured configuration folds into one "Not measured yet" group (`grp:unk`).
 - **Pills** count live configurations by tree verdict and frozen ones as Frozen; the Not measured pill adds the
   projects with no stored scan to the scanned live trees that read Not measured, so every configuration is in one
-  pill, and its filter keeps both.
+  pill, and its filter keeps both. CR-1015-unmeasured: a tree reading `current_except` is in its own pill
+  ("Current except not measured", `f=current_except`; shown, like Unpushed, only when a tree reads so); its row says
+  "Current except N not measured" in amber beside a half-filled dot (`data-state="current_except"`, CSS key `cxn`), and
+  a project whose worst live tree reads so says it with N summed over those trees. `data-state` is a
+  `freshness.rules.TREE_STATES` value. The Matrix column head prints the tree word; a repository row with a live cell
+  nobody could measure says "current except N not measured" (or "not measured") and stays under Lagging only.
 - **No forkable project** chip (`gap=1`): counts the SoCs no forkable project wraps
   (`catalogue.model.socs_without_forkable_project`). While `catalogue.model.gap_unverified` is non-empty (a soc_ref
   with no stated group defaults to project, so the check cannot see it) the chip adds "· unverified"
@@ -2355,8 +2369,8 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   today's month to `_TL_AFTER` days after today), the today line, and a dashed line at each frozen configuration's
   root commit date (its tapeout).
 - **Page hooks** (tests read pages only through these): `data-row` (row key: `p:<project>`, `c:<configuration>`,
-  `n:<configuration>:<tree path>`, `grp:unk`) and `data-state` (a `freshness.rules.STATES` value) on each tree row,
-  with `data-subject`/`data-observed-at` when the row is a stored fact; `data-fresh-pill` (state) on each pill;
+  `n:<configuration>:<tree path>`, `grp:unk`) and `data-state` (a `freshness.rules.TREE_STATES` value) on each tree
+  row, with `data-subject`/`data-observed-at` when the row is a stored fact; `data-fresh-pill` (state) on each pill;
   `data-timeline` (`on`\|`off`); `data-gap-filter`; `data-bell` (unread count, empty when unknown) on the bell;
   `data-matrix-row` (component), `data-column` (configuration), `data-cell-state` and `data-detail` on the matrix;
   `data-new-repo` (`<host>:<path>`), `data-ask` (component id), `data-group` (group), `data-pending`,

@@ -342,8 +342,8 @@ form.inline { display: inline; margin: 0; }
 
 /* ---- Wave F front pages (CR-WF-gui): Home, Matrix, Catalogue, Notifications -------------------------------------
    The palette of the approved artboards (ink #16181D, accent #1D4FB8). A freshness state is a SHAPE plus its
-   WORD: diamond Outdated, ring Behind, dot Current, square outline Frozen, filled square Unpushed, dashed ring Not
-   measured. Text colours are >= 4.5:1 on their ground in both themes. */
+   WORD: diamond Outdated, ring Behind, dot Current, half-filled amber dot Current except N not measured (a tree
+   only, CR-1015-unmeasured), square outline Frozen, filled square Unpushed, dashed ring Not measured. Text colours are >= 4.5:1 on their ground in both themes. */
 :root {
   --fp-ink: #16181D; --fp-muted: #4A4E58; --fp-line: #DEDFDA; --fp-line-soft: #F0F0EC; --fp-panel: #FFFFFF;
   --fp-ground: #F6F6F3; --fp-accent: #1D4FB8; --fp-accent-ink: #123A8C; --fp-accent-soft: #EEF2FB; --fp-sel: #F0F0EC;
@@ -352,6 +352,7 @@ form.inline { display: inline; margin: 0; }
   --mk-out: #B42318; --mk-beh: #B54708; --mk-cur: #16603F; --mk-frz: #0A5566; --mk-unk: #6B6F79; --mk-unp: #16181D;
   --fs-out-bg: #FDECEA; --fs-beh-bg: #FEF3D7; --fs-cur-bg: #DDF1E6; --fs-frz-bg: #F4F4F1; --fs-unk-bg: #F0F0EC;
   --fs-unp-bg: #16181D; --fs-unp-on: #FFFFFF;
+  --fs-cxn: #6B3F00; --mk-cxn: #B54708;   /* Current except N not measured: amber, its own half-filled dot */
   --tone-act: #1D4FB8; --tone-warn: #B54708; --tone-info: #8A8E98; --tone-read: #D5D7D0;
 }
 @media (prefers-color-scheme: dark) {
@@ -363,6 +364,7 @@ form.inline { display: inline; margin: 0; }
     --mk-out: #FF7A6E; --mk-beh: #E8A33D; --mk-cur: #5FBF84; --mk-frz: #6FB3C3; --mk-unk: #8C96A1; --mk-unp: #FFFFFF;
     --fs-out-bg: #3B1D1A; --fs-beh-bg: #392D13; --fs-cur-bg: #17301F; --fs-frz-bg: #1F2A30; --fs-unk-bg: #26303A;
     --fs-unp-bg: #FFFFFF; --fs-unp-on: #16181D;
+    --fs-cxn: #FFCF70; --mk-cxn: #E8A33D;
     --tone-act: #8FB0FF; --tone-warn: #E8A33D; --tone-info: #8C96A1; --tone-read: #4F5B67;
   }
 }
@@ -374,6 +376,7 @@ form.inline { display: inline; margin: 0; }
   --mk-out: #FF7A6E; --mk-beh: #E8A33D; --mk-cur: #5FBF84; --mk-frz: #6FB3C3; --mk-unk: #8C96A1; --mk-unp: #FFFFFF;
   --fs-out-bg: #3B1D1A; --fs-beh-bg: #392D13; --fs-cur-bg: #17301F; --fs-frz-bg: #1F2A30; --fs-unk-bg: #26303A;
   --fs-unp-bg: #FFFFFF; --fs-unp-on: #16181D;
+  --fs-cxn: #FFCF70; --mk-cxn: #E8A33D;
   --tone-act: #8FB0FF; --tone-warn: #E8A33D; --tone-info: #8C96A1; --tone-read: #4F5B67;
 }
 .frame.no-rail main.page { flex-basis: 100%; }
@@ -458,6 +461,7 @@ form.inline { display: inline; margin: 0; }
 .fs { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
 .fs-out { color: var(--fs-out); } .fs-beh { color: var(--fs-beh); } .fs-cur { color: var(--fs-cur); }
 .fs-frz { color: var(--fs-frz); } .fs-unk { color: var(--fs-unk); } .fs-unp { color: var(--fs-unp); }
+.fs-cxn { color: var(--fs-cxn); }
 .mk { flex: none; display: inline-block; box-sizing: border-box; }
 .mk-out { width: 9px; height: 9px; background: var(--mk-out); transform: rotate(45deg); }
 .mk-beh { width: 11px; height: 11px; border-radius: 50%; border: 3px solid var(--mk-beh); }
@@ -465,6 +469,8 @@ form.inline { display: inline; margin: 0; }
 .mk-frz { width: 10px; height: 10px; border-radius: 2px; border: 2px solid var(--mk-frz); }
 .mk-unp { width: 10px; height: 10px; background: var(--mk-unp); }
 .mk-unk { width: 11px; height: 11px; border-radius: 50%; border: 2px dashed var(--mk-unk); }
+.mk-cxn { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--mk-cxn);
+  background: linear-gradient(90deg, var(--mk-cxn) 50%, transparent 50%); }
 /* the detail panel */
 .fp-panel { flex: 1 1 340px; max-width: 100%; min-width: 0; position: sticky; top: 72px; background: var(--fp-panel);
   border: 1px solid var(--fp-line); border-radius: 12px; padding: 16px 18px; box-sizing: border-box; }

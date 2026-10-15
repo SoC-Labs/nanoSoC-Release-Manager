@@ -14,22 +14,31 @@ Per pin, first match wins (the reviewer's rule, board R):
     outdated      10 or more behind, or behind and the pin not bumped for 90 days or more
     behind        1 to 9 behind and bumped within 90 days (or the bump date is unknown)
 
-Per tree: the verdict is the worst DIRECT pin (depth 1) by SEVERITY; "Updated" is the days since the newest bump
-anywhere in the tree, worded Fresh under 30, Aging 30 to 89, Stale 90 or more.
+Per tree: the verdict is the worst DIRECT pin (depth 1) by SEVERITY, except that a tree whose worst direct pin is
+`not_measured` while at least one direct pin is `current` reads `current_except` ("Current except N not measured",
+David 2026-10-15: a tree with a pin that cannot be measured is not Current). Worse states (unpushed, outdated,
+behind) still win; a tree none of whose direct pins was measured (or with none) reads `not_measured`; a frozen
+configuration stays `frozen`. "Updated" is the days since the newest bump anywhere in the tree, worded Fresh under
+30, Aging 30 to 89, Stale 90 or more.
 """
 from __future__ import annotations
 
 import datetime as dt
 from typing import Iterable
 
-__all__ = ["STATES", "LIVE_STATES", "WORDS", "SEVERITY", "LAGGING", "OUTDATED_BEHIND", "OUTDATED_DAYS",
+__all__ = ["STATES", "LIVE_STATES", "TREE_STATES", "CURRENT_EXCEPT", "WORDS", "tree_word", "SEVERITY", "LAGGING",
+           "OUTDATED_BEHIND", "OUTDATED_DAYS",
            "FRESH_DAYS", "STALE_DAYS", "AGE_WORDS", "day_of", "days_since", "age_word", "live_state", "judge_pin",
            "worst", "judge_tree"]
 
-STATES = ("frozen", "unpushed", "not_measured", "current", "outdated", "behind")
+STATES = ("frozen", "unpushed", "not_measured", "current", "outdated", "behind")   # a pin's states
 LIVE_STATES = STATES[1:]
+# A tree's verdict is one of STATES or `current_except` (CR-1015-unmeasured): every measured direct pin is current
+# but N direct pins could not be measured. It is a tree verdict only; no pin, node rollup or grid cell has it.
+CURRENT_EXCEPT = "current_except"
+TREE_STATES = STATES + (CURRENT_EXCEPT,)
 WORDS = {"frozen": "Frozen", "unpushed": "Unpushed", "not_measured": "Not measured", "current": "Current",
-         "outdated": "Outdated", "behind": "Behind"}
+         "outdated": "Outdated", "behind": "Behind", CURRENT_EXCEPT: "Current except not measured"}
 # Worst first when rolling up: a pin nobody could measure ranks above Current, so a tree is Current only when
 # every direct pin was measured at its upstream head (a zero that measured nothing is not green).
 SEVERITY = {"unpushed": 4, "outdated": 3, "behind": 2, "not_measured": 1, "current": 0}
@@ -92,6 +101,26 @@ def judge_pin(pin: dict, today: dt.date) -> dict:
             "pin_age_days": days_since(pin.get("pin_date"), today)}
 
 
+def tree_word(state: str | None, direct_not_measured: int | None) -> str | None:
+    """The display word of a tree verdict: WORDS, except `current_except` names how many direct pins were not
+    measured ("Current except 2 not measured"). None for None."""
+    if state is None:
+        return None
+    if state == CURRENT_EXCEPT and direct_not_measured:
+        return "Current except %d not measured" % direct_not_measured
+    return WORDS[state]
+
+
+def _tree_verdict(direct_live: list[str]) -> str:
+    """A live tree's verdict from its direct pins' live states (judge_tree's `state` before freezing)."""
+    w = worst(direct_live)
+    if w is None:
+        return "not_measured"
+    if w == "not_measured" and "current" in direct_live:
+        return CURRENT_EXCEPT
+    return w
+
+
 def worst(states: Iterable[str]) -> str | None:
     """The most severe live state (SEVERITY), or None for none."""
     states = [s for s in states if s in SEVERITY]
@@ -108,8 +137,10 @@ def _pick(p: dict, j: dict, *keys: str) -> dict:
 def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
     """The tree-level judgement of one configuration's pin facts on `today`.
 
-    state      `frozen` for a frozen configuration, else the worst direct pin (`not_measured` with no pins)
+    state      `frozen` for a frozen configuration, else the worst direct pin (`not_measured` with no pins), except
+               `current_except` when the worst is `not_measured` and some direct pin is `current`
     would_be   a frozen configuration's live verdict (never counted), else None
+    direct_not_measured   how many direct pins could not be measured (the N of "Current except N not measured")
     counts     pins per live state over the whole tree; `lagging`/`direct_lagging` count unpushed, outdated and
                behind pins
     worst_lagging / stalest_lagging   the lagging pin most behind, and the one waiting longest
@@ -122,7 +153,7 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
     """
     judged = [(p, judge_pin(p, today)) for p in pins]
     direct = [(p, j) for p, j in judged if p.get("depth") == 1]
-    live_verdict = worst(j["live"] for _, j in direct) or "not_measured"
+    live_verdict = _tree_verdict([j["live"] for _, j in direct])
     counts = {s: 0 for s in LIVE_STATES}
     for _, j in judged:
         counts[j["live"]] += 1
@@ -150,6 +181,7 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
         "counted": not frozen,
         "pins": len(pins),
         "direct": len(direct),
+        "direct_not_measured": sum(1 for _, j in direct if j["live"] == "not_measured"),
         "counts": {k: 0 for k in counts} if frozen else counts,
         "would_be_counts": counts if frozen else None,
         "lagging": 0 if frozen else len(lag_all),

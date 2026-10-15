@@ -13,10 +13,12 @@ Rules this module keeps:
   record kind component), the trees from `freshness.view` (stored `freshness` snapshots, re-judged today). A GET
   never walks, scans, fetches or queues; it never creates gui.sqlite (`uistate.prefs` reads it only if it exists).
 - State is never colour alone: every row prints its state word beside a shape (diamond Outdated, ring Behind,
-  dot Current, square Frozen, filled square Unpushed, dashed ring Not measured).
+  dot Current, half-filled amber dot "Current except N not measured", square Frozen, filled square Unpushed,
+  dashed ring Not measured).
 - The page state (open rows, the selected row, filters, the timeline override) is in the URL, so every row is a
   real link that works without JavaScript; htmx swaps only `#home` when it is there.
-- A configuration's verdict is its tree verdict (worst DIRECT pin, freshness.rules); a pin row shows the worst
+- A configuration's verdict is its tree verdict (worst DIRECT pin, freshness.rules; a tree with a direct pin that
+  could not be measured is never Current: "Current except N not measured" when nothing worse); a pin row shows the worst
   state at or below it (its rollup); a frozen silicon configuration says Frozen and "not counted", never Outdated.
 - The section 13 configuration board (AT-H1: per configuration the T0 result, red pins, errata, host drift,
   runner, data age and the one Run button) stays on this page, closed under the tree (`home.html`).
@@ -38,23 +40,28 @@ __all__ = ["home_view", "dashboard", "router", "STATE_KEY", "WORD", "RULE", "PIL
            "parse_state"]
 
 # freshness state -> the CSS key the design uses (Home.dc.html ST table); the word always prints beside it.
-STATE_KEY = {"unpushed": "unp", "outdated": "out", "behind": "beh", "current": "cur", "frozen": "frz",
-             "not_measured": "unk"}
-WORD = {"unpushed": "Unpushed", "outdated": "Outdated", "behind": "Behind", "current": "Current",
-        "frozen": "Frozen", "not_measured": "Not measured"}
-# The toolbar pills, in order; Unpushed shows only when a tree is Unpushed.
-PILLS = ("unpushed", "outdated", "behind", "current", "frozen", "not_measured")
+STATE_KEY = {"unpushed": "unp", "outdated": "out", "behind": "beh", "current_except": "cxn", "current": "cur",
+             "frozen": "frz", "not_measured": "unk"}
+WORD = {"unpushed": "Unpushed", "outdated": "Outdated", "behind": "Behind",
+        "current_except": "Current except not measured", "current": "Current", "frozen": "Frozen",
+        "not_measured": "Not measured"}
+# The toolbar pills, in order; Unpushed and Current-except show only when a tree reads so.
+PILLS = ("unpushed", "outdated", "behind", "current_except", "current", "frozen", "not_measured")
+_SPARSE_PILLS = ("unpushed", "current_except")
 RULE = {
     "unpushed": "A direct pin's commit is on no branch or tag of any host.",
     "outdated": "A direct pin is 10+ commits behind, or behind and not bumped for 90+ days.",
     "behind": "Direct pins lag by 1 to 9 commits and were bumped within 90 days.",
-    "current": "Every direct pin is at its upstream default-branch head.",
+    "current_except": ("Every direct pin that could be measured is at its upstream head, but at least one could not "
+                       "be counted, so the tree is not Current (David 2026-10-15)."),
+    "current": "Every direct pin was measured and is at its upstream default-branch head.",
     "frozen": "A tagged silicon configuration. Drift is expected and is never a to-do.",
-    "not_measured": ("No stored scan yet, or a scanned tree with a direct pin that could not be counted. Register "
+    "not_measured": ("No stored scan yet, or a scanned tree none of whose direct pins could be counted. Register "
                      "a configuration and scan it to measure it."),
 }
 # Sort order of the tree rows (worst first) and of projects.
-_ORDER = {"unpushed": 0, "outdated": 1, "behind": 2, "not_measured": 3, "current": 4, "frozen": 5}
+_ORDER = {"unpushed": 0, "outdated": 1, "behind": 2, "current_except": 3, "not_measured": 4, "current": 5,
+          "frozen": 6}
 # Sibling order under a configuration or a pin (David: SoC, custom peripherals, subsystems/components, arch tech,
 # generator, libraries, toolkits/flows). A direct component (or subsystem, or anything uncatalogued) of a
 # project is one of its custom peripherals.
@@ -242,6 +249,20 @@ def _cfg_state(c: dict) -> str:
     return "frozen" if c["frozen"] or t["frozen"] else t["state"]
 
 
+def _cfg_word(c: dict) -> str:
+    """A configuration row's word: Frozen, or its tree verdict's word ("Current except 2 not measured")."""
+    return WORD["frozen"] if _cfg_state(c) == "frozen" else c["tree"]["word"]
+
+
+def _roll_word(roll: dict) -> str:
+    """A project row's word: its worst live tree's, with N summed over its live trees in that state."""
+    from nanosoc_rm.freshness.rules import tree_word
+    if roll["state"] != "current_except":
+        return WORD[roll["state"]]
+    return tree_word("current_except", sum(c["tree"].get("direct_not_measured") or 0 for c in roll["live"]
+                                           if c["tree"]["state"] == "current_except"))
+
+
 def _proj_roll(p: dict) -> dict:
     """{state, behind, upd}: the worst live configuration's tree verdict; Frozen with only a frozen tree; Not
     measured with none."""
@@ -302,7 +323,7 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
     counts["not_measured"] += sum(1 for p in data.projects if not p["measured"])
     pills = []
     for k in PILLS:
-        if k == "unpushed" and not counts[k]:
+        if k in _SPARSE_PILLS and not counts[k] and st["fresh"] != k:
             continue
         on = st["fresh"] == k
         pills.append({"key": k, "css": STATE_KEY[k], "word": WORD[k], "n": counts[k], "on": on, "rule": RULE[k],
@@ -340,10 +361,11 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
         return _url(st, open=o, sel=key) + "#" + _row_id(key)
 
     def add(key: str, level: int, branch: bool, state: str, name: str, kind: str, ago: str, aria: str,
-            chip: str | None = None, bar: dict | None = None, fact: dict | None = None) -> dict:
+            chip: str | None = None, bar: dict | None = None, fact: dict | None = None,
+            word: str | None = None) -> dict:
         r = {"key": key, "id": _row_id(key), "level": level, "indent": level * 20, "branch": branch,
              "open": branch and key in open_, "sel": key == sel, "state": state, "css": STATE_KEY[state],
-             "word": WORD[state], "name": name, "kind": kind, "ago": ago, "aria": aria, "chip": chip,
+             "word": word or WORD[state], "name": name, "kind": kind, "ago": ago, "aria": aria, "chip": chip,
              "href": link(key, branch), "bar": bar, "fact": fact}
         rows.append(r)
         return r
@@ -371,11 +393,13 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
         tr = data.tree(c["id"])
         nodes = {n["tree_path"]: n for n in (tr["nodes"] if tr else [])}
         tops = _sorted_children(None, nodes, data)
+        word = _cfg_word(c)
         r = add(key, level, True, state, c["id"], "cfg", ("frozen %s" % _ago(days)) if frozen else _ago(days),
-                "Configuration %s, %s%s, %s" % (c["id"], WORD[state], ", frozen silicon, not counted" if frozen
+                "Configuration %s, %s%s, %s" % (c["id"], word, ", frozen silicon, not counted" if frozen
                                                  else "", _ago(days)),
                 chip="not counted" if frozen else None,
-                bar=(tl.bar(days, days, True) if frozen else tl.bar(days, 0, False)) if tl else None, fact=t)
+                bar=(tl.bar(days, days, True) if frozen else tl.bar(days, 0, False)) if tl else None, fact=t,
+                word=word)
         if r["open"]:
             for k in tops:
                 pin_rows(c["id"], frozen, nodes[k], nodes, level + 1)
@@ -394,8 +418,9 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
             ago, bar = "frozen " + _ago(d), (tl.bar(d, d, True) if tl else None)
         else:
             ago, bar = "[no scan]", None
+        word = _roll_word(roll)
         r = add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
-                "%s, %s, %s, %s" % (p["id"], chip, WORD[roll["state"]], ago), chip=chip, bar=bar)
+                "%s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word)
         if r["open"]:
             for c in p["measured"]:
                 cfg_rows(c, level + 1)
@@ -594,8 +619,9 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
     frozen = c["frozen"] or t["frozen"]
     state = _cfg_state(c)
     proj = c["record"].get("component") or "?"
-    sub = ("frozen silicon, not counted; would be %s if live" % WORD[t["would_be"] or "not_measured"].lower()
-           if frozen else "judged on its %d direct pins" % t["direct"])
+    would = (t.get("would_be_word") or WORD["not_measured"]).lower()
+    sub = ("frozen silicon, not counted; would be %s if live" % would if frozen
+           else "judged on its %d direct pins" % t["direct"])
     root = t["root"]
     facts = [_fact("Tag" if frozen else "Ref", "%s @ %s (%s)" % (_ref_text(c["record"]), (root.get("commit") or "")[:7],
                                                                 _fmt_date(root.get("date"), today)), mono=True)]
@@ -609,6 +635,9 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
     lag_a = t["would_be_lagging"] if frozen else t["lagging"]
     cn = (t.get("would_be_counts") or t["counts"]) if frozen else t["counts"]     # a frozen tree counts 0 itself
     facts.append(_fact("Direct pins lagging", "%d of %d%s" % (lag_d or 0, t["direct"], " (if live)" if frozen else "")))
+    if t.get("direct_not_measured"):
+        facts.append(_fact("Direct pins not measured", "%d of %d: the tree is not Current until they are" % (
+            t["direct_not_measured"], t["direct"]), strong=not frozen))
     facts.append(_fact("Whole tree lagging", "%d of %d (%d outdated, %d behind, %d unpushed, %d not measured)" % (
         lag_a or 0, t["pins"], cn["outdated"], cn["behind"], cn["unpushed"], cn["not_measured"])))
     w = t.get("would_be_worst_lagging") if frozen else t.get("worst_lagging")
@@ -629,7 +658,7 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
     forms = [{"action": "/freshness/scan", "label": "Scan %s now" % cid, "fields": {"configuration": cid}}] \
         if local else []
     return {"kind": "Configuration of " + proj, "title": cid, "title_cls": "t-mono", "state": state,
-            "css": STATE_KEY[state], "word": WORD[state], "sub": sub, "chips": ["not counted"] if frozen else [],
+            "css": STATE_KEY[state], "word": _cfg_word(c), "sub": sub, "chips": ["not counted"] if frozen else [],
             "blurb": None, "facts": facts, "note": note, "links": links, "obs": t, "forms": forms}
 
 
@@ -690,7 +719,7 @@ def _proj_detail(pid: str, data: _Data, today: dt.date) -> dict | None:
     if unconf:
         links.append(("Confirm on the Catalogue page", "/catalogue/"))
     return {"kind": "%s · %s" % (dict(_LEVELS).get(p["level"], "Project"), where), "title": pid, "title_cls": "t-big",
-            "state": roll["state"], "css": STATE_KEY[roll["state"]], "word": WORD[roll["state"]], "sub": sub,
+            "state": roll["state"], "css": STATE_KEY[roll["state"]], "word": _roll_word(roll), "sub": sub,
             "chips": chips, "blurb": (ch.question if ch is not None else None), "facts": facts, "note": note,
             "links": links, "obs": doc, "forms": []}
 

@@ -6,6 +6,9 @@ commits behind, days since bump). The compatibility matrix (D3) stays the second
 
 Stored facts only (freshness.view.grid / pin / tree and the stored registry records); a GET never scans.
 Frozen silicon columns are greyed and say "not counted": their cells never make a repository "lagging".
+A column's verdict is its tree verdict (freshness.view.trees: "Current except N not measured" when a direct pin could
+not be measured and none is worse, CR-1015-unmeasured), and a repository with a live cell nobody could measure is
+never called current: it says "current except N not measured" and stays listed under Lagging only.
 """
 from __future__ import annotations
 
@@ -77,6 +80,9 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
     def n_lag(comp: str) -> int:
         return sum(1 for c in live if (cells[comp].get(c) or {}).get("live") in _LAG)
 
+    def n_unmeasured(comp: str) -> int:
+        return sum(1 for c in live if (cells[comp].get(c) or {}).get("live") == "not_measured")
+
     def max_behind(comp: str) -> int:
         return max([(cells[comp].get(c) or {}).get("behind") or 0 for c in live] or [0])
 
@@ -86,7 +92,7 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
 
     comps = list(g["components"])
     of_group = [c for c in comps if group == "all" or kind(c) == group]
-    shown = [c for c in of_group if not lag_only or n_lag(c) or c == sel_comp]
+    shown = [c for c in of_group if not lag_only or n_lag(c) or n_unmeasured(c) or c == sel_comp]
     if sort == "age":
         key = (lambda c: (-max_age(c), -max_behind(c), c))
     else:
@@ -114,9 +120,19 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
 
     def row(comp: str) -> dict:
         used = [c for c in live if c in cells[comp]]
-        nl = n_lag(comp)
+        nl, nu = n_lag(comp), n_unmeasured(comp)
+        if not used:
+            spread = "frozen only"
+        elif nl:
+            spread = "lags in %d of %d" % (nl, len(used))
+        elif nu == len(used):
+            spread = "not measured"
+        elif nu:
+            spread = "current except %d not measured" % nu
+        else:
+            spread = "current"
         return {"comp": comp, "kind": kind(comp), "tone": KIND_TONE[kind(comp)], "sel": comp == sel_comp,
-                "spread": ("lags in %d of %d" % (nl, len(used)) if nl else "current") if used else "frozen only",
+                "spread": spread,
                 "cells": [cell_view(comp, c) for c in cols], "anchor": "m-" + urllib.parse.quote(comp, safe="")}
 
     def detail() -> dict | None:
