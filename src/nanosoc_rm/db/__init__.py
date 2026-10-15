@@ -21,6 +21,19 @@ set-kind document adds it to the snapshot it names and marks that snapshot compl
 are complete on their own (fixtures, a one-row scope such as `runner_settings:<id>`). Producers of
 multi-row scopes use put_snapshot.
 
+Keep-on-change (CR-1015-retention). When a put_snapshot run has the same content as the scope's current
+snapshot, its rows are not stored again: the current snapshot records the confirmation instead (`confirmed_id`,
+`confirmed_at`, `confirmed_vals`, `confirmations`, and its place among the stored rows; overwritten by each later
+confirmation). "The same content"
+means the documents, in order, are equal once every volatile token is taken out: the `snapshot.id` field, and
+every UTC timestamp inside a string (optionally followed by a snapshot id's `#<8 hex>`), wherever it is, such
+as `observed_at`, a host state's `observed_at`, `last_success_at`, or a snapshot id quoted in a source.
+`confirmed_vals` holds the run's tokens, so `latest` returns exactly the documents the run produced (its
+snapshot id, its check times), in the order the old rule's rows would have had: a page shows "checked at" the
+last check, as before. `history` shows each
+stored state followed by its last confirmation. `compact` collapses runs of identical snapshots stored before
+this rule (`nanosoc-rm store-maint compact`).
+
 Event kinds (rewrite_alert, t0_result, alert, compat_result, and the CR-14 quality kinds): the latest observation per subject (newest observed_at; on a
 tie, the one stored last).
 
@@ -32,8 +45,10 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import json
+import re
 import secrets
 import sqlite3
+import zlib
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
@@ -43,7 +58,7 @@ from nanosoc_rm.config import Config, load_config
 
 __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc", "subject_of",
            "check_observation", "database_path", "connect", "ensure_schema", "put", "put_snapshot", "new_snapshot_id",
-           "latest", "newest_per", "subjects", "history",
+           "latest", "newest_per", "subjects", "history", "compact",
            "data_age", "put_run", "get_run", "runs", "log_action", "actions", "raise_alert", "alerts",
            "clear_alert"]
 
@@ -64,11 +79,12 @@ EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
 ACTIONS = ("run_t0", "clear_alert", "publish_release", "register_tapeout")
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # The schema, statement by statement (run once per store by `ensure_schema`, never on every connect: ROB-load-3).
 # Version 2 adds `current_snapshots`: the current (last completed) snapshot of each scope, kept by triggers so
 # every writer, including a direct INSERT, keeps it right (ROB-load-1). "Last" means last completed in commit order,
-# never the wall clock (ROB-faults-4).
+# never the wall clock (ROB-faults-4). Version 3 adds the confirmation columns of keep-on-change
+# (CR-1015-retention; see the module docstring).
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS observations (
     kind TEXT NOT NULL, subject TEXT NOT NULL, observed_at TEXT NOT NULL, snapshot_id TEXT, doc TEXT NOT NULL)""",
@@ -106,6 +122,17 @@ _SCHEMA = (
     # the last one of a scope replaces the earlier ones).
     """INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id)
     SELECT scope, kind, id FROM snapshots WHERE completed_at IS NOT NULL ORDER BY rowid""",
+    # version 3 (CR-1015-retention). ensure_schema runs these once per store, so ADD COLUMN never repeats.
+    "ALTER TABLE snapshots ADD COLUMN confirmed_id TEXT",
+    "ALTER TABLE snapshots ADD COLUMN confirmed_at TEXT",
+    "ALTER TABLE snapshots ADD COLUMN confirmed_vals BLOB",
+    "ALTER TABLE snapshots ADD COLUMN confirmations INTEGER NOT NULL DEFAULT 0",
+    # where the last confirmation falls among the stored rows: after observation rowid `confirmed_after`, the
+    # `confirmed_seq`-th confirmation there (so `latest` keeps the order the rows would have had if stored)
+    "ALTER TABLE snapshots ADD COLUMN confirmed_after INTEGER",
+    "ALTER TABLE snapshots ADD COLUMN confirmed_seq INTEGER",
+    "CREATE INDEX IF NOT EXISTS snapshots_confirmed ON snapshots (confirmed_id)",
+    "CREATE INDEX IF NOT EXISTS snapshots_confirmed_at_row ON snapshots (confirmed_after, confirmed_seq)",
 )
 
 
@@ -316,6 +343,143 @@ def _raise_row(con: sqlite3.Connection, doc: dict) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Keep-on-change (CR-1015-retention; module docstring)
+# ---------------------------------------------------------------------------------------------------------
+# A volatile token: a UTC timestamp (a check time), with the `#<8 hex>` of a snapshot id when one follows it.
+_VOLATILE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})(?:#[0-9a-f]{8})?")
+_HOLE = "\u0000"
+
+
+def _walk(obj: Any, sub: Callable[[str], str], path: tuple = ()) -> Any:
+    """`obj` with each volatile token replaced by sub(token), visited in one fixed order (dict keys sorted). The
+    top-level `snapshot.id` is one token whatever its form."""
+    if isinstance(obj, dict):
+        return {k: _walk(obj[k], sub, path + (k,)) for k in sorted(obj)}
+    if isinstance(obj, list):
+        return [_walk(v, sub, path) for v in obj]
+    if isinstance(obj, str):
+        if path == ("snapshot", "id"):
+            return sub(obj)
+        return _VOLATILE.sub(lambda m: sub(m.group(0)), obj)
+    return obj
+
+
+def _split(doc: dict) -> tuple[str, list[str]]:
+    """(the document without its volatile tokens, the tokens in order). Two documents with equal first parts have
+    the same content; the second part rebuilds either from the other (`_fill`)."""
+    vals: list[str] = []
+    shape = _walk(doc, lambda t: vals.append(t) or _HOLE)
+    return json.dumps(shape, separators=(",", ":"), sort_keys=True), vals
+
+
+def _fill(doc: dict, vals: list[str]) -> dict:
+    """`doc` with its volatile tokens replaced, in order, by `vals` (taken from a document of the same content)."""
+    it = iter(vals)
+    out = _walk(doc, lambda _t: next(it))
+    if next(it, None) is not None:
+        raise ValueError("confirmation does not fit the stored document (more tokens than holes)")
+    return out
+
+
+def _pack(vals: list[list[str]]) -> bytes:
+    return zlib.compress(json.dumps(vals, separators=(",", ":")).encode(), 9)
+
+
+def _unpack(blob: bytes) -> list[list[str]]:
+    return json.loads(zlib.decompress(blob).decode())
+
+
+def _snapshot_docs(con: sqlite3.Connection, snap_id: str) -> list[dict]:
+    return [json.loads(r["doc"]) for r in
+            con.execute("SELECT doc FROM observations WHERE snapshot_id = ? ORDER BY rowid", (snap_id,))]
+
+
+def _same_content(stored: list[dict], docs: list[dict]) -> list[list[str]] | None:
+    """The tokens of `docs` when they have the content of `stored` (same documents, same order), else None."""
+    if len(stored) != len(docs):
+        return None
+    vals = []
+    for old, new in zip(stored, docs):
+        shape_old, v_old = _split(old)
+        shape_new, v_new = _split(json.loads(json.dumps(new)))
+        if shape_old != shape_new or len(v_old) != len(v_new):
+            return None
+        vals.append(v_new)
+    return vals
+
+
+def _confirm(con: sqlite3.Connection, scope: str, snap_id: str, docs: list[dict]) -> bool:
+    """When `docs` have the content of the scope's current snapshot, record the run as a confirmation of it and
+    return True; otherwise store nothing and return False."""
+    cur = con.execute("SELECT snapshot_id FROM current_snapshots WHERE scope = ?", (scope,)).fetchone()
+    if cur is None:
+        return False
+    vals = _same_content(_snapshot_docs(con, cur["snapshot_id"]), docs)
+    if vals is None:
+        return False
+    after = con.execute("SELECT coalesce(max(rowid), 0) FROM observations").fetchone()[0]
+    seq = con.execute("SELECT coalesce(max(confirmed_seq), 0) + 1 FROM snapshots WHERE confirmed_after = ?",
+                      (after,)).fetchone()[0]
+    con.execute("UPDATE snapshots SET confirmed_id = ?, confirmed_at = ?, confirmed_vals = ?, "
+                "confirmations = confirmations + 1, confirmed_after = ?, confirmed_seq = ? WHERE id = ?",
+                (snap_id, _now_exact(), _pack(vals), after, seq, cur["snapshot_id"]))
+    return True
+
+
+def _confirmations(con: sqlite3.Connection, snap_ids: Iterable[str]) -> dict[str, tuple]:
+    """For each of these snapshots that holds a confirmation: ({observation rowid: position}, the tokens, its place
+    (confirmed_after, confirmed_seq))."""
+    out: dict[str, tuple] = {}
+    ids = sorted({i for i in snap_ids if i is not None})
+    for k in range(0, len(ids), 500):
+        chunk = ids[k:k + 500]
+        for r in con.execute("SELECT id, confirmed_vals, confirmed_after, confirmed_seq FROM snapshots "
+                             "WHERE confirmed_vals IS NOT NULL AND id IN (%s)" % ",".join("?" * len(chunk)),
+                             chunk).fetchall():
+            pos = {x["rowid"]: n for n, x in enumerate(con.execute(
+                "SELECT rowid FROM observations WHERE snapshot_id = ? ORDER BY rowid", (r["id"],)))}
+            out[r["id"]] = (pos, _unpack(r["confirmed_vals"]), (r["confirmed_after"] or 0, r["confirmed_seq"] or 0))
+    return out
+
+
+def _confirmed(doc: dict, rid: int, sid: str | None, conf: dict) -> dict | None:
+    """The document as its snapshot's last confirmation produced it; None when it has no confirmation."""
+    if sid not in conf:
+        return None
+    pos, vals, _place = conf[sid]
+    return _fill(doc, vals[pos[rid]])
+
+
+def _stored_order(rid: int, sid: str | None, conf: dict) -> tuple:
+    """Sort key: where the row would sit had every run been stored (a confirmed run's rows right after the row
+    that was last when it was confirmed)."""
+    c = conf.get(sid)
+    return (c[2][0], c[2][1], rid) if c else (rid, 0, rid)
+
+
+def _materialise(con: sqlite3.Connection, snap_id: str) -> None:
+    """When `snap_id` is a snapshot recorded only as a confirmation, store it in full (its rows rebuilt), so a
+    put() naming it joins it as before keep-on-change. Which snapshot is current does not change."""
+    src = con.execute("SELECT id, scope, kind, confirmed_at, confirmed_vals FROM snapshots WHERE confirmed_id = ?",
+                      (snap_id,)).fetchone()
+    if src is None:
+        return
+    cur = con.execute("SELECT snapshot_id FROM current_snapshots WHERE scope = ?", (src["scope"],)).fetchone()
+    vals = _unpack(src["confirmed_vals"])
+    docs = [_fill(d, v) for d, v in zip(_snapshot_docs(con, src["id"]), vals)]
+    con.execute("INSERT INTO snapshots (id, scope, kind, completed_at) VALUES (?, ?, ?, ?)",
+                (snap_id, src["scope"], src["kind"], src["confirmed_at"]))
+    for d in docs:
+        _insert(con, d)
+    con.execute("UPDATE snapshots SET confirmed_id = NULL, confirmed_at = NULL, confirmed_vals = NULL, "
+                "confirmed_after = NULL, confirmed_seq = NULL, confirmations = confirmations - 1 WHERE id = ?",
+                (src["id"],))
+    if cur is not None and cur["snapshot_id"] != src["id"]:          # a newer state is current: it stays current
+        con.execute("INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id) VALUES (?, ?, ?)",
+                    (src["scope"], src["kind"], cur["snapshot_id"]))
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Observations
 # ---------------------------------------------------------------------------------------------------------
 def put(obs: Any, *, config: Config | str | Path | None = None) -> None:
@@ -329,6 +493,9 @@ def put(obs: Any, *, config: Config | str | Path | None = None) -> None:
         snap = doc.get("snapshot")
         if snap:
             row = con.execute("SELECT scope, kind FROM snapshots WHERE id = ?", (snap["id"],)).fetchone()
+            if row is None:
+                _materialise(con, snap["id"])
+                row = con.execute("SELECT scope, kind FROM snapshots WHERE id = ?", (snap["id"],)).fetchone()
             if row is None:
                 con.execute("INSERT INTO snapshots (id, scope, kind, completed_at) VALUES (?, ?, ?, ?)",
                             (snap["id"], snap["scope"], doc["kind"], _now_exact()))
@@ -349,7 +516,10 @@ def put_snapshot(scope: str, docs: Iterable[Any], *, config: Config | str | Path
     """Store one producer run of a set kind for `scope` atomically, mark it complete, return its id.
     Every document must be of the scope's kind, name this scope, and share one snapshot id, which must be
     new. An empty run is a complete, empty snapshot (the scope now has no current facts); its id is a fresh
-    `new_snapshot_id(scope)`, so two empty runs of one scope in the same second are both stored."""
+    `new_snapshot_id(scope)`, so two empty runs of one scope in the same second are both stored.
+
+    Keep-on-change (CR-1015-retention): a run with the content of the scope's current snapshot stores no rows; it
+    is recorded as that snapshot's confirmation, and `latest` returns the run's documents just the same."""
     docs = [as_doc(d) for d in docs]
     kind = scope.split(":", 1)[0]
     problems = []
@@ -368,8 +538,11 @@ def put_snapshot(scope: str, docs: Iterable[Any], *, config: Config | str | Path
         raise ObservationRefused(problems)
     snap_id = ids.pop() if docs else new_snapshot_id(scope)
     with connect(config) as con, con:
-        if con.execute("SELECT 1 FROM snapshots WHERE id = ?", (snap_id,)).fetchone():
+        con.execute("BEGIN IMMEDIATE")              # the current snapshot read below is the one this run follows
+        if con.execute("SELECT 1 FROM snapshots WHERE id = ? OR confirmed_id = ?", (snap_id, snap_id)).fetchone():
             raise ObservationRefused(["snapshot id %s already exists: each producer run has its own" % snap_id])
+        if _confirm(con, scope, snap_id, docs):
+            return snap_id
         con.execute("INSERT INTO snapshots (id, scope, kind, completed_at) VALUES (?, ?, ?, NULL)",
                     (snap_id, scope, kind))
         for d in docs:
@@ -437,12 +610,18 @@ def _latest(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[dic
             # CROSS JOIN and INDEXED BY pin the plan: the current snapshots first, then their rows by snapshot id.
             # Left to itself the planner walks the (kind, subject) index over every stored row of the prefix, so the
             # cost grows with the history again.
-            """SELECT o.rowid AS rid, o.subject, o.doc FROM current_snapshots c
+            """SELECT o.rowid AS rid, o.subject, o.doc, o.snapshot_id AS sid FROM current_snapshots c
                CROSS JOIN observations o INDEXED BY observations_snapshot ON o.snapshot_id = c.snapshot_id
                WHERE c.kind = ? AND o.kind = ? AND %s
                ORDER BY o.rowid""" % where, [kind, kind] + args).fetchall()
         best = {r["subject"]: r for r in rows}                    # a subject put twice into one snapshot: last
-        return [json.loads(r["doc"]) for r in sorted(best.values(), key=lambda r: r["rid"])]
+        conf = _confirmations(con, (r["sid"] for r in best.values()))   # keep-on-change: the last check's documents
+        chosen = sorted(best.values(), key=lambda r: _stored_order(r["rid"], r["sid"], conf))
+        out = []
+        for r in chosen:
+            d = json.loads(r["doc"])
+            out.append(_confirmed(d, r["rid"], r["sid"], conf) or d)
+        return out
     docs = _docs(con, [r["rid"] for r in _newest_rows(con, kind, subject_prefix)])
     return _overlay_alerts(con, docs) if kind == "alert" else docs
 
@@ -484,10 +663,110 @@ def subjects(kind: str, subject_prefix: str = "", *, config: Config | str | Path
 
 
 def history(subject: str, *, config: Config | str | Path | None = None) -> list[dict]:
-    """Every stored observation of one subject, oldest stored first (section 12: all history is kept)."""
+    """Every stored observation of one subject, oldest stored first (section 12). A set-kind state confirmed by
+    later identical runs (keep-on-change) appears twice: as first stored, then as last confirmed."""
     with connect(config) as con:
-        return [json.loads(r["doc"]) for r in
-                con.execute("SELECT doc FROM observations WHERE subject = ? ORDER BY rowid", (subject,))]
+        rows = con.execute("SELECT rowid AS rid, doc, snapshot_id AS sid FROM observations WHERE subject = ? "
+                           "ORDER BY rowid", (subject,)).fetchall()
+        conf = _confirmations(con, (r["sid"] for r in rows))
+        out = []
+        for r in rows:
+            d = json.loads(r["doc"])
+            out.append(d)
+            last = _confirmed(d, r["rid"], r["sid"], conf)
+            if last is not None:
+                out.append(last)
+        return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Store maintenance (CR-1015-retention): `nanosoc-rm store-maint compact`
+# ---------------------------------------------------------------------------------------------------------
+def compact(*, apply: bool = False, config: Config | str | Path | None = None) -> list[dict]:
+    """Collapse each run of consecutive complete snapshots of one scope with the same content (stored before
+    keep-on-change) into its first snapshot, which then holds the run's last check as its confirmation: every
+    distinct state stays, with its first and last observed times. One transaction (BEGIN IMMEDIATE); without
+    `apply` it is rolled back, so a dry run reports exactly what an apply would remove. Rerunning finds nothing.
+
+    Returns one row per set kind: {kind, scopes, scopes_compacted, snapshots_removed, rows_removed,
+    bytes_removed, skipped}. A scope whose current snapshot is not its last stored complete one (a clock or
+    hand edit left them apart) is skipped and named in `skipped`, never guessed at."""
+    by_kind: dict[str, dict] = {}
+    with connect(config) as con:
+        level = con.isolation_level
+        con.isolation_level = None
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                for r in con.execute("SELECT DISTINCT scope, kind FROM snapshots ORDER BY kind, scope").fetchall():
+                    row = by_kind.setdefault(r["kind"], {"kind": r["kind"], "scopes": 0, "scopes_compacted": 0,
+                                                         "snapshots_removed": 0, "rows_removed": 0,
+                                                         "bytes_removed": 0, "skipped": []})
+                    row["scopes"] += 1
+                    _compact_scope(con, r["scope"], r["kind"], row)
+                con.execute("COMMIT" if apply else "ROLLBACK")
+            except BaseException:
+                if con.in_transaction:
+                    con.execute("ROLLBACK")
+                raise
+        finally:
+            con.isolation_level = level
+    return [by_kind[k] for k in sorted(by_kind)]
+
+
+def _compact_scope(con: sqlite3.Connection, scope: str, kind: str, row: dict) -> None:
+    snaps = con.execute("SELECT rowid, id, completed_at, confirmed_id, confirmed_at, confirmed_vals, confirmations, "
+                        "confirmed_after, confirmed_seq FROM snapshots WHERE scope = ? AND completed_at IS NOT NULL ORDER BY rowid",
+                        (scope,)).fetchall()
+    cur = con.execute("SELECT snapshot_id FROM current_snapshots WHERE scope = ?", (scope,)).fetchone()
+    if not snaps:
+        return
+    if cur is None or cur["snapshot_id"] != snaps[-1]["id"]:
+        row["skipped"].append(scope)
+        return
+    runs: list[list[sqlite3.Row]] = []
+    prev = None
+    for s in snaps:
+        shapes = [_split(d)[0] for d in _snapshot_docs(con, s["id"])]
+        if runs and shapes == prev:
+            runs[-1].append(s)
+        else:
+            runs.append([s])
+        prev = shapes
+    done = False
+    for run in runs:
+        if len(run) < 2:
+            continue
+        first, last, gone = run[0], run[-1], run[1:]
+        if last["confirmed_vals"] is not None:              # the run ends in a check already kept as a confirmation
+            last_id, last_at, last_vals = last["confirmed_id"], last["confirmed_at"], last["confirmed_vals"]
+            place = (last["confirmed_after"], last["confirmed_seq"])
+        else:
+            last_id, last_at = last["id"], last["completed_at"]
+            last_vals = _pack([_split(d)[1] for d in _snapshot_docs(con, last["id"])])
+            # its rows' place: just before its first row (sequence 1 sorts after the row before)
+            first_row = con.execute("SELECT min(rowid) FROM observations WHERE snapshot_id = ?",
+                                    (last["id"],)).fetchone()[0]
+            place = ((first_row or 1) - 1, 1)
+        for s in gone:
+            n, size = con.execute("SELECT count(*), coalesce(sum(length(doc)), 0) FROM observations "
+                                  "WHERE snapshot_id = ?", (s["id"],)).fetchone()
+            row["rows_removed"] += n
+            row["bytes_removed"] += size
+            con.execute("DELETE FROM observations WHERE snapshot_id = ?", (s["id"],))
+            con.execute("DELETE FROM snapshots WHERE id = ?", (s["id"],))
+        row["snapshots_removed"] += len(gone)
+        con.execute("UPDATE snapshots SET confirmed_id = ?, confirmed_at = ?, confirmed_vals = ?, confirmations = ?, "
+                    "confirmed_after = ?, confirmed_seq = ? WHERE id = ?",
+                    (last_id, last_at, last_vals,
+                     sum(1 + (s["confirmations"] or 0) for s in gone) + (first["confirmations"] or 0),
+                     place[0], place[1], first["id"]))
+        done = True
+    if done:
+        row["scopes_compacted"] += 1
+        # the last run holds the current snapshot (checked above), so its first snapshot is now current
+        con.execute("INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id) VALUES (?, ?, ?)",
+                    (scope, kind, runs[-1][0]["id"]))
 
 
 # ---------------------------------------------------------------------------------------------------------

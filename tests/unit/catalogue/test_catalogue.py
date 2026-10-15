@@ -347,7 +347,9 @@ def test_org_scan_cli_exit_codes_and_a_failed_host_stores_nothing_for_it(scan_en
     assert rc == 2 and "could not list gitlab" in p.stderr.strip().splitlines()[-1]
     assert [d["subject"] for d in docs] == ["repo_seen:github:SoC-Labs/nanoSoC-Shiny"]
     rows = at.sqlite_rows(Path(cfg).parent / "data" / "rm.sqlite",
-                          "SELECT scope, count(*) AS n FROM snapshots WHERE kind = 'repo_seen' GROUP BY scope")
+                          # producer runs per scope: stored snapshots plus keep-on-change confirmations (CR-1015-retention)
+                          "SELECT scope, count(*) + sum(confirmations) AS n FROM snapshots WHERE kind = 'repo_seen' "
+                          "GROUP BY scope")
     assert {r["scope"]: r["n"] for r in rows} == {"repo_seen:github": 2, "repo_seen:gitlab": 1}
     rc, docs, p = at.cli(cfg, "catalogue", "org-scan", "--host", "github", "--json")
     assert rc == 1 and len(docs) == 1

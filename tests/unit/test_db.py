@@ -131,8 +131,9 @@ def test_two_empty_runs_in_one_second_are_both_stored(rm_config, monkeypatch):
     second = db.put_snapshot("silicon_protection:eth-rc4", [])
     assert first != second
     assert first.startswith("silicon_protection:eth-rc4@2026-10-02T12:00:00Z#")
-    assert rows(rm_config, "SELECT count(*) FROM snapshots WHERE scope = 'silicon_protection:eth-rc4' "
-                           "AND completed_at IS NOT NULL")[0][0] == 2
+    # keep-on-change (CR-1015-retention): the second empty run is the first one's confirmation, not a second row
+    assert rows(rm_config, "SELECT id, confirmed_id, confirmations FROM snapshots WHERE scope = "
+                           "'silicon_protection:eth-rc4' AND completed_at IS NOT NULL") == [(first, second, 1)]
     assert db.latest("silicon_protection") == []
 
 
@@ -346,7 +347,7 @@ def test_a_version_1_store_is_migrated_once_and_the_last_stored_snapshot_is_curr
     an incomplete one never is. After the one migration, a read commits nothing."""
     _v1_store(rm_config, [("s1", "2026-10-14T09:00:00+00:00"), ("s2", "2026-10-14T08:00:00+00:00"), ("s3", None)])
     assert {d["snapshot"]["id"] for d in db.latest("silicon_protection")} == {"s2"}
-    assert rows(rm_config, "PRAGMA user_version")[0][0] == db.SCHEMA_VERSION == 2
+    assert rows(rm_config, "PRAGMA user_version")[0][0] == db.SCHEMA_VERSION == 3
     watcher = sqlite3.connect(str(rm_config.parent / "data" / "rm.sqlite"))
     try:
         before = watcher.execute("PRAGMA data_version").fetchone()[0]
@@ -356,12 +357,18 @@ def test_a_version_1_store_is_migrated_once_and_the_last_stored_snapshot_is_curr
         watcher.close()
 
 
+def _changed(docs, n):
+    """`docs` with content that differs per `n` (keep-on-change stores a run only when its content changed)."""
+    out = copy.deepcopy(docs)
+    out[0]["sources"][0]["command"] += " (run %d)" % n
+    return out
+
+
 def test_deleting_the_current_snapshot_makes_the_previous_complete_one_current(rm_config):
     """Pruning by hand keeps a current snapshot for the scope (the delete trigger): the newest remaining complete
     one, never an older one (three runs, so "the previous" and "the oldest" differ)."""
-    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s0"))
-    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s1"))
-    db.put_snapshot("silicon_protection:eth-rc4", resnap(silicon(), "s2"))
+    for n in range(3):
+        db.put_snapshot("silicon_protection:eth-rc4", _changed(resnap(silicon(), "s%d" % n), n))
     with db.connect() as con, con:
         con.execute("DELETE FROM observations WHERE snapshot_id = 's2'")
         con.execute("DELETE FROM snapshots WHERE id = 's2'")
