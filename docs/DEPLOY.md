@@ -135,39 +135,47 @@ under a write lock; page reads continue meanwhile. Take the usual backup first. 
 against the same data directory afterwards: it would stamp the store back to version 1, and every later connection
 of the new code would repeat the (harmless, but writing) backfill until the old install is gone.
 
-### Store growth and retention (proposal, not implemented)
+### Store growth and retention (keep-on-change, CR-1015-retention)
 
-`rm.sqlite` grows by about 122 MB a day on the live host. Nearly all of it is set-kind history: every 15-minute poll
-stores a complete `pin_state` snapshot of each configuration and a `mirror_status` snapshot of each repo, whether or not
-anything changed, and interfaces.md section 12 keeps all history in v1. Since CR-ROB-store, reads no longer slow down as
-the history grows; only disk use and backup time do (about 3.7 GB a month, 45 GB a year).
+Before this change `rm.sqlite` grew by about 122 MB a day on the live host. Nearly all of it was set-kind history:
+every 15-minute poll stored a complete `pin_state` snapshot of each configuration, a `freshness` snapshot, a
+`mirror_status` snapshot of each component and so on, whether or not anything had changed (about 3.7 GB a month).
 
-Two options, for David to choose (neither changes what a page shows as current):
+Now a producer run whose content equals the scope's current snapshot is not stored again: the current snapshot
+records the check (`confirmed_at`, `confirmations`, and the run's check times and snapshot id). Content means the
+documents with their check times and snapshot ids taken out (interfaces.md section 12). Pages are unchanged: they
+read the last check's documents, so a data age still says "checked at" the last poll. A change stores a new
+snapshot as before. Measured on a synthetic store at the live cadence (`scripts/measure_store_growth.py`: 57
+scopes, 543 set-kind rows per poll, 96 polls): 164.7 MB a day before; 0.8 MB a day with no content changes,
+6.8 MB a day with 24 (one configuration's walk changing each hour), 25 MB a day with 96.
 
-1. **Keep-on-change** (preferred; a code change and a CR). When a producer's new snapshot has the same facts as the
-   current one (the documents equal apart from `observed_at` and the snapshot id), record only that it was confirmed
-   (a `confirmed_at` on the current snapshot) instead of storing every row again. A3 data age would then read
-   `confirmed_at`. Expected effect: growth falls to the rate of real changes, a few MB a day.
-2. **Prune superseded snapshots** (an operator procedure; no code change). Keep every current snapshot and, for older
-   ones, one per scope per day beyond 30 days. `db.history(subject)` (the fact pages' history, release-draft history)
-   then shows the thinned history. Event kinds (alerts, T0 results, quality, releases) and the `runs` and `actions`
-   tables are never pruned: they cannot be rebuilt.
+The first start after this update migrates `rm.sqlite` to schema version 3 (six columns and two indexes on
+`snapshots`; `ADD COLUMN` does not rewrite the table). An older install run against the store afterwards would show
+stale check times for unchanged scopes (it does not read confirmations) and store every run again; it does not
+damage the store. Roll back by reinstalling the older version only if you accept that.
 
-Procedure for option 2, until it is automated (service stopped, backup taken; the `current_snapshots` delete trigger
-keeps a current snapshot for every scope even if one is deleted by mistake):
+**Compacting the existing history (one-off, operator).** The store still holds the copies written before this change.
+`nanosoc-rm store-maint compact` collapses each run of identical snapshots of a scope into its first snapshot, which
+keeps the run's last check: every distinct state stays, with its first and last observed times; what pages show as
+current does not change. It runs as one transaction, and a second run removes nothing. On the synthetic store it
+took 11 s for one day of polls (166 MB) and, with `VACUUM`, left 8.5 MB.
 
-```sql
--- sqlite3 ~/nanosoc-rm/data/rm.sqlite
-CREATE TEMP TABLE doomed AS
-  SELECT id FROM snapshots s
-  WHERE completed_at < strftime('%Y-%m-%dT%H:%M:%S', 'now', '-30 days')
-    AND id NOT IN (SELECT snapshot_id FROM current_snapshots)
-    AND rowid NOT IN (SELECT max(rowid) FROM snapshots WHERE completed_at IS NOT NULL
-                      GROUP BY scope, substr(completed_at, 1, 10));
-DELETE FROM observations WHERE snapshot_id IN (SELECT id FROM doomed);
-DELETE FROM snapshots WHERE id IN (SELECT id FROM doomed);
-VACUUM;   -- returns the space to the file system; needs free disk about the size of the store, and time
-```
+1. Stop the service: `systemctl --user stop nanosoc-rm`.
+2. Back up: `cp ~/nanosoc-rm/data/rm.sqlite ~/nanosoc-rm/rm.sqlite.before-compact` (needs free disk about the
+   size of the store; so does step 5).
+3. See what it would remove (changes nothing): `nanosoc-rm store-maint compact --dry-run`. The table shows, per
+   kind, the snapshots, rows and MB it would remove, and any scope it skips (one whose current snapshot is not its
+   last stored one; it is left as it is).
+4. Apply: `nanosoc-rm store-maint compact --apply`. It took about a minute per GB on the synthetic store; it holds the
+   write lock until it commits, which is why the service is stopped.
+5. Return the space to the file system: `sqlite3 ~/nanosoc-rm/data/rm.sqlite 'VACUUM;'` (or
+   `python3 -c "import sqlite3; sqlite3.connect('$HOME/nanosoc-rm/data/rm.sqlite').execute('VACUUM')"`).
+6. Start the service: `systemctl --user start nanosoc-rm`, open Home, and check that the pages and their data ages
+   look as they did. Delete the backup from step 2 once you are satisfied.
+
+Event kinds (alerts, T0 results, quality, releases) and the `runs` and `actions` tables are never compacted: they
+cannot be rebuilt. If the store still grows faster than expected, `store-maint compact --dry-run` shows which kinds
+change most often.
 
 ## Wave B pages (built per CR-15; their automation stays off)
 

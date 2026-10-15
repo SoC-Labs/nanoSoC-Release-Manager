@@ -747,7 +747,7 @@ SQLite in WAL mode at `<data_dir>/rm.sqlite`:
 | Table | Columns | Rebuildable? |
 |---|---|---|
 | `observations` | kind, subject, observed_at, snapshot_id, doc JSON | yes, from mirrors, registry and CI |
-| `snapshots` | id, scope, kind, completed_at | yes |
+| `snapshots` | id, scope, kind, completed_at; confirmed_id, confirmed_at, confirmed_vals, confirmations, confirmed_after, confirmed_seq (keep-on-change, CR-1015-retention) | yes |
 | `current_snapshots` | scope, kind, snapshot_id: the current snapshot of each scope, kept by triggers on `snapshots` (CR-ROB-store) | yes |
 | `runs` | nonce, configuration, commit, request, trigger, triggered_by, triggered_at, pipeline_id, job_id, state | **no**: back it up |
 | `actions` | at, login, action, target, result | **no**: back it up (H2) |
@@ -760,6 +760,8 @@ def latest(kind: str, subject_prefix: str = "") -> list[dict]   # set kinds: the
 def newest_per(kind: str, group, subject_prefix: str = "") -> list[dict]   # events: newest per group(subject); decodes only those (CR-ROB-store)
 def subjects(kind: str, subject_prefix: str = "") -> list[str]    # events: the subjects latest() answers, no document decoded (CR-ROB-int)
 def data_age(obs: list[dict]) -> timedelta       # now - min(observed_at)
+def history(subject: str) -> list[dict]           # stored order; a confirmed set-kind state twice: first stored, last confirmed
+def compact(*, apply: bool = False) -> list[dict]   # collapse runs of identical snapshots (CR-1015-retention); one row per set kind
 def put_run(run: RunRecord) -> None
 def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str, by: str) -> None
 ```
@@ -768,10 +770,28 @@ def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str,
 - **Current snapshot** (CR-ROB-store): the snapshot of a scope that completed last, in commit order, never by the
   wall-clock `completed_at` (a clock stepped back must not hide a newer run). Reading it costs the current rows, not
   the history.
-- **Schema version** (CR-ROB-store): `rm.sqlite` is at `PRAGMA user_version = 2` and `jobs.sqlite` at 1. A connection
+- **Schema version** (CR-ROB-store): `rm.sqlite` is at `PRAGMA user_version = 3` (3: keep-on-change columns, CR-1015-retention) and `jobs.sqlite` at 1. A connection
   runs the DDL only when the store is below its version (once, under `BEGIN IMMEDIATE`); otherwise opening it
   writes nothing, so a read never waits for the write lock.
-- **History:** every observation is kept in v1 (the volume is small: about 200 set-kind rows per poll). Pruning is a later decision.
+- **Keep-on-change** (CR-1015-retention; David 2026-10-15). `put_snapshot` compares the run with the scope's
+  **current** snapshot (the last committed, as above, never the newest wall-clock one). Two runs have the same
+  content when their documents, in order, are equal once the volatile tokens are taken out: the top-level
+  `snapshot.id`, and every UTC timestamp inside any string (`YYYY-MM-DDTHH:MM:SS`, optional fraction, `Z` or
+  offset), with a snapshot id's `#<8 hex>` suffix when one follows it. So check times (`observed_at`, a host
+  state's `observed_at`, `last_success_at`) and snapshot ids quoted in sources or facts never count as a change;
+  any other field does (a date without a time, such as freshness `judged_on`, does). A run with the same content
+  stores no rows: the current snapshot's `confirmed_id`, `confirmed_at`, `confirmed_vals` (zlib JSON of the run's
+  tokens, one list per row) and its place among the stored rows (`confirmed_after`, `confirmed_seq`) are
+  overwritten, and `confirmations` counts the runs. `latest` returns the documents the run produced (its tokens put
+  back), in the order the rows would have had if stored, so pages and data ages (A3) read exactly as before. A run
+  with other content stores a new snapshot as before. `put(doc)` naming a run kept only as a confirmation first
+  stores that run in full. A snapshot id kept as a confirmation cannot be reused.
+- **History:** every distinct state is kept. `history(subject)` returns each stored observation and, after a
+  confirmed one, its last confirmation, so a run of identical checks shows its first and last observed times.
+  `nanosoc-rm store-maint compact --dry-run|--apply` (`db.compact`) collapses runs of identical snapshots stored
+  before keep-on-change the same way (first snapshot kept, the last check as its confirmation); one transaction,
+  safe to rerun; a scope whose current snapshot is not its last stored one is skipped. Event kinds and the
+  `runs` and `actions` tables are never compacted. Operator steps: DEPLOY.md.
 - **Other stores** (not facts, not rebuildable, apart from `rm.sqlite`): `<data_dir>/jobs.sqlite` (section 13a),
   `<data_dir>/bumps.sqlite` (section 19.4) and `<data_dir>/gui.sqlite` (CR-W2: `nanosoc_rm.web.uistate`, mode
   0600, `PRAGMA user_version = 1`): per-user inbox state `inbox_state(login, card_id, state, fingerprint, until,
@@ -1374,6 +1394,8 @@ CR-15): section 14c.
 `nanosoc-rm store index|show|search|findings` (B10, G8, D12; CR-WE-index): section 22.
 `nanosoc-rm freshness scan|show` (B2, B3, H1; CR-WF-fresh): section 24.
 `nanosoc-rm catalogue show|org-scan|preview` (A1, B1, H1; CR-WF-catalogue): section 23.
+`nanosoc-rm store-maint compact --dry-run|--apply [--json]` (A3; CR-1015-retention): section 12; exit 3 unless exactly
+one of the two flags is given. An operator command: the service stopped, the store backed up (DEPLOY.md).
 
 ### 17.4 Test infrastructure
 
