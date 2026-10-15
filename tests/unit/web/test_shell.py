@@ -146,7 +146,8 @@ def test_every_page_has_one_data_age_breadcrumbs_and_the_rail(site):
     c = site["client"]
     seen = 0
     for path in _html_get_routes(c.app):
-        r = c.get(path)
+        # not followed: a redirect is not a page (CR-1015-retire: /freshness and /freshness/ redirect to Home)
+        r = c.get(path, follow_redirects=False)
         if not r.headers.get("content-type", "").startswith("text/html") or r.status_code in (301, 302, 303, 307, 308):
             continue
         assert r.text.count("data-age-seconds=") == 1, path

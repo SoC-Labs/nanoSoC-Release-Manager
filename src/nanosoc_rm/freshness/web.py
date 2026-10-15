@@ -1,51 +1,36 @@
-"""The /freshness page and the on-demand scan (interfaces.md section 24.4), through the web plug-in seam.
+"""The retired /freshness page and the on-demand scan (interfaces.md section 24.4), through the web plug-in seam.
 
-    GET  /freshness/          every scanned tree: verdict word, lagging pins (direct and whole tree), days since the
-                              newest bump with Fresh/Aging/Stale, root commit; stored facts only, re-judged today
-    POST /freshness/scan      queue `nanosoc-rm freshness scan [CONFIG] --store --json` as a local job (local
-                              deployments only; elsewhere 403 with the CLI command)
+David 2026-10-15 (CR-1015-retire): the older /freshness/ page duplicated Home and the Matrix's Freshness tab, so it
+is retired. Its GETs redirect to Home; the scan it queued stays, as Home's "Scan <id> now" and the CLI
+(`nanosoc-rm freshness show` and `freshness scan` are unchanged).
 
-A GET reads rm.sqlite only: no git, no job, no network. The projects home page and the freshness grid build on
-`freshness.view` the same way.
+    GET  /freshness, /freshness/      301 to `/`; with `?configuration=ID` naming a registered configuration, 302 to
+                                      that configuration's row on Home (its project and itself open, it selected)
+    GET  /freshness/{rest:path}       the same; the first path segment may name the configuration
+                                      (/freshness/eth-main -> its Home row); anything else 301 to `/`
+    POST /freshness/scan              queue `nanosoc-rm freshness scan [CONFIG] --store --json` as a local job, or
+                                      find the one queued or running that covers it, and 303 to the configuration's
+                                      Home row (or `/`); local deployments only, elsewhere 403 with the CLI command
+
+A GET reads the stored registry records only (to find a configuration's project): no git, no job, no network.
+The module adds no navigation entry (NAV_LABEL is None).
 """
 from __future__ import annotations
 
-from pathlib import Path
+import urllib.parse
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm.config import load_config
-from nanosoc_rm.freshness import rules
 
-__all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV", "STATE_CLASS"]
+__all__ = ["router", "PREFIX", "NAV_LABEL", "home_url"]
 
 PREFIX = "/freshness"
-NAV_LABEL = "Freshness"
-NAV_PATH = PREFIX + "/"
-HERE = Path(__file__).resolve().parent
-# README section 6 colours; the word is always printed beside it (state never by colour alone).
-STATE_CLASS = {"unpushed": "state-red", "outdated": "state-red", "behind": "state-amber", "current": "state-green",
-               "frozen": "state-info", "not_measured": "state-grey"}
-AGE_CLASS = {"fresh": "state-green", "aging": "state-amber", "stale": "state-red"}
-
-
-def _env() -> Environment:
-    web = HERE.parent / "web" / "templates"
-    loaders = [FileSystemLoader(str(HERE / "templates"))] + ([FileSystemLoader(str(web))] if web.is_dir() else [])
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    env.globals.update(STATE_CLASS=STATE_CLASS, AGE_CLASS=AGE_CLASS, WORDS=rules.WORDS, AGE_WORDS=rules.AGE_WORDS,
-                       OUTDATED_BEHIND=rules.OUTDATED_BEHIND, OUTDATED_DAYS=rules.OUTDATED_DAYS,
-                       FRESH_DAYS=rules.FRESH_DAYS, STALE_DAYS=rules.STALE_DAYS)
-    return env
-
-
-ENV = _env()
+NAV_LABEL = None                    # CR-1015-retire: no navigation entry (web.plugins.load skips it)
 
 
 def _config(request: Request):
@@ -61,28 +46,44 @@ def _local(request: Request) -> bool:
     return bool(getattr(getattr(getattr(request.app, "state", None), "rm", None), "local_routes", False))
 
 
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, local=_local(request), **ctx)
+def home_url(config: Any, configuration: str | None) -> str | None:
+    """The Home URL of a registered configuration's row (its project and itself open, it selected), from the
+    stored registry records; None when `configuration` is empty or not a registered configuration."""
+    if not configuration:
+        return None
+    from nanosoc_rm.web import home, views
+    try:
+        recs = {d["fact"]["record"]["id"]: d["fact"]["record"] for d in views.configurations(config)}
+    except Exception:                                            # noqa: BLE001 - nothing stored yet
+        return None
+    rec = recs.get(configuration)
+    if rec is None:
+        return None
+    key = "c:" + configuration
+    params = [("v", "1")] + ([("o", "p:" + rec["component"])] if rec.get("component") else []) + \
+        [("o", key), ("sel", key)]
+    return "/?" + urllib.parse.urlencode(params) + "#" + home._row_id(key)
+
+
+def _redirect(request: Request, named: str | None) -> Response:
+    url = home_url(_config(request), named)
+    if url is None:
+        return RedirectResponse("/", 301)
+    return RedirectResponse(url, 302)               # depends on the stored registry: not a permanent answer
 
 
 def router(app: Any = None) -> APIRouter:
-    """GET /freshness/ always; POST /freshness/scan only in a local deployment (section 13a)."""
+    """GET /freshness[/...] redirects everywhere; POST /freshness/scan only in a local deployment (section 13a)."""
     from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
-    def index(request: Request) -> HTMLResponse:
-        from nanosoc_rm.freshness import view
-        config = _config(request)
-        try:
-            rows = view.trees(config=config)
-        except Exception as e:                                   # noqa: BLE001 - shown, never a bare 500
-            return _page(request, "freshness_index.html", "Freshness", status=500, rows=[], job=None,
-                         problems=["the stored freshness could not be read: %s" % str(e)[:300]])
-        job = request.query_params.get("job")
-        return _page(request, "freshness_index.html", "Freshness", rows=rows,
-                     job=int(job) if job and job.isdigit() else None)
+    def index(request: Request) -> Response:
+        return _redirect(request, (request.query_params.get("configuration") or "").strip() or None)
+
+    def sub(request: Request, rest: str) -> Response:
+        named = (request.query_params.get("configuration") or "").strip() or rest.strip("/").split("/", 1)[0]
+        return _redirect(request, named or None)
 
     async def post_scan(request: Request) -> Response:
         from nanosoc_rm import jobs
@@ -101,17 +102,19 @@ def router(app: Any = None) -> APIRouter:
                 return PlainTextResponse("400 Bad Request: %s\n" % str(e)[:300], 400)
             if cid not in known:
                 return PlainTextResponse("400 Bad Request: %r is not a registered configuration\n" % cid[:60], 400)
+        back = home_url(config, cid) or "/"
         try:
             for j in jobs.jobs(config, kind="freshness-scan", states=("queued", "running")):
                 if (j["params"].get("configuration") or None) in (None, cid):
-                    return RedirectResponse("%s/?job=%d" % (PREFIX, j["id"]), 303)
-            job = await run_in_threadpool(jobs.submit, config, "freshness-scan", {"configuration": cid},
-                                          _login(request))
+                    return RedirectResponse(back, 303)
+            await run_in_threadpool(jobs.submit, config, "freshness-scan", {"configuration": cid}, _login(request))
         except jobs.JobUsage as e:
             return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
-        return RedirectResponse("%s/?job=%d" % (PREFIX, job["id"]), 303)
+        return RedirectResponse(back, 303)
 
+    r.add_api_route("", index, methods=["GET"], include_in_schema=False)
     r.add_api_route("/", index, methods=["GET"], include_in_schema=False)
+    r.add_api_route("/{rest:path}", sub, methods=["GET"], include_in_schema=False)
     if local:
         r.add_api_route("/scan", post_scan, methods=["POST"], include_in_schema=False)
     return r

@@ -290,7 +290,8 @@ def test_the_header_has_the_five_entries_more_search_and_the_bell(fp):
     main = re.findall(r'<a href="([^"]+)"[^>]*>([^<]+)</a>', nav.split("<details")[0])
     assert [x[1] for x in main] == ["Projects", "Matrix", "Releases", "Silicon", "Catalogue"]
     assert re.search(r'<a href="/matrix/" aria-current="page">Matrix</a>', nav)
-    assert "<summary>More</summary>" in nav and ">Freshness</a>" in nav and ">Compat</a>" in nav
+    assert "<summary>More</summary>" in nav and ">Compat</a>" in nav
+    assert ">Freshness</a>" not in nav and 'href="/freshness/"' not in nav     # CR-1015-retire: page retired
     assert 'id="cmd" type="search"' in text
     bell = re.search(r'<a class="bell" href="/notifications" data-bell="(\d+)" aria-label="Notifications, (\d+) unread"',
                      text)
@@ -326,6 +327,29 @@ def test_a_matrix_cell_opens_one_detail_line_linking_to_the_pin_on_home(fp):
     k = keys(home_text)
     assert "n:eth-main:nanosoc-multicore-system/ethernet-subsystem-ahb" in k                 # its parents opened
     assert "Pin in eth-main" in detail(home_text) and "ethernet-subsystem-ahb" in detail(home_text)
+
+
+def test_the_retired_freshness_page_sends_a_named_configuration_to_its_home_row(fp, monkeypatch):
+    """CR-1015-retire: /freshness/?configuration=ID and /freshness/ID answer 302 to that configuration's row on Home
+    (its project and itself open, it selected); an unknown one, or none, 301 to `/`. No GET queues work."""
+    c = fp["client"]
+    monkeypatch.setattr(jobs, "submit", lambda *a, **k: pytest.fail("a GET submitted a job"))
+    for url in ("/freshness/?configuration=eth-main", "/freshness/eth-main", "/freshness/eth-main/tree"):
+        r = c.get(url, follow_redirects=False)
+        assert r.status_code == 302, (url, r.status_code)
+        loc = r.headers["location"]
+        assert loc.startswith("/?v=1&o=p%3Ananosoc-ethernet-chiplet&o=c%3Aeth-main&sel=c%3Aeth-main#row-"), loc
+        text = c.get(loc).text
+        assert "c:eth-main" in keys(text) and "Configuration of nanosoc-ethernet-chiplet" in detail(text)
+    for url in ("/freshness/?configuration=no-such", "/freshness/no-such", "/freshness"):
+        r = c.get(url, follow_redirects=False)
+        assert (r.status_code, r.headers["location"]) == (301, "/"), url
+    # Home's Scan <id> now still posts to /freshness/scan and comes back to the configuration's row
+    text = c.get("/?v=1&o=p:nanosoc-ethernet-chiplet&sel=c:eth-main").text
+    assert 'action="/freshness/scan"' in text
+    monkeypatch.undo()
+    r = c.post("/freshness/scan", data={"csrf_token": csrf(text), "configuration": "eth-main"}, follow_redirects=False)
+    assert r.status_code == 303 and "sel=c%3Aeth-main" in r.headers["location"], r.headers
 
 
 # ----- Catalogue -------------------------------------------------------------------------------------------------

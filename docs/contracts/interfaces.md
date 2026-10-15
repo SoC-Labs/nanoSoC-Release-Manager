@@ -2314,12 +2314,16 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
   has no stored walk, 3 unknown configuration or bad date; an outdated tree is not exit 1: the scan measures, it
   does not gate). `nanosoc-rm freshness show [CONFIG] [--tree] [--today] [--json]` prints the stored facts
   re-judged (exit 2 when none is stored).
-- **Routes** (plug-in `nanosoc_rm.freshness.web`, navigation "Freshness"): `GET /freshness/` lists every scanned
-  tree (verdict word, direct and whole-tree lagging, Updated with Fresh/Aging/Stale, or "Frozen N d ago" for a
-  frozen tree, root), stored facts only; one compact scan toolbar, the explanations behind "How is this judged?";
-  `POST /freshness/scan` (field `configuration`, optional; local deployments only, CSRF-checked; elsewhere 403
-  with the CLI command) queues the job, or shows the one already queued that covers it, and redirects to
-  `/freshness/?job=N`. 400 for an unregistered configuration.
+- **Routes** (plug-in `nanosoc_rm.freshness.web`; no navigation entry, `NAV_LABEL = None`). CR-1015-retire (David
+  2026-10-15, "Retire it"): the `/freshness/` page duplicated Home and the Matrix's Freshness tab and is retired.
+  `GET /freshness` and `GET /freshness/` answer 301 to `/`; `GET /freshness/{rest:path}` likewise. When a registered
+  configuration is named (`?configuration=ID`, or the first path segment: `/freshness/ID`) they answer 302 to its
+  Home row (`/?v=1&o=p:<root>&o=c:ID&sel=c:ID#row-...`, `freshness.web.home_url`, from the stored registry records;
+  302 because it depends on them). A GET reads the stored registry records only. `POST /freshness/scan` (field
+  `configuration`, optional; local deployments only, CSRF-checked; elsewhere 403 with the CLI command) stays, as
+  Home's "Scan <id> now": it queues the job, or finds the one already queued that covers it, and 303s to the
+  configuration's Home row (or `/`). 400 for an unregistered configuration. The CLI (`freshness scan`, `freshness
+  show`) is unchanged.
 - **Observation kind** `freshness` (set kind; `db.SET_KINDS`); example `observation.freshness.example.jsonl`
   (hermetic fixture, no lab data).
 

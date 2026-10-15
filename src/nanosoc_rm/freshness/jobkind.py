@@ -1,6 +1,6 @@
 """The `freshness-scan` job kind (interfaces.md section 24.4): `nanosoc-rm freshness scan [CONFIG] --store --json`
 as a child process of the local worker. Queued by the scheduler's `freshness_scan` job after each poll's walks, and
-by POST /freshness/scan (local deployments only)."""
+by POST /freshness/scan (local deployments only; Home's "Scan <id> now")."""
 from __future__ import annotations
 
 import re

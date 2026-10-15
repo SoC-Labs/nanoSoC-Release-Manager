@@ -336,36 +336,39 @@ def _signed_in_client(env, monkeypatch):
     return c
 
 
-def test_the_page_shows_words_and_the_post_queues_a_job(estate, tmp_path, monkeypatch):
+def test_the_retired_page_redirects_to_home_and_the_post_still_queues_a_job(estate, tmp_path, monkeypatch):
+    """David 2026-10-15 ("Retire it"; CR-1015-retire): every GET under /freshness redirects to Home (a named
+    configuration to its Home row) and queues nothing; POST /freshness/scan (Home's Scan now) still queues."""
     from nanosoc_rm import jobs
+    from nanosoc_rm.config import load_config
+    from nanosoc_rm.web import routers
     shadow = at_pins().make_shadow(estate["env"], tmp_path / "web")
     for k, v in shadow.env.items():
         if k != "NANOSOC_RM_CONFIG":
             monkeypatch.setenv(k, v)
     c = _signed_in_client(shadow, monkeypatch)
-    page = c.get("/freshness/")
-    assert page.status_code == 200
-    row = re.search(r'<tr data-configuration="top-v1" data-verdict="frozen">.*?</tr>', page.text, re.S).group(0)
-    assert ">Frozen<" in row and "would be outdated if live; not counted" in row
-    assert len(re.findall(r'class="pill ', row)) == 1, "a frozen tree's age gets no Fresh/Aging/Stale pill"
-    assert re.search(r"Frozen \d+ d ago", row), "a frozen tree's age is how long ago it was frozen"
-    head = page.text[:page.text.index("<table data-freshness")]
-    head = head[head.index('data-freshness-scan'):]
-    assert 'class="note"' not in head and 'class="panel"' not in head.split("<details")[0], \
-        "one compact toolbar; the explanations live behind How is this judged?"
-    assert 'data-subject="freshness:top-main"' in page.text and "data-age-seconds" in page.text
-    for m in re.finditer(r'<span class="pill (state-\w+)">([^<]*)<', page.text):
-        assert m.group(2).strip(), "a state pill without its word"
+    # route census: the only GETs left under /freshness are the redirects
+    gets = {p for p, m, _ in routers.route_table(c.app) if "GET" in m and p.startswith("/freshness")}
+    assert gets == {"/freshness", "/freshness/", "/freshness/{rest:path}"}, gets
+    for url in ("/freshness", "/freshness/", "/freshness/?job=3", "/freshness/scan", "/freshness/no-such/x",
+                "/freshness/?configuration=no-such"):
+        r = c.get(url, follow_redirects=False)
+        assert (r.status_code, r.headers["location"]) == (301, "/"), (url, r.status_code, r.headers.get("location"))
+    # (a named configuration's Home row: test_frontpage, whose site has stored registry records)
+    page = c.get("/freshness/", follow_redirects=True)
+    assert page.status_code == 200 and "<title>Projects" in page.text
+    nav = re.search(r'<nav aria-label="Main" class="topnav">(.*?)</nav>', page.text, re.S).group(1)
+    assert 'href="/freshness/"' not in nav and ">Freshness</a>" not in nav, "no navigation entry"
+    assert jobs.jobs(load_config(shadow.config), kind="freshness-scan") == [], "a GET queued work"
     tok = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
     r = c.post("/freshness/scan", data={"csrf_token": tok}, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/freshness/?job=")
+    assert r.status_code == 303 and r.headers["location"] == "/"
     r2 = c.post("/freshness/scan", data={"csrf_token": tok, "configuration": "top-main"}, follow_redirects=False)
-    assert r2.headers["location"] == r.headers["location"], "a queued scan of every tree covers one tree"
+    assert r2.status_code == 303 and r2.headers["location"].startswith("/")
     assert c.post("/freshness/scan", data={"csrf_token": tok, "configuration": "no-such"}).status_code == 400
     assert c.post("/freshness/scan", data={"configuration": "top-main"}).status_code == 403     # no CSRF token
-    from nanosoc_rm.config import load_config
     q = jobs.jobs(load_config(shadow.config), kind="freshness-scan")
-    assert [j["params"] for j in q] == [{"configuration": None}]
+    assert [j["params"] for j in q] == [{"configuration": None}], "a queued scan of every tree covers one tree"
 
 
 # ----- a frozen tree never reads as lagging; the registry decides what is listed (review F1-F4) --------------------

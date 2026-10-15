@@ -5,7 +5,8 @@ A plug-in is a module listed in PLUGINS that defines:
     router     a FastAPI APIRouter with its own routes (GET pages; any POST is CSRF-checked by the app's guard),
                or a function that returns one: with no arguments, or with one (the app, so it can register its
                POST routes only in a local deployment, `app.state.rm.local_routes`, as section 13a requires)
-    NAV_LABEL  optional: the top-navigation label (default: the PLUGINS label)
+    NAV_LABEL  optional: the top-navigation label (default: the PLUGINS label); None adds no navigation entry (a
+               module that keeps routes but no page of its own, as the retired /freshness, CR-1015-retire)
     NAV_PATH   optional: where the navigation entry links (default: the router's prefix); the entry is marked
                current on the prefix and every path under it
 
@@ -33,7 +34,7 @@ PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Mat
            ("nanosoc_rm.releases.web", "Releases"),                     # CR-R1 (Wave B releases)
            ("nanosoc_rm.store.web", "Store"),                           # section 22 (Wave E store index)
            ("nanosoc_rm.publish.web", "Publish"),                       # CR-ART-publish (Wave E)
-           ("nanosoc_rm.freshness.web", "Freshness"),                   # section 24 (CR-WF-fresh)
+           ("nanosoc_rm.freshness.web", "Freshness"),     # section 24; page retired, redirects + POST (CR-1015-retire)
            ("nanosoc_rm.catalogue.web", "Catalogue"))                   # CR-WF-gui (Characterise.dc.html)
 
 
@@ -62,6 +63,8 @@ def load(app: Any, plugins=PLUGINS) -> list[tuple[str, str, tuple[str, ...]]]:
             takes_app = bool(inspect.signature(router).parameters)
             router = router(app) if takes_app else router()   # a factory, as nanosoc_rm.quality.web defines it
         app.include_router(router)
+        if getattr(mod, "NAV_LABEL", label) is None:
+            continue                                     # routes only, no navigation entry
         prefix = getattr(router, "prefix", "") or "/"
         path = getattr(mod, "NAV_PATH", None) or prefix
         nav.append((getattr(mod, "NAV_LABEL", label), path, (prefix,)))

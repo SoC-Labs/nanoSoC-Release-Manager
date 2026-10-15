@@ -59,8 +59,10 @@ nanosoc-rm freshness show eth-main --tree      # every pin, depth first, with th
 ```
 
 Per pin: Outdated (10+ commits behind, or behind and not bumped for 90 days), Behind (1 to 9), Current, Unpushed
-(no host holds the commit), Not measured (with the reason). A tree's verdict is its worst direct pin; a frozen
-silicon tree says Frozen and what it would be, and is never counted. Page: `/freshness/`. Details: interfaces.md
+(no host holds the commit), Not measured (with the reason). A tree's verdict is its worst direct pin, except that
+a tree with a direct pin nobody could measure is never Current: "Current except N not measured" when nothing is
+worse; a frozen silicon tree says Frozen and what it would be, and is never counted. Pages: Home (`/`) and the
+Matrix's Freshness tab (the older `/freshness/` page is retired and redirects to Home). Details: interfaces.md
 section 24.
 
 ## Code and documentation quality (CR-14, Q1-Q6)
