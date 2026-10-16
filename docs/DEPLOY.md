@@ -18,8 +18,8 @@ do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free port, `
 
 ## Install (about 15 minutes)
 
-1. Get the code. From GitHub once published: `git clone https://github.com/SoC-Labs/nanoSoC-Release-Manager ~/nanosoc-rm/app`.
-   Without network access to it, ship a bundle from a machine that has the repo:
+1. Get the code from GitHub: `git clone https://github.com/SoC-Labs/nanoSoC-Release-Manager ~/nanosoc-rm/app`.
+   On a host without network access to GitHub, ship a bundle from a machine that has the repo:
    ```
    git bundle create rm.bundle master && scp rm.bundle <host>:
    ssh <host> 'git clone -b master rm.bundle ~/nanosoc-rm/app'
@@ -122,7 +122,7 @@ signed-in login, so with one shared team user the actions log shows the team use
 | Restart | `systemctl --user restart nanosoc-rm` (also clears sign-in lockouts) |
 | Update (GitHub) | `git -C ~/nanosoc-rm/app pull`, reinstall, restart |
 | Update (bundle) | `git -C ~/nanosoc-rm/app pull <new bundle> master`, reinstall, restart |
-| Reinstall | `VIRTUAL_ENV=~/nanosoc-rm/venv uv pip install --reinstall-package nanosoc-rm ~/nanosoc-rm/app` (the version string does not change, so a plain install would skip it) |
+| Reinstall | `VIRTUAL_ENV=~/nanosoc-rm/venv uv pip install --reinstall-package nanosoc-rm ~/nanosoc-rm/app` (the package version stays `0.1.0.dev0` between releases, so a plain install would skip it; `nanosoc-rm --version` therefore does not tell two installs apart: compare `git -C ~/nanosoc-rm/app rev-parse HEAD`) |
 | Update the registry | `git -C ~/nanosoc-rm/registry pull` (the next poll reads it) |
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
 | Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` (rm, jobs, sessions, bumps, gui) and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
@@ -177,9 +177,9 @@ Event kinds (alerts, T0 results, quality, releases) and the `runs` and `actions`
 cannot be rebuilt. If the store still grows faster than expected, `store-maint compact --dry-run` shows which kinds
 change most often.
 
-## Wave B pages (built per CR-15; their automation stays off)
+## Matrix, bumps, versions and releases (built per CR-15; their automation stays off)
 
-The same service also serves Matrix (`/matrix/`), Bumps (`/bumps/`), Versions (`/versions/`) and Releases
+The service also serves Matrix (`/matrix/`), Bumps (`/bumps/`), Versions (`/versions/`) and Releases
 (`/releases/`) in the one navigation. Every long action on them (a matrix cell, a bump scan, a version refresh or
 draft, a release draft or verify, a fork listing, a cold quality page) is a job in the local runner, never work
 inside a request. They write only on the host's own disk, under the data directory:
@@ -204,22 +204,26 @@ nanosoc-rm version refresh
 nanosoc-rm phase-gates --repo ~/nanosoc-rm/app           # exit 0: no later-phase automation enabled
 ```
 
-## Wave C pages (the merged GUI)
+## Per-user state (`gui.sqlite`)
 
-The same service serves the Inbox at `/`, the configuration and component workspaces and the command bar
-(`docs/GUI.md`, Pages). The Inbox, alert-group clears and the review queue keep per-user state (done and snoozed
-cards, review decisions, the patch basket) in `<data_dir>/gui.sqlite`, created mode 0600. It is not a fact store
+The service serves the projects home at `/`, Notifications behind the bell (the full cards at `/inbox`), the
+configuration and component workspaces and the command bar (`docs/GUI.md`, Pages). Notifications, alert-group
+clears, the review queue and the Home timeline keep per-user state (read and snoozed items, review decisions, the
+patch basket, display choices) in `<data_dir>/gui.sqlite`, created mode 0600. It is not a fact store
 and cannot be rebuilt from the mirrors: back it up with the other `.sqlite` files. Its POST routes exist only in a
 local deployment; a GitHub+CI deployment still serves exactly the two Run routes as writes.
 
-A quick check after an update, signed in: `/`, `/configurations/<configuration>/whatif` (pick a component and a
+A quick check after an update, signed in: `/`, `/notifications`, `/configurations/<configuration>/whatif` (pick a component and a
 target, **Run what-if**, wait for Now vs After), `/components/<component>/branches` and
 `/components/<component>/review` (Accept one finding, then download `patch.diff`) all answer 200.
 
 ## What this host can and cannot run
 
 T0 (resolve, pins, URLs, vendor scan) needs only git. T1 and T2 tiers call EDA tools (Verilator, VCS); on a host
-without them the tier result says the tool is not on this host. By default every fetch is anonymous and private
+without them the tier result says the tool is not on this host. Coming in Wave G (agreed 2026-10-16): tier runs
+execute on a lab EDA server through a sandboxed, unprivileged pull agent that fetches each job and returns a
+signed result (GitLab CI later); each repository declares its tests in `.nanosoc/capabilities.yaml`, and the
+registry's `tiers.yaml` keeps only per-host paths and licence data. By default every fetch is anonymous and private
 repos stay unreadable (one `mirror_failed` alert group, "private repos cannot be mirrored anonymously").
 
 ## Private repos (optional, off by default; CR-PR1)
@@ -283,7 +287,7 @@ What it writes, only on a confirmed Publish: new files under `asic-release/<proj
 promotion. It refuses when any of those paths already holds other bytes. Ledger: `rm.sqlite` (`release_publication`,
 `actions`) and `<data_dir>/publish/`.
 
-## Regenerator (Wave D, interfaces.md section 20)
+## Regenerator (optional; interfaces.md section 20)
 
 Optional. To class generator moves by regeneration on this host:
 
@@ -295,7 +299,7 @@ Optional. To class generator moves by regeneration on this host:
 3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
    per render; renders are cached by digest.
 
-## Artefact store index (Wave E, interfaces.md section 22)
+## Artefact store index (optional; interfaces.md section 22)
 
 Optional. The tool reads Artifactory (GET, HEAD and one AQL search; it never writes there except the publish
 service's manifests) and shows what it holds on `/store/`, the Silicon and History tabs, Versions and Releases.

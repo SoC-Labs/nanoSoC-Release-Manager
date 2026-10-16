@@ -1,5 +1,11 @@
 # Implementation plan: MVP in one week, then phases
 
+> **Historical record (written 2026-10-10, not maintained).** This was the plan for the MVP week. It finished:
+> v0.1.0 was tagged on 2026-10-12 and the repository is public. The test counts, "nothing is pushed" and the
+> blockers below describe 2026-10-10, not today. The MVP guide it hands over to (`docs/MVP.md`) is now part of
+> [user-guide.md](user-guide.md). Current state: [CHANGELOG.md](../CHANGELOG.md) and
+> [phase-gates.yaml](phase-gates.yaml) (`nanosoc-rm phase-gates`).
+
 Written 2026-10-10. Supersedes the plan in proposal-rev2 §9 for scheduling; the requirements, contracts and
 phase gates it refers to are unchanged.
 

@@ -4,6 +4,9 @@ The same pages as the service VM will serve, run from a login server with no Git
 project: local sign-in (CR-16) and a local job worker (CR-17). As a service: `docs/DEPLOY.md`. Contracts: `docs/contracts/interfaces.md`
 sections 13, 13a, 14 and 25 (the front pages).
 
+First visit: [getting-started.md](getting-started.md). What the states and verdicts on these pages mean:
+[concepts.md](concepts.md) (the "How is this judged?" box on Home and the Matrix summarises the freshness part).
+
 ## Set up (about 10 minutes)
 
 1. Install: `scripts/dev-env.sh`, then `export PATH=$PWD/.venv/bin:$PATH`.
