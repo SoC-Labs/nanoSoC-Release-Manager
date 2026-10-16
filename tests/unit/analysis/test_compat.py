@@ -174,6 +174,39 @@ def test_a_waiver_covered_failure_rolls_up_waived(scene):
     assert pins_of(doc)["s"]["url_kind"] == "ssh"
 
 
+def test_a_moved_pin_that_was_never_fetched_is_unverified_not_a_judged_fail(scene):
+    """Evaluation 2026-10-16 (report action 3): `s` is pinned by an ssh URL, so the anonymous gates walk the move
+    but never fetch or scan the moved commit. The what-if must read UNVERIFIED (it did not look), not FAIL; the
+    gates' own FAIL stays visible in the gates table."""
+    doc = scene.run("frozen-nowaiver", {"s": scene.a2})
+    assert contracts.validate_observation(doc) == [], contracts.validate_observation(doc)
+    f, g, p = doc["fact"], gates_of(doc), pins_of(doc)
+    assert p["s"]["overridden"] and p["s"]["items"]["fetchable"] == "fail"
+    assert g["t0.pins.fetchable"]["verdict"] == "FAIL"                       # hygiene: still reported
+    assert f["verdict"] == "UNVERIFIED" and C.exit_for(f["verdict"]) == 2, (f["verdict"], f["reason"])
+    assert f["unjudged_overrides"] == ["s"] and "s not fetched (fetchable fail)" in f["reason"]
+    # the control: the same move at a path the gates fetch is judged (PASS), and a move to a commit the host
+    # does not hold stays a judged FAIL (reachable proves it absent)
+    ok = scene.run("top-main", {"a": scene.a2})["fact"]
+    assert ok["verdict"] == "PASS" and ok["unjudged_overrides"] == []
+    gone = scene.run("top-main", {"b": NO_SUCH})["fact"]
+    assert gone["verdict"] == "FAIL" and gone["unjudged_overrides"] == []
+
+
+def test_unjudged_reads_each_gate_item():
+    class P:
+        override_of = "x" * 40
+    judged = {"a": P(), "b": P(), "c": P(), "d": P()}
+    items = {"t0.pins.fetchable": [{"tree_path": "a", "result": "pass"}, {"tree_path": "b", "result": "fail"},
+                                   {"tree_path": "c", "result": "pass"}, {"tree_path": "d", "result": "fail"}],
+             "t0.pins.reachable": [{"tree_path": "d", "result": "fail"}],
+             "t0.vendor.no-arm-ip": [{"tree_path": "a", "result": "pass"}, {"tree_path": "c", "result": "not-reached"}]}
+    out, why = C._unjudged({"a": 1, "b": 1, "c": 1, "d": 1, "e": 1}, judged, items)
+    assert out == ["b", "c", "e"]
+    assert why == ["b not fetched (fetchable fail)", "c fetched but not scanned",
+                   "e not reached by the gates' anonymous walk"]
+
+
 def test_override_at_a_path_with_no_pin_is_a_usage_error(scene):
     from nanosoc_rm.walker import OverrideError
     with pytest.raises(OverrideError):

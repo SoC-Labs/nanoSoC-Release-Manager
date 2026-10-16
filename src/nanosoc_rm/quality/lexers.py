@@ -50,10 +50,6 @@ class Lexed:
     fallback: bool = False                                # the language's own lexer refused; a simpler one ran
 
 
-def _blank_lines(lines: list[str]) -> list[bool]:
-    return [not ln.strip() for ln in lines]
-
-
 # ---------------------------------------------------------------------------------------------------------
 # A character scanner shared by the C family, Verilog, shell, make, Tcl, YAML and TOML
 # ---------------------------------------------------------------------------------------------------------

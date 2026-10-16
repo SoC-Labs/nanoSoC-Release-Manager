@@ -14,6 +14,29 @@ does not exist every acceptance test reports XFAIL whatever its inputs. Once the
 So a skip can never read as green, and a passing test cannot hide behind its marker.
 """
 import importlib
+import os
+import sys
+from pathlib import Path
+
+# A fresh checkout's plain `python -m pytest` (evaluation 2026-10-16: 38 tests failed "nanosoc-rm is not on PATH"):
+# the tests that run the `nanosoc-rm` console script find the one installed beside this interpreter (the venv's
+# bin/), so PATH need not be set by hand. Set at import, before any test or xdist worker starts a child; only
+# when that bin/ holds the script, so a test still fails, never skips, when the package is not installed.
+VENV_BIN = Path(sys.executable).parent
+
+
+def venv_on_path(environ=os.environ, bin_dir=VENV_BIN) -> bool:
+    """Prepend `bin_dir` to environ["PATH"] when it holds nanosoc-rm and is not already first. True when it did."""
+    if not (bin_dir / "nanosoc-rm").exists():
+        return False
+    parts = environ.get("PATH", "").split(os.pathsep)
+    if parts and parts[0] == str(bin_dir):
+        return False
+    environ["PATH"] = os.pathsep.join([str(bin_dir)] + [p for p in parts if p])
+    return True
+
+
+venv_on_path()
 
 
 def pytest_configure(config):

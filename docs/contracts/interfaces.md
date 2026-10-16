@@ -1407,8 +1407,13 @@ one of the two flags is given. An operator command: the service stopped, the sto
 
 ### 17.5 Write allowlist (`WRITE_CALLS`, A2, A6)
 
-`nanosoc_rm.contracts.WRITE_CALLS` is a list of entries `{file, kind: http|exec, method, target, effect, guard, reason}`.
-A static census of the package (AT-A2) must find every entry, and every call it finds must be covered by one:
+`nanosoc_rm.contracts.WRITE_CALLS` is a list of entries `{file, kind: http|exec, method, target, effect, guard, reason,
+sites?}`. A static census of the package (AT-A2) must find every entry, and every call it finds must be covered by one.
+The census resolves each file's imports, so an alias (`import subprocess as proc`), a from-import (`from subprocess
+import Popen`, `from os import execvp`), a `getattr(obj, "delete")(...)` call and the `os.exec*`/`spawn*`/
+`posix_spawn*` family are censused like the plain forms; a `getattr` call with a computed name is an unresolved
+HTTP call (method `?`). `sites` (default 1) is how many call sites the census cannot pin to one target (target or
+method `?`) one entry covers: one more in that file fails A2 (evaluation 2026-10-16):
 
 | effect | Meaning | Allowed |
 |---|---|---|

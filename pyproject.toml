@@ -27,6 +27,7 @@ dev = [
     "pytest>=8.3,<10",
     "pyflakes>=3.0",
     "hypothesis>=6.100",
+    "pytest-xdist>=3.5",          # the not-live suite is about 36 CPU-minutes: run it with -n 6 (about 8 minutes)
 ]
 
 [project.scripts]

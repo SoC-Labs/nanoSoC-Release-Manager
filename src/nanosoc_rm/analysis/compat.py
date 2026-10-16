@@ -53,6 +53,31 @@ FORCED_NOTE = ("--force-tier: a person ran the tier past a T0 FAIL; this result 
 _LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
 
 
+def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], list[str]]:
+    """The overrides the gates did not judge, and why (evaluation 2026-10-16, report action 3). A moved pin is
+    judged when the gates' walk reached it as an override AND either fetched its commit anonymously and scanned
+    it (fetchable `pass`, and the vendor scan reached it), or proved the commit absent from its host (reachable
+    `fail`: the move is a real FAIL). A moved pin that was walked but not fetched (an ssh or private URL) is never
+    a judged FAIL: the what-if never looked at the commit it moves to."""
+    at = {gid: {i["tree_path"]: i["result"] for i in its if i.get("tree_path")} for gid, its in items.items()}
+    fetch, reach = at.get("t0.pins.fetchable", {}), at.get("t0.pins.reachable", {})
+    scans = [at[g] for g in ("t0.vendor.no-arm-ip",) if at.get(g)]
+    out, why = [], []
+    for t in sorted(overrides):
+        if t not in judged or judged[t].override_of is None:
+            out.append(t)
+            why.append("%s not reached by the gates' anonymous walk" % t)
+        elif reach.get(t) == "fail":
+            continue                                    # proven absent from its host: judged, and a FAIL
+        elif fetch.get(t) != "pass":
+            out.append(t)
+            why.append("%s not fetched (fetchable %s)" % (t, fetch.get(t) or "no item"))
+        elif any(sc.get(t) in (None, "not-reached") for sc in scans):
+            out.append(t)
+            why.append("%s fetched but not scanned" % t)
+    return out, why
+
+
 def ladder(*verdicts: str) -> str:
     """README section 6 run ladder over verdicts (NOT-RUN entries are ignored)."""
     vs = [v for v in verdicts if v in _LADDER]
@@ -170,18 +195,19 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
         waivers = configs.waivers(configuration, config)
         gates, unused = G.apply_waivers(rolled, items, waivers)
         verdict, not_run = G.run_verdict(gates)
-        unjudged = sorted(t for t in overrides if t not in judged or judged[t].override_of is None)
+        gates_verdict = verdict                   # the tier decision reads the gates, not the what-if verdict
+        unjudged, why_not = _unjudged(overrides, judged, items)
         reason = None
         if unjudged:
             verdict = "UNVERIFIED"
-            reason = ("the gates' anonymous walk did not reach the override(s) at %s: the what-if was not judged"
-                      % ", ".join(unjudged))
+            reason = ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
+                      % "; ".join(why_not))
         t0_finished_at = clock.iso()
 
         # 4. the tier (CR-12), in a sandbox checkout of the same tree
         tier_doc = None
         if spec is not None:
-            if verdict == "FAIL" and not force_tier:
+            if gates_verdict == "FAIL" and not force_tier:
                 tier_doc = tierrun.skipped(spec, tier, "T0 is FAIL: the %s tier was skipped (--force-tier runs it "
                                                        "anyway, UNVERIFIED for release)" % tier)
             elif root is None:
@@ -190,7 +216,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
                 layout = tierrun.materialise(ctx.git, root, work / "tree", spec.get("pins"))
                 tier_doc = tierrun.run_tier(spec, tier, work / "tree", work, nonce, layout=layout,
                                             lock_dir=lock_dir)
-            if force_tier and verdict == "FAIL":
+            if force_tier and gates_verdict == "FAIL":
                 tier_doc["forced"] = True
                 tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
     finally:

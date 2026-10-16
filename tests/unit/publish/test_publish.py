@@ -570,6 +570,24 @@ def test_a_draft_tapeout_is_not_promoted_and_bad_facts_are_refused(world):
         S.preview(cfg, "tapeout", "demochip-r0")
 
 
+def test_an_unreadable_registry_refuses_a_tapeout_publish(world):
+    """Evaluation 2026-10-16 (report action 4): the "filed under another project" check needs the registry. A
+    registry that does not load refuses the preview, naming it; it never silently skips the check."""
+    from pathlib import Path
+    cfg = world.config
+    _tapeout_draft(world, project="otherchip", release={"project": "otherchip", "version": "1.0.0"})
+    elig = Path(cfg.require("registry", "path")) / "eligibility.yaml"
+    good = elig.read_text()
+    try:
+        elig.write_text("configurations: [unclosed\n")
+        with pytest.raises(PublishRefused, match="registry cannot be read"):
+            S.preview(cfg, "tapeout", "demochip-r0")
+    finally:
+        elig.write_text(good)
+    with pytest.raises(PublishRefused, match="filed under project demochip"):      # the control: readable again
+        S.preview(cfg, "tapeout", "demochip-r0")
+
+
 def test_a_tapeout_record_joins_its_own_release_folder(world):
     """PUB-R2: the tapeout record is filed in its release's folder; the draft's release project, the configuration's
     mapped project and the release manifest sha256 must agree with that folder and what is stored there."""

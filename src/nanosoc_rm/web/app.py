@@ -24,6 +24,7 @@ from __future__ import annotations
 import hmac
 import html
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -48,6 +49,7 @@ __all__ = ["create_app", "STATIC_DIR", "STATIC_PREFIX", "NDJSON"]
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 STATIC_PREFIX = "/static"
+_LOG = logging.getLogger("nanosoc_rm.web")
 NDJSON = "application/x-ndjson"
 _OPEN_PREFIXES = (authmod.AUTH_PREFIX, STATIC_PREFIX)
 _SAFE_METHODS = ("GET", "HEAD")
@@ -93,6 +95,9 @@ class _State:
         self.nav: tuple = NAV
         self.page: Callable[..., HTMLResponse] | None = None
         self.throttle = authmod.Throttle()
+        # Per source address as well (evaluation 2026-10-16): one host cannot run more than IP_LIMIT failed checks
+        # in the window whatever logins it tries. The per-login throttle above still applies.
+        self.ip_throttle = authmod.Throttle(limit=authmod.IP_LIMIT)
         self.local_routes = False                         # CR-16/CR-17 POST routes registered (create_app)
         self.tls = False                                  # CR-20: serve terminates TLS itself (create_app)
 
@@ -128,11 +133,15 @@ class Guard:
         if kind != "http":                         # an ASGI scope this app does not know: served to nobody
             return
         started = False
+        headers = _security_headers(scope, self.state)
 
         async def tracked(message: dict) -> None:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
+                have = {k.lower() for k, _ in message.get("headers", [])}
+                message.setdefault("headers", [])
+                message["headers"] = list(message["headers"]) + [(k, v) for k, v in headers if k not in have]
             await send(message)
         try:
             await self._http(scope, receive, tracked)
@@ -142,7 +151,15 @@ class Guard:
             if started:
                 raise
             resp = await run_in_threadpool(_store_problem, self.state, scope, e)
-            await resp(scope, receive, send)
+            await resp(scope, receive, tracked)
+        except Exception as e:                       # noqa: BLE001 - any other fault: a styled page, logged
+            # A page that raised (a template meeting a result shape it never saw, a plug-in bug): the person gets
+            # the service's own 500 page that names the fault class, never the bare text "Internal Server Error";
+            # the traceback goes to the service log. A response already started cannot be replaced.
+            if started:
+                raise
+            _LOG.exception("unhandled error serving %s %s", scope.get("method"), scope.get("path"))
+            await _server_error(scope, e)(scope, receive, tracked)
 
     async def _http(self, scope: dict, receive: Callable, send: Callable) -> None:
         path = scope.get("path", "")
@@ -261,6 +278,46 @@ def _store_problem(state: "_State", scope: dict, error: sqlite3.DatabaseError) -
             '<body><main><h1>Problem</h1><p class="problem">%s</p><p><a href="/">Inbox</a></p></main></body></html>'
             % html.escape(text))
     return HTMLResponse(body, 503)
+
+
+# Response headers on every answer, the open prefixes (sign-in, static) included (evaluation 2026-10-16, risk 5).
+# Scripts come from /static only: no inline script and no inline event handler anywhere in the templates
+# (tests/unit/web/test_security_headers.py checks that). Inline style attributes stay allowed.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+       "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+HSTS = "max-age=31536000"
+_BASE_HEADERS = ((b"content-security-policy", CSP.encode()), (b"x-frame-options", b"DENY"),
+                 (b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"same-origin"))
+
+
+def _security_headers(scope: dict, state: "_State") -> list[tuple[bytes, bytes]]:
+    """The headers above, plus HSTS when this answer goes over TLS (the process serves TLS itself, CR-20, or the
+    request arrived over https). Never HSTS on plain http: a browser would ignore it there anyway."""
+    out = list(_BASE_HEADERS)
+    if getattr(state, "tls", False) or scope.get("scheme") == "https":
+        out.append((b"strict-transport-security", HSTS.encode()))
+    return out
+
+
+def _server_error(scope: dict, error: BaseException) -> Response:
+    """The answer to a request whose handler raised: 500, the fault class and when, styled like every page (the
+    stylesheet is served without sign-in). No traceback and no data in the page."""
+    when = clock.iso()
+    # Only a GET or HEAD is known to have changed nothing: a POST that raised may have written before it failed.
+    effect = ("nothing was changed by this request" if scope.get("method", "GET") in _SAFE_METHODS
+              else "this request may have been partly applied, so check the page before trying again")
+    text = ("This page failed with %s%s. The service is up and %s; the details are in the service log."
+            % (type(error).__name__, " at %s" % when if when else "", effect))
+    if _is_under(scope.get("path", ""), "/api"):
+        return JSONResponse({"error": text}, 500)
+    body = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" '
+            'content="light dark"><title>Problem · nanoSoC Release Manager</title>'
+            '<link rel="stylesheet" href="%s/rm.css"></head><body><main id="main" class="error-page">'
+            '<h1>Problem</h1><p class="banner problem" data-error="500">%s</p>'
+            '<p><a href="/">Projects</a> · <a href="%s">Try this page again</a></p></main></body></html>'
+            % (STATIC_PREFIX, html.escape(text), html.escape(scope.get("path", "/") or "/", quote=True)))
+    return HTMLResponse(body, 500)
 
 
 async def _read_body(receive: Callable) -> bytes | None:
@@ -884,12 +941,17 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         given = str(form.get(authmod.CSRF_FIELD) or "")
         if not _same(given, cookie):
             return _login_form(request, "The form expired. Sign in again.", 403, login)
+        source = request.client.host if request.client else "?"
+        if not state.ip_throttle.attempt(source):   # the source address first: a blocked host reserves nothing
+            return _login_form(request, "Too many failed sign-ins from this address: wait 5 minutes.", 429, login)
         if not state.throttle.attempt(login):       # reserved before the slow check: holds under concurrency
+            state.ip_throttle.release(source)
             return _login_form(request, "Too many failed sign-ins for this login: wait 5 minutes.", 429, login)
         ok = await run_in_threadpool(authmod.check_local_password, config, login, password)
         if not ok:
             return _login_form(request, "Wrong login or password.", 401, login)
         state.throttle.clear(login)
+        state.ip_throttle.release(source)           # only this check's slot: a sign-in never wipes the address
         sessions = state.sessions(config)
         resp = RedirectResponse(_safe_next(str(form.get("next") or "")), 303)
         user = authmod.local_users(config)[login]

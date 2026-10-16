@@ -393,9 +393,9 @@ def test_the_throttle_forgets_logins_whose_window_has_passed(monkeypatch):
     monkeypatch.setattr(auth.time, "monotonic", lambda: clock_s[0])
     t = auth.Throttle(limit=5, window_s=300)
     for i in range(5000):
-        t.fail("nobody-%d" % i)
+        t.attempt("nobody-%d" % i)
     clock_s[0] += 301                                                     # every window has passed
-    t.fail("one-more")
+    t.attempt("one-more")
     t.blocked("someone")
     assert len(t._fails) <= 10, len(t._fails)
 

@@ -89,18 +89,31 @@ def test_throttle_blocks_at_the_limit_and_forgets_after_the_window(monkeypatch):
     monkeypatch.setattr(auth.time, "monotonic", lambda: now[0])
     t = auth.Throttle(limit=3, window_s=60)
     for _ in range(2):
-        t.fail("ann")
+        assert t.attempt("ann")
     assert not t.blocked("ann")
-    t.fail("ann")
+    assert t.attempt("ann")
     assert t.blocked("ann") and not t.blocked("bob")             # per login
     now[0] += 59.9
     assert t.blocked("ann")
     now[0] += 0.2                                                # the window has passed
     assert not t.blocked("ann")
     for _ in range(3):
-        t.fail("ann")
+        assert t.attempt("ann")
     t.clear("ann")
     assert not t.blocked("ann")
+
+
+def test_throttle_release_gives_back_one_slot_only(monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(auth.time, "monotonic", lambda: now[0])
+    t = auth.Throttle(limit=3, window_s=60)
+    assert t.attempt("10.0.0.9") and t.attempt("10.0.0.9")
+    t.release("10.0.0.9")                                        # one good check: one slot back, not all
+    assert t.attempt("10.0.0.9") and t.attempt("10.0.0.9")
+    assert not t.attempt("10.0.0.9")                             # 1 kept + 2 new = the limit
+    t.release("nobody")                                          # nothing reserved: no error
+    t.release("10.0.0.9"); t.release("10.0.0.9"); t.release("10.0.0.9"); t.release("10.0.0.9")
+    assert "10.0.0.9" not in t._fails
 
 
 # ----- session payloads --------------------------------------------------------------------------------------

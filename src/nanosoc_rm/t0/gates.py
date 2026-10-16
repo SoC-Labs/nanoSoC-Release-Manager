@@ -1030,7 +1030,10 @@ def _schema_check(ctx: Context) -> tuple[str, str]:
         first = "; ".join("%s:%s: %s" % (getattr(p, "file", "?"), getattr(p, "pointer", ""), getattr(p, "message", p))
                           for p in problems[:3])
         return "FAIL", "the registry does not load: %d problem(s): %s" % (len(problems), first or e)
-    n = lambda f: len(list(getattr(reg, f)())) if callable(getattr(reg, f, None)) else 0
+    # each listing named statically (no getattr(...)() call: the write census cannot see what such a call runs)
+    listings = {"components": getattr(reg, "components", None), "configurations": getattr(reg, "configurations", None),
+                "defects": getattr(reg, "defects", None), "errata": getattr(reg, "errata", None)}
+    n = lambda f: len(list(listings[f]())) if callable(listings[f]) else 0
     return "PASS", "the registry loads with no problem: %d components, %d configurations, %d defects, %d errata" % (
         n("components"), n("configurations"), n("defects"), n("errata"))
 

@@ -1032,10 +1032,61 @@ def _imports(tree, root, py):
 
 
 def _receiver_root(f):
-    v = f.value if isinstance(f, ast.Attribute) else None
+    v = f.value if isinstance(f, ast.Attribute) else f
     while isinstance(v, ast.Attribute):
         v = v.value
     return v.id if isinstance(v, ast.Name) else None
+
+
+# Evaluation 2026-10-16 (tests.md 3.3 item 4): the census resolves how a file binds the modules that can start a
+# process or speak HTTP, so an alias (`import subprocess as proc`), a from-import (`from subprocess import Popen`,
+# `from os import execvp`), a getattr call (`getattr(client, "delete")(url)`) and the os.exec*/spawn* family are
+# censused like the plain forms. The planted probes in tests/unit/test_write_calls.py prove each one is caught.
+EXEC_MODULES = ("subprocess",)
+OS_EXEC_V = {"execv": 1, "execve": 1, "execvp": 1, "execvpe": 1, "posix_spawn": 1, "posix_spawnp": 1,
+             "spawnv": 2, "spawnve": 2, "spawnvp": 2, "spawnvpe": 2}          # argv list at this position
+OS_EXEC_L = {"execl": 1, "execle": 1, "execlp": 1, "execlpe": 1,
+             "spawnl": 2, "spawnle": 2, "spawnlp": 2, "spawnlpe": 2}           # argv as positionals from here
+OS_SHELL = ("system", "popen")
+
+
+def _bindings(tree):
+    """(local name -> module, local name -> (module, attribute)) for every import of subprocess, os, asyncio
+    and the HTTP libraries in the file. `subprocess`, `sp` and `os` are always modules (the original rule)."""
+    mods = {"subprocess": "subprocess", "sp": "subprocess", "os": "os"}
+    funcs = {}
+    watched = EXEC_MODULES + ("os", "asyncio") + HTTP_LIBS
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in watched or a.name.startswith(HTTP_LIBS):
+                    mods[a.asname or a.name.split(".")[0]] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            mod = node.module or ""
+            if mod in watched or mod.startswith(HTTP_LIBS):
+                for a in node.names:
+                    funcs[a.asname or a.name] = (mod, a.name)
+    return mods, funcs
+
+
+def _callee(node, mods, funcs):
+    """(name, module or None, receiver node or None, bare) of a call: the attribute or function it calls, the
+    module that attribute belongs to when the file's imports say so, the object it is called on. A call of
+    getattr(obj, "name") is the call of obj.name; a getattr with a computed name gives name '?'."""
+    f = node.func
+    if isinstance(f, ast.Call) and isinstance(f.func, ast.Name) and f.func.id == "getattr" and len(f.args) >= 2:
+        recv = f.args[0]
+        name = _const(f.args[1]) or "?"
+        return name, mods.get(recv.id) if isinstance(recv, ast.Name) else None, recv, False
+    if isinstance(f, ast.Attribute):
+        recv = f.value
+        return f.attr, mods.get(recv.id) if isinstance(recv, ast.Name) else None, recv, False
+    if isinstance(f, ast.Name):
+        if f.id in funcs:
+            mod, attr = funcs[f.id]
+            return attr, mod, None, True
+        return f.id, None, None, True
+    return None, None, None, True
 
 
 def write_call_census(root):
@@ -1054,18 +1105,21 @@ def write_call_census(root):
                         "http_file": True})
             continue
         http_file, internal = _imports(tree, root, py)
+        mods, funcs = _bindings(tree)
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
-            f = node.func
-            name = f.attr if isinstance(f, ast.Attribute) else (f.id if isinstance(f, ast.Name) else None)
+            name, mod, recv, bare = _callee(node, mods, funcs)
             first = node.args[0] if node.args else None
             entry = {"file": rel, "line": node.lineno, "http_file": http_file}
-            if isinstance(f, ast.Attribute) and _receiver_root(f) in internal:
+            if recv is not None and _receiver_root(recv) in internal:
                 continue                                          # a call into this package
-            if name in HTTP_WRITE_METHODS and isinstance(f, ast.Attribute):
+            http_mod = bool(mod) and mod.startswith(HTTP_LIBS)
+            if name == "?" and not bare:
+                out.append(dict(entry, kind="http", method="?", target="unresolved getattr call"))
+            elif name in HTTP_WRITE_METHODS and (not bare or http_mod):
                 out.append(dict(entry, kind="http", method=name.upper(), target=_const(first) or "?"))
-            elif name in HTTP_REQUEST_CALLS and isinstance(f, ast.Attribute):
+            elif name in HTTP_REQUEST_CALLS and (not bare or http_mod):
                 m = _const(first) or _const(_kw(node, "method"))
                 if m is None:
                     out.append(dict(entry, kind="http", method="?", target="unresolved method"))
@@ -1080,18 +1134,10 @@ def write_call_census(root):
                     out.append(dict(entry, kind="http", method="?", target="unresolved method"))
                 elif m.upper() not in ("GET", "HEAD"):
                     out.append(dict(entry, kind="http", method=m.upper(), target=_const(first) or "?"))
-            elif name == "create_subprocess_exec" or name in EXEC_CALLS or (
-                    name in ("system", "popen") and isinstance(f, ast.Attribute)
-                    and isinstance(f.value, ast.Name) and f.value.id == "os"):
-                if name in EXEC_CALLS and not (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
-                                               and f.value.id in ("subprocess", "sp")):
-                    continue                                      # obj.run(), a bare run(): not subprocess
-                if name == "create_subprocess_exec":
-                    argv = [_const(a) for a in node.args] or None # argv as separate positionals
-                elif name in ("system", "popen"):
-                    argv = None
-                else:
-                    argv = _argv(first)
+            else:
+                argv = _exec_argv(node, name, mod)
+                if argv is False:
+                    continue                                      # not a process start
                 if not argv or argv[0] is None:
                     out.append(dict(entry, kind="exec", method="?", target="unresolved argv"))
                 elif argv[0] in ("gh", "glab"):
@@ -1103,6 +1149,26 @@ def write_call_census(root):
                     elif sub in GIT_WRITES:
                         out.append(dict(entry, kind="exec", method="git " + sub, target=" ".join(a or "?" for a in argv)))
     return out
+
+
+def _exec_argv(node, name, mod):
+    """The argv a process-starting call runs (a list, None elements for non-constants; None when it cannot be
+    read), or False when the call starts no process. subprocess.<EXEC_CALLS> and asyncio's
+    create_subprocess_exec through any binding; os.system/popen (a shell string: never resolved); os.exec*,
+    spawn* and posix_spawn*."""
+    if name in ("create_subprocess_exec", "create_subprocess_shell"):
+        return [_const(a) for a in node.args] or None if name == "create_subprocess_exec" else None
+    if mod in EXEC_MODULES and name in EXEC_CALLS:
+        return _argv(node.args[0]) if node.args else _argv(_kw(node, "args"))
+    if mod == "os":
+        if name in OS_SHELL:
+            return None
+        if name in OS_EXEC_V:
+            i = OS_EXEC_V[name]
+            return _argv(node.args[i]) if len(node.args) > i else None
+        if name in OS_EXEC_L:
+            return [_const(a) for a in node.args[OS_EXEC_L[name]:]] or None
+    return False
 
 
 # Allowlist entry effects (gap G10). A census entry passes only if an entry of the same file, kind and
@@ -1125,6 +1191,25 @@ def allowed(entry, allowlist):
         if entry["target"] in ("?", a["target"]) or a["target"] in entry["target"]:
             return True
     return False
+
+
+def _wildcard(entry):
+    """A census entry the census could not pin to one target: an unresolved target or an unresolved method."""
+    return entry["target"] == "?" or entry["method"] == "?"
+
+
+def wildcard_overflow(census, allowlist):
+    """Evaluation 2026-10-16 (implementation.md: a second `POST ?` in ci/client.py passed): an unresolved call site
+    is accepted by an allowlist entry of the same file, kind and method, so a second one would pass unseen. Each
+    entry covers at most `sites` (default 1) such call sites; one more is a problem naming the file and lines."""
+    probs = []
+    for a in allowlist:
+        hits = [c for c in census if _wildcard(c) and allowed(c, [a])]
+        cap = int(a.get("sites", 1))
+        if len(hits) > cap:
+            probs.append("%s %s %s covers %d unresolved call site(s), found %d: %s" % (
+                a["file"], a["method"], a["target"], cap, len(hits), ", ".join(str(c["line"]) for c in hits)))
+    return probs
 
 
 def allowlist_problems(allowlist):
@@ -1156,6 +1241,7 @@ def check_a2(census, allowlist, credentials, *, ci_project, gitlab_self=None, ru
     for c in census:
         if not allowed(c, allowlist):
             probs.append("write call not allowlisted: %s:%s %s %s" % (c["file"], c["line"], c["method"], c["target"]))
+    probs += ["unresolved call sites beyond the allowlist: " + p for p in wildcard_overflow(census, allowlist)]
     probs += allowlist_problems(allowlist)
     trig = [a for a in allowlist if a.get("effect") == "write"]
     if trig and not any(allowed(c, trig) for c in census):
