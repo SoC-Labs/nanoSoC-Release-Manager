@@ -1,0 +1,7 @@
+# expect-error: enum at /capabilities/0/kind
+schema: 1
+component: tidelink
+capabilities:
+  - id: lint
+    kind: smoke
+    run: make lint

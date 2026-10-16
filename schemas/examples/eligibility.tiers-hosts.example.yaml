@@ -1,0 +1,22 @@
+# Wave G: registry tiers.yaml with per-host SITE data only (eligibility#/$defs/tiers_file `hosts`). What each
+# tree can test is in the tree's own .nanosoc/capabilities.yaml. Illustrative values: a real file names its own
+# installs and licence servers, and lives only in the private registry. A host key is an id, never a hostname.
+schema: 1
+hosts:
+  eda-login:
+    description: the login server with the EDA installs (the pull agent runs here, unprivileged)
+    tools:
+      python3: {version: "3.6.8", bin: /usr/bin}
+      verilator: {version: "4.028", bin: /usr/bin}
+      vcs: {version: "T-2022.06-SP2", bin: /opt/tools/vcs/bin}
+      xcelium: {version: "22.03", bin: /opt/tools/xcelium/bin}
+    licences: [synopsys, cadence]
+    env:
+      CMSDK_DIR: /opt/ip/arm/cmsdk
+      XHB500_IP_DIR: /opt/ip/arm/xhb500
+      SNPSLMD_LICENSE_FILE: 27000@licence-server.example
+    needs: [network]
+  gui-host:
+    description: the release manager's own host (Vivado only); runs no tier
+    tools:
+      python3: {version: "3.11.13", bin: /usr/bin}

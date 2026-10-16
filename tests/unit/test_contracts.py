@@ -40,7 +40,8 @@ def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
         "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "release-manifest",
-        "result-bundle", "store", "tapeout-record", "tool-release"])         # CR-WE-index, CR-ART-publish
+        "result-bundle", "store", "tapeout-record", "tool-release",          # CR-WE-index, CR-ART-publish
+        "capabilities", "test-bump"])                                       # Wave G
     assert (contracts.schemas_dir() / "defs.schema.json").is_file()
 
 

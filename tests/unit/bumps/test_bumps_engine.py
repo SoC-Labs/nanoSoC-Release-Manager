@@ -8,7 +8,11 @@ import subprocess
 import pytest
 
 from bfix import CHANGELOG, GL_ARCH, GL_GEN, GL_MC, git, world
+from bfix import bump_gate_passes
+
 from nanosoc_rm import contracts
+
+AUTOUSE = (bump_gate_passes,)          # the autouse fixture: a passing test-bump exists (Wave G bump gate)
 
 pytestmark = pytest.mark.requirement("E1")
 
@@ -361,3 +365,20 @@ def test_shadow_mode_never_writes_outside_its_own_disk(tmp_path, monkeypatch):
                              "config"}, subs
     assert all("--get" in a for a in seen if len(a) > 2 and a[2] == "config"), "config is only ever read"
     assert not any(x in ("push", "update-ref", "tag", "branch", "commit") for a in seen for x in a)
+
+
+def test_bump_gate_holds_a_proposal_without_a_passing_test_bump(tmp_path, monkeypatch):
+    """Wave G decision 3: with no finished test-bump of exactly the move, the proposal holds, its second blocker
+    names the command, and `test_bump` records that no evidence was found."""
+    from nanosoc_rm.capabilities import gate
+    monkeypatch.undo()                                    # drop bump_gate_passes: the real gate reads job records
+    world(tmp_path, monkeypatch)
+    assert gate.evidence.__module__ == "nanosoc_rm.capabilities.gate"
+    scan, props = _scan()
+    for d in props:
+        assert contracts.validate_observation(d) == [], d["subject"]
+        f = d["fact"]
+        assert f["test_bump"]["verdict"] is None and f["decision"]["would"] == "hold"
+        assert f["decision"]["blockers"][1].startswith("bump gate: no test-bump of exactly this move")
+        assert "nanosoc-rm test-bump eth-main %s %s" % (f["tree_paths"][0], f["to"]["commit"][:12]) in \
+            f["decision"]["blockers"][1]

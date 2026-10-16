@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/test-bump.schema.json",
+  "title": "test_bump: one submodule move tested Now against After (`nanosoc-rm test-bump`)",
+  "description": "Wave G (David 2026-10-16). The result of one test-bump job: the move, the run set read from the trees' .nanosoc/capabilities.yaml at the commits tested, T0 per side as HYGIENE, and one row per capability with its Now and After result and the change. It is the job's result and the bump gate's evidence, never a stored fact. interfaces.md section 26.3.",
+  "type": "object",
+  "required": ["schema", "kind", "subject", "observed_at", "sources", "fact"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "kind": { "const": "test_bump" },
+    "subject": { "type": "string", "pattern": "^test_bump:[A-Za-z0-9@][A-Za-z0-9_.@-]*:[0-9a-f]{8,64}$" },
+    "observed_at": { "$ref": "defs.schema.json#/$defs/utc" },
+    "sources": { "type": "array", "minItems": 1, "items": { "$ref": "defs.schema.json#/$defs/source" } },
+    "fact": {
+      "type": "object",
+      "required": ["configuration", "root_commit", "path", "component", "from", "to", "tree_paths", "moved", "host",
+                   "plan_only", "plan", "manifests", "problems", "hygiene", "rows", "verdict", "reason", "started_at",
+                   "finished_at"],
+      "additionalProperties": false,
+      "properties": {
+        "configuration": { "$ref": "defs.schema.json#/$defs/configuration_id" },
+        "root_commit": { "$ref": "defs.schema.json#/$defs/sha" },
+        "path": { "type": "string", "minLength": 1 },
+        "component": { "type": "string", "minLength": 1 },
+        "from": { "anyOf": [ { "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" } ] },
+        "to": {
+          "type": "object", "required": ["ref", "commit", "resolved_as"], "additionalProperties": false,
+          "properties": { "ref": { "type": "string", "minLength": 1 }, "commit": { "$ref": "defs.schema.json#/$defs/sha" },
+                          "resolved_as": { "type": "string", "minLength": 1 } }
+        },
+        "tree_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "moved": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "host": { "type": ["string", "null"] },
+        "plan_only": { "type": "boolean" },
+        "plan": { "type": "array", "items": { "$ref": "#/$defs/plan_row" } },
+        "manifests": { "type": "array", "items": { "type": "object", "required": ["tree_path"] } },
+        "problems": { "type": "array", "items": { "type": "string" } },
+        "hygiene": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "object", "additionalProperties": false,
+              "properties": { "now": { "$ref": "#/$defs/hygiene" }, "after": { "$ref": "#/$defs/hygiene" } } }
+          ],
+          "description": "T0 per side, reported beside the functional rows and never hiding them (decision 4)."
+        },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/row" } },
+        "verdict": { "enum": ["PASS", "WARN", "FAIL", "UNVERIFIED"], "description": "Functional: FAIL > UNVERIFIED > WARN > PASS over the block rows; no block row at all is UNVERIFIED." },
+        "reason": { "type": ["string", "null"] },
+        "started_at": { "$ref": "defs.schema.json#/$defs/utc" },
+        "finished_at": { "anyOf": [ { "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" } ] }
+      },
+      "allOf": [
+        { "if": { "properties": { "plan_only": { "const": true } } }, "then": { "properties": { "rows": { "maxItems": 0 }, "verdict": { "const": "UNVERIFIED" } } } },
+        { "if": { "properties": { "verdict": { "const": "PASS" } } }, "then": { "properties": { "rows": { "minItems": 1 }, "plan_only": { "const": false } } } }
+      ]
+    }
+  },
+  "$defs": {
+    "hygiene": {
+      "type": "object", "required": ["verdict", "reason", "commit"], "additionalProperties": false,
+      "properties": { "verdict": { "enum": ["PASS", "WARN", "WAIVED", "FAIL", "UNVERIFIED", "INFRA"] },
+                      "reason": { "type": ["string", "null"] },
+                      "commit": { "anyOf": [ { "$ref": "defs.schema.json#/$defs/sha" }, { "type": "null" } ] } }
+    },
+    "plan_row": {
+      "type": "object",
+      "required": ["key", "owner", "id", "why", "kind", "gate", "runtime", "command", "tools", "now_commit", "after_commit"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 3 }, "owner": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }, "why": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string" }, "tier": { "type": ["string", "null"] }, "gate": { "enum": ["block", "report"] },
+        "runtime": { "enum": ["S", "M", "L", "XL"] }, "command": { "type": "string" },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "now_commit": { "type": ["string", "null"] }, "after_commit": { "type": ["string", "null"] }
+      }
+    },
+    "result": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["verdict", "reason", "rows"],
+          "properties": { "verdict": { "enum": ["PASS", "WARN", "FAIL", "UNVERIFIED", "INFRA", "NOT-RUN"] },
+                          "reason": { "type": ["string", "null"] }, "rows": { "type": "array" } } }
+      ]
+    },
+    "row": {
+      "type": "object",
+      "required": ["key", "owner", "id", "kind", "tier", "gate", "why", "now", "after", "change"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 3 }, "owner": { "type": "string" }, "id": { "type": "string" },
+        "kind": { "type": "string" }, "tier": { "type": ["string", "null"] }, "gate": { "enum": ["block", "report"] },
+        "why": { "type": "string" },
+        "now": { "$ref": "#/$defs/result" }, "after": { "$ref": "#/$defs/result" },
+        "change": { "enum": ["same", "better", "worse", "same-red", "new-red", "new", "gone", "not-run"] }
+      },
+      "allOf": [
+        { "if": { "properties": { "change": { "const": "worse" } } },
+          "then": { "properties": { "now": { "properties": { "verdict": { "enum": ["PASS", "WARN"] } } }, "after": { "properties": { "verdict": { "const": "FAIL" } } } } } }
+      ]
+    }
+  }
+}

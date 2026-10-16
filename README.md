@@ -31,6 +31,24 @@ follows `run_verdict` (the ladder over T0 and the tier); a tier that regenerates
 is refused with exit 3 unless `NANOSOC_GEN_OK=1` is set. No set_env.sh is ever sourced: a tier command gets a clean
 environment plus the `env` its tiers.yaml entry declares.
 
+## Test capabilities and "Test this bump" (Wave G)
+
+Each tree declares what it can test in `.nanosoc/capabilities.yaml` at its root (`schemas/capabilities.schema.json`;
+drafts for the eth chiplet and TideLink in `schemas/examples/`). The tool reads it at the commit under test from its
+mirror; the registry's `tiers.yaml` keeps only per-host site data (`hosts`: tool installs, licences, site paths).
+
+```
+nanosoc-rm capabilities validate .nanosoc/capabilities.yaml   # while you write one
+nanosoc-rm capabilities show eth-main                         # per tree: capabilities, hosts that can run them, last result
+nanosoc-rm test-bump eth-main tidelink v1.0 --plan            # what a move would run (nothing runs)
+nanosoc-rm test-bump eth-main tidelink v1.0 --queue           # queue it for an executor (the GUI button does this)
+nanosoc-rm test-bump eth-main tidelink v1.0 --host <host-id>  # run it here (on an EDA host): Now vs After
+```
+
+Exit 0 PASS or WARN (a gate already red stays red), 1 FAIL (a gate went green to red), 2 UNVERIFIED, 3 usage. T0
+runs on both sides and is reported as hygiene. A bump proposal opens a pull request only after a passing test-bump
+of exactly that move. Tier jobs never run on the service host: an executor claims them (interfaces.md section 26).
+
 ## Web GUI on one host (local sign-in, local jobs)
 
 `nanosoc-rm user add <login> --generate`, put the stanza under `[auth] mode = "local"` in the private config, then

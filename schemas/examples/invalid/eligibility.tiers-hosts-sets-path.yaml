@@ -1,0 +1,7 @@
+# expect-error: not at /hosts/eda-login/env ~ PATH
+# A host's site env may not set PATH: the runner builds PATH from the declared tools' bin directories.
+schema: 1
+hosts:
+  eda-login:
+    env:
+      PATH: /opt/tools/bin:/usr/bin

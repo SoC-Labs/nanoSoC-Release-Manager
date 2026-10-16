@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soclabs.org/nanosoc-rm/schemas/capabilities.schema.json",
+  "title": "Test capabilities of one tree (.nanosoc/capabilities.yaml at a repo's root)",
+  "description": "Hand-written by each repo (David 2026-10-16, decision 2): what the tree can test, with which tools, how long it takes and how to read its verdict. The release manager reads it at the commit under test, from its mirror (`git cat-file -p <commit>:.nanosoc/capabilities.yaml`), never from a working tree; so a capability moves with the code it tests. Per-host facts (tool paths, licence servers, Arm IP roots) are NOT here: they live in the registry's tiers.yaml `hosts` (eligibility#/$defs/tiers_file). A superproject names the submodule capabilities it runs in its own context under `compose`. Separate from nanosoc-component.yaml (C11) so it does not wait on the Phase 3 version policy. Two spellings are accepted for five keys, the evaluation's draft and the wave-G list: capabilities|tiers, run|command, cwd|workdir, compose|composes; one per document or entry, never both. interfaces.md section 26.",
+  "type": "object",
+  "required": ["schema", "component"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": 1 },
+    "component": { "$ref": "defs.schema.json#/$defs/component_id", "description": "The catalogue id of the repo this file sits in." },
+    "env": { "$ref": "#/$defs/env" },
+    "tools": {
+      "type": "object",
+      "description": "Every tool a capability names, once: how to probe it, the oldest version that works, and the licence seat it takes.",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/tool" }
+    },
+    "capabilities": { "$ref": "#/$defs/capability_list" },
+    "tiers": { "$ref": "#/$defs/capability_list", "description": "The wave-G spelling of `capabilities`." },
+    "compose": { "$ref": "#/$defs/compose_list" },
+    "composes": { "$ref": "#/$defs/compose_list", "description": "The wave-G spelling of `compose`." },
+    "notes": { "type": "string" }
+  },
+  "allOf": [
+    { "not": { "required": ["capabilities", "tiers"] } },
+    { "not": { "required": ["compose", "composes"] } },
+    { "anyOf": [ { "required": ["capabilities"] }, { "required": ["tiers"] }, { "required": ["compose"] }, { "required": ["composes"] } ] }
+  ],
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+    "cap_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "description": "Stable id within the file; rows are tier.<path>.<id>." },
+    "env_name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,127}$" },
+    "rel_path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\s\\\\]+$", "description": "Tree-relative, never absolute and never through `..`." },
+    "command": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "not": { "pattern": "(^|[;&|(`]|\\s)(source|\\.)\\s+[^;&|]*set_env" } } }
+      ],
+      "description": "A shell string (run by bash --noprofile --norc -c) or an argv list. Never sources a set_env.sh: the runner builds the environment from `env` (README: no set_env.sh is ever sourced)."
+    },
+    "when": { "enum": ["on_bump", "nightly", "release", "manual"] },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What set_env.sh does today, as data. The runner builds it; nothing is sourced.",
+      "properties": {
+        "provides": {
+          "type": "object",
+          "description": "Tree-relative facts. ${TREE} is this repo's own root inside the laid-out tree.",
+          "propertyNames": { "$ref": "#/$defs/env_name" },
+          "additionalProperties": { "type": "string" }
+        },
+        "site": {
+          "type": "array",
+          "description": "Per-host facts the repo cannot know; each value comes from the registry's tiers.yaml hosts.<host>.env.",
+          "items": {
+            "type": "object", "required": ["name"], "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/env_name" },
+              "what": { "type": "string" },
+              "arm_ip": { "type": "boolean" },
+              "pdk": { "type": "boolean" },
+              "optional": { "type": "boolean" }
+            }
+          }
+        },
+        "siblings": {
+          "type": "array",
+          "description": "Other components this repo's capabilities need beside it, resolved to where the superproject pins them.",
+          "items": {
+            "type": "object", "required": ["name", "component"], "additionalProperties": false,
+            "properties": {
+              "name": { "$ref": "#/$defs/env_name" },
+              "component": { "$ref": "defs.schema.json#/$defs/component_id" },
+              "for": { "type": "array", "items": { "$ref": "#/$defs/cap_id" } }
+            }
+          }
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "probe": { "type": "string", "minLength": 1, "description": "The command that prints the version (shown to people; the runner reads the host's declared version from tiers.yaml)." },
+        "min": { "type": "string", "minLength": 1, "description": "The oldest version that works, compared part by part with the host's declared version." },
+        "licence": { "type": "string", "minLength": 1, "description": "The licence feature or vendor (synopsys, cadence, ...); the host must declare it." },
+        "seat": { "type": "string", "minLength": 1, "description": "The seat a run takes (vcs, xcelium, ...): a per-host lock, so two runs never share one." }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How to read the result. Exit status alone is not trusted when any of the others is given.",
+      "properties": {
+        "exit": { "type": "integer", "minimum": 0, "maximum": 255, "description": "The exit status of a pass (default 0)." },
+        "forbid": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Text that must not appear in the log: `SKIPPED` makes a skipped pass a FAIL." },
+        "require": {
+          "type": "array",
+          "items": { "type": "object", "required": ["pattern"], "additionalProperties": false,
+                     "properties": { "pattern": { "type": "string", "minLength": 1 }, "min": { "type": "integer", "minimum": 1 } } }
+        },
+        "require_count": { "type": "object", "required": ["pattern"], "additionalProperties": false,
+                           "properties": { "pattern": { "type": "string", "minLength": 1 }, "min": { "type": "integer", "minimum": 1 } },
+                           "description": "The evaluation draft's single form of `require`." },
+        "rows": {
+          "type": "object",
+          "required": ["format"],
+          "additionalProperties": false,
+          "properties": {
+            "format": { "enum": ["verdicts-tsv", "junit", "regex", "regress-table", "tidelink-sim-gate"],
+                        "description": "verdicts-tsv, junit and regex are read today; a format without a parser yet gives one UNVERIFIED row, never a pass." },
+            "path": { "type": "string", "minLength": 1, "description": "Relative to this repo's root; junit may be a glob." },
+            "fail": { "type": "string", "minLength": 1, "description": "regex format: a line matching it is a FAIL row." }
+          }
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/cap_id" },
+        "kind": { "enum": ["lint", "elab", "sim", "synth", "fpga", "formal", "gls", "cdc", "lec", "hw", "static", "unit"] },
+        "tier": { "enum": ["t0", "t1", "t2", "t3", "t4", "t5", "t6"], "description": "Where it sits in the D1 ladder." },
+        "run": { "$ref": "#/$defs/command" },
+        "command": { "$ref": "#/$defs/command", "description": "The wave-G spelling of `run`." },
+        "cwd": { "$ref": "#/$defs/rel_path", "description": "Relative to this repo's root (default .)." },
+        "workdir": { "$ref": "#/$defs/rel_path", "description": "The wave-G spelling of `cwd`." },
+        "tools": { "type": "array", "items": { "$ref": "#/$defs/name" }, "description": "Names from the top-level `tools`." },
+        "budget_s": { "type": "integer", "minimum": 1, "maximum": 172800, "description": "Over it is a warning; at 1.5 x the run is killed and FAIL." },
+        "runtime": { "enum": ["S", "M", "L", "XL"], "description": "S seconds, M under 15 min, L 15 min to 3 h, XL over 3 h. Default: from budget_s." },
+        "needs": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$" }, "description": "vcs-seat, pdk, network, board:<kind>, regen:<what>, after:<id>, siblings." },
+        "inputs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "outputs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the run writes (logs, reports), relative to this repo's root; kept with the result." },
+        "affected_by": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Gitlink paths (relative to this repo) or component ids whose move must re-run it." },
+        "regenerates": { "type": "boolean", "description": "It writes generated RTL: run only in the sandbox, and only with NANOSOC_GEN_OK=1." },
+        "verdict": { "$ref": "#/$defs/verdict" },
+        "control": { "$ref": "#/$defs/command", "description": "D6 negative control: must fail on this tree." },
+        "gate": { "enum": ["block", "report"], "description": "block (default): a red result blocks a bump; report: shown, never blocks." },
+        "when": { "oneOf": [ { "$ref": "#/$defs/when" }, { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/when" } } ],
+                  "description": "When it runs; default on_bump." },
+        "manual": { "type": "boolean", "description": "Only a person starts it (a board, a 6-hour flow): never queued by test-bump." },
+        "from": { "type": "string", "minLength": 1, "description": "A file the capability's stage list stays in (ci/signoff.yaml)." },
+        "waiver": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" }
+      },
+      "allOf": [
+        { "not": { "required": ["run", "command"] } },
+        { "not": { "required": ["cwd", "workdir"] } },
+        { "anyOf": [ { "required": ["run"] }, { "required": ["command"] } ] }
+      ]
+    },
+    "capability_list": { "type": "array", "items": { "$ref": "#/$defs/capability" } },
+    "compose_entry": {
+      "type": "object",
+      "required": ["path", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/rel_path", "description": "A gitlink path of this repo." },
+        "run": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/cap_id" }, "description": "Capability ids of THAT repo's own file, read at the commit this repo pins." },
+        "when": { "oneOf": [ { "$ref": "#/$defs/when" }, { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/when" } } ] }
+      }
+    },
+    "compose_list": { "type": "array", "items": { "$ref": "#/$defs/compose_entry" } }
+  }
+}

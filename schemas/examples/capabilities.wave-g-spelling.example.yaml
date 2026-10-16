@@ -1,0 +1,19 @@
+# The wave-G spelling (tiers, command, workdir, composes) of a small tree: accepted beside the draft spelling.
+schema: 1
+component: nanosoc_gen
+tools:
+  python3: {probe: "python3 --version", min: "3.8"}
+tiers:
+  - id: unit
+    kind: unit
+    tier: t1
+    command: [python3, -m, pytest, -q, -m, "unit or golden"]
+    workdir: .
+    tools: [python3]
+    budget_s: 600
+    runtime: M
+    outputs: [build/pytest/results.xml]
+    verdict: {exit: 0, rows: {format: junit, path: build/pytest/results.xml}}
+    gate: block
+composes:
+  - {path: deps/soc_model, run: [validate]}

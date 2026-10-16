@@ -19,6 +19,7 @@
   <p><strong>Next:</strong> {{ aside.next }}</p>
   {% if aside.code %}{{ ui.copybox('pin-code', aside.code, 'Commands') }}{% endif %}
   {% if aside.action %}<p><a class="prim" href="{{ aside.action.href }}">{{ aside.action.label }}</a></p>{% endif %}
+  {% if aside.test_bump %}<p><a href="{{ aside.test_bump }}" data-test-bump-link>Test this bump</a> <span class="note">(before and after, on an executor)</span></p>{% endif %}
 {% else %}
   <p class="empty">No pin is selected. Pick a row of the tree.</p>
 {% endif %}

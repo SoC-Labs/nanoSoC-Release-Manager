@@ -26,6 +26,16 @@ logged in `actions` as `run_t0` with the login (H2).
 
 States: queued, running, done (the command answered: its verdict is set), failed (a usage error, exit 3),
 cancelled, infra (no answer: a crash, the ceiling, or a service restart while it ran).
+
+The executor queue (Wave G, David 2026-10-16 decision 1). A TIER job (`needs_executor`: a compat or matrix cell
+with a tier, a test-bump) never runs on the service host: the local worker leaves it queued, and an executor (the
+pull agent on the EDA host, later a CI runner) claims it with `claim_for_executor(config, executor)`, runs the same
+`nanosoc-rm` argv there, and hands back its exit code and output with `finish_for_executor`, which reads them exactly
+as the local worker does (`_outcome`). The job records which executor ran it (`executor`). A service restart never
+marks an executor's running job INFRA (the executor is another host); the executor owns its end. The local fallback,
+for the hermetic tests and a developer's laptop, is `[executor] local_fallback = true` in the config or
+NANOSOC_RM_LOCAL_TIERS=1 in the worker's environment (or `Worker(run_tiers=True)`); then the local worker claims tier
+jobs too, recorded as executor `local`.
 """
 from __future__ import annotations
 
@@ -51,7 +61,8 @@ from nanosoc_rm.config import Config, load_config
 
 __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "jobs", "log_text", "recover",
            "Worker", "cli_args", "command_text", "JOB_LIMIT_S", "CLI_BOOT", "is_local_ci", "JobKind",
-           "KIND_MODULES", "register_kind", "registered", "all_kinds", "job_dir"]
+           "KIND_MODULES", "register_kind", "registered", "all_kinds", "job_dir", "needs_executor",
+           "local_tiers_allowed", "claim_for_executor", "finish_for_executor", "executor_queue", "LOCAL_EXECUTOR"]
 
 # Job kinds: three built in (KINDS); every other kind is a JobKind that a package registers with register_kind()
 # when one of KIND_MODULES is imported. ONE seam for every plug-in kind (Wave C, CR-WC-seams): the matrix cell,
@@ -61,7 +72,7 @@ KINDS = ("compat", "mirror-sync", "walk")
 KIND_MODULES = ("nanosoc_rm.matrix.jobkind", "nanosoc_rm.bumps.jobkind", "nanosoc_rm.quality.jobkinds",
                 "nanosoc_rm.releases.jobkinds", "nanosoc_rm.versioning.jobkinds",
                 "nanosoc_rm.regen.jobkind", "nanosoc_rm.store.jobkind", "nanosoc_rm.publish.jobkinds",
-                "nanosoc_rm.catalogue.jobkind", "nanosoc_rm.freshness.jobkind")
+                "nanosoc_rm.catalogue.jobkind", "nanosoc_rm.freshness.jobkind", "nanosoc_rm.capabilities.jobkind")
 _KINDS_LOADED = False
 STATES = ("queued", "running", "done", "failed", "cancelled", "infra")
 FINAL = ("done", "failed", "cancelled", "infra")
@@ -77,6 +88,9 @@ _SCHEMA = (                     # run once per store (db.ensure_schema), not on 
     verdict TEXT, reason TEXT, result TEXT, cancel_by TEXT, command TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state)",
 )
+_EXECUTOR_VERSION = 2           # Wave G: the `executor` column (who ran or runs a job), added to a v1 store once
+LOCAL_EXECUTOR = "local"
+_EXECUTOR_ID = re.compile(r"^[a-z0-9][a-z0-9_.@-]{0,63}\Z")
 
 
 class JobUsage(ValueError):
@@ -101,6 +115,7 @@ class JobKind:
     outcome: Callable[[list[dict], str], dict] | None = None
     limit_s: Callable[[Config, dict], float] | None = None
     action: str | None = None
+    executor: bool | Callable[[dict], bool] = False      # Wave G: a tier kind runs only on an executor
 
 
 _REGISTERED: dict[str, JobKind] = {}
@@ -108,7 +123,8 @@ _REGISTERED: dict[str, JobKind] = {}
 
 def register_kind(name: str, params: Callable[[dict], dict], args: Callable[[dict], list[str]], *,
                   outcome: Callable[[list[dict], str], dict] | None = None,
-                  limit_s: Callable[[Config, dict], float] | None = None, action: str | None = None) -> JobKind:
+                  limit_s: Callable[[Config, dict], float] | None = None, action: str | None = None,
+                  executor: bool | Callable[[dict], bool] = False) -> JobKind:
     """Add a job kind. A built-in kind cannot be replaced, nor can another module's kind; the same module
     registering its kind again (a re-import) replaces its own entry."""
     if name in KINDS:
@@ -118,7 +134,7 @@ def register_kind(name: str, params: Callable[[dict], dict], args: Callable[[dic
     old = _REGISTERED.get(name)
     if old is not None and getattr(old.params, "__module__", None) != getattr(params, "__module__", None):
         raise ValueError("job kind %r is already registered by %s" % (name, old.params.__module__))
-    k = JobKind(name, params, args, outcome, limit_s, action)
+    k = JobKind(name, params, args, outcome, limit_s, action, executor)
     _REGISTERED[name] = k
     return k
 
@@ -158,6 +174,27 @@ def is_local_ci(config: Config) -> bool:
     return not (config.get("ci") or {}).get("project")
 
 
+def needs_executor(kind: str, params: dict) -> bool:
+    """Wave G: does this job run a tier (so only an executor may run it)? A compat job with a tier, and every
+    registered kind that says so (a matrix cell with a tier, a test-bump)."""
+    if kind == "compat":
+        return bool((params or {}).get("tier"))
+    if kind in KINDS:
+        return False
+    k = registered(kind)
+    if k is None:
+        return False
+    return bool(k.executor(params or {})) if callable(k.executor) else bool(k.executor)
+
+
+def local_tiers_allowed(config: Config, environ: dict | None = None) -> bool:
+    """The local fallback (module docstring): `[executor] local_fallback = true`, or NANOSOC_RM_LOCAL_TIERS=1."""
+    environ = os.environ if environ is None else environ
+    if (config.get("executor") or {}).get("local_fallback") is True:
+        return True
+    return environ.get("NANOSOC_RM_LOCAL_TIERS") == "1"
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Store
 # ---------------------------------------------------------------------------------------------------------
@@ -177,9 +214,28 @@ def _connect(config: Config) -> Iterator[sqlite3.Connection]:
     try:
         con.row_factory = sqlite3.Row
         db.ensure_schema(con, _SCHEMA, _SCHEMA_VERSION)
+        _ensure_executor_column(con)
         yield con
     finally:
         con.close()
+
+
+def _ensure_executor_column(con: sqlite3.Connection) -> None:
+    """Add the `executor` column to a store created before Wave G (user_version 1 -> 2), once. A store already at 2
+    is two reads and no write (ROB-load-3)."""
+    if con.execute("PRAGMA user_version").fetchone()[0] >= _EXECUTOR_VERSION:
+        return
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        if con.execute("PRAGMA user_version").fetchone()[0] < _EXECUTOR_VERSION:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
+            if "executor" not in cols:
+                con.execute("ALTER TABLE jobs ADD COLUMN executor TEXT")
+            con.execute("PRAGMA user_version = %d" % _EXECUTOR_VERSION)
+        con.execute("COMMIT")
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
 
 
 def _row(r: sqlite3.Row | None) -> dict | None:
@@ -475,6 +531,8 @@ def recover(config: Config, log: Callable[[str], None] | None = None) -> list[in
     log = log or (lambda m: print("nanosoc-rm worker: %s" % m, file=sys.stderr))
     out = []
     for job in jobs(config, limit=10 ** 6, states=("running",)):
+        if job.get("executor") not in (None, LOCAL_EXECUTOR):
+            continue                    # another host runs it: its executor reports its end (Wave G)
         pid = job.get("pid")
         try:
             alive = bool(pid) and _is_job_process(pid, job["id"])
@@ -577,13 +635,73 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
             "result": _summary(job["kind"], docs)}
 
 
+def _claim_next(config: Config, eligible: Callable[[str, dict], bool], executor: str, *, tier_only: bool) -> dict | None:
+    """Mark the oldest queued job that `eligible(kind, params)` accepts as running, under one write lock. A tier job
+    records `executor`; with `tier_only` only tier jobs are eligible (an executor claims nothing else)."""
+    with _connect(config) as con:
+        con.execute("BEGIN IMMEDIATE")
+        hit = None
+        for r in con.execute("SELECT id, kind, params FROM jobs WHERE state = 'queued' ORDER BY id"):
+            params = json.loads(r["params"])
+            tier = needs_executor(r["kind"], params)
+            if (tier or not tier_only) and eligible(r["kind"], params):
+                hit = (r["id"], tier)
+                break
+        if hit is not None:
+            con.execute("UPDATE jobs SET state = 'running', started_at = ?, executor = ? WHERE id = ?",
+                        (clock.iso(), executor if hit[1] else None, hit[0]))
+        con.execute("COMMIT")
+    return get(config, hit[0]) if hit is not None else None
+
+
+def executor_queue(config: Config) -> list[dict]:
+    """The queued tier jobs, oldest first: what the executors have to claim."""
+    return [j for j in reversed(jobs(config, limit=10 ** 6, states=("queued",)))
+            if needs_executor(j["kind"], j["params"])]
+
+
+def claim_for_executor(config: Config, executor: str, accepts: Callable[[dict], bool] | None = None) -> dict | None:
+    """An executor (the pull agent) claims the oldest queued tier job it `accepts` (default: any). The job is then
+    running with `executor` set; its argv is `cli_args(job["kind"], job["params"])`. None when nothing waits."""
+    if not isinstance(executor, str) or not _EXECUTOR_ID.match(executor) or executor == LOCAL_EXECUTOR:
+        raise JobUsage("%r is not an executor id" % (executor,))
+    _load_kinds()
+    return _claim_next(config, lambda kind, params: accepts is None or bool(accepts({"kind": kind, "params": params})),
+                       executor, tier_only=True)
+
+
+def finish_for_executor(config: Config, job_id: int, executor: str, rc: int | None, stdout: str,
+                        log: str = "") -> dict:
+    """Record the end of a job an executor ran: its exit code, its stdout (the JSON documents) and its log are read
+    as the local worker reads them (`_outcome`). JobUsage unless this executor holds this running job."""
+    job = get(config, job_id)
+    if job is None or job["state"] != "running" or job.get("executor") != executor:
+        raise JobUsage("job %s is not running on executor %r" % (job_id, executor))
+    d = job_dir(config, job_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "stdout.jsonl").write_text(stdout or "", encoding="utf-8")
+    _append_log(config, job_id, log or "")
+    if job.get("cancel_by"):
+        fields = {"state": "cancelled", "verdict": None, "reason": "cancelled by %s while it ran on %s"
+                  % (job["cancel_by"], executor)}
+    else:
+        fields = _outcome(job, rc, stdout or "", (log or "")[-4096:])
+    fields.update(exit_code=rc, finished_at=clock.iso())
+    _update(config, job_id, **fields)
+    _append_log(config, job_id, "[executor %s] %s %s at %s%s\n" % (
+        executor, fields["state"], fields.get("verdict") or "", fields["finished_at"],
+        ": " + fields["reason"] if fields.get("reason") else ""))
+    return get(config, job_id)
+
+
 class Worker:
     """Runs queued jobs one at a time (module docstring). `argv_prefix` is the test seam: the command that stands
     for `nanosoc-rm` (default: this Python running the package's CLI)."""
 
     def __init__(self, config_path: str | os.PathLike | None = None, *, argv_prefix: Sequence[str] | None = None,
-                 poll_s: float = 1.0, log: Callable[[str], None] | None = None):
+                 poll_s: float = 1.0, log: Callable[[str], None] | None = None, run_tiers: bool | None = None):
         self.config_path = None if config_path is None else os.fspath(config_path)
+        self.run_tiers = run_tiers          # None: local_tiers_allowed(config) decides at each claim (Wave G)
         self.argv_prefix = list(argv_prefix) if argv_prefix else [sys.executable, "-c", CLI_BOOT]
         self.poll_s = poll_s
         self._stop = threading.Event()
@@ -649,13 +767,11 @@ class Worker:
 
     # -- one job ----------------------------------------------------------------------------------------------
     def _claim(self, config: Config) -> dict | None:
-        with _connect(config) as con:
-            con.execute("BEGIN IMMEDIATE")
-            r = con.execute("SELECT id FROM jobs WHERE state = 'queued' ORDER BY id LIMIT 1").fetchone()
-            if r is not None:
-                con.execute("UPDATE jobs SET state = 'running', started_at = ? WHERE id = ?", (clock.iso(), r["id"]))
-            con.execute("COMMIT")
-        return get(config, r["id"]) if r is not None else None
+        """The oldest queued job this worker may run: every job but a tier job, which waits for an executor unless
+        the local fallback is on (module docstring; Wave G)."""
+        tiers = self.run_tiers if self.run_tiers is not None else local_tiers_allowed(config)
+        return _claim_next(config, lambda kind, params: tiers or not needs_executor(kind, params),
+                           LOCAL_EXECUTOR, tier_only=False)
 
     FINISH_RETRY_S = (0.2, 1.0)                     # waits between the attempts to record a job's end
 

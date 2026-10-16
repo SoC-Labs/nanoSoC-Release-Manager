@@ -1,0 +1,15 @@
+{# GET /capabilities/ (Wave G): every configuration and how many of its trees declare test capabilities. #}
+<p class="note">Each tree says what it can test in its own <code>.nanosoc/capabilities.yaml</code>, read at the commit the configuration pins. The registry's <code>tiers.yaml</code> keeps only host data: tool installs, licences, site paths. Tier runs go to an executor on an EDA host, never this service host.</p>
+<table>
+  <thead><tr><th scope="col">Configuration</th><th scope="col">Trees declaring capabilities</th><th scope="col">Note</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr data-configuration="{{ r.id }}"><td><a href="/capabilities/{{ r.id|urlencode }}">{{ r.id }}</a></td>
+      <td>{% if r.view %}{{ r.view.declared }} of {{ r.view.total }}{% else %}-{% endif %}</td>
+      <td>{{ r.note or '' }}</td></tr>
+  {% else %}
+    <tr><td colspan="3" class="empty">The registry lists no configuration.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">Hosts in the registry: {{ hosts|join(', ') if hosts else 'none declared (tiers.yaml hosts)' }}. Queued tier jobs waiting for an executor: {{ waiting }}.</p>

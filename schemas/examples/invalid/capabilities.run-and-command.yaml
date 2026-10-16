@@ -1,0 +1,9 @@
+# expect-error: not at /capabilities/0
+# One spelling per entry: `run` or `command`, never both (they could disagree).
+schema: 1
+component: tidelink
+capabilities:
+  - id: lint
+    kind: lint
+    run: make lint
+    command: make lint STRICT=1

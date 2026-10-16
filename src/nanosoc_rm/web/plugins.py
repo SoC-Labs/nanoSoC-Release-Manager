@@ -35,7 +35,8 @@ PLUGINS = (("nanosoc_rm.quality.web", "Quality"), ("nanosoc_rm.matrix.web", "Mat
            ("nanosoc_rm.store.web", "Store"),                           # section 22 (Wave E store index)
            ("nanosoc_rm.publish.web", "Publish"),                       # CR-ART-publish (Wave E)
            ("nanosoc_rm.freshness.web", "Freshness"),     # section 24; page retired, redirects + POST (CR-1015-retire)
-           ("nanosoc_rm.catalogue.web", "Catalogue"))                   # CR-WF-gui (Characterise.dc.html)
+           ("nanosoc_rm.catalogue.web", "Catalogue"),                   # CR-WF-gui (Characterise.dc.html)
+           ("nanosoc_rm.capabilities.web", "Capabilities"))             # Wave G; no navigation entry (NAV_LABEL None)
 
 
 def local_routes(app: Any) -> bool:

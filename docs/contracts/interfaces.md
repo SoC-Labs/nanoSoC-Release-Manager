@@ -2417,3 +2417,104 @@ and its pages show no button for a missing route (the timeline toggle is then a 
 - **gui.sqlite** (`web.uistate`, `user_version` 2): table `pref (login, name, value, at)`; names `timeline`
   (`on`\|`off`; absent = off), `notify.kind.<kind>` and `notify.project.<id>` (`off` mutes). `prefs()` never
   creates the file; a version-1 file gains the table the next time it is opened, other tables untouched.
+
+## 26. Test capabilities per tree, test-bump, the bump gate and the executor queue (Wave G; D1, D3, E3, PR6)
+
+Requirements: D1, D3, E3, PR6. Agreed: David 2026-10-16 (interactive): evaluation fix wave, decisions 1 to 4:
+(1) tier runs execute on an EXECUTOR (a pull agent on the EDA host, sandboxed and unprivileged; GitLab CI later),
+never on the service host; (2) each tree declares its test capabilities IN THE REPO, read at the commit under test;
+the registry's `tiers.yaml` keeps only host site data; (3) hooks on a submodule pointer change WARN locally and
+BLOCK in CI and in the release manager's bump gate; (4) all four streams built now.
+
+### 26.1 `.nanosoc/capabilities.yaml` (schemas/capabilities.schema.json)
+
+At each repo's root. `schema: 1`, `component` (the catalogue id), `env` (`provides` tree-relative values with
+`${TREE}` = this repo's root; `site` names the per-host variables, each `optional` or not, `arm_ip`/`pdk` flags;
+`siblings` names other components found where the superproject pins them), `tools` (name -> `probe`, `min`,
+`licence`, `seat`), `capabilities` (each: `id`, `kind` lint|elab|sim|synth|fpga|formal|gls|cdc|lec|hw|static|unit,
+`tier` t0..t6, `run` (a shell string or argv; never sources a set_env.sh), `cwd`, `tools`, `budget_s`, `runtime`
+S|M|L|XL, `needs`, `inputs`, `outputs`, `affected_by` (gitlink paths or component ids whose move re-runs it),
+`regenerates`, `verdict` (`exit`, `forbid` text, `require` text with `min`, `rows` {format verdicts-tsv | junit |
+regex | regress-table | tidelink-sim-gate, `path`, `fail`}), `control`, `gate` block|report, `when`
+on_bump|nightly|release|manual, `manual`, `from`, `waiver`), `compose` (each: `path` a gitlink of this repo, `run` ids
+of THAT repo's own file, `when`). The wave-G spelling `tiers`/`command`/`workdir`/`composes` is accepted for
+`capabilities`/`run`/`cwd`/`compose`, one per document or entry. Examples: `capabilities.eth-chiplet.example.yaml`,
+`capabilities.tidelink.example.yaml` (the evaluation's drafts), `capabilities.wave-g-spelling.example.yaml`.
+
+`capabilities.manifest`: `parse(text)` checks the schema, then: ids unique, every named tool declared, `provides`
+never sets TREE/PATH/HOME/TMPDIR/NANOSOC_*, compose paths unique; any problem refuses the WHOLE file (no partial set).
+Defaults: `cwd` ".", `gate` block, `when` [on_bump], `budget_s` from `runtime` (S 60, M 900, L 10800, XL 43200; else
+900), `runtime` from `budget_s`. `Reader(config).at(component, commit)` reads
+`git -C <mirror> cat-file -p <commit>:.nanosoc/capabilities.yaml` (a partial mirror fetches the blob from its
+promisor, with the host's read credential), never a working tree: status ok | absent | invalid (with problems; also
+when the file names another component) | unreadable (no mirror, the commit not in it). Settled reads (ok, absent,
+invalid) are cached per (mirror, commit) across requests: a commit's content never changes.
+
+### 26.2 Site data: registry `tiers.yaml` `hosts` (eligibility#/$defs/tiers_file)
+
+`hosts.<host id>`: `tools` (name -> `version`, `bin`), `licences`, `env` (values of the trees' `env.site` names;
+never PATH, HOME, TMPDIR or a tool variable), `needs` (pdk, network, board:<kind>). Host ids, never hostnames.
+`Registry.sites()`. The CR-12 `configurations` block stays for `compat --tier` until each tree carries a file.
+`capabilities.plan.host_check(cap, tools, site)` lists why a host cannot run a capability: a tool it lacks, a version
+under `min` (compared part by part: numbers as numbers), a licence it lacks, a need it cannot meet (`<tool>-seat`
+is met by the tool; `regen:`, `after:`, `lease:` and `siblings` are run-time needs, not host ones).
+
+### 26.3 Composition, the bump run set, `nanosoc-rm test-bump`
+
+- **Composition** (`plan.composed`): the root file's capabilities, plus each `compose` entry's ids from the pinned
+  submodule's own file at its pinned commit, recursively. Each item keeps its owner (tree path): it runs in that
+  directory with that file's `env`. A compose entry naming an unpinned path or an undeclared id is a problem line.
+- **Run set of a move** (`plan.plan_bump`) of every tree path M of one component from A to B: (1) the moved tree's own
+  gates: the ids its nearest ancestor composes for it (when on_bump), else its own `gate: block`, non-manual,
+  on_bump capabilities; (2) every ancestor capability whose `affected_by` names the moved path (relative to that
+  ancestor, or a path above it) or the component id; never `manual`. Read at A for Now, at B for After.
+- **`test_bump(configuration, path, to)`** (`capabilities.run`; CLI `nanosoc-rm test-bump CONFIG PATH TO [--host H]
+  [--plan] [--queue] [--json]`): TO resolves in the component's mirror (full sha; tag, then branch, canonical repo
+  first; a unique 7+ hex prefix), the move applies to every tree path of the component, both trees are walked
+  (never stored), the plan is built, then Now and After each run `compat` (T0, locally; `compat(on_tree=...)` hands
+  the gates' git, root pin and work dir to the caller after the roll-up) and every planned capability of that side on
+  the same laid-out tree (`tierrun.materialise`, `tierrun.run_tier`): PATH = the host's tool `bin`s first; the
+  site values; siblings at `${TREE}/<path>`; `provides` with `${TREE}` = the owner's directory. A host that cannot run
+  it: INFRA, not run; a regenerating one without NANOSOC_GEN_OK=1: NOT-RUN. Verdict rows beyond the exit status:
+  `forbid` (a FAIL row `tier.<label>.forbid`), `require`, junit, regex; regress-table and tidelink-sim-gate have no
+  parser yet and give one UNVERIFIED row.
+- **Compare** per row: same, better, worse (green -> FAIL), same-red, new-red (no green baseline), new, gone,
+  not-run. Functional verdict over the block rows: worse FAIL > new-red/not-run UNVERIFIED > same-red WARN > PASS; no
+  block row at all is UNVERIFIED; Now and After on different root commits is UNVERIFIED. T0 per side is `hygiene`,
+  reported and never hiding the rows (decision 4). Exit 0 PASS or WARN, 1 FAIL, 2 UNVERIFIED, 3 usage.
+- The document (schemas/test-bump.schema.json, kind `test_bump`) is the job's result, never a stored fact.
+
+### 26.4 The bump gate (`capabilities.gate`)
+
+`evidence(config, configuration, tree_paths, to, root_commit)`: the newest finished `test-bump` job whose result
+tested exactly this move (configuration, root commit = the walk's, moved commit, a superset of the tree paths;
+not `--plan`). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional). Anything but PASS makes
+`decision.would` = hold with the second blocker "bump gate: ..." naming the `nanosoc-rm test-bump` command; the E2
+ledger then scores the proposal `held`, as for any held proposal.
+
+### 26.5 The executor queue (`jobs`, section 13a)
+
+`jobs.needs_executor(kind, params)`: a compat job with a tier, a matrix cell with a tier, every `test-bump`
+(`register_kind(..., executor=True | callable)`). The local worker never claims one unless the local fallback is
+on (`[executor] local_fallback = true`, or NANOSOC_RM_LOCAL_TIERS=1 in the worker's environment, or
+`Worker(run_tiers=True)`; the hermetic test suite sets the variable). `claim_for_executor(config, executor,
+accepts=None)` claims the oldest queued tier job (the job records `executor`; `local` is reserved);
+`finish_for_executor(config, job_id, executor, rc, stdout, log)` records its end exactly as the local worker reads a
+child (`_outcome`); a cancel asked while it ran ends it `cancelled`. `recover()` at service start leaves an
+executor's running job alone. `executor_queue(config)` lists what waits. jobs.sqlite user_version 2 adds the
+`executor` column once. The executor process itself (the pull agent) is a separate Wave G stream; it consumes
+these three calls and runs `nanosoc-rm <cli_args>` with `NANOSOC_RM_EXECUTOR_HOST` set to its host id.
+
+### 26.6 Pages
+
+| Route | Shows or does | Module |
+|---|---|---|
+| `GET /capabilities/` | every configuration: trees declaring capabilities; registry hosts; tier jobs waiting for an executor | `capabilities.web` (plug-in, no nav entry) |
+| `GET /capabilities/{configuration}` | per tree of the latest stored walk: file status at the pinned commit, each capability (kind, tier, gate, runtime, command, tools, hosts that can run it and why not the others, last test-bump result at that commit) | `capabilities.web`, `capabilities.view` |
+| `GET /capabilities/{configuration}/bump?path=[&to=]` / `?job=N` | the Test this bump form (TO defaults to the pin's default branch) and earlier tests / one job's Now vs After rows, hygiene, functional verdict | `capabilities.web` |
+| `POST /capabilities/{configuration}/test-bump` | fields `path`, `to`; queues one `test-bump` job as the login (local deployments only; CSRF); 303 to `?job=N&queued=1` | `capabilities.web` |
+
+Home's detail panel (section 25) gains a Capabilities section (what that tree can run, on which host, its last
+result) for a pin or a configuration, and, for a live pin in a local deployment, a "Test this bump (to <default
+branch>)" form posting to the route above. The submodule tree's pin aside links "Test this bump" for a live pin.
+Every GET reads stored facts, mirrors, the registry and job records only.

@@ -9,7 +9,11 @@ import time
 import pytest
 
 from bfix import GH_ETH, GH_TL, GL_ARCH, GL_GEN, GL_MC, Mirror, pin, store_walk, world
+from bfix import bump_gate_passes
+
 from nanosoc_rm import contracts
+
+AUTOUSE = (bump_gate_passes,)          # the autouse fixture: a passing test-bump exists (Wave G bump gate)
 
 pytestmark = pytest.mark.requirement("E3")
 

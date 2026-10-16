@@ -115,10 +115,16 @@ def _pinned_state(fact: dict) -> str | None:
 def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, config=None, store: bool = False,
            keep_work: str | Path | None = None, url_map: Mapping[str, str] | None = None,
            nonce: str | None = None, argv: str | None = None, tier: str | None = None, force_tier: bool = False,
-           environ: Mapping[str, str] | None = None, lock_dir: str | Path | None = None) -> dict:
+           environ: Mapping[str, str] | None = None, lock_dir: str | Path | None = None,
+           on_tree=None) -> dict:
     """One compat_result observation (module docstring). Raises walker.UnknownConfiguration or OverrideError
     (exit 3), CompatUsage (3), walker.WalkError, ci.trigger.TriggerError or ci.configs.RegistryUnreadable (2).
-    `url_map` is the test-only seam of `Context.for_local`."""
+    `url_map` is the test-only seam of `Context.for_local`.
+
+    `on_tree(git, root, work, t0_verdict)` (Wave G, `test-bump`): called once after the T0 roll-up, inside the work
+    directory's lifetime, with the gates' git, the walked root Pin (None when the walk did not start) and the T0
+    verdict, so a caller can lay the same tree out (`tierrun.materialise`) and run its own capabilities on it. It
+    is called whatever T0 says: the caller reports T0 as hygiene, beside its functional result."""
     from nanosoc_rm import db
     from nanosoc_rm.ci import configs
     from nanosoc_rm.ci.trigger import build_request, canonical_urls_from
@@ -193,6 +199,8 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
             if force_tier and verdict == "FAIL":
                 tier_doc["forced"] = True
                 tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
+        if on_tree is not None:
+            on_tree(ctx.git, root, work, verdict)
     finally:
         if not kept:
             shutil.rmtree(work, ignore_errors=True)

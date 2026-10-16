@@ -9,7 +9,7 @@ The registry is a directory (a checkout of the registry repo's main) laid out as
     defects/SL-DEF-NNNN.yaml               optional   defect
     errata/<configuration>/ERR-NNN.yaml    optional   erratum
     imports.yaml                           optional   import-ledger (F5)
-    tiers.yaml                             optional   eligibility#/$defs/tiers_file (CR-12: local T1/T2 commands)
+    tiers.yaml                             optional   eligibility#/$defs/tiers_file (CR-12 T1/T2 commands; Wave G host site data)
 
 Every file is read with the strict YAML reader (timestamps stay strings, a duplicate key is refused: rule 8),
 must carry a `schema` version this reader knows (README section 2 rule 2), and is validated against its
@@ -246,6 +246,12 @@ class Registry:
         """CR-12: {tier: command spec} from tiers.yaml for one configuration ({} when none is declared)."""
         doc = self._files.get("tiers.yaml") or {}
         return copy.deepcopy((doc.get("configurations") or {}).get(configuration_id) or {})
+
+    def sites(self) -> dict:
+        """Wave G: {host id: site data} from tiers.yaml `hosts` (tool installs and versions, licences, site env
+        values); {} when none is declared. What a tree can test is in the tree (.nanosoc/capabilities.yaml)."""
+        doc = self._files.get("tiers.yaml") or {}
+        return copy.deepcopy(doc.get("hosts") or {})
 
     def files(self) -> dict[str, dict]:
         """{registry-relative file: document} for every file read."""

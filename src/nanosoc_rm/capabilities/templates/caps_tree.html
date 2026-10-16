@@ -1,0 +1,33 @@
+{# GET /capabilities/{configuration} (Wave G): what each tree can run, on which host, last result. #}
+{% import '_caps_status.html' as s %}
+<p class="note">Configuration <a href="/configurations/{{ v.configuration|urlencode }}">{{ v.configuration }}</a> at <code>{{ (v.root_commit or '?')[:12] }}</code> (the latest stored walk). {{ v.declared }} of {{ v.total }} trees declare capabilities in <code>.nanosoc/capabilities.yaml</code> at their pinned commit. "Runs on" lists the registry hosts whose tools, versions and licences fit. "Last result" is the newest test-bump row at the same commit.</p>
+{% for p in v.problems %}<p class="banner warn">{{ p }}</p>{% endfor %}
+{% for t in v.trees %}
+<section class="panel" data-tree="{{ t.tree_path }}" data-status="{{ t.status }}">
+  <h2 style="margin:.2rem 0"><code>{{ t.tree_path }}</code> <span class="note">{{ t.component or '?' }} @ <code>{{ (t.commit or '?')[:12] }}</code></span></h2>
+  {% if t.status == 'absent' %}
+    <p class="empty">No <code>.nanosoc/capabilities.yaml</code> at this commit: this tree declares nothing it can test.</p>
+  {% elif t.status != 'ok' %}
+    <p class="banner warn">Capabilities file {{ t.status }}: {{ t.problems|join('; ') }}</p>
+  {% else %}
+    {% if t.compose %}<p class="note">Composes: {% for c in t.compose %}<code>{{ c.path }}</code> ({{ c.run|join(', ') }}){{ '; ' if not loop.last }}{% endfor %}</p>{% endif %}
+    <table>
+      <thead><tr><th scope="col">Capability</th><th scope="col">Kind</th><th scope="col">Tier</th><th scope="col">Gate</th><th scope="col">Runtime</th><th scope="col">Command</th><th scope="col">Tools</th><th scope="col">Runs on</th><th scope="col">Last result</th></tr></thead>
+      <tbody>
+      {% for c in t.capabilities %}
+        <tr data-capability="{{ c.key }}">
+          <td><code>{{ c.id }}</code>{% if c.composed %}<br><span class="note">{{ c.composed }}</span>{% endif %}{% if c.manual %}<br><span class="note">manual</span>{% endif %}</td>
+          <td>{{ c.kind }}</td><td>{{ c.tier or '-' }}</td><td>{{ c.gate }}</td><td>{{ c.runtime }} ({{ c.budget_s }} s)</td>
+          <td><code>{{ c.command }}</code>{% if c.cwd != '.' %} <span class="note">in {{ c.cwd }}</span>{% endif %}</td>
+          <td>{% for tool in c.tools %}{{ tool.name }}{% if tool.min %} &ge; {{ tool.min }}{% endif %}{% if tool.licence %} ({{ tool.licence }}){% endif %}{{ ', ' if not loop.last }}{% else %}-{% endfor %}</td>
+          <td>{% if c.hosts %}{{ c.hosts|join(', ') }}{% else %}<span class="note">no host</span>{% endif %}{% for h, why in c.why_not.items() %}<br><span class="note">not {{ h }}: {{ why|join(', ') }}</span>{% endfor %}</td>
+          <td>{% if c.last %}<a href="{{ c.last.href }}">{{ s.verdict(c.last.verdict) }}</a> <span class="note">job {{ c.last.job }}</span>{% else %}{{ s.verdict(None) }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% if t.tree_path != '.' %}<p><a href="/capabilities/{{ v.configuration|urlencode }}/bump?path={{ t.tree_path|urlencode }}">Test a bump of {{ t.tree_path }}</a></p>{% endif %}
+</section>
+{% endfor %}
+<p class="note">Same as <code>nanosoc-rm capabilities show {{ v.configuration }}</code>.</p>

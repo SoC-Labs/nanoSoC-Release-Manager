@@ -1,0 +1,162 @@
+{
+ "schema": 1,
+ "kind": "test_bump",
+ "subject": "test_bump:eth-main:5f2c9a1be0d34c7a8e6b1f0a2d3c4b5e",
+ "observed_at": "2026-10-16T10:00:00Z",
+ "sources": [
+  {
+   "kind": "derived",
+   "command": "nanosoc-rm test-bump eth-main tidelink v1.0 --host eda-login"
+  },
+  {
+   "kind": "git",
+   "command": "git -C <data_dir>/mirrors/tidelink.git rev-parse --verify --quiet refs/r/github/SoC-Labs%2FTideLink-Chiplet-Interconnect-AHB/tags/v1.0^{commit}"
+  }
+ ],
+ "fact": {
+  "configuration": "eth-main",
+  "root_commit": "8e6d043f00dfeed1234567890abcdef123456789",
+  "path": "tidelink",
+  "component": "tidelink",
+  "from": "11071512b3c4d5e6f708192a3b4c5d6e7f809102",
+  "to": {
+   "ref": "v1.0",
+   "commit": "c22416c1c0e1244047d09c42857a0ba9501ac9e4",
+   "resolved_as": "tag v1.0"
+  },
+  "tree_paths": [
+   "tidelink"
+  ],
+  "moved": [
+   "tidelink"
+  ],
+  "host": "eda-login",
+  "plan_only": false,
+  "plan": [
+   {
+    "key": ".:lint",
+    "owner": ".",
+    "id": "lint",
+    "why": ".'s capability is affected_by tidelink",
+    "kind": "lint",
+    "tier": "t1",
+    "gate": "block",
+    "runtime": "M",
+    "command": "make lint STRICT=1",
+    "tools": [
+     "verilator"
+    ],
+    "now_commit": "8e6d043f00dfeed1234567890abcdef123456789",
+    "after_commit": "8e6d043f00dfeed1234567890abcdef123456789"
+   },
+   {
+    "key": "tidelink:lint-fast",
+    "owner": "tidelink",
+    "id": "lint-fast",
+    "why": "own gate of tidelink, composed by .",
+    "kind": "lint",
+    "tier": "t1",
+    "gate": "block",
+    "runtime": "M",
+    "command": "make farm_gate_fast",
+    "tools": [
+     "python3",
+     "verilator"
+    ],
+    "now_commit": "11071512b3c4d5e6f708192a3b4c5d6e7f809102",
+    "after_commit": "c22416c1c0e1244047d09c42857a0ba9501ac9e4"
+   }
+  ],
+  "manifests": [
+   {
+    "tree_path": ".",
+    "now": {
+     "component": "nanosoc-ethernet-chiplet",
+     "commit": "8e6d043f00dfeed1234567890abcdef123456789",
+     "status": "ok",
+     "problems": [],
+     "sources": []
+    }
+   }
+  ],
+  "problems": [],
+  "hygiene": {
+   "now": {
+    "verdict": "FAIL",
+    "reason": null,
+    "commit": "8e6d043f00dfeed1234567890abcdef123456789"
+   },
+   "after": {
+    "verdict": "FAIL",
+    "reason": null,
+    "commit": "8e6d043f00dfeed1234567890abcdef123456789"
+   }
+  },
+  "rows": [
+   {
+    "key": ".:lint",
+    "owner": ".",
+    "id": "lint",
+    "kind": "lint",
+    "tier": "t1",
+    "gate": "block",
+    "why": ".'s capability is affected_by tidelink",
+    "now": {
+     "verdict": "PASS",
+     "reason": null,
+     "seconds": 41.2,
+     "exit_code": 0,
+     "rows": [],
+     "log_tail": [],
+     "commit": "8e6d043f00dfeed1234567890abcdef123456789",
+     "host": "eda-login"
+    },
+    "after": {
+     "verdict": "PASS",
+     "reason": null,
+     "seconds": 41.2,
+     "exit_code": 0,
+     "rows": [],
+     "log_tail": [],
+     "commit": "8e6d043f00dfeed1234567890abcdef123456789",
+     "host": "eda-login"
+    },
+    "change": "same"
+   },
+   {
+    "key": "tidelink:lint-fast",
+    "owner": "tidelink",
+    "id": "lint-fast",
+    "kind": "lint",
+    "tier": "t1",
+    "gate": "block",
+    "why": "own gate of tidelink, composed by .",
+    "now": {
+     "verdict": "PASS",
+     "reason": null,
+     "seconds": 41.2,
+     "exit_code": 0,
+     "rows": [],
+     "log_tail": [],
+     "commit": "11071512b3c4d5e6f708192a3b4c5d6e7f809102",
+     "host": "eda-login"
+    },
+    "after": {
+     "verdict": "FAIL",
+     "reason": "tier.tidelink.lint-fast: exit 2 in 38.0 s",
+     "seconds": 41.2,
+     "exit_code": 1,
+     "rows": [],
+     "log_tail": [],
+     "commit": "c22416c1c0e1244047d09c42857a0ba9501ac9e4",
+     "host": "eda-login"
+    },
+    "change": "worse"
+   }
+  ],
+  "verdict": "FAIL",
+  "reason": "tidelink:lint-fast worse",
+  "started_at": "2026-10-16T10:00:00Z",
+  "finished_at": "2026-10-16T10:04:12Z"
+ }
+}

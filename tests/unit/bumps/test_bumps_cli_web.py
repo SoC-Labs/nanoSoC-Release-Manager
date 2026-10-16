@@ -10,7 +10,11 @@ from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
 from bfix import world
+from bfix import bump_gate_passes
+
 from nanosoc_rm import auth
+
+AUTOUSE = (bump_gate_passes,)          # the autouse fixture: a passing test-bump exists (Wave G bump gate)
 
 pytestmark = pytest.mark.requirement("E2")
 PASSWORD = "correct horse battery"

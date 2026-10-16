@@ -14,6 +14,12 @@ does not exist every acceptance test reports XFAIL whatever its inputs. Once the
 So a skip can never read as green, and a passing test cannot hide behind its marker.
 """
 import importlib
+import os
+
+# Wave G: tier jobs run only on an executor; the hermetic suite keeps the local-runner fallback (jobs.py
+# local_tiers_allowed), so the worker tests still run tier jobs in-process. A test that checks the executor queue
+# itself clears this with monkeypatch.
+os.environ.setdefault("NANOSOC_RM_LOCAL_TIERS", "1")
 
 
 def pytest_configure(config):

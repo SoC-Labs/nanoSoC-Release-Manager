@@ -1,0 +1,115 @@
+# Draft for nanosoc-ethernet-chiplet (evaluation 2026-10-16, capabilities.md section 7.1): .nanosoc/capabilities.yaml
+schema: 1
+component: nanosoc-ethernet-chiplet
+env:
+  provides:
+    CHIPLET_HOME: "${TREE}"
+    NANOSOC_MULTICORE_HOME: "${TREE}/nanosoc-multicore-system"
+    TIDELINK_HOME: "${TREE}/tidelink"
+    TIDECHART_HOME: "${TREE}/tidechart"
+  site:
+    - {name: ARM_IP_LIBRARY_PATH, what: "Arm IP root (CMSDK stub source for lint)", arm_ip: true, optional: true}
+    - {name: CMSDK_DIR, what: "Arm CMSDK root (elab, regress)", arm_ip: true}
+    - {name: XHB500_IP_DIR, what: "Arm XHB-500 root (tidelink V2 flist)", arm_ip: true}
+    - {name: TSMC_65_HOME, what: "PDK root (physical phase only)", pdk: true}
+tools:
+  python3:   {probe: "python3 --version", min: "3.6"}
+  verilator: {probe: "verilator --version", min: "4.028"}
+  vcs:       {probe: "vcs -ID", min: "T-2022.06-SP2", seat: vcs}
+  xcelium:   {probe: "xrun -version", min: "22.03", seat: xcelium}
+  genus:     {probe: "genus -version", min: "21.15", seat: genus}
+  innovus:   {probe: "innovus -version", min: "21.11", seat: innovus}
+  conformal: {probe: "lec -version", min: "22.10", seat: conformal}
+capabilities:
+  - id: chip-boundary
+    kind: static
+    tier: t1
+    run: make chip-boundary
+    tools: [python3]
+    budget_s: 60
+    affected_by: [nanosoc-multicore-system]
+    gate: block
+    control: make chip-boundary BOUNDARY=ci/fixtures/boundary/unclassified.yaml
+  - id: lint
+    kind: lint
+    tier: t1
+    run: make lint STRICT=1          # NEW: STRICT=1 makes "WRAPPER: SKIPPED" exit 1
+    tools: [verilator]
+    budget_s: 600
+    needs: [regen:build_soc]         # the wrapper pass needs generated SoC RTL; runner regenerates in the sandbox only with NANOSOC_GEN_OK=1
+    affected_by: [nanosoc-multicore-system, tidechart, tidelink]
+    verdict: {exit: 0, forbid: ['SKIPPED']}
+    gate: block
+  - id: decode-smoke
+    kind: sim
+    tier: t2
+    run: make -C verif/chiplet_d2d_decode all
+    tools: [vcs]
+    needs: [vcs-seat]
+    budget_s: 900
+    affected_by: []
+    verdict: {exit: 0, forbid: ['FAIL'], require_count: {pattern: 'PASS', min: 2}}
+    gate: block
+  - id: elab
+    kind: elab
+    tier: t2
+    run: make elab NO_SET_ENV=1      # NEW: recipe takes env from the runner, not from 3 set_env.sh files
+    tools: [vcs]
+    needs: [vcs-seat, regen:build_soc]
+    budget_s: 900
+    affected_by: [nanosoc-multicore-system, tidelink, tidechart]
+    verdict: {exit: 0, rows: {format: regex, path: build/elab/elab.log, fail: '^Error-'}}
+    gate: block
+  - id: regress-quick
+    kind: sim
+    tier: t3
+    run: scripts/regress.sh --quick
+    tools: [vcs]
+    needs: [vcs-seat, regen:build_soc]
+    budget_s: 2700
+    affected_by: [nanosoc-multicore-system, tidelink]
+    verdict: {rows: {format: regress-table}}    # PASS|FAIL|SKIP rows already printed by regress.sh
+    gate: block
+  - id: regress
+    kind: sim
+    tier: t3
+    run: scripts/regress.sh
+    tools: [vcs]
+    needs: [vcs-seat, regen:build_soc]
+    budget_s: 10800
+    affected_by: [nanosoc-multicore-system, tidelink]
+    verdict: {rows: {format: regress-table}}
+    gate: block
+    when: [nightly, release]
+  - id: elab-strict
+    kind: elab
+    tier: t3
+    run: verif/elab_strict/run.sh
+    tools: [xcelium]
+    needs: [xcelium-seat]
+    budget_s: 2400
+    affected_by: [nanosoc-multicore-system, tidelink, tidechart]
+    gate: block
+    when: [on_bump, release]
+  - id: cdc
+    kind: cdc
+    tier: t3
+    run: verif/cdc/run.sh
+    tools: [xcelium]
+    needs: [xcelium-seat]
+    budget_s: 2400
+    affected_by: [nanosoc-multicore-system, tidelink]
+    gate: report                     # signoff.yaml: cdc is report
+  - id: signoff-physical
+    kind: synth
+    tier: t6
+    run: python3 scripts/ci/signoff.py --phase physical
+    tools: [genus, innovus, conformal]
+    needs: [pdk]
+    budget_s: 23400
+    manual: true
+    from: ci/signoff.yaml            # stage list stays where it is; this is one entry pointing at it
+compose:
+  - {path: tidelink, run: [lint-fast, sim-gate-quick], when: on_bump}
+  - {path: tidechart, run: [cocotb-system], when: on_bump}
+  - {path: nanosoc-multicore-system, run: [soc-validate, lint-each], when: on_bump}

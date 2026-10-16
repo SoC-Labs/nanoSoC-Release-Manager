@@ -1,0 +1,104 @@
+# Draft for TideLink (evaluation 2026-10-16, capabilities.md section 7.2): .nanosoc/capabilities.yaml
+schema: 1
+component: tidelink
+env:
+  provides:
+    TIDELINK_HOME: "${TREE}"
+    XHB500_GEN_DIR: "${TREE}/deps/xhb500/generated"
+    TIDELINK_PHY_V2: "1"
+  site:                                 # exactly what set_env.sh _require's today (set_env.sh:54,69)
+    - {name: CMSDK_DIR, what: "Arm Cortex-M System Design Kit root", arm_ip: true}
+    - {name: XHB500_IP_DIR, what: "Arm XHB-500 bridge IP root", arm_ip: true}
+    - {name: CMSDK_FPGA_SRAM_V, what: "cmsdk_fpga_sram.v when CMSDK lacks it", arm_ip: true, optional: true}
+  siblings:                             # Makefile:932, 1632, 1675
+    - {name: TIDECHART_HOME, component: tidechart, for: [sim-gate]}
+    - {name: PHC_HOME, component: ptp-hardware-clock-ahb, for: [sim-gate]}
+    - {name: ETH_SS_HOME, component: ethernet-subsystem-ahb, for: [sim-gate]}
+tools:
+  python3:   {probe: "python3 --version", min: "3.6"}
+  verilator: {probe: "verilator --version", min: "4.028"}
+  vcs:       {probe: "vcs -ID", min: "T-2022.06-SP2", seat: vcs}
+  cocotb:    {probe: "python3 -m cocotb --version", min: "1.7"}
+  hal:       {probe: "hal -version", min: "22.03", seat: xcelium}
+  spyglass:  {probe: "spyglass -version", min: "2022.06-SP2", seat: spyglass}
+  dc:        {probe: "dc_shell -version", min: "2022.12", seat: dc}
+capabilities:
+  - id: hygiene
+    kind: static
+    tier: t0
+    run: make vendor-check secrets-check
+    budget_s: 120
+    gate: block
+  - id: lint-fast
+    kind: lint
+    tier: t1
+    run: make farm_gate_fast            # xdc_lint + sv_anti_pattern, ratcheted
+    tools: [python3, verilator]
+    budget_s: 300
+    control: make xdc_lint_selftest synth_lint_selftest   # the selftests prove the linters fire
+    gate: block
+  - id: hal-lint
+    kind: lint
+    tier: t2
+    run: make -C lint lint-standalone lint-each
+    tools: [hal]
+    needs: [xcelium-seat]
+    budget_s: 900
+    gate: block
+  - id: xhb500-generate
+    kind: static
+    tier: t1
+    run: make xhb500-check
+    regenerates: true                   # writes deps/xhb500/generated; sandbox only
+    budget_s: 300
+  - id: sim-gate-quick
+    kind: sim
+    tier: t3
+    run: make sim_gate_quick
+    tools: [vcs, cocotb]
+    needs: [vcs-seat, after:xhb500-generate]
+    budget_s: 3600
+    verdict: {rows: {format: tidelink-sim-gate, path: imp/sim_gate/summary.tsv}}
+    control: make selfcheck_gates       # FALSE_GREEN_REGISTER controls; must fail on the planted defects
+    gate: block
+  - id: sim-gate
+    kind: sim
+    tier: t3
+    run: make sim_gate_regressions      # registry coverage + full aggregate (~40-55 min)
+    tools: [vcs, cocotb]
+    needs: [vcs-seat, after:xhb500-generate, siblings]
+    budget_s: 5400
+    verdict: {rows: {format: tidelink-sim-gate, path: imp/sim_gate/summary.tsv}}
+    gate: block
+    when: [nightly, release, on_bump]
+  - id: cdc
+    kind: cdc
+    tier: t3
+    run: make -C cdc cdc
+    tools: [spyglass]
+    needs: [spyglass-seat]
+    budget_s: 3600
+    gate: report
+  - id: synth
+    kind: synth
+    tier: t3
+    run: make -C syn/asic/design-compiler MODULE=tidelink_top_full
+    tools: [dc]
+    needs: [dc-seat]
+    budget_s: 7200
+    gate: report
+  - id: coverage
+    kind: sim
+    tier: t3
+    run: make coverage_gate
+    tools: [vcs]
+    needs: [vcs-seat]
+    budget_s: 10800
+    gate: report
+    when: [nightly]
+  - id: hw-safe
+    kind: hw
+    tier: t5
+    run: bash pynq_host/scripts/hwtest/run_all.sh
+    needs: [board:tidelink-pair, lease:fpgahub]
+    manual: true

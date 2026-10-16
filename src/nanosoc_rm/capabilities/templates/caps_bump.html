@@ -1,0 +1,46 @@
+{# GET /capabilities/{configuration}/bump?path=&to= or ?job=N (Wave G): Test this bump, Now vs After. #}
+{% import '_caps_status.html' as s %}
+{% if queued %}<p class="banner info" role="status">Queued job {{ job.id }}. It waits for an executor (the agent on the EDA host); this service host runs no tier. <a href="{{ self_href }}">Refresh</a>.</p>{% endif %}
+{% if job %}
+  {% set f = (job.result or {}).get('fact') %}
+  <p class="note">Job {{ job.id }}: <code>{{ job.command }}</code> &middot; {{ job.state }}{% if job.executor %} on {{ job.executor }}{% endif %}{% if job.state == 'queued' %} (waiting for an executor){% endif %}{% if job.verdict %} &middot; {{ s.verdict(job.verdict) }}{% endif %}</p>
+  {% if f %}
+    <p><strong>{{ f.path }}</strong>: <code>{{ (f['from'] or '?')[:12] }}</code> &rarr; <code>{{ f.to.commit[:12] }}</code> ({{ f.to.resolved_as }}) at root <code>{{ f.root_commit[:12] }}</code> on host {{ f.host or '(none)' }}{% if f.moved|length > 1 %}; moves {{ f.moved|join(', ') }} together{% endif %}.</p>
+    <p>Functional verdict: {{ s.verdict(f.verdict) }}{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</p>
+    {% if f.hygiene %}<p class="note">Hygiene (T0, reported, never hides the rows): Now {{ s.verdict(f.hygiene.now.verdict if f.hygiene.now else None) }} &middot; After {{ s.verdict(f.hygiene.after.verdict if f.hygiene.after else None) }}</p>{% endif %}
+    {% for p in f.problems %}<p class="banner warn">{{ p }}</p>{% endfor %}
+    <table>
+      <thead><tr><th scope="col">Capability</th><th scope="col">Gate</th><th scope="col">Now</th><th scope="col">After</th><th scope="col">Change</th><th scope="col">Why it ran</th><th scope="col">Detail</th></tr></thead>
+      <tbody>
+      {% for r in f.rows %}
+        <tr data-row="{{ r.key }}" data-change="{{ r.change }}"><td><code>{{ r.key }}</code></td><td>{{ r.gate }}</td>
+          <td>{{ s.verdict((r.now or {}).get('verdict')) }}</td><td>{{ s.verdict((r.after or {}).get('verdict')) }}</td>
+          <td><strong>{{ r.change }}</strong></td><td class="note">{{ r.why }}</td>
+          <td>{{ ((r.after or {}).get('reason') or '')[:200] }}{% if (r.after or {}).get('log_tail') and r.change in ('worse', 'new-red', 'same-red') %}<pre>{{ r.after.log_tail[-8:]|join('\n') }}</pre>{% endif %}</td></tr>
+      {% else %}
+        {% for r in f.plan %}<tr><td><code>{{ r.key }}</code></td><td>{{ r.gate }}</td><td colspan="3" class="note">planned</td><td class="note">{{ r.why }}</td><td></td></tr>
+        {% else %}<tr><td colspan="7" class="empty">No capability covers this move.</td></tr>{% endfor %}
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+{% endif %}
+{% if bump_path %}
+<section class="panel">
+  <h2 style="margin:.2rem 0">Test a bump of <code>{{ bump_path }}</code></h2>
+  {% if pin %}<p class="note">{{ pin.component or '?' }} pinned at <code>{{ (pin.commit or '?')[:12] }}</code>{% if pin.default_branch %}; its default branch is <code>{{ pin.default_branch }}</code>{% endif %}.</p>{% endif %}
+  {% if local %}
+  <form method="post" action="/capabilities/{{ configuration|urlencode }}/test-bump" data-test-bump>
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="path" value="{{ bump_path }}">
+    <label>Move to (tag, branch or commit) <input name="to" value="{{ to or '' }}" required size="30"></label>
+    <button type="submit" class="runbtn primary">Test this bump</button>
+  </form>
+  <p class="note">Queues one job: the right capabilities of this tree before and after the move, on an executor. Same as <code>nanosoc-rm test-bump {{ configuration }} {{ bump_path }} {{ to or 'TO' }} --queue</code>.</p>
+  {% else %}
+  <p class="empty">This service has no local job queue: run <code>nanosoc-rm test-bump {{ configuration }} {{ bump_path }} {{ to or 'TO' }}</code> on an EDA host.</p>
+  {% endif %}
+  {% if history %}<p class="note">Earlier tests of this path: {% for j in history %}<a href="/capabilities/{{ configuration|urlencode }}/bump?job={{ j.id }}">job {{ j.id }}</a> {{ s.verdict(j.verdict) if j.verdict else j.state }}{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+</section>
+{% endif %}
+<p><a href="/capabilities/{{ configuration|urlencode }}">Capabilities of {{ configuration }}</a></p>
