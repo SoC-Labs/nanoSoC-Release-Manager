@@ -337,6 +337,8 @@ ol.steps li { display: inline-flex; align-items: center; }
 ul.bars { list-style: none; padding: 0; margin: 0; }
 ul.bars li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 2px 0; }
 ul.bars .bar { max-width: 100%; }
+ul.lines { list-style: none; padding: 0; margin: 0; }
+ul.lines li { padding: 3px 0; overflow-wrap: anywhere; }
 form.inline { display: inline; margin: 0; }
 
 
@@ -441,6 +443,26 @@ form.inline { display: inline; margin: 0; }
 .fp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 13.5px; }
 .fp-name.k-proj, .fp-name.k-group { font-family: var(--font-body); font-size: 15px; font-weight: 700; }
 .fp-name.k-cfg { font-weight: 700; }
+/* repository / line / submodule pin (evaluation 2026-10-16 section 7): a kind glyph, always beside words */
+.glyph { flex: none; display: inline-block; vertical-align: -2px; color: var(--muted); }
+.fp .glyph, .fp-glyph { color: var(--fp-muted); }
+.fp-glyph.k-cfg, .fp-glyph.k-proj { color: var(--fp-ink); }
+.fp-alias { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: 12px; color: var(--fp-muted); }
+.fp-chip.c-again { background: var(--fs-beh-bg); color: var(--fs-beh); }
+.fp-legend .fp-lg { white-space: nowrap; }
+@media (max-width: 700px) {
+  /* a phone: the path @ sha wraps rather than vanishing behind its chips; the muted alias and the word
+     PINNED give way first (the row's aria-label keeps both) */
+  .fp-name { white-space: normal; overflow-wrap: break-word; }
+  .fp-row { padding: 0 8px; }
+  .fp-row-grid, .has-tl .fp-row-grid { grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 8px; }
+  .fp-indent { max-width: 36px; }
+  .fp-name-cell { flex-wrap: wrap; row-gap: 2px; padding: 4px 0; }
+  .fp-name { flex: 1 1 8ch; }
+  .fp-alias, .fp-chip.c-again .w { display: none; }
+}
+.term-code { display: none; }
 .fp-chip { flex: none; display: inline-flex; align-items: center; font-size: 11.5px; font-weight: 600; line-height: 18px;
   padding: 0 6px; border-radius: 4px; background: var(--fp-chip-bg); color: var(--fp-chip-fg); }
 .fp-chips { margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
@@ -502,6 +524,9 @@ form.inline { display: inline; margin: 0; }
 .fp-mx thead th.frozen, .fp-mx td.frozen { background: var(--fs-frz-bg); border-left: 1px dashed var(--mk-frz); }
 .fp-mx .colid { display: block; font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
 .fp-mx .colsub { display: block; font-size: 12px; color: var(--fp-muted); }
+.fp-mx thead tr.repos th { padding: 6px 8px 0; font-size: 12px; font-weight: 700; border-bottom: 0;
+  border-left: 1px solid var(--fp-line-soft); }
+.fp-mx .colid .fp-glyph { display: inline-block; margin-right: 4px; }
 .fp-mx tbody tr { border-bottom: 1px solid var(--fp-line-soft); }
 .fp-mx tbody tr.grp th { padding: 6px 16px; background: var(--fp-ground); font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .04em; color: var(--fp-nav); }
@@ -592,3 +617,7 @@ form.inline { display: inline; margin: 0; }
   .fp-judged { margin-left: 0; }
   .cmd { max-width: none; }
 }
+
+/* the rail's configurations, as lines of their repository (evaluation 2026-10-16 section 7) */
+.rail-repo { margin: 6px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
+.rail-cid { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); font-weight: 400; }

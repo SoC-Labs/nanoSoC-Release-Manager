@@ -77,6 +77,12 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Store | `/store/`: what the artefact store holds as the last index read it: feature probes, counts per repository, GDS streams (raw md5, run tag, build, git identity or "no git identity recorded"), release and tapeout manifests, documents (download when a verified copy is held), source archives, build records, foundry returns; `?q=` finds by path, name, run tag, commit or md5; **Refresh the index** queues a job (about a minute). Also: Configuration > Silicon **Taped out** panel, History **Timeline**, Versions **Tags, commits and chips**, inbox cards `store_mismatch`, `release_not_archived`, `tapeout_unregistered`. Set-up: docs/DEPLOY.md |
 | Capabilities | `/capabilities/{configuration}` (no navigation entry: Home's detail panel, the pin aside and `/capabilities/` link to it): per tree of the stored walk, its `.nanosoc/capabilities.yaml` at the pinned commit, each capability (kind, tier, gate, runtime, command, tools), the registry hosts that can run it and why not the others, and its last test-bump result. **Test this bump** on a pin (Home's detail panel, the pin aside, `/capabilities/{id}/bump?path=`): queues one job for an executor (never this host) that runs the right capabilities before and after the move; its page shows Now vs After per capability, the T0 hygiene and the functional verdict (Wave G, interfaces.md section 26) |
 
+**Repository, line, submodule pin.** A configuration is a line (a branch or tag) of its repository and reads
+"branch main @ 8e6d043" or "tag v1.0.0 @ ab73e40" with its id beside it; a submodule pin reads "path @ sha";
+one repository pinned at two commits in a tree says PINNED ×2 on both rows. Each kind has its own icon (book =
+repository, fork = branch, tag = tag, pushpin = submodule pin); the legend is under "How is this judged?". A branch
+of a pinned repo is always written `repo:branch`. Codes such as ON_DEFAULT or T0 print as words; hover for the code.
+
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 
 ## Jobs

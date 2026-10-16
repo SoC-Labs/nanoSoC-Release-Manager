@@ -131,7 +131,7 @@ def check(tags_by_repo: dict[str, dict[str, dict]], canonical_key: str, *, schem
                                                            < clock.parse(scheme_from))
         problems: list[str] = []
         if kind is None:
-            problems.append("name outside the C10 scheme")
+            problems.append("name outside the tag scheme")
         if kind == "release":
             if canon is None:
                 problems.append("release tag not on the canonical host")

@@ -21,6 +21,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 
 from nanosoc_rm import clock
+from nanosoc_rm.web import lines as _lines, terms as _terms
 
 __all__ = ["Page", "env", "render", "fact_href", "short", "human_age", "STATE_CLASS", "EXPOSURE_CLASS",
            "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav"]
@@ -211,7 +212,8 @@ env.globals.update(short=short, fact_href=fact_href, human_age=human_age, STATE_
                    BRANCH_CLASS=BRANCH_CLASS, RELATION_CLASS=RELATION_CLASS, JOB_CLASS=JOB_CLASS, age_text=_age_text,
                    to_json=_json, verbatim=verbatim,
                    shown_command=shown_command, page_doc=page_doc,
-                   quote=lambda s: urllib.parse.quote(s, safe=""))
+                   quote=lambda s: urllib.parse.quote(s, safe=""), LINE_LEGEND=_lines.LEGEND, line_of=_lines.line)
+env.filters["plain"] = _terms.plain
 
 
 def render(template: str, *, title: str, identity: Any = None, problems: list[str] | None = None,
@@ -227,6 +229,7 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
     page = Page(now)
     body_env = environment or env
     body_env.globals.update({k: v for k, v in env.globals.items() if k not in body_env.globals})
+    body_env.filters.setdefault("plain", _terms.plain)
     body = body_env.get_template(template).render(page=page, fact=page.fact, csrf=csrf, identity=identity, **ctx)
     current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
     main_nav, more_nav = top_nav(tuple(nav), path)

@@ -532,7 +532,7 @@ def test_test_this_bump_queues_a_job_for_an_executor_behind_csrf(site, monkeypat
 def test_home_detail_panel_has_a_capabilities_section_and_the_button(site):
     c = site["client"]
     t = c.get("/?v=1&sel=n:top-main:a").text
-    assert "Pin in top-main" in t, t[t.find('id="detail"'):][:600]
+    assert "Submodule pin in top-main" in t, t[t.find('id="detail"'):][:600]
     assert "data-capabilities" in t and "<code>lint</code> lint" in t
     assert 'action="/capabilities/top-main/test-bump"' in t and 'name="path" value="a"' in t
     aside = c.get("/configurations/top-main/tree?node=a").text            # the submodule tree's pin aside

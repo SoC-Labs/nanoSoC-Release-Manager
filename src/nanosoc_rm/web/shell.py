@@ -17,7 +17,7 @@ import urllib.parse
 from typing import Any, Callable, Iterable
 
 from nanosoc_rm import db
-from nanosoc_rm.web import routers, verdict as V, views
+from nanosoc_rm.web import lines, routers, verdict as V, views
 
 __all__ = ["TONE", "tone", "rail", "search", "crumbs", "component_flags", "redact", "uniform", "MIN_QUERY",
            "FLAG_ORDER", "RAIL_COMPONENTS"]
@@ -87,6 +87,7 @@ def component_flags(config, decisions: dict | None = None,
     """{component: [(text, tone)]} from stored data only, in FLAG_ORDER (spec 1.3). `decisions` and `pins` (every
     configuration's current pin_state) when the caller has already read them."""
     found: dict[str, set[str]] = {}
+    commits: dict[tuple, set] = {}                      # (configuration, component) -> pinned commits
 
     def add(comp: str | None, flag: str) -> None:
         if comp:
@@ -98,6 +99,7 @@ def component_flags(config, decisions: dict | None = None,
             add(comp, "SSH PIN")
         if f.get("split"):
             add(comp, "SPLIT")
+            commits.setdefault((f.get("configuration"), comp), set()).add((f.get("child") or {}).get("commit"))
         _, h = views.pinned_host(d)
         if h is not None and h.get("state") == "UNREADABLE":
             add(comp, "UNREADABLE")
@@ -111,7 +113,13 @@ def component_flags(config, decisions: dict | None = None,
         for p in doc["fact"].get("pins") or []:
             if p.get("tree_path") in paths:
                 add(p.get("component"), "FAIL")
-    return {c: [(f, TONE.get(f, "c-fail") if f != "SPLIT" else "c-split") for f in FLAG_ORDER if f in fs]
+    def text(c: str, f: str) -> str:
+        # SPLIT prints "PINNED ×N" (the most commits of `c` in one tree): it never reads like a host split
+        if f != "SPLIT":
+            return f
+        n = max((len(v) for (_, comp), v in commits.items() if comp == c), default=0)
+        return lines.again_text(n) if n > 1 else "PINNED AGAIN"
+    return {c: [(text(c, f), TONE.get(f, "c-fail") if f != "SPLIT" else "c-split") for f in FLAG_ORDER if f in fs]
             for c, fs in found.items()}
 
 
@@ -150,9 +158,18 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
             cause = dec.label if dec.gate else ("frozen" if views.is_frozen(rec) else "no red gate")
             dot = rail_dot(dec.verdict)
         href = _cfg_href(cid)
+        ln = lines.line(rec["fact"].get("record"))
         configs.append({"id": cid, "href": href, "verdict": "NOT CHECKED" if doc is None else dec.verdict,
-                        "tone": tone(dec.verdict), "dot": dot, "cause": cause,
+                        "tone": tone(dec.verdict), "dot": dot, "cause": cause, "repo": ln["repo"],
+                        "glyph": ln["glyph"], "line": ln["ref_text"],
                         "current": path == href or path.startswith(href + "/")})
+    # the lines of one repository together, under its name (first-registered repository first)
+    first: dict = {}
+    for i, c in enumerate(configs):
+        first.setdefault(c["repo"], i)
+    configs = [c for _, c in sorted(enumerate(configs), key=lambda ic: (first[ic[1]["repo"]], ic[0]))]
+    for i, c in enumerate(configs):
+        c["repo_head"] = i == 0 or configs[i - 1]["repo"] != c["repo"]
     nav = list(nav)
     has_matrix = any(href.rstrip("/") == "/matrix" for _, href, _ in nav)
     flags = component_flags(config, decisions, all_pins)
@@ -230,9 +247,11 @@ def search(config, q: str, limit: int = 8, scope: str | None = None) -> list[dic
         for rec in views.configurations(config):
             cid = rec["fact"]["id"]
             if ql in cid.lower():
-                r = rec["fact"].get("record") or {}
-                sub = "configuration · %s" % ("frozen" if views.is_frozen(rec) else r.get("branch") or "")
-                if not add(cid, sub.rstrip(" ·"), "config", "c-ink", _cfg_href(cid)):
+                # a configuration is a line of its repository: "line of tidelink · branch main"
+                ln = lines.line(rec["fact"].get("record"))
+                sub = "line of %s · %s%s" % (ln["repo"] or "?", ln["ref_text"],
+                                                " · frozen" if views.is_frozen(rec) else "")
+                if not add(cid, sub, "config", "c-ink", _cfg_href(cid)):
                     return False
         return True
 

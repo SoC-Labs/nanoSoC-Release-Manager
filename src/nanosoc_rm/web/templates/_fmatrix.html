@@ -1,6 +1,7 @@
 {# The freshness matrix (CR-WF-gui; Matrix.dc.html). `fm` is web.fmatrix.matrix_view(). A cell is a link that
    opens one detail line under its row; state is a shape plus its word, never colour alone. #}
 {% import "_fp.html" as fpm %}
+{% import "_ui.html" as ui %}
 <div class="fp-toolbar">
   <div role="group" aria-label="Rows: repository kind" class="fp-seg">
   {% for t in fm.tabs %}
@@ -21,9 +22,14 @@
 <div class="fp-mx">
 <div class="fp-mx-scroll">
 <table aria-label="Repository freshness in each tree">
-  <thead><tr>
+  <thead>
+  {% if fm.repos %}<tr class="repos">
+    <td></td>
+    {% for g in fm.repos %}<th scope="colgroup" colspan="{{ g.span }}" data-column-repo="{{ g.repo }}">{{ ui.glyph(g.glyph, "fp-glyph") }} {{ g.repo or "[repository]" }}</th>{% endfor %}
+  </tr>{% endif %}
+  <tr>
     <th scope="col" class="repo"><span class="fp-facet-h">Repository</span></th>
-    {% for c in fm.cols %}<th scope="col" class="{% if c.frozen %}frozen{% endif %}" data-column="{{ c.id }}"><span class="colid">{{ c.id }}</span><span class="colsub">{{ c.sub }}</span></th>{% endfor %}
+    {% for c in fm.cols %}<th scope="col" class="{% if c.frozen %}frozen{% endif %}" data-column="{{ c.id }}"><span class="colid">{{ ui.glyph(c.glyph, "fp-glyph") }}{{ c.line }}</span><span class="colsub">{{ c.id }} · {{ c.sub }}</span></th>{% endfor %}
   </tr></thead>
   <tbody>
   {% for r in fm.rows %}
@@ -37,7 +43,8 @@
       <th scope="row" class="repo"><span class="repo-in"><span class="fp-kdot" style="background: {{ r.tone }}" aria-hidden="true"></span><span class="repo-id" title="{{ r.comp }}">{{ r.comp }}</span><span class="spread">{{ r.spread }}</span></span></th>
       {% for x in r.cells %}
       <td{% if fm.cols[loop.index0].frozen %} class="frozen"{% endif %}>
-        {% if x %}<a class="fp-cell c-{{ x.css }}" href="{{ x.href }}" aria-label="{{ x.aria }}"{% if x.on %} aria-current="true"{% endif %} data-cell-state="{{ x.css }}" {{ page.mark(x.obs) }}>{{ fpm.mark(x.css) }}<span class="w">{{ x.word }}</span><span class="mono">{{ x.num }}</span><span class="age">{{ x.age }}</span></a>
+        {% if x and not x.root %}<a class="fp-cell c-{{ x.css }}" href="{{ x.href }}" aria-label="{{ x.aria }}"{% if x.on %} aria-current="true"{% endif %} data-cell-state="{{ x.css }}" {{ page.mark(x.obs) }}>{{ fpm.mark(x.css) }}<span class="w">{{ x.word }}</span><span class="mono">{{ x.num }}</span><span class="age">{{ x.age }}</span></a>
+        {% elif x and x.root %}<span class="fp-cell-empty" data-cell-root>{{ x.root }}</span>
         {% else %}<span class="fp-cell-empty">not used</span>{% endif %}
       </td>
       {% endfor %}

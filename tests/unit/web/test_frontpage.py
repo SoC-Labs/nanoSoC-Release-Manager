@@ -138,7 +138,8 @@ def test_a_tree_with_an_unmeasured_direct_pin_is_never_current_on_home_or_the_ma
     keys_f = keys(c.get("/?f=current_except&v=1&o=p:nanosoc-ethernet-chiplet").text)
     assert "c:eth-main" in keys_f
     mx = c.get("/matrix/").text
-    heads = dict(re.findall(r'data-column="([^"]+)"><span class="colid">[^<]+</span><span class="colsub">([^<]+)<', mx))
+    heads = dict((m[0], m[1].split(" · ", 1)[1]) for m in re.findall(
+        r'data-column="([^"]+)"><span class="colid">.*?</span><span class="colsub">([^<]+)<', mx))
     assert heads["eth-main"].startswith("Current except 2 not measured"), heads
     spread = re.search(r'data-matrix-row="tidelink".*?<span class="spread">([^<]+)<', mx, re.S)
     assert spread and spread.group(1) != "current", "a repo nobody could measure is listed, never called current"
@@ -184,7 +185,7 @@ def test_the_pin_panel_gives_behind_bump_sha_and_where_the_same_pin_lags(fp):
          "pinned": "%040x" % (abs(hash(("eth-main", "tidelink"))) & ((1 << 160) - 1))}])
     text = fp["client"].get("/?v=1&sel=n:eth-main:tidelink").text
     f = facts(text)
-    assert f["Commits behind"] == "3 behind main"
+    assert f["Commits behind"] == "3 behind tidelink:main"        # the repo named, never a bare main
     assert f["Last bump"].startswith(tuple("0123456789")) and "by rm-fixture · 20 d ago · Fresh" in f["Last bump"]
     assert len(f["Pinned commit"]) == 7 and f["Path"] == "tidelink"
     assert f["Same pin also lags in"] == "multicore-master"
@@ -305,8 +306,15 @@ def test_the_matrix_defaults_to_freshness_and_keeps_the_compatibility_tab(fp):
     assert re.search(r'id="panel-freshness" aria-labelledby="tab-freshness">', text)
     assert re.search(r'id="panel-compat" aria-labelledby="tab-compat" hidden>', text)
     assert 'data-nightly="disabled"' in text and 'href="/matrix/eth-rc4"' in text      # the D3 index, unchanged
-    heads = dict(re.findall(r'data-column="([^"]+)"><span class="colid">[^<]+</span><span class="colsub">([^<]+)<', text))
+    heads = dict((m[0], m[1].split(" · ", 1)[1]) for m in re.findall(
+        r'data-column="([^"]+)"><span class="colid">.*?</span><span class="colsub">([^<]+)<', text))
     assert list(heads) == ["eth-main", "eth-rc4"] and heads["eth-rc4"] == "frozen silicon · not counted"
+    # each column is a line of its repository, the repository spanning its lines (evaluation 2026-10-16 s7)
+    assert re.search(r'data-column="eth-main"><span class="colid"><svg class="glyph g-branch fp-glyph"[^>]*>.*?</svg>'
+                     r'branch main @ [0-9a-f]{7}</span><span class="colsub">eth-main · ', text, re.S)
+    assert re.search(r'data-column="eth-rc4"><span class="colid"><svg class="glyph g-tag fp-glyph"[^>]*>.*?</svg>'
+                     r'tag [^<@]+ @ [0-9a-f]{7}</span>', text, re.S)
+    assert re.search(r'colspan="2" data-column-repo="nanosoc-ethernet-chiplet">', text)
     shown = re.findall(r'data-matrix-row="([^"]+)"', text)
     assert "tidelink" in shown and "asic-flow" not in shown       # current in every live tree: hidden by default
     assert "1 repo is current in every live tree and hidden" in text or "repos are current" in text
@@ -321,12 +329,12 @@ def test_a_matrix_cell_opens_one_detail_line_linking_to_the_pin_on_home(fp):
     c = fp["client"]
     text = c.get("/matrix/?comp=ethernet-subsystem-ahb&cfg=eth-main&rows=all").text
     d = re.search(r'<tr class="detail" data-detail="ethernet-subsystem-ahb">(.*?)</tr>', text, re.S).group(1)
-    assert "Outdated, 34 behind main" in d
+    assert "Outdated, 34 behind ethernet-subsystem-ahb:main" in d
     href = re.search(r'<a href="([^"]+)">Open in the project tree</a>', d).group(1).replace("&amp;", "&")
     home_text = c.get(href).text
     k = keys(home_text)
     assert "n:eth-main:nanosoc-multicore-system/ethernet-subsystem-ahb" in k                 # its parents opened
-    assert "Pin in eth-main" in detail(home_text) and "ethernet-subsystem-ahb" in detail(home_text)
+    assert "Submodule pin in eth-main (branch main)" in detail(home_text) and "ethernet-subsystem-ahb" in detail(home_text)
 
 
 def test_the_retired_freshness_page_sends_a_named_configuration_to_its_home_row(fp, monkeypatch):
@@ -340,7 +348,7 @@ def test_the_retired_freshness_page_sends_a_named_configuration_to_its_home_row(
         loc = r.headers["location"]
         assert loc.startswith("/?v=1&o=p%3Ananosoc-ethernet-chiplet&o=c%3Aeth-main&sel=c%3Aeth-main#row-"), loc
         text = c.get(loc).text
-        assert "c:eth-main" in keys(text) and "Configuration of nanosoc-ethernet-chiplet" in detail(text)
+        assert "c:eth-main" in keys(text) and "Line of nanosoc-ethernet-chiplet · eth-main" in detail(text)
     for url in ("/freshness/?configuration=no-such", "/freshness/no-such", "/freshness"):
         r = c.get(url, follow_redirects=False)
         assert (r.status_code, r.headers["location"]) == (301, "/"), url

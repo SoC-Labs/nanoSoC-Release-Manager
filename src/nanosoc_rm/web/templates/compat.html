@@ -1,4 +1,4 @@
-<p class="note">Resolve a configuration's submodule tree, optionally with pins moved, then run the T0 gates locally (and the SoC's T1 lint or T2 smoke if chosen). Same as <code>nanosoc-rm compat</code>; one job runs at a time on this host.</p>
+<p class="note">Resolve a configuration's submodule tree, optionally with pins moved, then run the <span title="T0">resolve check</span> gates locally (and the SoC's <span title="T1">lint</span> or <span title="T2">smoke simulation</span> if chosen). Same as <code>nanosoc-rm compat</code>; one job runs at a time on this host.</p>
 
 <form class="panel" method="get" action="/compat">
   <div class="row">
@@ -29,7 +29,7 @@
       {% set f = p.fact %}
       {% set comp = f.child.component %}
       <tr>
-        <td>{{ fact(p, f.tree_paths[0]) }}{% if f.split %} <span class="badge">split</span>{% endif %}</td>
+        <td>{{ fact(p, f.tree_paths[0]) }}{% if f.split %} <span class="badge" title="B7: pinned at more than one commit in this tree">pinned again</span>{% endif %}</td>
         <td>{{ comp or f.child.catalogued_as or '' }}</td>
         <td><code>{{ short(f.child.commit) }}</code></td>
         <td>{% set rs = refs.get(comp) or [] %}
@@ -55,14 +55,14 @@
   <div class="row">
     <label>Tier
       <select name="tier">
-        <option value="">T0 only</option>
+        <option value="">resolve check only</option>
         {% for t in ('t1', 't2') %}{% if tiers.get(t) %}<option value="{{ t }}">{{ t|upper }}: {{ (tiers[t].command if tiers[t].command is string else tiers[t].command|join(' '))|truncate(70) }} (budget {{ tiers[t].budget_s }} s)</option>{% endif %}{% endfor %}
       </select>
     </label>
-    <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if T0 fails (UNVERIFIED for release)</label>
+    <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if <span title="T0">resolve check</span> fails (UNVERIFIED for release)</label>
     <button type="submit" class="primary">Run</button>
   </div>
-  {% if not tiers %}<p class="note">No T1/T2 command for {{ cid }} in the registry's tiers.yaml.</p>{% endif %}
+  {% if not tiers %}<p class="note">No <span title="T1">static and unit tests</span>/<span title="T2">smoke simulation</span> command for {{ cid }} in the registry's tiers.yaml.</p>{% endif %}
 </form>
 {% else %}
 <div class="scroll"><table>

@@ -24,9 +24,9 @@
     {% elif f.overrides %}<p class="banner info">What-if run (pins overridden): shown here, never stored as a fact.{% if not compact %} <a href="/configurations/{{ quote(f.configuration) }}/whatif?job={{ job.id }}#whatif-result">Now vs After for this what-if</a>{% endif %}</p>{% endif %}
     <table class="kv">
       <tr><th>Run verdict</th><td><span class="pill {{ VERDICT_CLASS.get(f.run_verdict or f.verdict, '') }}">{{ f.run_verdict or f.verdict }}</span>
-        {% if f.tier %}(T0 {{ f.verdict }} + {{ f.tier.tier }} {{ f.tier.verdict }}){% endif %}
+        {% if f.tier %}(<span title="T0">resolve check</span> {{ f.verdict }} + {{ f.tier.tier }} {{ f.tier.verdict }}){% endif %}
         {% if f.not_run %}<span class="note">NOT-RUN gates: {{ f.not_run }}</span>{% endif %}
-        {% if f.over_budget %}<span class="warn">T0 over the 120 s budget</span>{% endif %}</td></tr>
+        {% if f.over_budget %}<span class="warn"><span title="T0">resolve check</span> over the 120 s budget</span>{% endif %}</td></tr>
       <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a> at <code>{{ short(f.commit, 12) }}</code></td></tr>
       <tr><th>Time</th><td>{{ f.started_at }} to {{ f.finished_at }}</td></tr>
       {% if f.overrides %}<tr><th>Overrides</th><td>{% for o in f.overrides %}<code>{{ o.tree_path }}</code> = <code>{{ short(o.commit, 12) }}</code> (was <code>{{ short(o.replaces, 12) if o.replaces else 'none' }}</code>)<br>{% endfor %}</td></tr>{% endif %}
@@ -58,7 +58,7 @@
       </tbody>
     </table></div>
     {% if f.splits %}
-    <h3>B7 splits (a component pinned at more than one commit)</h3>
+    <h3 title="B7">Pinned more than once (one component at more than one commit)</h3>
     <ul>{% for sp in f.splits %}<li><strong>{{ sp.component }}</strong>: {% for p in sp.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit) }}</code>{{ ', ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
     {% endif %}
     <h3>Pins ({{ f.pins|length }})</h3>
@@ -67,7 +67,7 @@
       <tbody>
       {% for p in f.pins %}
         <tr>
-          <td><code>{{ p.tree_path }}</code>{% if p.split %} <span class="badge">split</span>{% endif %}</td>
+          <td><code>{{ p.tree_path }}</code>{% if p.split %} <span class="badge">pinned again</span>{% endif %}</td>
           <td>{{ p.component or '' }}</td>
           <td><code>{{ short(p.commit) }}</code>{% if p.overridden %} <span class="pill state-info">override</span> <span class="note">was {{ short(p.replaces) }}</span>{% endif %}</td>
           <td><span class="{{ STATE_CLASS.get(p.state, 'state-red' if p.state else '') }}">{{ p.state or '' }}</span></td>

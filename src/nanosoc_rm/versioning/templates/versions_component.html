@@ -16,14 +16,14 @@
   <tr><th>Change class</th><td>{% set k = f.classification %}{% if k['class'] %}<span class="pill {{ CLASS_CLASS[k['class']] }}">{{ k['class'] }}</span>{% else %}unmeasured{% endif %} ({{ k.status }}){% if k.reason %} <span class="note">{{ k.reason }}</span>{% endif %}</td></tr>
   <tr><th>Next</th><td><strong>{{ f.next.version or 'none' }}</strong> <span class="note">{{ f.next.reason }}</span></td></tr>
   <tr><th>Commit-message hint</th><td>{{ f.hint['class'] or 'none' }} over {{ f.hint.commits }} commit(s) <span class="note">{{ f.hint.note }}</span></td></tr>
-  <tr><th>Manifest (C11)</th><td>{{ 'valid' if f.manifest.valid else ('INVALID: ' ~ f.manifest.problems|join('; ') if f.manifest.present else 'missing') }} &middot; <a href="{{ vurl(row.component, 'manifest.diff') }}">proposed manifest patch</a></td></tr>
-  <tr><th>API.md (C12)</th><td>{{ 'present' if f.api_md else 'missing' }}</td></tr>
-  {% if f.yanked %}<tr><th>Yanked (G6)</th><td>{{ f.yanked|join(', ') }}</td></tr>{% endif %}
-  {% if f.readiness_1_0 %}<tr><th>1.0.0 readiness (C9)</th><td>{% for i in f.readiness_1_0['items'] %}<span class="pill {{ 'state-green' if i.ok else ('state-red' if i.ok == false else 'state-grey') }}">{{ 'ok' if i.ok else ('missing' if i.ok == false else 'unmeasured') }}</span> {{ i.item }}<br>{% endfor %}</td></tr>{% endif %}
+  <tr><th title="C11">Manifest</th><td>{{ 'valid' if f.manifest.valid else ('INVALID: ' ~ f.manifest.problems|join('; ') if f.manifest.present else 'missing') }} &middot; <a href="{{ vurl(row.component, 'manifest.diff') }}">proposed manifest patch</a></td></tr>
+  <tr><th title="C12">API.md</th><td>{{ 'present' if f.api_md else 'missing' }}</td></tr>
+  {% if f.yanked %}<tr><th title="G6">Yanked</th><td>{{ f.yanked|join(', ') }}</td></tr>{% endif %}
+  {% if f.readiness_1_0 %}<tr><th title="C9">1.0.0 readiness</th><td>{% for i in f.readiness_1_0['items'] %}<span class="pill {{ 'state-green' if i.ok else ('state-red' if i.ok == false else 'state-grey') }}">{{ 'ok' if i.ok else ('missing' if i.ok == false else 'unmeasured') }}</span> {{ i.item }}<br>{% endfor %}</td></tr>{% endif %}
 </table>
 {% for x in f.findings %}<p class="banner problem">FINDING: {{ x }}</p>{% endfor %}
 {% for x in f.notes %}<p class="note">{{ x }}</p>{% endfor %}
-<h3>Signals (C3: the class is the most severe)</h3>
+<h3 title="C3">Signals (the class is the most severe)</h3>
 <div class="scroll"><table>
   <thead><tr><th>Signal</th><th>Class</th><th>Status</th><th>Detail</th></tr></thead>
   <tbody>{% for s in f.classification.signals %}
@@ -39,7 +39,7 @@
 {% set earlier = history %}{% if earlier %}<details><summary>Earlier and local plans ({{ earlier|length }})</summary><ul>{% for h in earlier|reverse %}<li{% if h.fact.worktree %} data-worktree="1"{% endif %}>{{ fact(h, h.fact.commit[:12] if h.fact.commit else 'work tree') }}{% if h.fact.worktree %} (LOCAL WORK TREE, not the component's plan){% endif %}: next {{ h.fact.next.version or 'none' }} ({{ h.fact.verdict }})</li>{% endfor %}</ul></details>{% endif %}
 {% else %}<p class="empty">No stored plan. Refresh (or run <code>nanosoc-rm version refresh {{ row.component }}</code>).</p>{% endif %}
 
-<h2>Changelog lint (C2)</h2>
+<h2 title="C2">Changelog lint</h2>
 {% if l %}{% set lf = l.fact %}
 <p>{{ fact(l, 'CHANGELOG.md ' ~ ('present' if lf.present else 'missing')) }} <span class="pill {{ VERDICT_CLASS.get(lf.verdict, '') }}">{{ lf.verdict }}</span> {{ lf.counts.error }} error(s), {{ lf.counts.warning }} warning(s)</p>
 {% if lf.findings %}<div class="scroll"><table>
@@ -48,7 +48,7 @@
 </table></div>{% endif %}
 {% else %}<p class="note">Not read yet.</p>{% endif %}
 
-<h2>Tags (C10)</h2>
+<h2 title="C10">Tags</h2>
 {% if t %}{% set tf = t.fact %}
 <p>{{ fact(t, (tf.rows|length) ~ ' tag(s)') }} <span class="pill {{ VERDICT_CLASS.get(tf.verdict, '') }}">{{ tf.verdict }}</span> {% if tf.scheme_from %}scheme applies from {{ tf.scheme_from }}{% else %}<span class="note">scheme not adopted yet: every existing tag is grandfathered (advisory)</span>{% endif %}</p>
 <details{% if tf.findings %} open{% endif %}><summary>Tag table</summary><div class="scroll"><table>
@@ -60,7 +60,7 @@
 
 {% if sv %}{% include "_store_versions.html" %}{% endif %}
 
-<h2>Release drafts (G1, G5)</h2>
+<h2 title="G1, G5">Release drafts</h2>
 {% if drafts %}<ul>{% for d in drafts %}<li>{{ d.version }}: {% for n in d.files %}<a href="{{ vurl(row.component, 'drafts/' ~ d.version ~ '/' ~ n) }}">{{ n }}</a>{{ ', ' if not loop.last }}{% endfor %}
   {% if d.approvals %}<table><thead><tr><th>Step</th><th>Roles (all needed)</th><th>State</th><th>Approved by</th><th></th></tr></thead><tbody>{% for a in d.approvals %}
     <tr data-step="{{ a.step }}"><td>{{ a.step }}</td><td>{{ a.roles|join(', ') }}</td><td><span class="pill {{ 'state-green' if a.state == 'approved' else ('state-grey' if a.state == 'automation-disabled' else 'state-amber') }}">{{ a.state }}</span></td>

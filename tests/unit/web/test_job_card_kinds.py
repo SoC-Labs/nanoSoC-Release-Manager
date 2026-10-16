@@ -5,6 +5,7 @@ to jobs.all_kinds() without a sample fails test_every_kind_has_a_sample, so the 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -30,10 +31,12 @@ SAMPLES = [
                                                           "build_affecting": False}},
     {"kind": "repo_seen", "subject": "github:SoC-Labs/x", "fact": {}},
     {"kind": "mirror_status", "subject": "b", "fact": {"ok": False}},
+    # Wave G: the test-bump job's result is the whole test_bump document (capabilities/jobkind.py)
+    json.loads((Path(__file__).resolve().parents[3] / "schemas" / "examples" / "test-bump.example.json").read_text()),
 ]
 STDOUT = "\n".join(json.dumps(d) for d in SAMPLES)
 # The kinds the samples above exercise beyond the generic {documents, kinds} summary.
-COVERED = {"compat", "matrix-cell", "store-index", "freshness-scan", "regen-class", "org-scan"}
+COVERED = {"compat", "matrix-cell", "store-index", "freshness-scan", "regen-class", "org-scan", "test-bump"}
 
 
 def _card(job: dict) -> str:

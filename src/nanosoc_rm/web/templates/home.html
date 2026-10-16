@@ -2,6 +2,7 @@
    section 13 configuration board closed under the tree. `home` is web.home.home_view(). Every row is a real link
    (the page state is in its URL); htmx swaps #home only. State is never colour alone: a word beside a shape. #}
 {% import "_fp.html" as fp %}
+{% import "_ui.html" as ui %}
 {% set h = home %}
 <div id="home" class="fp" hx-boost="true" hx-target="#home" hx-select="#home" hx-swap="outerHTML show:none">
 <div class="fp-toolbar">
@@ -55,7 +56,10 @@
           <span class="fp-name-cell">
             <span class="fp-indent" style="width: {{ r.indent }}px" aria-hidden="true"></span>
             <svg class="fp-chev{% if r.open %} is-open{% endif %}{% if not r.branch %} is-leaf{% endif %}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
-            <span class="fp-name k-{{ r.kind }}">{{ r.name }}</span>
+            {% if r.glyph %}{{ ui.glyph(r.glyph, "fp-glyph k-" ~ r.kind) }}{% endif %}
+            <span class="fp-name k-{{ r.kind }}">{% if r.kind == "pin" %}{{ r.name|replace("/", "/<wbr>"|safe) }}{% else %}{{ r.name }}{% endif %}</span>
+            {% if r.alias %}<span class="fp-alias">{{ r.alias }}</span>{% endif %}
+            {% if r.again %}<span class="fp-chip c-again" data-pinned-again>{{ r.again|replace("PINNED ", '<span class="w">PINNED </span>'|safe) }}</span>{% endif %}
             {% if r.chip %}<span class="fp-chip">{{ r.chip }}</span>{% endif %}
           </span>
           {{ fp.state(r.css, r.word) }}
@@ -88,7 +92,7 @@
 {% if not d %}
   <p class="fp-muted">Select a row to see its details.</p>
 {% else %}
-  <p class="fp-kind">{{ d.kind }}</p>
+  <p class="fp-kind">{% if d.kind_glyph %}{{ ui.glyph(d.kind_glyph) }} {% endif %}{{ d.kind }}</p>
   <h2 class="fp-title {{ d.title_cls }}">{{ d.title }}</h2>
   <p class="fp-stateline">{{ fp.state(d.css, d.word) }}{% if d.sub %}<span class="fp-sub">{{ d.sub }}</span>{% endif %}</p>
   {% if d.chips %}<p class="fp-chips">{% for c in d.chips %}<span class="fp-chip">{{ c }}</span>{% endfor %}</p>{% endif %}
@@ -123,6 +127,6 @@
 </div>
 
 <details id="home-checks" class="fp-checks">
-  <summary>Checks per configuration: T0, red pins, errata, host drift, Run</summary>
+  <summary>Checks per configuration: resolve check, red pins, errata, host drift, Run</summary>
   {% include "_board.html" %}
 </details>

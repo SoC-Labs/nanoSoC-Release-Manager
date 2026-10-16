@@ -524,7 +524,7 @@ def test_the_board_names_the_deciding_gate_and_hides_uniform_columns(empty):
     assert ">FAIL<" in cell and "tidelink pinned by ssh URL" in cell and "Try the fix in What-if" in cell
     assert re.search(r'<td data-item="t0-result" data-label="T0" hidden>', row)        # no CI here on every row
     assert re.search(r'<td data-item="runner-status" data-label="Runner" hidden>', row)
-    assert "so the T0 (CI) column is hidden" in text
+    assert 'so the <span title="T0">resolve check</span> (CI) column is hidden' in text
     from test_web_pages import cells
     p, sw = cells(text)
     assert sw.check_h1({"/": text}, configurations=["eth-rc4", "eth-main", "multicore-master"], cli_subjects={}) == []

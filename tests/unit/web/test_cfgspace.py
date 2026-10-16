@@ -94,7 +94,7 @@ def test_flags_name_the_gate_coverage_split_ssh_and_erratum():
                           frozen_tag="v1.0.0", frozen=True)
     n = cfgspace.Node("tidelink", _pin("tidelink", url_kind="ssh"))
     assert cfgspace.flags(n, fc) == [("GATE FAIL: ssh pin", "c-fail"), ("UNCOVERED", "c-fail"),
-                                     ("SPLIT x2", "c-split"), ("ssh URL", "c-warn"), ("ERR-9", "c-warn")]
+                                     ("PINNED ×2", "c-split"), ("ssh URL", "c-warn"), ("ERR-9", "c-warn")]
     assert cfgspace.flags(cfgspace.Node("other", _pin("other")), fc) == []
     assert cfgspace.flags(cfgspace.Node("", None), fc) == [("FROZEN v1.0.0", "c-ink")]
 
@@ -269,7 +269,7 @@ def test_silicon_lists_uncovered_rows_first_and_keeps_the_errata_hooks(ws):
     assert "13 of 14 silicon commits are covered by keep/eth-rc4/* tags. 1 is not." in text
     assert "git tag keep/eth-rc4/tidelink 5e8bdb5a2141ff5a82103813a326a2c9df2b43ed" in text
     assert re.search(r'<tr data-erratum="ETH-R0P0-ERR-001" data-exposure="[^"]+" data-method="[^"]+"', text)
-    assert 'id="h-waivers">T0 waivers (7)' in text
+    assert 'id="h-waivers"><span title="T0">resolve check</span> waivers (7)' in text
 
 
 def test_history_lists_jobs_and_stored_results(ws):

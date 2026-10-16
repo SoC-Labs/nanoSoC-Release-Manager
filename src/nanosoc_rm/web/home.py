@@ -34,7 +34,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock
-from nanosoc_rm.web import registry_facts, uistate, views
+from nanosoc_rm.web import lines, registry_facts, uistate, views
 
 __all__ = ["home_view", "dashboard", "router", "STATE_KEY", "WORD", "RULE", "PILLS", "KRANK", "sibling_rank",
            "parse_state"]
@@ -105,14 +105,6 @@ def _ago(days: int | None) -> str:
 
 def _behind(n: int | None, lower: bool) -> str:
     return "not measured" if n is None else ("%s%d" % ("at least " if lower else "", n))
-
-
-def _ref_text(rec: dict) -> str:
-    ref = rec.get("ref") or {}
-    for k in ("tag", "branch"):
-        if ref.get(k):
-            return ref[k]
-    return "?"
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -377,27 +369,36 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
 
     def add(key: str, level: int, branch: bool, state: str, name: str, kind: str, ago: str, aria: str,
             chip: str | None = None, bar: dict | None = None, fact: dict | None = None,
-            word: str | None = None) -> dict:
+            word: str | None = None, glyph: str | None = None, alias: str = "", again: str | None = None) -> dict:
+        # glyph: the row's kind shape (lines.KINDS, an icon; aria-hidden, the words beside it carry the meaning); alias:
+        # a muted suffix (a line's configuration id, a pin's component when it differs from its path)
         r = {"key": key, "id": _row_id(key), "level": level, "indent": level * 20, "branch": branch,
              "open": branch and key in open_, "sel": key == sel, "state": state, "css": STATE_KEY[state],
              "word": word or WORD[state], "name": name, "kind": kind, "ago": ago, "aria": aria, "chip": chip,
-             "href": link(key, branch), "bar": bar, "fact": fact}
+             "href": link(key, branch), "bar": bar, "fact": fact, "glyph": glyph, "alias": alias, "again": again}
         rows.append(r)
         return r
 
-    def pin_rows(cid: str, frozen: bool, node: dict, nodes: dict, level: int) -> None:
+    def pin_rows(cid: str, frozen: bool, node: dict, nodes: dict, level: int, again: dict) -> None:
         key = "n:%s:%s" % (cid, node["tree_path"])
         kids = _sorted_children(node, nodes, data)
         state = "frozen" if frozen else (node["rollup"] or node["live"])
         days = node["days_since_bump"]
-        name = node["component"] or node["name"]
-        r = add(key, level, bool(kids), state, name, "pin", _ago(days),
-                "%s, %s%s, %s" % (name, WORD[state], ", frozen silicon, not counted" if frozen else "",
-                                  "bumped %d days ago" % days if days is not None else "bump date unknown"),
-                bar=tl.bar(days, tl.frozen_end(cid) if frozen else 0, frozen) if tl else None, fact=node)
+        # a pin is named by its path and commit (two gitlinks of one repo are two rows that read differently);
+        # its component only when that differs from the path's last segment
+        pn = lines.pin(node["tree_path"], node["parent_path"], node["pinned"], node["component"])
+        n_again = again.get(node["component"] or "")
+        r = add(key, level, bool(kids), state, pn["text"], "pin", _ago(days),
+                "Submodule pin %s%s, %s%s%s, %s" % (
+                    pn["text"].replace(" @ ", " at "), (" (%s)" % pn["alias"]) if pn["alias"] else "", WORD[state],
+                    ", frozen silicon, not counted" if frozen else "",
+                    (", %s pinned at %d commits in this tree" % (node["component"], n_again)) if n_again else "",
+                    "bumped %d days ago" % days if days is not None else "bump date unknown"),
+                bar=tl.bar(days, tl.frozen_end(cid) if frozen else 0, frozen) if tl else None, fact=node,
+                glyph=pn["glyph"], alias=pn["alias"], again=lines.again_text(n_again) if n_again else None)
         if r["open"]:
             for k in kids:
-                pin_rows(cid, frozen, nodes[k], nodes, level + 1)
+                pin_rows(cid, frozen, nodes[k], nodes, level + 1, again)
 
     def cfg_rows(c: dict, level: int) -> None:
         key = "c:" + c["id"]
@@ -409,15 +410,19 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
         nodes = {n["tree_path"]: n for n in (tr["nodes"] if tr else [])}
         tops = _sorted_children(None, nodes, data)
         word = _cfg_word(c)
-        r = add(key, level, True, state, c["id"], "cfg", ("frozen %s" % _ago(days)) if frozen else _ago(days),
-                "Configuration %s, %s%s, %s" % (c["id"], word, ", frozen silicon, not counted" if frozen
-                                                 else "", _ago(days)),
+        # a configuration is a line of its repository: "branch main @ 8e6d043", its id beside it
+        ln = lines.line(c["record"], t["root"].get("commit"))
+        r = add(key, level, True, state, ln["text"], "cfg", ("frozen %s" % _ago(days)) if frozen else _ago(days),
+                "Line %s of %s, configuration %s, %s%s, %s" % (
+                    ln["text"].replace(" @ ", " at "), c["record"].get("component") or "?", c["id"], word,
+                    ", frozen silicon, not counted" if frozen else "", _ago(days)),
                 chip="not counted" if frozen else None,
                 bar=(tl.bar(days, days, True) if frozen else tl.bar(days, 0, False)) if tl else None, fact=t,
-                word=word)
+                word=word, glyph=ln["glyph"], alias=c["id"])
         if r["open"]:
+            again = lines.pinned_again(nodes.values())
             for k in tops:
-                pin_rows(c["id"], frozen, nodes[k], nodes, level + 1)
+                pin_rows(c["id"], frozen, nodes[k], nodes, level + 1, again)
 
     def proj_row(p: dict, level: int) -> None:
         key = "p:" + p["id"]
@@ -435,7 +440,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
             ago, bar = "[no scan]", None
         word = _roll_word(roll)
         r = add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
-                "%s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word)
+                "Repository %s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word,
+                glyph="repo")
         if r["open"]:
             for c in p["measured"]:
                 cfg_rows(c, level + 1)
@@ -583,8 +589,11 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
         sub = ""
     group = data.group_of(n["component"])
     chips = [GROUP_LABELS.get(group, "External") if n["catalogued_as"] != "external" or group else "External"]
+    again = lines.pinned_again(tr["nodes"]).get(n["component"] or "")
+    if again:
+        chips.append(lines.again_text(again))
     up = n["upstream"] or {}
-    branch = up.get("default_branch") or "[branch]"
+    branch = lines.qualified(n["component"], up.get("default_branch"))      # "tidelink:main", never a bare "main"
     facts = []
     if n["behind"] is None:
         facts.append(_fact("Commits behind", "not measured: %s" % (n["not_measured"] or "no count")))
@@ -598,6 +607,14 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
                                                                _age_word(n["days_since_bump"]))))
     facts.append(_fact("Pinned commit", (n["pinned"] or "")[:7], mono=True))
     facts.append(_fact("Path", n["tree_path"], mono=True))
+    tracks = _tracks(data, cid, path)
+    if tracks:
+        facts.append(_fact("Tracks", "%s (.gitmodules branch =; the pin is still fixed at its commit)"
+                           % lines.qualified(n["component"], tracks), mono=True))
+    if again:
+        others = sorted({"%s @ %s" % (x["tree_path"], (x["pinned"] or "")[:7]) for x in tr["nodes"]
+                         if x["component"] == n["component"] and x["tree_path"] != path})
+        facts.append(_fact("Also pinned at", ", ".join(others), mono=True))
     if n["branches"]:
         facts.append(_fact("On branches", ", ".join(n["branches"]) + (" and %d more" % n["branches_more"]
                                                                       if n["branches_more"] else "")))
@@ -624,7 +641,11 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
     caps, forms = _capabilities_section(data, cid, n["tree_path"], None if frozen else up.get("default_branch"),
                                         local)
     links += caps["links"]
-    return {"kind": "Pin in " + cid, "title": comp or n["name"], "title_cls": "t-mono", "state": state,
+    pn = lines.pin(n["tree_path"], None, n["pinned"], comp)
+    rec = next((c["record"] for p in data.projects for c in p["configs"] if c["id"] == cid), None)
+    ln = lines.line(rec, ((data.trees.get(cid) or {}).get("root") or {}).get("commit"))
+    return {"kind": "Submodule pin in %s (%s)" % (cid, ln["ref_text"]), "kind_glyph": "pin",
+            "title": pn["text"], "title_cls": "t-mono", "state": state,
             "css": STATE_KEY[state], "word": WORD[state], "sub": sub, "chips": chips, "blurb": None,
             "facts": facts, "note": note, "links": links, "obs": n, "forms": forms, "caps": caps}
 
@@ -677,8 +698,10 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
     sub = ("frozen silicon, not counted; would be %s if live" % would if frozen
            else "judged on its %d direct pins" % t["direct"])
     root = t["root"]
-    facts = [_fact("Tag" if frozen else "Ref", "%s @ %s (%s)" % (_ref_text(c["record"]), (root.get("commit") or "")[:7],
-                                                                _fmt_date(root.get("date"), today)), mono=True)]
+    ln = lines.line(c["record"], root.get("commit"))
+    facts = [_fact("Line", "%s (%s) · %s" % (ln["text"], _fmt_date(root.get("date"), today),
+                                              "frozen at the tag" if ln["kind"] == "tag" else "follows the branch"),
+                   mono=True)]
     nb = t.get("newest_bump") or {}
     if frozen:
         facts.append(_fact("Frozen", _ago(root.get("days"))))
@@ -713,7 +736,8 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
         if local else []
     caps, _ = _capabilities_section(data, cid, None, None, local)
     links += caps["links"]
-    return {"kind": "Configuration of " + proj, "title": cid, "title_cls": "t-mono", "state": state,
+    return {"kind": "Line of %s · %s" % (proj, cid), "kind_glyph": ln["glyph"], "title": ln["text"],
+            "title_cls": "t-mono", "state": state,
             "css": STATE_KEY[state], "word": _cfg_word(c), "sub": sub, "chips": ["not counted"] if frozen else [],
             "blurb": None, "facts": facts, "note": note, "links": links, "obs": t, "forms": forms, "caps": caps}
 
@@ -778,6 +802,18 @@ def _proj_detail(pid: str, data: _Data, today: dt.date) -> dict | None:
             "state": roll["state"], "css": STATE_KEY[roll["state"]], "word": _roll_word(roll), "sub": sub,
             "chips": chips, "blurb": (ch.question if ch is not None else None), "facts": facts, "note": note,
             "links": links, "obs": doc, "forms": []}
+
+
+def _tracks(data: _Data, cid: str, path: str) -> str | None:
+    """The `.gitmodules` `branch =` of the stored pin_state at `path` in `cid` (walker branch_field), or None."""
+    try:
+        for d in views.pins(data._config, cid):
+            f = d["fact"]
+            if path in (f.get("tree_paths") or ()):
+                return f.get("branch_field") or None
+    except Exception:                                            # noqa: BLE001 - a missing fact, never a 500
+        return None
+    return None
 
 
 def _pinned_in(pid: str, data: _Data) -> str | None:
