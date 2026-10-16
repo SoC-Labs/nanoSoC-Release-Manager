@@ -490,7 +490,7 @@ REPO = Path(__file__).resolve().parents[3]
 
 def test_the_example_agent_config_loads_and_names_no_lab_host():
     cfg = load_agent_config(REPO / "scripts" / "executor" / "agent.example.toml")
-    assert cfg.mode == "auto" and cfg.server.startswith("https://") and cfg.rm_config is None
+    assert cfg.mode == "bwrap" and cfg.server.startswith("https://") and cfg.rm_config is None  # never a silent fallback
     text = (REPO / "scripts" / "executor" / "agent.example.toml").read_text()
     assert "rmx_" not in text and "<host>" in text
 
@@ -501,3 +501,22 @@ def test_the_unit_template_runs_the_loop_with_the_agent_config_only():
     envs = [ln for ln in text.splitlines() if ln.startswith("Environment=")]
     assert envs == ["Environment=NANOSOC_RM_AGENT_CONFIG=%h/.config/nanosoc-rm-executor/agent.toml"]
     assert "NoNewPrivileges=yes" in text and "UMask=0077" in text
+
+
+# --- the agent reads run output unsandboxed: a command may not point it outside the sandbox (review g1) -------
+@needs_bwrap
+def test_a_verdicts_file_linked_out_of_the_tree_is_not_read(rig):
+    tid = rig.enqueue(command='ln -s %s "$NANOSOC_RM_VERDICTS"' % rig.token_file, verdict={"verdicts": "v.tsv"})
+    res = A.run_once(rig.agent, rig.client(), mode="bwrap")
+    assert rig.token not in json.dumps(Q.get(rig.config, tid))
+    assert res["verdict"] == "UNVERIFIED" and "link out of the tree" in res["reason"]
+
+
+@needs_bwrap
+def test_a_command_cannot_swap_its_log_for_a_link_or_hide_a_forbidden_marker(rig):
+    swap = 'for f in "$TREE"/../*.log; do rm -f "$f"; ln -s %s "$f"; done; ' % rig.token_file
+    tid = rig.enqueue(command=swap + "echo WRAPPER: SKIPPED", verdict={"exit": 0, "forbid": ["SKIPPED"]})
+    res = A.run_once(rig.agent, rig.client(), mode="bwrap")
+    assert rig.token not in json.dumps(Q.get(rig.config, tid)) + Q.log_path(rig.config, tid).read_text()
+    assert res["verdict"] == "FAIL"
+    assert not (rig.root / "scratch" / ("task-%d.logs" % tid)).exists()

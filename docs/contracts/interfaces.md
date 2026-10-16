@@ -2472,7 +2472,8 @@ Package `nanosoc_rm.executor`. Two queues, one transport:
 - **Verdict of one task** (`agent.judge`): `tier.<tier>` PASS iff the exit code is `verdict.exit` (default 0); a
   run killed (time limit, output limit, cancel, lost lease) is FAIL; each `forbid` string found in the output makes
   `tier.<tier>.forbid` FAIL (exit 0 alone is not trusted; the evaluation's `WRAPPER: SKIPPED`); a declared
-  `verdicts` file (removed before the run) adds its rows (`tierrun.parse_verdicts`; missing = UNVERIFIED); then the
+  `verdicts` file (removed before the run) adds its rows (`tierrun.parse_verdicts`; missing, a link out of the tree or not a regular file = UNVERIFIED,
+  never read: the agent reads it unsandboxed); then the
   `control` runs in the same tree and `tier.<tier>.negctl` is PASS iff it exited non-zero (the gate can fail); a
   control that did not fire turns a PASS into UNVERIFIED. Roll-up FAIL > UNVERIFIED > INFRA > WARN > PASS. Anything
   that stops the command from running (commit not in the mirror, budget over the agent's `max_budget_s`, a bind that
@@ -2501,8 +2502,9 @@ One task: (1) `check_task`; budget; (2) `checkout.lay_out`: a fresh repo per che
 `objects/info/alternates` points at the read-only mirror (nothing copied, fetched or written to the mirror); a
 missing commit is INFRA ("sync the agent's mirror"); (3) one heartbeat (the checkout may have been long), then
 the run in the sandbox below, heartbeating every `heartbeat_seconds`; (4) `judge`; (5) upload the log (head and tail, at most `max_upload_bytes`), then the result;
-a 409 drops the result (another claim owns the task). The work dir `<scratch_dir>/task-<id>` is removed unless
-`keep_work`. `run_loop` retries an unreachable service after `poll_seconds` and stops on 401/403/404 (a revoked
+a 409 drops the result (another claim owns the task). The work dir `<scratch_dir>/task-<id>` (the sandbox's one
+writable bind) and the logs dir `<scratch_dir>/task-<id>.logs` (outside every bind, so a command can neither swap a
+log for a link the agent would follow nor empty it to hide a `forbid` marker) are removed unless `keep_work`. `run_loop` retries an unreachable service after `poll_seconds` and stops on 401/403/404 (a revoked
 agent stops).
 
 **Sandbox** (`executor.sandbox`). Environment built from nothing: `PATH=<[sandbox] path>:/usr/bin:/bin`, HOME and

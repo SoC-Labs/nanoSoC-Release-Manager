@@ -12,9 +12,11 @@ One task:
      commit is INFRA ("sync the agent's mirror"), never FAIL.
   3. Remove a declared verdicts file the checkout carries, then run the command in the sandbox, heartbeating; the
      service's cancel, a lost lease, the time limit (budget x 1.5) and the output limit stop it.
+     Its logs go to `<scratch_dir>/task-<id>.logs/`, outside the sandbox's one writable bind, so the command
+     cannot swap them for a link the unsandboxed agent would follow, nor empty them to hide a forbidden marker.
   4. Judge it: `tier.<tier>` PASS when the exit code is the declared one (default 0); a declared `forbid` string in
      the output adds a FAIL row `tier.<tier>.forbid` (exit 0 alone is not trusted); a declared verdicts file adds
-     its rows (missing = UNVERIFIED); a declared control runs next and must exit non-zero (`tier.<tier>.negctl`
+     its rows (missing, a link out of the tree, or not a regular file = UNVERIFIED); a declared control runs next and must exit non-zero (`tier.<tier>.negctl`
      PASS = it fired); a control that did not fire turns a PASS into UNVERIFIED.
   5. Upload the log (its head and tail, at most `max_upload_bytes`), then the result. A lost lease (409) drops the
      result: another claim owns the task now. The work dir is removed unless `keep_work`.
@@ -29,7 +31,9 @@ The agent prints one line per task to stderr (task id, subject, verdict); never 
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
+import stat
 import sys
 import time
 from pathlib import Path
@@ -83,6 +87,35 @@ def _forbidden(log: Path, forbid: list[str]) -> list[str]:
     return [f for f in forbid if f in text]
 
 
+def logs_dir(work: Path) -> Path:
+    """Where the agent keeps a run's logs: a 0700 sibling of the work dir, never inside it. The work dir is the
+    sandbox's one writable bind, so a command could swap a log kept there for a symlink to a file outside the
+    sandbox (the agent, which reads the log back unsandboxed, would follow it) or for an empty file that hides a
+    forbidden marker."""
+    d = Path(work).with_name(Path(work).name + ".logs")
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True, mode=0o700)
+    return d
+
+
+def verdicts_path(tree: Path, vfile: str) -> Path | None:
+    """The declared verdicts file, or None when it must not be read: a link that resolves out of the tree, or
+    not a regular file (a FIFO would block the agent). The agent reads it unsandboxed, so the command that wrote
+    it may not point it anywhere else. A missing file is returned as is (parse_verdicts makes it UNVERIFIED)."""
+    p = Path(tree) / vfile
+    if not os.path.lexists(p):
+        return p
+    real, root = os.path.realpath(p), os.path.realpath(tree)
+    if not real.startswith(root + os.sep):
+        return None
+    try:
+        if not stat.S_ISREG(os.stat(real).st_mode):
+            return None
+    except OSError:
+        return p
+    return Path(real)
+
+
 def judge(run: dict, tier: str, nonce: str, outcome: sandbox.Outcome, log: Path, tree: Path,
           control: sandbox.Outcome | None = None) -> tuple[str, str | None, list[dict]]:
     want = int((run.get("verdict") or {}).get("exit", 0))
@@ -103,7 +136,12 @@ def judge(run: dict, tier: str, nonce: str, outcome: sandbox.Outcome, log: Path,
                          if hit else "none of %d forbidden marker(s) in the output" % len(forbid), nonce))
     vfile = (run.get("verdict") or {}).get("verdicts")
     if vfile and outcome.started:
-        rows += tierrun.parse_verdicts(tree / vfile, tier, nonce)
+        vpath = verdicts_path(tree, vfile)
+        if vpath is None:
+            rows.append(_row(head + ".verdicts", "UNVERIFIED", "declared verdicts file %s is a link out of the tree "
+                             "or not a regular file: not read" % vfile, nonce))
+        else:
+            rows += tierrun.parse_verdicts(vpath, tier, nonce)
     verdict = tierrun.tier_verdict(rows)
     if control is not None:
         fired = control.started and not control.killed and control.returncode not in (None, 0)
@@ -153,6 +191,7 @@ def execute(cfg: AgentConfig, claim: dict, mode: str, tick: Callable[[], str | N
     if work.exists():
         shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, mode=0o700)
+    logs = logs_dir(work)
     exposed = sandbox.exposure(cfg, work)
     if exposed:
         return _doc(cfg, claim, mode, started, reason="not run: " + "; ".join(exposed)), None
@@ -182,12 +221,12 @@ def execute(cfg: AgentConfig, claim: dict, mode: str, tick: Callable[[], str | N
         return _doc(cfg, claim, mode, started, checkout=co, reason="not run: %s" % e), None
     limits = sandbox.Limits(kill_after_s=budget * sandbox.KILL_FACTOR, max_log_bytes=cfg.max_log_bytes,
                             max_file_bytes=cfg.max_file_bytes)
-    log = work / ("tier-%s.log" % tier)
+    log = logs / ("tier-%s.log" % tier)
     out = sandbox.run(sandbox.argv_for(mode, cfg, run["command"], tree, work, cwd), env, cwd, log, limits,
                       tick=tick, tick_every_s=cfg.heartbeat_seconds)
     control = None
     if run.get("control") and out.started and not out.killed:
-        clog = work / ("control-%s.log" % tier)
+        clog = logs / ("control-%s.log" % tier)
         control = sandbox.run(sandbox.argv_for(mode, cfg, run["control"], tree, work, cwd), env, cwd, clog, limits,
                               tick=tick, tick_every_s=cfg.heartbeat_seconds)
     verdict, reason, rows = judge(run, tier, nonce, out, log, tree, control)
@@ -238,6 +277,7 @@ def run_job(cfg: AgentConfig, client: ExecutorClient, claim: dict, mode: str) ->
     work = Path(cfg.scratch_dir) / ("job-%d" % jid)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, mode=0o700)
+    logs = logs_dir(work)
     lost = {"gone": False}
 
     def tick() -> str | None:
@@ -274,12 +314,12 @@ def run_job(cfg: AgentConfig, client: ExecutorClient, claim: dict, mode: str) ->
             limits = sandbox.Limits(kill_after_s=cfg.max_budget_s, max_log_bytes=cfg.max_log_bytes,
                                     max_file_bytes=cfg.max_file_bytes)
             out = sandbox.run(sandbox.argv_for(mode, cfg, argv, work, work, work, ro=ro, rw=rw), env, work,
-                              work / "job.log", limits, tick=tick, tick_every_s=cfg.heartbeat_seconds,
-                              stdout_to=work / "stdout.jsonl")
+                              logs / "job.log", limits, tick=tick, tick_every_s=cfg.heartbeat_seconds,
+                              stdout_to=logs / "stdout.jsonl")
             rc = out.returncode
-            stdout = (work / "stdout.jsonl").read_text(encoding="utf-8", errors="replace") \
-                if (work / "stdout.jsonl").is_file() else ""
-            log_text = upload_bytes(work / "job.log", cfg.max_upload_bytes).decode("utf-8", "replace")
+            stdout = (logs / "stdout.jsonl").read_text(encoding="utf-8", errors="replace") \
+                if (logs / "stdout.jsonl").is_file() else ""
+            log_text = upload_bytes(logs / "job.log", cfg.max_upload_bytes).decode("utf-8", "replace")
             if out.stop_reason or not out.started:
                 log_text += "\n[executor %s] %s\n" % (cfg.name, out.stop_reason or out.start_error)
         if lost["gone"]:
@@ -295,6 +335,7 @@ def run_job(cfg: AgentConfig, client: ExecutorClient, claim: dict, mode: str) ->
     finally:
         if not cfg.keep_work:
             shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(work.with_name(work.name + ".logs"), ignore_errors=True)
 
 
 def run_once(cfg: AgentConfig, client: ExecutorClient, *, mode: str | None = None) -> dict | None:
@@ -345,6 +386,7 @@ def run_once(cfg: AgentConfig, client: ExecutorClient, *, mode: str | None = Non
     finally:
         if not cfg.keep_work:
             shutil.rmtree(work, ignore_errors=True)
+            shutil.rmtree(work.with_name(work.name + ".logs"), ignore_errors=True)
 
 
 def run_loop(cfg: AgentConfig, client: ExecutorClient, *, mode: str | None = None,

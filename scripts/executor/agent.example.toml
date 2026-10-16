@@ -17,7 +17,8 @@ max_upload_bytes = 2097152
 # site_host = "eda-1"                            # the registry tiers.yaml host id for jobs
 
 [sandbox]
-mode = "auto"                                    # bwrap when it works here, else the scrubbed fallback (DEPLOY.md)
+mode = "bwrap"                                   # refuse to run without bwrap; "auto" falls back SILENTLY to
+                                                 # the scrubbed fallback, where a command can read the token
 network = true                                   # licence servers
 ro_binds = ["/<eda-tools-root>"]                 # tool trees, read-only inside the sandbox
 path = ["/<eda-tools-root>/verilator/bin"]       # prepended to /usr/bin:/bin

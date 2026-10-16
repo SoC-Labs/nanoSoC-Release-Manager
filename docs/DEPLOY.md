@@ -245,7 +245,9 @@ On the service host:
 On the EDA host, as a DEDICATED user (no ssh keys, nothing else in its home; never a person's account):
 
 4. Check the sandbox: `command -v bwrap && bwrap --ro-bind / / --unshare-all /bin/true && echo usable`. Without a
-   usable bubblewrap the agent falls back to a scrubbed environment only (residual risk below).
+   usable bubblewrap the agent falls back to a scrubbed environment only (residual risk below). The example
+   config sets `mode = "bwrap"`, so the agent refuses to start instead of falling back silently; choose
+   `fallback` only on purpose.
 5. Install the tool in a venv (as in "Install" steps 1 and 2) and put the token at
    `~/.config/nanosoc-rm-executor/token` (`chmod 600`).
 6. Give it a read-only mirror: a copy of the service's `<data_dir>/mirrors/` (`<component>.git` bare repos) that the
