@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "task_id": 7,
+  "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "executor": "eda-1",
+  "sandbox": "bwrap",
+  "started_at": "2026-10-16T10:00:00Z",
+  "finished_at": "2026-10-16T10:01:05Z",
+  "verdict": "FAIL",
+  "reason": "tier.t1.forbid: the output carries 'SKIPPED': exit 0 alone is not trusted",
+  "exit_code": 0,
+  "killed": false,
+  "seconds": 62.4,
+  "over_budget": false,
+  "rows": [
+    {"utc": "2026-10-16T10:01:04Z", "status": "PASS", "gate": "tier.t1", "detail": "exit 0 in 62.4 s (want 0)", "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90"},
+    {"utc": "2026-10-16T10:01:04Z", "status": "FAIL", "gate": "tier.t1.forbid", "detail": "the output carries 'SKIPPED': exit 0 alone is not trusted", "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90"},
+    {"utc": "2026-10-16T10:01:05Z", "status": "PASS", "gate": "tier.t1.negctl", "detail": "control exited 1: the gate can fail", "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90"}
+  ],
+  "log": {"bytes": 18234, "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08", "truncated": false, "uploaded": true},
+  "log_tail": ["PASS 3", "WRAPPER: SKIPPED"],
+  "checkout": {"laid_out": ["", "tidelink", "tidechart"], "missing": []}
+}

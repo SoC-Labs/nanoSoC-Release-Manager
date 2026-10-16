@@ -5,6 +5,8 @@ change of roles or registry takes effect without a restart.
 
 Guard. One ASGI middleware sits in front of EVERY route, including a route someone appends to the router
 after construction, and a websocket route too: only `/auth/*` and `/static/*` pass without a member (http),
+and `/executor/*` goes to the executor API (executor/api.py: POST only, its own bearer token, no session,
+never routed by this app, so a session never reaches it and its token never reaches any other route),
 and a websocket without a member is closed with 1008. Only the ASGI lifespan scope passes unchecked. Anonymous: pages redirect to
 `/auth/login`, `/api` and non-GET requests get 401. A refused session (not an active member, or no role)
 gets 403 everywhere. Refusals carry no data and never echo the path.
@@ -41,6 +43,7 @@ from starlette.websockets import WebSocketClose
 from nanosoc_rm import auth as authmod
 from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.config import Config, ConfigError, load_config
+from nanosoc_rm.executor import api as executor_api
 from nanosoc_rm.web import plugins, registry_facts, routers, shell, views
 from nanosoc_rm.web.page import NAV, Page, env, render
 
@@ -146,6 +149,9 @@ class Guard:
 
     async def _http(self, scope: dict, receive: Callable, send: Callable) -> None:
         path = scope.get("path", "")
+        if _is_under(path, executor_api.PREFIX):       # CR-WG-executor: bearer token only, never a session
+            await executor_api.serve(scope, receive, send, self.state.config)
+            return
         if any(_is_under(path, p) for p in _OPEN_PREFIXES):
             await self.app(scope, receive, send)
             return

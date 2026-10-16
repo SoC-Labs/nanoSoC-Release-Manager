@@ -1,0 +1,20 @@
+# expect-error: pattern at /rows/0/nonce
+# Every row of a posted result carries the task's full nonce (D5): a row without it is not this run's evidence.
+schema: 1
+task_id: 7
+nonce: a1b2c3d4e5f60718293a4b5c6d7e8f90
+executor: eda-1
+sandbox: bwrap
+started_at: "2026-10-16T10:00:00Z"
+finished_at: "2026-10-16T10:01:05Z"
+verdict: PASS
+reason: null
+exit_code: 0
+killed: false
+seconds: 62.4
+over_budget: false
+rows:
+  - {utc: "2026-10-16T10:01:04Z", status: PASS, gate: tier.t1, detail: exit 0, nonce: a1b2c3d4}
+log: {bytes: 10, sha256: null, truncated: false, uploaded: false}
+log_tail: []
+checkout: {laid_out: [""], missing: []}

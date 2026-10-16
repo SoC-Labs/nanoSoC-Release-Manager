@@ -1,0 +1,16 @@
+{
+  "task_id": 7,
+  "lease": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "nonce": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "lease_seconds": 300,
+  "task": {
+    "schema": 1,
+    "subject": {"configuration": null, "component": "tidelink", "capability": "lint-fast", "side": "after", "pair": "bump-7"},
+    "mirror": "tidelink",
+    "commit": "c22416c1a2b3c4d5e6f708192a3b4c5d6e7f8091",
+    "pins": [],
+    "run": {"tier": "t1", "command": ["make", "farm_gate_fast"], "budget_s": 1200},
+    "labels": ["vcs"],
+    "requested_by": "david"
+  }
+}

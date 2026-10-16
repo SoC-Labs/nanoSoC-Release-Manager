@@ -11,6 +11,9 @@ ConfigError into exit 3 (interfaces.md section 0.2).
 
 `[hosts.<host>] private_read` (CR-PR1, optional) names a read-only method for private mirrors.
 
+`[executor]` (CR-WG-executor, interfaces.md section 27.5) turns the remote tier executor's API on: `lease_seconds`,
+`max_attempts` and `[[executor.agents]]` (name, token_sha256, labels, revoked). Only token digests live here.
+
 `[auth]` (CR-16) selects the sign-in: `mode = "github"` (default) or `"local"` with `[[auth.users]]` (login,
 scrypt `hash`, optional `roles`).
 
@@ -62,7 +65,16 @@ _STORES = {"disk": {"path": _STR},
                            "allowed_signers": _STR, "signer_identity": _STR, "ssh_keygen": _STR,
                            "projects": _TABLE, "repos": _STRS}}
 _ART_PATHS = ("token_file", "signing_key", "allowed_signers", "ssh_keygen")
-_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth"}
+_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth", "executor"}
+# [executor] (CR-WG-executor, section 27.5): the pull agents allowed to claim tier tasks. A token is never stored,
+# only its sha256 (`nanosoc-rm executor token new`); `revoked = true` (or deleting the entry) refuses it at once.
+# `host` and `local_fallback` are read by the capabilities unit (section 26: the site-data host id, and the local
+# worker running tier jobs itself); the rest by the executor (section 27). One table, both sets (section 27.1).
+_EXECUTOR = {"lease_seconds": _INT, "max_attempts": _INT, "agents": "list[table]", "host": _STR,
+             "local_fallback": _BOOL}
+_EXECUTOR_AGENT = {"name": _STR, "token_sha256": _STR, "labels": _STRS, "revoked": _BOOL}
+_LABEL = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z")
+_SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
 AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
 _AUTH = {"mode": _STR, "users": "list[table]"}
 _AUTH_USER = {"login": _STR, "hash": _STR, "roles": _STRS}
@@ -155,6 +167,7 @@ def validate(doc: dict) -> list[str]:
                 if name == "artifactory" and isinstance(table, dict):
                     _check_artifactory(table, problems)
     _check_auth(doc.get("auth"), problems)
+    _check_executor(doc.get("executor"), problems)
     roles = doc.get("roles", {})
     if not isinstance(roles, dict):
         problems.append("[roles] must be a table")
@@ -247,6 +260,51 @@ def _check_auth(auth: Any, problems: list[str]) -> None:
             problems.append("[%s] hash is required: the scrypt$... line `nanosoc-rm user add` prints" % where)
     if mode == "local" and not users:
         problems.append("[auth] mode = \"local\" needs at least one [[auth.users]] entry (`nanosoc-rm user add`)")
+
+
+def _check_executor(ex: Any, problems: list[str]) -> None:
+    """CR-WG-executor: `[executor]` lease_seconds (>= 10), max_attempts (>= 1), `[[executor.agents]]` with a unique
+    label-shaped name, a 64-hex token_sha256 (unique too), labels, optional revoked."""
+    if ex is None:
+        return
+    if not isinstance(ex, dict):
+        problems.append("[executor] must be a table")
+        return
+    for k in ex:
+        if k not in _EXECUTOR:
+            problems.append("[executor] unknown key %r" % k)
+    for k in ("host", "local_fallback"):
+        if k in ex and not _type_ok(ex[k], _EXECUTOR[k]):
+            problems.append("[executor] %s must be %s" % (k, _EXECUTOR[k]))
+    for k, low in (("lease_seconds", 10), ("max_attempts", 1)):
+        if k in ex and (not _type_ok(ex[k], _INT) or ex[k] < low):
+            problems.append("[executor] %s must be an integer >= %d" % (k, low))
+    agents = ex.get("agents", [])
+    if not isinstance(agents, list) or not all(isinstance(a, dict) for a in agents):
+        problems.append("[[executor.agents]] must be an array of tables")
+        return
+    names, digests = set(), set()
+    for i, a in enumerate(agents):
+        where = "executor.agents[%d]" % i
+        _check_table(where, a, _EXECUTOR_AGENT, problems)
+        name, dig = a.get("name"), a.get("token_sha256")
+        if not isinstance(name, str) or not _LABEL.match(name) or name == "local":
+            problems.append("[%s] name is required (lower case letters, digits, _ . -; not \"local\", the service's "
+                            "own worker)" % where)
+        elif name in names:
+            problems.append("[%s] name %s is given twice" % (where, name))
+        else:
+            names.add(name)
+        if not isinstance(dig, str) or not _SHA256.match(dig):
+            problems.append("[%s] token_sha256 is required: the line `nanosoc-rm executor token new` prints" % where)
+        elif dig in digests:
+            problems.append("[%s] token_sha256 repeats another agent's token" % where)
+        else:
+            digests.add(dig)
+        if _type_ok(a.get("labels", []), _STRS):
+            bad = [x for x in a.get("labels", []) if not _LABEL.match(x)]
+            if bad:
+                problems.append("[%s] labels: %r is not a label" % (where, bad[0][:40]))
 
 
 class Config(dict):

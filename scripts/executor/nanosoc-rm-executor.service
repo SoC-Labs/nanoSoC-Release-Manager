@@ -1,0 +1,28 @@
+# Template: the remote tier executor's pull agent as a systemd --user service (interfaces.md section 27; DEPLOY.md
+# "Remote tier executor"). Install it as the DEDICATED agent user on the EDA host, never as a person's account:
+#   install -m 0644 nanosoc-rm-executor.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now nanosoc-rm-executor
+# Nothing in the tool installs or starts it.
+[Unit]
+Description=nanoSoC Release Manager remote tier executor (pull agent)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=NANOSOC_RM_AGENT_CONFIG=%h/.config/nanosoc-rm-executor/agent.toml
+# No other environment reaches tier commands: the agent builds each command's environment from nothing.
+ExecStart=%h/nanosoc-rm/venv/bin/nanosoc-rm executor run --loop
+Restart=on-failure
+RestartSec=30
+# SIGTERM: the agent stops claiming; a running command is killed with its process group.
+KillMode=control-group
+TimeoutStopSec=60
+# Hardening that works in a user unit (systemd 239+). bubblewrap needs user namespaces, so no
+# RestrictNamespaces / PrivateUsers here; the per-command sandbox is the agent's own.
+NoNewPrivileges=yes
+UMask=0077
+LimitCORE=0
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -46,7 +46,7 @@ __all__ = ["main", "EXIT_OK", "EXIT_FINDING", "EXIT_UNVERIFIED", "EXIT_USAGE", "
 # CR-15: it drafts, never tags or publishes; the phase gate governs enabling (A7, phasegates.py).
 PLUGIN_MODULES = ("db", "registry", "mirror", "walker", "analysis", "t0", "ci", "scan", "credentials", "web",
                   "schedule", "trace", "quality", "matrix", "versioning", "bumps", "releases", "regen", "store",
-                  "publish", "catalogue", "freshness")
+                  "publish", "catalogue", "freshness", "executor")
 
 
 class RMGroup(click.Group):
