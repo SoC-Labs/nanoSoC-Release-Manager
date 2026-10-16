@@ -2407,6 +2407,26 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   `data-new-repo` (`<host>:<path>`), `data-ask` (component id), `data-group` (group), `data-pending`,
   `data-preview-valid` on the Catalogue page; `data-item` (item id) and `data-read` (`true`\|`false`) on each
   notification.
+- **Repository, line and submodule pin** (CR-WG-subrepo-ui; `web.lines`). One vocabulary on Home, the
+  configuration pages, the component workspace, the Matrix and search. A configuration row is a **line** of its
+  repository: its name is `lines.line(record, root commit)["text"]` ("branch main @ 8e6d043", "tag v1.0.0 @
+  ab73e40"; no " @ sha" when no commit is known), its configuration id beside it (`fp-alias`). A pin row is a
+  **submodule pin**: "path @ sha", the path relative to the gitlink holding it, the component beside it only when it
+  differs from the path's last segment. A repository pinned at N > 1 different commits in one tree carries
+  "PINNED ×N" on each of its rows (`data-pinned-again`; `lines.pinned_again`), so two gitlinks of one repo never read
+  the same. A branch of a pinned repository prints as `<repo>:<branch>` (`lines.qualified`). Each row kind has an
+  inline-SVG icon (`_ui.html` `glyph(kind)`, kinds `lines.KINDS`: repo, branch, tag, pin, again; aria-hidden, hook
+  `data-glyph`); "How is this judged?" prints the legend (`data-legend`, `lines.LEGEND`). The Matrix groups the
+  columns of one repository under a spanning head (`data-column-repo`), each column head is the line (its id and
+  verdict under it), and a repository's cell in its own root's column reads "root @ sha" (`data-cell-root`); the
+  Compatibility tab's configuration list has a Line column (`data-ref`). The component Overview lists the
+  repository's own lines (`data-lines`, `data-line` = configuration id). The rail groups configurations under their
+  repository (`data-rail-repo`). Search names a configuration "line of <repo> · branch main". The word SPLIT is
+  retired from the GUI: a pin split reads PINNED ×N (PINNED AGAIN when the walk holds one of the commits), a host
+  copy that differs reads "HOSTS DIFFER: <host> <relation> N". Spec codes print as words with the code in a
+  tooltip (`web.terms`: `plain` Jinja filter, applied to every `_ui.html` chip; host states such as ON_DEFAULT ->
+  "on default branch", tiers T0-T6 -> "resolve check" .. "ASIC flow", requirement IDs dropped from headings into a
+  `title`).
 - **Notifications.** Items are `inbox.cards` (one per card; kind = the card's category) plus `catalogue:new-repos`
   (kind `catalogue`) when the current `repo_seen` snapshots hold any repo. Read state is the inbox's done state
   (`uistate.set_card` with the item's fingerprint): an item read here is done in the card view, and it comes back

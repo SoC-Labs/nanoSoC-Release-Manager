@@ -1,5 +1,5 @@
 {# /versions/: one row per catalogue component, from STORED results (`nanosoc-rm version refresh` stores them). #}
-<p class="note">Versions and change classes (C1-C12): the current release tag, the Unreleased changelog entries by class, and the next version under SemVer with the Cargo pre-1.0 rule. {{ NOT_PUSHED }}</p>
+<p class="note"><span title="C1-C12">Versions and change classes</span>: the current release tag, the Unreleased changelog entries by class, and the next version under SemVer with the Cargo pre-1.0 rule. {{ NOT_PUSHED }}</p>
 {% if local %}<form class="panel" method="post" action="/versions/refresh">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
   <div class="row">
@@ -12,7 +12,7 @@
 {% set stored = rows|selectattr('plan')|list %}
 {% if stored %}
 <div class="scroll"><table>
-  <thead><tr><th>Component</th><th>Class of repo</th><th>Current tag</th><th>Unreleased</th><th>Change class</th><th>Next</th><th>Verdict</th><th>Changelog</th><th>Manifest</th><th>API.md</th><th>Tags (C10)</th></tr></thead>
+  <thead><tr><th>Component</th><th>Class of repo</th><th>Current tag</th><th>Unreleased</th><th>Change class</th><th>Next</th><th>Verdict</th><th>Changelog</th><th>Manifest</th><th>API.md</th><th title="C10">Tags</th></tr></thead>
   <tbody>
   {% for r in rows %}{% set p = r.plan %}
     {% if p %}{% set f = p.fact %}
@@ -35,5 +35,5 @@
   {% endfor %}
   </tbody>
 </table></div>
-<p class="note">Verdict: PASS a next version from a complete class; WARN from a partial class (a C3 signal is unmeasured: consumer regeneration needs the generator); UNVERIFIED no class at all (no classed changelog); FAIL a finding (a 1.0.0 that C9 refuses, a next version already tagged or yanked).</p>
+<p class="note">Verdict: PASS a next version from a complete class; WARN from a partial class (a change-class signal is unmeasured: consumer regeneration needs the generator); UNVERIFIED no class at all (no classed changelog); FAIL a finding (a 1.0.0 that the 1.0.0 readiness check refuses, a next version already tagged or yanked).</p>
 {% else %}<p class="empty">Nothing stored yet. Press Refresh (or run <code>nanosoc-rm version refresh</code>).</p>{% endif %}

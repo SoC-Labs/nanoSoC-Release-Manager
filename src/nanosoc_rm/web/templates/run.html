@@ -9,7 +9,7 @@
   <tr><th>Runner</th><td>{% if f.runner %}{{ f.runner.id }} {{ f.runner.description or '' }} [{{ f.runner.tags|join(', ') }}]{% else %}none{% endif %}</td></tr>
   <tr><th>Bundle</th><td>{% if f.bundle %}{{ f.bundle.store }}: {{ f.bundle.path }}{% else %}none{% endif %}</td></tr>
 </table>
-<p class="note">T0 judges reachability from inside the lab network (GATE2 Q5).</p>
+<p class="note"><span title="T0">resolve check</span> judges reachability from inside the lab network (GATE2 Q5).</p>
 <h2>Gates</h2>
 <table>
   <thead><tr><th>Gate</th><th>Verdict</th><th>Control</th><th>Detail</th></tr></thead>

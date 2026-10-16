@@ -4,7 +4,7 @@
 {% include "_cfg_head.html" %}
 {% macro row(r) -%}
 <span class="trow{% if r.selected %} tsel{% endif %}{% if r.twin %} is-twin{% endif %}" data-tree-path="{{ r.path }}" data-tone="{{ r.tone }}"{% if r.selected %} aria-current="true"{% endif %}>
-  <a href="{{ r.href }}" hx-get="{{ r.hx }}" hx-target="#pin-aside" hx-swap="outerHTML" hx-push-url="{{ r.href }}"><code>{{ r.path }}</code>{% if r.comp %} <span class="note">{{ r.comp }}</span>{% endif %}</a>
+  <a href="{{ r.href }}" hx-get="{{ r.hx }}" hx-target="#pin-aside" hx-swap="outerHTML" hx-push-url="{{ r.href }}">{{ ui.glyph("pin") }} <code>{{ r.path }}</code>{% if r.comp %} <span class="note">{{ r.comp }}</span>{% endif %}</a>
   {{ fact(r.pin, r.commit, tag='code') }}
   {% for text, tone in r.hosts %}{{ ui.chip(text, tone) }} {% endfor %}
   {% for text, tone in r.flags %}{{ ui.chip(text, tone) }} {% endfor %}
@@ -29,7 +29,7 @@
     {% for r in t.flat %}<li>{{ row(r) }}</li>{% else %}<li><p class="empty">No pin matches this filter.</p></li>{% endfor %}
   </ul>
   {% else %}
-  <p class="trow"><strong><code>{{ t.root.label }}</code></strong> <code>{{ t.root.commit }}</code> {% for text, tone in t.root.flags %}{{ ui.chip(text, tone) }} {% endfor %}</p>
+  <p class="trow" data-tree-root><strong><code>{{ t.root.line }}</code></strong> <span class="note">configuration {{ t.root.label }}</span> {% for text, tone in t.root.flags %}{{ ui.chip(text, tone) }} {% endfor %}</p>
   <ul class="tree" style="list-style:none;padding-left:1rem">
   {% for r in t.rows recursive %}
     <li>

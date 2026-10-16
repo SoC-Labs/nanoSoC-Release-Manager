@@ -18,7 +18,7 @@ from typing import Any
 
 from nanosoc_rm import clock
 from nanosoc_rm.web import home as H
-from nanosoc_rm.web import registry_facts, views
+from nanosoc_rm.web import lines, registry_facts, views
 
 __all__ = ["matrix_view", "TABS", "GROUP_ORDER", "kind_of"]
 
@@ -68,8 +68,13 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
     except Exception as e:                                       # noqa: BLE001
         problems.append("the catalogue characterisation could not be read: %s" % str(e)[:200])
         chars = {}
-    cfg_root = {d["fact"]["record"]["id"]: d["fact"]["record"].get("component") for d in views.configurations(config)}
-    cols = g["configurations"]
+    cfg_rec = {d["fact"]["record"]["id"]: d["fact"]["record"] for d in views.configurations(config)}
+    cfg_root = {cid: r.get("component") for cid, r in cfg_rec.items()}
+    # the lines of one repository sit side by side (eth: branch main | tag v1.0.0), live before frozen within it
+    order = {c: i for i, c in enumerate(g["configurations"])}
+    cols = sorted(g["configurations"], key=lambda c: (min(order[x] for x in g["configurations"]
+                                                          if cfg_root.get(x) == cfg_root.get(c)),
+                                                      cfg_root.get(c) or "", order[c]))
     live = [c for c in cols if not trees.get(c, {}).get("frozen")]
     cells = g["cells"]
 
@@ -118,6 +123,12 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
         return {"css": H.STATE_KEY[st], "word": H.WORD[st], "num": num, "age": "" if frozen or days is None else "%d d" % days,
                 "aria": aria, "href": href, "on": on, "frozen": frozen, "obs": x}
 
+    def root_cell(comp: str, cid: str) -> dict | None:
+        """The column's own repository: "root @ sha", not "not used"."""
+        if cfg_root.get(cid) != comp:
+            return None
+        return {"root": "root @ %s" % lines.line(cfg_rec.get(cid), (trees.get(cid) or {}).get("root", {}).get("commit"))["sha"]}
+
     def row(comp: str) -> dict:
         used = [c for c in live if c in cells[comp]]
         nl, nu = n_lag(comp), n_unmeasured(comp)
@@ -133,7 +144,7 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
             spread = "current"
         return {"comp": comp, "kind": kind(comp), "tone": KIND_TONE[kind(comp)], "sel": comp == sel_comp,
                 "spread": spread,
-                "cells": [cell_view(comp, c) for c in cols], "anchor": "m-" + urllib.parse.quote(comp, safe="")}
+                "cells": [cell_view(comp, c) or root_cell(comp, c) for c in cols], "anchor": "m-" + urllib.parse.quote(comp, safe="")}
 
     def detail() -> dict | None:
         if not (sel_comp and sel_cfg and sel_comp in cells and sel_cfg in cells[sel_comp]):
@@ -143,7 +154,7 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
         if n is None:
             return None
         frozen = n["frozen"]
-        up = (n.get("upstream") or {}).get("default_branch") or "[branch]"
+        up = lines.qualified(sel_comp, (n.get("upstream") or {}).get("default_branch"))   # "tidelink:main"
         b = n.get("bump") or {}
         bdate = H._fmt_date(b.get("date"), today) if b else "[date]"
         behind = "not measured" if n["behind"] is None else ("at least %d" % n["behind"] if n["lower_bound"]
@@ -192,10 +203,16 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
                 rows.insert(i + 1, {"detail": det})
                 break
     head = []
+    repos: list[dict] = []                       # one spanning header per repository over its lines
     for c in cols:
         t = trees.get(c) or {}
         frozen = bool(t.get("frozen"))
-        head.append({"id": c, "frozen": frozen,
+        ln = lines.line(cfg_rec.get(c), (t.get("root") or {}).get("commit"))
+        if repos and repos[-1]["repo"] == cfg_root.get(c):
+            repos[-1]["span"] += 1
+        else:
+            repos.append({"repo": cfg_root.get(c), "span": 1, "glyph": "repo"})
+        head.append({"id": c, "frozen": frozen, "line": ln["text"], "glyph": ln["glyph"],
                      "sub": "frozen silicon · not counted" if frozen else "%s · bumped %s" % (
                          t.get("word") or "?", H._ago(t.get("updated_days")))})
     tabs = [{"key": "all", "label": "All", "n": len(comps), "on": group == "all", "tone": None,
@@ -209,7 +226,7 @@ def matrix_view(config, query: Any, *, today: dt.date | None = None) -> dict:
     if group not in ("all", "ext"):
         in_group = {cid for cid, ch in chars.items() if kind_of(ch.group) == group}
     unpinned = sorted(in_group - set(comps))
-    return {"problems": problems, "cols": head, "rows": rows, "n_shown": len(shown), "n_group": len(of_group),
+    return {"problems": problems, "cols": head, "repos": repos, "rows": rows, "n_shown": len(shown), "n_group": len(of_group),
             "hidden": len(of_group) - len(shown), "lag_only": lag_only, "tabs": tabs,
             "segs": [{"label": "Lagging only", "on": lag_only, "href": _q(**dict(state, rows=None))},
                      {"label": "Show all", "on": not lag_only, "href": _q(**dict(state, rows="all"))}],

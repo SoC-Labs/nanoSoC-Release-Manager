@@ -36,15 +36,27 @@
   </div>
 </section>
 
+{% if own_lines %}
+<section class="panel" aria-labelledby="h-lines">
+  <h2 id="h-lines">Lines of {{ comp }}</h2>
+  <p class="note">Each registered configuration is a line (a branch or tag) of this repository. A pin of {{ comp }} inside another tree is listed under "Where {{ comp }} is pinned".</p>
+  <ul class="lines" data-lines>
+  {% for l in own_lines %}
+    <li data-line="{{ l.cid }}">{{ ui.glyph(l.line.glyph) }} <code>{{ l.line.text }}</code> · <a href="{{ l.href }}">{{ l.cid }}</a>{% if l.frozen %} {{ ui.chip("FROZEN", "c-ink") }}{% endif %} {{ ui.chip(l.verdict, l.tone) }} {{ fact(l.doc, "registry record") }}</li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="panel" aria-labelledby="h-pinned">
   <h2 id="h-pinned">Where {{ comp }} is pinned</h2>
   <div class="scroll"><table data-pins>
-    <thead><tr><th>Configuration</th><th>Pin</th><th>Commit</th><th>Hosts</th><th class="num">Lag</th><th>What it means</th></tr></thead>
+    <thead><tr><th>Line</th><th>Submodule path</th><th>Commit</th><th>Hosts</th><th class="num">Lag</th><th>What it means</th></tr></thead>
     <tbody>
     {% for p in pins %}
       <tr data-pin="{{ p.configuration }}:{{ p.tree_path }}"{% if p.meaning.gate %} class="is-deciding"{% endif %}>
-        <td><a href="{{ p.href }}">{{ p.configuration }}</a></td>
-        <td>{{ fact(p.doc, p.tree_path) }}</td>
+        <td><a href="{{ p.href }}">{{ p.configuration }}</a> <span class="note">{{ ui.glyph(p.line.glyph) }} {{ p.line.repo }} {{ p.line.ref_text }}</span></td>
+        <td>{{ ui.glyph("pin") }} {{ fact(p.doc, p.tree_path) }}</td>
         <td><code>{{ short(p.commit) }}</code></td>
         <td>{% for h in p.hosts %}{{ ui.chip(h.text, h.tone) }} {% endfor %}</td>
         <td class="num">{{ "-" if p.lag is none else p.lag }}</td>

@@ -117,13 +117,13 @@
     {% for v in pin_values %}<input type="hidden" name="pin" value="{{ v }}">{% endfor %}
     <p>Moves {% for p in chosen %}<code>{{ p }}</code>{{ ', ' if not loop.last }}{% else %}nothing (tick a path above){% endfor %} to <code>{{ short(target, 12) }}</code>. Same as <code>{{ cli }}</code>.</p>
     <details id="wi-tier">
-      <summary>Change tier (T0 only now)</summary>
+      <summary>Change tier (<span title="T0">resolve check</span> only now)</summary>
       <label>Tier
         <select name="tier">
-          <option value="">T0 only</option>
+          <option value="">resolve check only</option>
           {% for k, t in tiers|dictsort %}{% if k in ('t1', 't2') %}<option value="{{ k }}">{{ k|upper }} (budget {{ t.budget_s }} s)</option>{% endif %}{% endfor %}
         </select></label>
-      <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if T0 fails (UNVERIFIED for release)</label>
+      <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if <span title="T0">resolve check</span> fails (UNVERIFIED for release)</label>
     </details>
     <p><button type="submit" class="prim"{% if not chosen %} disabled{% endif %}>Run what-if</button> <span class="note">One job; the result opens here with Now vs After.</span></p>
   </form>

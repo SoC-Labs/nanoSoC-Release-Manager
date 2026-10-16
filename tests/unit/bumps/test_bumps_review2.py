@@ -185,7 +185,7 @@ def test_the_page_names_compat_jobs_after_the_scan_and_offers_no_duplicate_run(t
     gen = _by_dep(bumps.stored("eth-main"))["nanosoc_gen"]
     c = _signed_in(create_app(w["cfg"]))
     page = c.get("/bumps/p/%s?configuration=eth-main" % gen["id"]).text
-    assert "Run T0 + t1" in page and "Run T0 + t2" in page
+    assert 'Run <span title="T0">resolve check</span> + t1' in page and 'Run <span title="T0">resolve check</span> + t2' in page
     _compat(cfg, w, "t1", "PASS")
     _compat(cfg, w, "t2", "PASS")
     page = c.get("/bumps/p/%s?configuration=eth-main" % gen["id"]).text

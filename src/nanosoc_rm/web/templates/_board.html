@@ -16,11 +16,11 @@
 {% if not d.rows %}
   <p class="empty">No configuration is registered yet, or the registry has not been read. Set <code>[registry] path</code> in the config to a registry checkout, then check it with <code>nanosoc-rm registry validate</code>.</p>
 {% endif %}
-{% if local_ci %}<p class="note">No CI project is configured: <strong>Run</strong> checks the configuration on this host (<code>nanosoc-rm compat CONFIG --store</code>), one job at a time{% if b.hide_t0 %}, so the T0 (CI) column is hidden{% endif %}. <a href="/compat">Compat</a> moves pins and runs T1/T2.</p>{% endif %}
+{% if local_ci %}<p class="note">No CI project is configured: <strong>Run</strong> checks the configuration on this host (<code>nanosoc-rm compat CONFIG --store</code>), one job at a time{% if b.hide_t0 %}, so the <span title="T0">resolve check</span> (CI) column is hidden{% endif %}. <a href="/compat">Compat</a> moves pins and runs <span title="T1">static and unit tests</span>/<span title="T2">smoke simulation</span>.</p>{% endif %}
 {% if b.hide_runner %}<p class="note">Runner, the same on every row: {% for s in d.runners %}{{ fact(s, 'runner ' ~ s.fact.runner_id ~ ': ' ~ s.fact.verdict) }} {% else %}{{ 'local worker' if local_ci else 'unknown: no runner settings read yet' }}{% endfor %}</p>{% endif %}
 <div class="scroll">
 <table class="dash">
-  <thead><tr><th>Configuration</th><th>Verdict and next step</th><th{% if b.hide_t0 %} hidden{% endif %}>T0 (CI)</th><th>Red pins</th><th>Open errata</th><th>Host drift</th><th{% if b.hide_runner %} hidden{% endif %}>Runner</th><th>Data age</th><th></th></tr></thead>
+  <thead><tr><th>Configuration</th><th>Verdict and next step</th><th{% if b.hide_t0 %} hidden{% endif %}><span title="T0">resolve check</span> (CI)</th><th>Red pins</th><th>Open errata</th><th>Host drift</th><th{% if b.hide_runner %} hidden{% endif %}>Runner</th><th>Data age</th><th></th></tr></thead>
   <tbody>
 {% for r in d.rows %}
   {% set last = r.last %}

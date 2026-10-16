@@ -1,5 +1,6 @@
 {# GET /matrix/ (CR-WF-gui): two tabs. Freshness (default; Matrix.dc.html, web.fmatrix) and Compatibility (the D3
    index below, unchanged). Both panels are in the page; the inactive one is hidden. #}
+{% import "_ui.html" as ui %}
 <div class="fp">
 <h1 class="sr">Matrix</h1>
 <nav class="fp-tabs" aria-label="Matrix kind" data-tabs>
@@ -11,15 +12,15 @@
 </section>
 <section id="panel-compat" aria-labelledby="tab-compat"{% if tab != 'compat' %} hidden{% endif %}>
 {% include '_mstyle.html' %}
-<p class="note">For each configuration: one row per component of its stored tree, one column per version of that component (pinned, latest tag in range, latest tag, default-branch head). Each cell is a local T0 compat run with that one component moved. Same as <code>nanosoc-rm matrix CONFIG</code>.</p>
-<p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is automation and waits for the {{ nightly.gate }}. Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers }}.</p>
+<p class="note">For each configuration: one row per component of its stored tree, one column per version of that component (pinned, latest tag in range, latest tag, default-branch head). Each cell is a local <span title="T0">resolve check</span> compat run with that one component moved. Same as <code>nanosoc-rm matrix CONFIG</code>.</p>
+<p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is automation and waits for the {{ nightly.gate }}. Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers|plain }}.</p>
 <table>
-  <thead><tr><th>Configuration</th><th>Component</th><th>Commit</th><th>Frozen</th></tr></thead>
+  <thead><tr><th>Configuration</th><th>Repository</th><th>Line</th><th>Commit</th><th>Frozen</th></tr></thead>
   <tbody>
   {% for c in confs %}
-    <tr data-configuration="{{ c.id }}"><td><a href="{{ murl(c.id) }}">{{ c.id }}</a></td><td>{{ c.component }}</td><td><code>{{ short(c.commit) }}</code></td><td>{{ 'yes' if c.frozen else 'no' }}</td></tr>
+    <tr data-configuration="{{ c.id }}"><td><a href="{{ murl(c.id) }}">{{ c.id }}</a></td><td>{{ c.component }}</td>{% set ln = line_of(c) %}<td data-ref>{{ ui.glyph(ln.glyph) }} {{ ln.ref_text }}</td><td>{% if c.commit %}<code>{{ short(c.commit) }}</code>{% else %}<span class="note">follows the branch</span>{% endif %}</td><td>{{ 'yes' if c.frozen else 'no' }}</td></tr>
   {% else %}
-    <tr><td colspan="4" class="empty">The registry lists no configuration.</td></tr>
+    <tr><td colspan="5" class="empty">The registry lists no configuration.</td></tr>
   {% endfor %}
   </tbody>
 </table>

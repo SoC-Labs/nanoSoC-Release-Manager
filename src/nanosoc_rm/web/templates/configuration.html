@@ -5,7 +5,7 @@
   · <a href="/errata/{{ c.id }}">errata ({{ c.errata|length }})</a></p>{% endif %}
 <div class="row">
   {% with cid = c.id, pending = c.pending or (c.jobs|selectattr('state', 'in', ['queued', 'running'])|list) %}{% include "_run_form.html" %}{% endwith %}
-  <a href="/compat?configuration={{ c.id }}">Move pins or run T1/T2...</a>
+  <a href="/compat?configuration={{ c.id }}">Move pins or run <span title="T1">static and unit tests</span>/<span title="T2">smoke simulation</span>...</a>
   {% if actions %}
   <form method="post" action="/configurations/{{ c.id }}/walk"><input type="hidden" name="csrf_token" value="{{ csrf }}"><button type="submit" title="nanosoc-rm walk {{ c.id }}">Walk now</button></form>
   {% endif %}
@@ -46,7 +46,7 @@
       {% for host, h in f.hosts|dictsort %}<span class="pill {{ STATE_CLASS.get(h.state, 'state-red') }}">{{ host }}{% if h.pinned %}*{% endif %}: {{ h.state }}</span> {% endfor %}</td>
     <td>{% for host, h in f.hosts|dictsort %}{% if h.lag is not none %}{{ host }} {{ h.lag }} {% endif %}{% endfor %}</td>
     <td>{% for host, h in f.hosts|dictsort %}{% for t in h.tags %}<code>{{ t }}</code> {% endfor %}{% endfor %}</td>
-    <td>{% if f.split %}<span class="pill state-amber">split</span>{% endif %}</td>
+    <td>{% if f.split %}<span class="pill state-amber">pinned again</span>{% endif %}</td>
   </tr>
 {% endfor %}
   </tbody>
@@ -54,7 +54,7 @@
 <p class="note">* the host the pinned URL names. Green: tagged or on the default branch. Amber: only on a branch. Red: see README section 5.</p>
 {% else %}<p class="empty">No walk of {{ c.id }} is stored. {% if local_ci %}Press Walk now, or run{% else %}Run{% endif %} <code>nanosoc-rm walk {{ c.id }}</code>.</p>{% endif %}
 
-<h2>B7 splits</h2>
+<h2 title="B7">Pinned more than once</h2>
 {% if c.splits %}
 <ul>{% for sp in c.splits %}<li><strong>{{ sp.component }}</strong> pinned at {{ sp.pins|map(attribute='fact.child.commit')|unique|list|length }} commits: {% for p in sp.pins %}{{ fact(p, p.fact.tree_paths[0]) }} @ <code>{{ short(p.fact.child.commit) }}</code>{{ '; ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
 {% else %}<p class="note">No component is pinned at two commits in this tree{{ '' if c.pins else ' (no walk stored)' }}.</p>{% endif %}
@@ -72,7 +72,7 @@
 </table></div>
 {% else %}<p class="note">{{ 'No silicon-protection rows stored (nanosoc-rm silicon-protection ' ~ c.id ~ ').' if c.frozen else 'Not frozen or silicon: no protection list.' }}</p>{% endif %}
 
-<h2>T0 waivers</h2>
+<h2><span title="T0">resolve check</span> waivers</h2>
 {% if c.waivers %}
 <div class="scroll"><table>
   <thead><tr><th>Gate</th><th>Tree path</th><th>Result</th><th>Approved</th><th>Reason</th></tr></thead>
@@ -80,7 +80,7 @@
 </table></div>
 {% else %}<p class="note">No waivers (only a frozen configuration may carry them).</p>{% endif %}
 
-<h2>T0 history (CI)</h2>
+<h2><span title="T0">resolve check</span> history (CI)</h2>
 <div class="scroll"><table>
   <thead><tr><th>Run</th><th>Verdict</th><th>Acceptance</th><th>Triggered</th><th>By</th></tr></thead>
   <tbody>

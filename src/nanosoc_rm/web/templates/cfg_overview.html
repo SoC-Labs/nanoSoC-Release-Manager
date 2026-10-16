@@ -57,7 +57,7 @@
       <tr id="pin-{{ quote(f.tree_paths[0]) }}">
         <td>{{ fact(p, f.tree_paths|join(', ')) }}</td>
         <td>{% if f.child.component %}<a href="/components/{{ f.child.component }}">{{ f.child.component }}</a>{% else %}{{ f.child.catalogued_as }}{% endif %}</td>
-        <td><code>{{ short(f.child.commit) }}</code>{% if f.url_kind == 'ssh' %} {{ ui.chip('ssh URL', 'c-warn') }}{% endif %}{% if f.split %} {{ ui.chip('SPLIT', 'c-split') }}{% endif %}</td>
+        <td><code>{{ short(f.child.commit) }}</code>{% if f.url_kind == 'ssh' %} {{ ui.chip('ssh URL', 'c-warn') }}{% endif %}{% if f.split %} {{ ui.chip('PINNED AGAIN', 'c-split') }}{% endif %}</td>
         <td>{% for text, tone in row.hosts %}{{ ui.chip(text, tone) }} {% endfor %}</td>
         <td>{% for host, h in f.hosts|dictsort %}{% if h.lag is not none %}{{ host }} {{ h.lag }} {% endif %}{% endfor %}</td>
       </tr>
@@ -69,7 +69,7 @@
 
 {% if runs %}
 <section aria-labelledby="h-ci">
-  <h2 id="h-ci">CI T0 runs</h2>
+  <h2 id="h-ci">CI <span title="T0">resolve check</span> runs</h2>
   <div class="scroll"><table>
     <thead><tr><th scope="col">Run</th><th scope="col">Verdict</th><th scope="col">Acceptance</th><th scope="col">Triggered</th><th scope="col">By</th></tr></thead>
     <tbody>

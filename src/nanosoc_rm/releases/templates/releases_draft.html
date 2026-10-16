@@ -5,7 +5,7 @@
   <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a></td></tr>
   <tr><th>Lock</th><td><a href="{{ rurl(configuration, version, 'files/' ~ f.lock.file) }}">{{ f.lock.file }}</a>: {{ f.lock.pins }} pins, {{ 'complete' if f.lock.complete else 'NOT complete' }}{% if f.lock.unprotected %}; unprotected: {{ f.lock.unprotected|join(', ') }}{% endif %}{% for p in f.lock.pending %}<br><span class="note">pending: {{ p }}</span>{% endfor %}</td></tr>
   <tr><th>Errata</th><td><a href="{{ rurl(configuration, version, 'errata') }}">document revision {{ f.errata.revision }}</a>, {{ f.errata.records }} record(s)</td></tr>
-  <tr><th>Generated RTL (G7)</th><td>{% if f.archive %}{{ f.archive.files }} file(s), archive md5 <code>{{ f.archive.md5 }}</code>, manifest md5 <code>{{ f.archive.manifest_md5 }}</code>{% else %}no archive given{% endif %}</td></tr>
+  <tr><th title="G7">Generated RTL</th><td>{% if f.archive %}{{ f.archive.files }} file(s), archive md5 <code>{{ f.archive.md5 }}</code>, manifest md5 <code>{{ f.archive.manifest_md5 }}</code>{% else %}no archive given{% endif %}</td></tr>
   <tr><th>Drafted</th><td>{{ fact(doc, f.generated_at) }} ({{ age_text(f.generated_at) }} ago); its inputs were observed from {{ doc.observed_at }}</td></tr>
 </table>
 {% if actions %}<form method="post" action="{{ rurl(configuration, version, 'verify') }}" class="panel">
@@ -28,7 +28,7 @@
 {% for s in f.person_steps %}<li data-step>{{ s.step }} <span class="note">({{ s.who }})</span>{% if s.command %}<pre>{{ s.command }}</pre>{% endif %}</li>{% endfor %}
 </ol>
 {% if f.train %}
-<h2>Release train (G4): {{ f.train|length }} member(s), deepest first</h2>
+<h2 title="G4">Release train: {{ f.train|length }} member(s), deepest first</h2>
 <div class="scroll"><table><thead><tr><th>Component</th><th>Commit</th><th>Depth</th><th>Tree paths</th></tr></thead><tbody>
 {% for t in f.train %}<tr data-train="{{ t.component }}"><td>{{ t.component }}</td><td><code>{{ short(t.commit, 12) }}</code></td><td class="num">{{ t.depth }}</td><td>{{ t.tree_paths|join(', ') }}</td></tr>{% endfor %}
 </tbody></table></div>

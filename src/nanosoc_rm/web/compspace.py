@@ -30,7 +30,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse, RedirectRespons
 
 from nanosoc_rm import db
 from nanosoc_rm.quality.findings import BULK_KINDS, is_bulk
-from nanosoc_rm.web import registry_facts, review, shell, uistate, verdict as V, views
+from nanosoc_rm.web import lines, registry_facts, review, shell, uistate, verdict as V, views
 from nanosoc_rm.web.page import Page, env
 
 __all__ = ["router", "component", "branches", "sentence", "branch_why", "branch_view", "pin_meaning",
@@ -257,8 +257,8 @@ def pin_meaning(pin: dict, *, decision: Any = None, frozen: bool = False, uncove
         return {"text": "Pinned by ssh URL%s." % (": waived in this frozen tree" if frozen else ""),
                 "tone": "c-warn", "gate": False, "chip": "SSH URL"}
     if split_n > 1:
-        return {"text": "Pinned %d times in %s at different commits (split)." % (split_n, cid), "tone": "c-split",
-                "gate": False, "chip": "SPLIT x%d" % split_n}
+        return {"text": "Pinned %d times in %s at different commits." % (split_n, cid), "tone": "c-split",
+                "gate": False, "chip": lines.again_text(split_n)}
     if errata:
         return {"text": "Erratum %s cites this component." % ", ".join(errata), "tone": "c-warn", "gate": False,
                 "chip": "ERRATUM"}
@@ -297,10 +297,30 @@ def _pins_of(config: Any, comp: str) -> tuple[list[dict], list[str]]:
             _, ph = views.pinned_host(p)
             m = pin_meaning(p, decision=dec, frozen=frozen, uncovered=commit in uncovered, split_n=len(mine),
                             errata=errata)
-            rows.append({"doc": p, "configuration": cid, "tree_path": f["tree_paths"][0], "commit": commit,
+            rows.append({"doc": p, "configuration": cid, "line": lines.line(rec["fact"].get("record")),
+                         "tree_path": f["tree_paths"][0], "commit": commit,
                          "hosts": hosts, "lag": (ph or {}).get("lag"), "meaning": m, "frozen": frozen,
                          "href": "/configurations/%s" % _q(cid)})
     return rows, never
+
+
+def lines_of(config: Any, comp: str) -> list[dict]:
+    """The registered lines (configurations) whose root is `comp`: the repository's own branches and tags with
+    a page, each {cid, line (lines.line), frozen, verdict, tone, href} (evaluation 2026-10-16 section 7: a
+    repo's own lines had no page)."""
+    out = []
+    decisions = _decisions(config)
+    for rec in views.configurations(config):
+        r = rec["fact"].get("record") or {}
+        if r.get("component") != comp:
+            continue
+        cid = rec["fact"]["id"]
+        doc, dec, _ = decisions.get(cid, (None, None, None))
+        verdict = "NOT CHECKED" if doc is None or dec is None else dec.verdict
+        commit = r.get("commit") or ((doc or {}).get("fact") or {}).get("commit")
+        out.append({"cid": cid, "line": lines.line(r, commit), "frozen": views.is_frozen(rec), "verdict": verdict,
+                    "tone": shell.tone(verdict), "href": "/configurations/%s" % _q(cid), "doc": rec})
+    return out
 
 
 def sentence(comp: str, s: dict) -> str:
@@ -355,7 +375,8 @@ def header(config: Any, comp: str, *, branch_rows: list[dict] | None = None, qv:
     for h in hosts:
         if h["relation"] not in (None, "SAME"):
             n = h["canonical_only"] if h["relation"] == "AHEAD" else h["copy_only"] if h["relation"] == "BEHIND" else None
-            flags.append(("%s %s%s" % (h["canonical"], h["relation"], (" %s" % n) if n else ""),
+            # "HOSTS DIFFER": the copies on two hosts are not the same (never "SPLIT", which read like a pin)
+            flags.append(("HOSTS DIFFER: %s %s%s" % (h["canonical"], h["relation"].lower(), (" %s" % n) if n else ""),
                           shell.tone(h["relation"])))
     from nanosoc_rm.analysis.branches import delete_list
     deletable = len(delete_list(branch_rows))
@@ -461,7 +482,7 @@ def component(request: Request, id: str) -> Response | None:
     return _workspace(request, id, "overview", "comp_overview.html", problems=problems, qv=qv, branch_rows=rows,
                       branch_counts=counts, deletable=len(delete_list(rows)),
                       branch_oldest=min(rows, key=lambda d: d["observed_at"]) if rows else None, pins=pins,
-                      never=never, record=c.get("record"), mirrors=c.get("mirrors") or [],
+                      never=never, own_lines=lines_of(config, id), record=c.get("record"), mirrors=c.get("mirrors") or [],
                       defects=c.get("defects") or [], repos=sorted({(d["fact"]["repo"]["host"], d["fact"]["repo"]["path"]) for d in rows}))
 
 

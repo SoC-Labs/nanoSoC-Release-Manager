@@ -2,6 +2,7 @@
    then the tabs. Data from cfgspace.header; this file only prints. #}
 {% import "_ui.html" as ui %}
 <section class="panel" aria-labelledby="cfg-sentence">
+  {% if head.line %}<p class="note" data-line>Line <code>{{ head.line }}</code></p>{% endif %}
   <p class="row" style="align-items:center">
     {% for text, tone in head.chips %}{{ ui.chip(text, tone) }} {% endfor %}
     {% if c.record %}<span class="note">{{ fact(c.record, 'registry record') }}</span>{% endif %}

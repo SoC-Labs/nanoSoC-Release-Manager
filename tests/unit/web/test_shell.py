@@ -77,7 +77,7 @@ def test_component_flags_come_from_stored_facts(site):
     cfg = _load_config(site)
     flags = shell.component_flags(cfg)
     assert ("SSH PIN", "c-fail") in flags["tidelink"]
-    assert ("SPLIT", "c-split") in flags["nanosoc_gen"]
+    assert ("PINNED AGAIN", "c-split") in flags["nanosoc_gen"]   # was "SPLIT"; the example holds one of its commits
     assert all(t for _, t in sum(flags.values(), []))
 
 

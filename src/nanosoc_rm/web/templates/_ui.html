@@ -1,7 +1,9 @@
 {# Shared markup macros (Wave C shell, spec 1.1). Import with {% import "_ui.html" as ui %}. Every chip carries
    its text; a dot never stands alone. No logic beyond printing what Python computed. #}
 {% macro chip(text, tone="c-neutral") -%}
-<span class="chip {{ tone }}">{{ text }}</span>
+{#- a code (ON_DEFAULT, T0, ...) prints as words with the code in a tooltip (web.terms.plain); a plug-in
+    environment without the filter prints the text as is -#}
+<span class="chip {{ tone }}">{% if "plain" is filter %}{{ text|plain }}{% else %}{{ text }}{% endif %}</span>
 {%- endmacro %}
 
 {% macro dot(tone="d-notrun") -%}
@@ -33,4 +35,16 @@
 
 {% macro job_card(job_html) -%}
 <div class="job-card">{{ job_html|safe }}</div>
+{%- endmacro %}
+
+{# The kind icon of a repository, a line (branch or tag) or a submodule pin (web.lines.KINDS). Decoration only:
+   aria-hidden, the words beside it carry the meaning. Inline SVG, so no font can turn it into an empty box. #}
+{% macro glyph(kind, cls="") -%}
+<svg class="glyph g-{{ kind }}{% if cls %} {{ cls }}{% endif %}" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" data-glyph="{{ kind }}">
+{%- if kind == "repo" %}<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"></path>
+{%- elif kind == "branch" %}<path d="M6 3v12"></path><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>
+{%- elif kind == "tag" %}<path d="M12 2H2v10l9.3 9.3a1 1 0 0 0 1.4 0l8.6-8.6a1 1 0 0 0 0-1.4z"></path><circle cx="7" cy="7" r="1.5"></circle>
+{%- elif kind == "pin" %}<path d="M12 17v5"></path><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"></path>
+{%- else %}<rect x="8" y="8" width="13" height="13" rx="2"></rect><path d="M4 16V5a1 1 0 0 1 1-1h11"></path>
+{%- endif %}</svg>
 {%- endmacro %}

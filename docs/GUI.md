@@ -76,6 +76,12 @@ reach 127.0.0.1:8000. The password and the session cookie are the boundary:
 | Releases | release drafts (lock, errata document, notes, checklist, gate ledger), **Draft** and **Verify** as jobs, download a draft as a zip, the errata document; forks of the example projects with **List forks now**. Input files (archive, GDS, netlist) are picked from `<data_dir>/release-inputs/`. With a store index: **Published** and **Store** columns per draft and the store's documents with download links; publishing is on the Publish page |
 | Store | `/store/`: what the artefact store holds as the last index read it: feature probes, counts per repository, GDS streams (raw md5, run tag, build, git identity or "no git identity recorded"), release and tapeout manifests, documents (download when a verified copy is held), source archives, build records, foundry returns; `?q=` finds by path, name, run tag, commit or md5; **Refresh the index** queues a job (about a minute). Also: Configuration > Silicon **Taped out** panel, History **Timeline**, Versions **Tags, commits and chips**, inbox cards `store_mismatch`, `release_not_archived`, `tapeout_unregistered`. Set-up: docs/DEPLOY.md |
 
+**Repository, line, submodule pin.** A configuration is a line (a branch or tag) of its repository and reads
+"branch main @ 8e6d043" or "tag v1.0.0 @ ab73e40" with its id beside it; a submodule pin reads "path @ sha";
+one repository pinned at two commits in a tree says PINNED ×2 on both rows. Each kind has its own icon (book =
+repository, fork = branch, tag = tag, pushpin = submodule pin); the legend is under "How is this judged?". A branch
+of a pinned repo is always written `repo:branch`. Codes such as ON_DEFAULT or T0 print as words; hover for the code.
+
 Every fact links to `src`: the commands that found it. Every page shows its data age (the oldest fact on it).
 
 ## Jobs

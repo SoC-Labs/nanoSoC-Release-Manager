@@ -17,7 +17,7 @@ adds no POST route (it is not in `routers.WAVE_C_POSTS`).
 The logic templates must not hold sits here, as plain functions with unit tests:
 
     tree(pins) -> Node                  the nested tree: a pin's parent is the longest tree-path prefix
-    flags(node, ctx) -> [(text, tone)]  GATE FAIL, UNCOVERED, SPLIT xN, ssh URL, erratum id, FROZEN
+    flags(node, ctx) -> [(text, tone)]  GATE FAIL, UNCOVERED, PINNED ×N, ssh URL, erratum id, FROZEN
     pin_headline(view) -> str           deciding gate, uncovered, red state, split, erratum, else "Fine."
     diff_gates(now, after) -> [row]     Now vs After per gate: same | better | worse | new | gone
     expectation(decision, comp, cid)    the one-line answer above the What-if form
@@ -35,7 +35,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock, db, jobs
-from nanosoc_rm.web import registry_facts, shell, verdict as V, views
+from nanosoc_rm.web import lines, registry_facts, shell, verdict as V, views
 from nanosoc_rm.web.page import Page, env, human_age
 
 __all__ = ["router", "configuration", "compat", "Node", "tree", "flags", "pin_headline", "diff_gates",
@@ -45,7 +45,8 @@ TABS = (("overview", "Overview", ""), ("tree", "Submodule tree", "/tree"), ("wha
         ("matrix", "Matrix", "/matrix"), ("silicon", "Silicon", "/silicon"), ("history", "History", "/history"))
 GATE_ROW_ORDER = ("FAIL", "INFRA", "UNVERIFIED", "WAIVED", "WARN", "NOT-RUN", "PASS")
 SHOW = ("all", "attention", "splits", "uncovered")
-SHOW_LABEL = {"all": "All pins", "attention": "Needs attention", "splits": "Splits", "uncovered": "Uncovered"}
+SHOW_LABEL = {"all": "All pins", "attention": "Needs attention", "splits": "Pinned more than once",
+              "uncovered": "Uncovered"}
 # Now vs After: how bad a gate verdict is (a lower number is better).
 SEVERITY = {"PASS": 0, "WAIVED": 1, "WARN": 1, "NOT-RUN": 2, "INFRA": 2, "UNVERIFIED": 3, "FAIL": 4}
 TONE_ORDER = {"red": 0, "amber": 1, "ok": 2}
@@ -120,6 +121,15 @@ class Ctx:
     @property
     def commit(self) -> str | None:
         return self.rec.get("commit") or ((self.doc or {}).get("fact") or {}).get("commit")
+
+    @property
+    def root_commit(self) -> str | None:
+        """The line's commit: the record's or the last check's, else the stored walk's root (a depth-1 pin's
+        parent), so a branch line never checked still prints "branch main @ sha"."""
+        if self.commit:
+            return self.commit
+        top = next((p for p in self.pins if p["fact"].get("depth") == 1), None)
+        return ((top or {}).get("fact", {}).get("parent") or {}).get("commit")
 
 
 def load(config: Any, cid: str) -> Ctx | None:
@@ -237,7 +247,7 @@ def flags(node: Node, fc: FlagCtx) -> list[tuple[str, str]]:
     comp = node.component
     if comp in fc.split_commits:
         n = fc.split_commits[comp]
-        out.append(("SPLIT x%d" % n if n > 1 else "SPLIT", "c-split"))
+        out.append((lines.again_text(n) if n > 1 else "PINNED AGAIN", "c-split"))     # was "SPLIT xN"
     if f.get("url_kind") == "ssh":
         out.append(("ssh URL", "c-warn"))
     for eid in fc.errata.get(comp, []):
@@ -334,7 +344,8 @@ def tree_view(ctx: Ctx, *, node: str | None = None, show: str = "all", open_: st
         flat = sorted((v for v in views_by.values() if keep(v)), key=lambda v: (TONE_ORDER[v["tone"]], v["path"]))
     root_flags = flags(root, fc)
     return {"rows": top, "flat": flat, "counts": counts, "selected": selected, "show": show, "open": open_,
-            "root": {"label": ctx.cid, "commit": (ctx.commit or "")[:7], "flags": root_flags},
+            "root": {"label": ctx.cid, "commit": (ctx.commit or "")[:7], "flags": root_flags,
+                     "line": lines.describe(ctx.rec, ctx.root_commit)},
             "filters": [{"key": k, "label": SHOW_LABEL[k], "count": counts[k], "on": k == show,
                          "href": "%s/tree?show=%s" % (base, k)} for k in SHOW],
             "expand": "%s/tree?open=all%s" % (base, "&node=%s" % _q(selected) if selected else ""),
@@ -365,9 +376,9 @@ def pin_headline(v: dict, ctx: Ctx) -> str:
         return "Silicon commit %s has no keep tag. It is lost if its branch is deleted." % v["commit"]
     if v["tone"] == "red":
         return "%s on the pinned host." % state
-    split = next((t for t in texts if t.startswith("SPLIT")), None)
+    split = next((t for t in texts if t.startswith("PINNED")), None)
     if split:
-        n = split.split(" x", 1)[1] if " x" in split else "more than one"
+        n = split.split(" ×", 1)[1] if " ×" in split else "more than one"
         return "%s is pinned at %s commits in this tree." % (v["component"], n)
     erratum = next((t for t, tone in v["flags"] if tone == "c-warn" and t != "ssh URL"), None)
     if erratum:
@@ -587,8 +598,7 @@ def header(config: Any, ctx: Ctx, request: Request) -> dict:
     dec = ctx.decision
     v = dec.verdict
     chips = [("NOT CHECKED" if v == V.NO_RESULT else v, shell.tone(v))]
-    if ctx.commit:
-        chips.append((ctx.commit[:7], "c-neutral"))
+    # the commit is no longer a bare chip: it prints in the line above the chips, "<repo> ⑂ branch main @ sha"
     chips.append(("FROZEN" if ctx.frozen else "NOT FROZEN", "c-ink" if ctx.frozen else "c-neutral"))
     if ctx.silicon_chip:
         chips.append((ctx.silicon_chip, "c-ink"))
@@ -619,7 +629,8 @@ def header(config: Any, ctx: Ctx, request: Request) -> dict:
         unused = V.unused_waivers(ctx.doc, ctx.record) if ctx.doc else []
         tiles.append({"label": "Waivers", "value": str(len(ctx.waivers)),
                       "sub": "%d cover nothing" % len(unused) if ctx.doc else "no result to check them"})
-    return {"chips": chips, "sentence": dec.sentence if v != V.NO_RESULT else "%s has never been checked." % ctx.cid,
+    return {"chips": chips, "line": lines.describe(ctx.rec, ctx.root_commit),
+            "sentence": dec.sentence if v != V.NO_RESULT else "%s has never been checked." % ctx.cid,
             "action": action, "tiles": tiles, "infra": dec.infra_text}
 
 

@@ -6,7 +6,7 @@
   {% if column != 'pinned' %}
   <tr><th>Column commit now</th><td>{% if cv.target.commit %}{{ cv.target.ref or '' }} <code>{{ cv.target.commit }}</code>{% else %}none: {{ cv.target.why }}{% endif %}{% if cv.target.range %} (range <code>{{ cv.target.range }}</code>){% endif %}</td></tr>
   {% endif %}
-  {% if row %}<tr><th>Pinned</th><td>{% for p in row.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit, 12) }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}{% if row.split %} <span class="badge">B7 split</span>{% endif %}</td></tr>{% endif %}
+  {% if row %}<tr><th>Pinned</th><td>{% for p in row.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit, 12) }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}{% if row.split %} <span class="badge" title="B7">pinned again</span>{% endif %}</td></tr>{% endif %}
   <tr><th>Latest verdict</th><td>{% if cv.verdict %}<span class="pill {{ CELL_CLASS.get(cv.verdict, '') }}" data-verdict="{{ cv.verdict }}">{{ cv.verdict }}</span>{% else %}<span class="pill state-grey">{{ cv.status }}</span>{% endif %}
     {% if cv.stale %}<span class="warn">stale: the column's commit moved since this run</span>{% endif %}</td></tr>
   <tr><th>Run</th><td>{% if local and cv.status not in ('queued', 'running', 'same-as-pinned', 'no-target') %}
@@ -25,7 +25,7 @@
 <p>{{ fact(latest, 'run ' ~ short(f.nonce, 12)) }} by {{ f.by }}{% if f.job %} (job {{ f.job }}){% endif %}, {{ f.started_at }} to {{ f.finished_at }}: <span class="pill {{ CELL_CLASS.get(f.verdict, '') }}">{{ f.verdict }}</span>{% if f.reason %} {{ f.reason }}{% endif %}</p>
 {% if f.overrides %}<p class="note">Moved: {% for o in f.overrides %}<code>{{ o.tree_path }}</code> → <code>{{ short(o.commit, 12) }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
 
-<h3>D9: compared with the same night's pinned run</h3>
+<h3 title="D9">Compared with the same night's pinned run</h3>
 {% if column == 'pinned' %}<p class="note">This is the pinned run: the baseline other cells compare with.</p>
 {% elif comparison and comparison.baseline %}
 <p>Baseline: pinned run <code data-baseline="{{ comparison.baseline.nonce }}">{{ comparison.baseline.nonce }}</code> ({{ comparison.baseline.verdict }}, finished {{ comparison.baseline.finished_at }}).</p>
@@ -38,13 +38,13 @@
 </tbody></table>{% endif %}
 {% elif comparison %}<p class="empty">{{ comparison.note }}</p>{% endif %}
 
-<h3>Attempts (D8)</h3>
+<h3 title="D8">Attempts</h3>
 {% for a in f.attempts %}
 <div class="panel" data-attempt="{{ loop.index }}">
-  <p><strong>Attempt {{ loop.index }}</strong> <code>{{ a.nonce }}</code>: <span class="pill {{ CELL_CLASS.get(a.verdict, '') }}">{{ a.verdict }}</span> {{ a.started_at }} to {{ a.finished_at }}{% if a.over_budget %} <span class="warn">over the 120 s T0 budget</span>{% endif %}{% if a.reason %}<br>{{ a.reason }}{% endif %}</p>
-  {% if a.tier %}<p data-attempt-tier="{{ a.tier.tier }}">Tier {{ a.tier.tier }}: <span class="pill {{ CELL_CLASS.get(a.tier.verdict, '') }}">{{ a.tier.verdict }}</span>{% if a.tier.seconds is not none %} in {{ '%.1f'|format(a.tier.seconds) }} s{% endif %}{% if a.tier.forced %} <span class="warn">forced past a T0 FAIL</span>{% endif %}{% if a.tier.reason %}: {{ a.tier.reason }}{% endif %}</p>
+  <p><strong>Attempt {{ loop.index }}</strong> <code>{{ a.nonce }}</code>: <span class="pill {{ CELL_CLASS.get(a.verdict, '') }}">{{ a.verdict }}</span> {{ a.started_at }} to {{ a.finished_at }}{% if a.over_budget %} <span class="warn">over the 120 s <span title="T0">resolve check</span> budget</span>{% endif %}{% if a.reason %}<br>{{ a.reason }}{% endif %}</p>
+  {% if a.tier %}<p data-attempt-tier="{{ a.tier.tier }}">Tier {{ a.tier.tier }}: <span class="pill {{ CELL_CLASS.get(a.tier.verdict, '') }}">{{ a.tier.verdict }}</span>{% if a.tier.seconds is not none %} in {{ '%.1f'|format(a.tier.seconds) }} s{% endif %}{% if a.tier.forced %} <span class="warn">forced past a <span title="T0">resolve check</span> FAIL</span>{% endif %}{% if a.tier.reason %}: {{ a.tier.reason }}{% endif %}</p>
   {% if a.tier.log_tail %}<details><summary>Last lines of the tier's log</summary><pre>{{ a.tier.log_tail|join('\n') }}</pre></details>{% endif %}{% endif %}
-  <p class="note">Host: {{ a.host.cpus }} CPUs, load {{ a.host.load_start }} at start, {{ a.host.load_end }} at end.{% if a.host.overloaded %} <strong class="warn">Overloaded host (D7)</strong>{% endif %}</p>
+  <p class="note">Host: {{ a.host.cpus }} CPUs, load {{ a.host.load_start }} at start, {{ a.host.load_end }} at end.{% if a.host.overloaded %} <strong class="warn" title="D7">Overloaded host</strong>{% endif %}</p>
   <table><thead><tr><th>Gate</th><th>Verdict</th><th>Detail</th></tr></thead><tbody>
   {% for g in a.gates %}<tr data-gate="{{ g.id }}" data-verdict="{{ g.verdict }}"><td><code>{{ g.id }}</code></td><td><span class="pill {{ CELL_CLASS.get(g.verdict, '') }}">{{ g.verdict }}</span></td><td>{{ g.detail }}</td></tr>{% endfor %}
   </tbody></table>
@@ -52,7 +52,7 @@
 {% endfor %}
 {% if f.flaky_gates %}<p class="warn">FLAKY gates: {{ f.flaky_gates|join(', ') }} (blocks auto-merge)</p>{% endif %}
 
-<h3>D4 provenance</h3>
+<h3 title="D4">Run inputs</h3>
 {% set pv = f.provenance %}
 <table class="kv">
   <tr><th>Tools</th><td>{% for k, val in pv.tools|dictsort %}{{ k }} {{ val }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>

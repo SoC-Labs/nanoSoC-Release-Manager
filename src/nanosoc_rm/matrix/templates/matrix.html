@@ -1,8 +1,8 @@
 {% include '_mstyle.html' %}
-<p class="note">Configuration <a href="/configurations/{{ v.configuration }}">{{ v.configuration }}</a> at <code>{{ short(v.commit, 12) }}</code>. Each cell is a local T0 compat run of this tree with that one component moved to the column's commit (every pin of a split component moves together). A FAIL runs again once, alone: red twice is FAIL, green the second time is FLAKY (D8). Infrastructure failures are INFRA, never FAIL (D7). A cell whose captured commits differ from the requested ones is UNVERIFIED (D4). Each cell is compared gate by gate with the same night's pinned run, which it names (D9).</p>
+<p class="note">Configuration <a href="/configurations/{{ v.configuration }}">{{ v.configuration }}</a> at <code>{{ short(v.commit, 12) }}</code>. Each cell is a local <span title="T0">resolve check</span> compat run of this tree with that one component moved to the column's commit (every pin of a split component moves together). A FAIL runs again once, alone: red twice is FAIL, green the second time is FLAKY (D8). Infrastructure failures are INFRA, never FAIL (D7). A cell whose captured commits differ from the requested ones is UNVERIFIED (D4). Each cell is compared gate by gate with the same night's pinned run, which it names (D9).</p>
 <p class="banner info" data-nightly="{{ 'enabled' if v.nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if v.nightly.enabled else 'disabled' }}</strong> until the {{ v.nightly.gate }}. Cells run only when someone presses Run.</p>
 {% if queued == '0' %}<p class="banner info" role="status" data-queued="0">Nothing was queued: every cell in that scope is already queued or running, is the pinned tree, or has no commit to run (its reason is shown in the cell).</p>
-{% elif queued %}<p class="banner info" role="status">Queued {{ queued }} cell job(s). The worker runs one at a time (a T0 run takes about 3 minutes); this page shows them as queued, then running. <a href="{{ murl(v.configuration, component=components, columns=columns_q, tiers=tiers_q) }}">Refresh</a>.</p>{% endif %}
+{% elif queued %}<p class="banner info" role="status">Queued {{ queued }} cell job(s). The worker runs one at a time (a <span title="T0">resolve check</span> run takes about 3 minutes); this page shows them as queued, then running. <a href="{{ murl(v.configuration, component=components, columns=columns_q, tiers=tiers_q) }}">Refresh</a>.</p>{% endif %}
 <p class="legend note">Verdicts: {% for k in ('PASS', 'WARN', 'WAIVED', 'FLAKY', 'INFRA', 'FAIL', 'UNVERIFIED', 'NOT-RUN') %}<span class="pill {{ CELL_CLASS[k] }}">{{ k }}</span>{% endfor %}</p>
 
 <form class="panel" method="get" action="{{ murl(v.configuration) }}">
@@ -15,10 +15,10 @@
     <label>Columns
       <input name="columns" value="{{ columns_q or '' }}" placeholder="pinned,in-range,latest-tag,head" size="34">
     </label>
-    <label>Tiers (T0 always runs)
+    <label>Tiers (<span title="T0">resolve check</span> always runs)
       <select name="tiers">
-        <option value=""{% if not tiers_q %} selected{% endif %}>T0 only</option>
-        {% for t in TIERS %}<option value="{{ t }}"{% if tiers_q == t %} selected{% endif %}>T0 + {{ t }}</option>{% endfor %}
+        <option value=""{% if not tiers_q %} selected{% endif %}>resolve check only</option>
+        {% for t in TIERS %}<option value="{{ t }}"{% if tiers_q == t %} selected{% endif %}>resolve check + {{ t }}</option>{% endfor %}
       </select>
     </label>
     <button type="submit">Show</button>
@@ -27,7 +27,7 @@
 </form>
 
 {% for t in v.tiers or [] %}
-<p class="banner {{ 'info' if t.ready else 'warn' }}" data-tier-preflight="{{ t.tier }}" data-ready="{{ 'yes' if t.ready else 'no' }}"><strong>Tier {{ t.tier }}{% if t.command %} (<code>{{ t.command }}</code>){% endif %}:</strong> {% if t.ready %}ready on this host. Each "+ {{ t.tier }}" cell runs T0, then this command in a sandbox checkout of the same tree; a T0 FAIL skips it. After the command the checkout is re-read: a moved pin makes the cell UNVERIFIED (D4).{% else %}<span class="pill {{ CELL_CLASS.get(t.verdict, '') }}">{{ t.verdict }}</span> {{ t.reason }}. Run does not queue these cells.{% endif %}</p>
+<p class="banner {{ 'info' if t.ready else 'warn' }}" data-tier-preflight="{{ t.tier }}" data-ready="{{ 'yes' if t.ready else 'no' }}"><strong>Tier {{ t.tier }}{% if t.command %} (<code>{{ t.command }}</code>){% endif %}:</strong> {% if t.ready %}ready on this host. Each "+ {{ t.tier }}" cell runs <span title="T0">resolve check</span>, then this command in a sandbox checkout of the same tree; a <span title="T0">resolve check</span> FAIL skips it. After the command the checkout is re-read: a moved pin makes the cell UNVERIFIED (D4).{% else %}<span class="pill {{ CELL_CLASS.get(t.verdict, '') }}">{{ t.verdict }}</span> {{ t.reason }}. Run does not queue these cells.{% endif %}</p>
 {% endfor %}
 
 <div class="row">
@@ -49,7 +49,7 @@
   {% for r in v.rows %}
     <tr data-component="{{ r.component }}">
       <th scope="row" class="rowhead"><a href="/components/{{ r.component }}">{{ r.component }}</a>
-        {% if r.split %} <span class="badge" title="B7: pinned at more than one commit in this tree">split</span>{% endif %}
+        {% if r.split %} <span class="badge" title="B7: pinned at more than one commit in this tree">pinned again</span>{% endif %}
         <div class="note">{% for p in r.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit) }}</code>{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
         {% if r.mirror_synced_at %}<div class="note">mirror synced {{ r.mirror_synced_at }}</div>{% endif %}
         {% if local %}{% with scope='row', label='Run row', component=r.component, column=None %}{% include '_run_form.html' %}{% endwith %}{% endif %}
@@ -73,12 +73,12 @@
 </table></div>
 
 {% if v.splits %}
-<h2>B7 split components</h2>
+<h2 title="B7">Components pinned more than once</h2>
 <p class="note">Pinned at more than one commit in this tree. A cell moves every pin of the component to the column's commit.</p>
 <ul>{% for s in v.splits %}<li data-split="{{ s.component }}"><strong>{{ s.component }}</strong>: {% for p in s.pins %}<code>{{ p.tree_path }}</code> @ <code>{{ short(p.commit) }}</code>{{ ', ' if not loop.last }}{% endfor %}</li>{% endfor %}</ul>
 {% endif %}
 
-<h2>Quarantine (D8)</h2>
+<h2 title="D8">Quarantine</h2>
 <p class="note">A gate of this configuration is quarantined when it is FLAKY twice within 14 days; the entry has an owner and expires 30 days later on its own. Change the owner with <code>nanosoc-rm matrix quarantine {{ v.configuration }} --owner GATE=LOGIN</code>.</p>
 <table>
   <thead><tr><th>Test (gate)</th><th>State</th><th>Owner</th><th>Since</th><th>Expires</th><th>FLAKY cells</th></tr></thead>
