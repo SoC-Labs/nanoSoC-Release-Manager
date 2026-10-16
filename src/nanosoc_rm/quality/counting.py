@@ -51,11 +51,6 @@ def _sum(rows: list[dict]) -> dict:
     return out
 
 
-def _dir_of(path: str, depth: int) -> str:
-    parts = path.split("/")[:-1]
-    return "/".join(parts[:depth]) if parts else "."
-
-
 def _words(text: str) -> int:
     return len(re.findall(r"[A-Za-z0-9][A-Za-z0-9'_-]*", text))
 

@@ -80,13 +80,13 @@ def test_throttle_blocks_at_the_limit_inside_the_window(monkeypatch):
     monkeypatch.setattr(auth.time, "monotonic", lambda: now[0])
     t = auth.Throttle(limit=3, window_s=10)
     for _ in range(2):
-        t.fail("a")
+        t.attempt("a")
     assert not t.blocked("a")
-    t.fail("a")
+    t.attempt("a")
     assert t.blocked("a") and not t.blocked("b")
     now[0] += 10                                   # exactly window_s later: the fails have aged out (`<`)
     assert not t.blocked("a")
-    t.fail("a"), t.fail("a"), t.fail("a")
+    t.attempt("a"), t.attempt("a"), t.attempt("a")
     t.clear("a")
     assert not t.blocked("a")
 

@@ -3,7 +3,7 @@
 <form class="panel" method="get" action="/compat">
   <div class="row">
     <label>Configuration
-      <select name="configuration" onchange="this.form.submit()">
+      <select name="configuration" data-autosubmit>
         <option value="">choose...</option>
         {% for c in configs %}<option value="{{ c.fact.id }}"{% if c.fact.id == cid %} selected{% endif %}>{{ c.fact.id }}{% if c.fact.record.frozen %} (frozen){% endif %}</option>{% endfor %}
       </select>

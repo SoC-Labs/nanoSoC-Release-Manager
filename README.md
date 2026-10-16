@@ -215,7 +215,7 @@ Python 3.11 or later (the system `python3` may be older; the script below finds 
 
 ```
 scripts/dev-env.sh                                     # creates .venv, pip install -e '.[dev]'; idempotent
-PATH=$PWD/.venv/bin:$PATH python -m pytest -m "not live" tests
+.venv/bin/python -m pytest -m "not live" -n 6 tests            # about 8 minutes; the venv bin/ goes on PATH itself
 python3 schemas/check_examples.py                      # the contracts' own check
 .venv/bin/python -m pyflakes src tests
 ```

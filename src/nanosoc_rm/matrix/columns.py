@@ -21,7 +21,7 @@ again, so it shows the pinned result instead of running.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
+from typing import Sequence
 
 from nanosoc_rm import contracts
 from nanosoc_rm.analysis import _inputs as I
@@ -223,11 +223,3 @@ def pinned_commits(row: Row) -> list[dict]:
 
 def same_as_pinned(row: Row, commit: str | None) -> bool:
     return bool(commit) and row.commits == {commit}
-
-
-def iter_cells(rws: Iterable[Row], columns: Sequence[str]):
-    """(row, column, target) for every non-pinned column of every row."""
-    for r in rws:
-        for c in columns:
-            if c != PINNED:
-                yield r, c, r.targets[c]

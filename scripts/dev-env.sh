@@ -31,4 +31,4 @@ grep -qxF '.venv/' .gitignore 2>/dev/null || grep -qxF '.venv' .gitignore 2>/dev
 
 echo "dev-env: $(.venv/bin/python --version) in $root/.venv; $(.venv/bin/nanosoc-rm --version)"
 echo "Run the tests (off the service VM, live tests deselected):"
-echo "  cd $root && PATH=\$PWD/.venv/bin:\$PATH python -m pytest -m \"not live\" tests"
+echo "  cd $root && .venv/bin/python -m pytest -m \"not live\" -n 6 tests"

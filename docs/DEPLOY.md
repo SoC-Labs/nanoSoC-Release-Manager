@@ -10,7 +10,8 @@ do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free port, `
 ~/nanosoc-rm/app          the tool (a git clone)
 ~/nanosoc-rm/venv         Python 3.11 virtual environment with the package installed
 ~/nanosoc-rm/registry     a clone of the registry
-~/nanosoc-rm/data         rm.sqlite, jobs.sqlite, sessions.sqlite, session.secret, mirrors, job logs
+~/nanosoc-rm/data         rm.sqlite, jobs.sqlite, sessions.sqlite, bumps.sqlite, gui.sqlite, session.secret,
+                          mirrors, job logs (store files the tool creates are mode 0600)
 ~/.config/nanosoc-rm/config.toml        private config (0600)
 ~/.config/nanosoc-rm/initial-password   the generated password (0600)
 ~/.config/systemd/user/nanosoc-rm.service
@@ -125,7 +126,8 @@ signed-in login, so with one shared team user the actions log shows the team use
 | Reinstall | `VIRTUAL_ENV=~/nanosoc-rm/venv uv pip install --reinstall-package nanosoc-rm ~/nanosoc-rm/app` (the version string does not change, so a plain install would skip it) |
 | Update the registry | `git -C ~/nanosoc-rm/registry pull` (the next poll reads it) |
 | Add a user | `nanosoc-rm user add <login> --generate`, append the stanza to the config, restart |
-| Backup | stop the service, copy `~/nanosoc-rm/data/*.sqlite` (rm, jobs, sessions, bumps, gui) and `~/.config/nanosoc-rm/`; mirrors can be re-synced |
+| Backup | `systemctl --user stop nanosoc-rm; b=~/nanosoc-rm-backup/$(date +%F); (umask 077; mkdir -p $b && cp -p ~/nanosoc-rm/data/{rm,jobs,sessions,bumps,gui}.sqlite ~/nanosoc-rm/data/session.secret $b/ && cp -rp ~/.config/nanosoc-rm $b/config); systemctl --user start nanosoc-rm`. All five stores: `gui.sqlite` (cards, reviews, notifications) and `bumps.sqlite` (proposals, marks, ledger) cannot be rebuilt from the mirrors. Mirrors can be re-synced |
+| Store modes | the tool creates each store 0600 and a new data dir 0700. Stores created before 2026-10-16 keep their mode: `chmod 600 ~/nanosoc-rm/data/*.sqlite*; chmod 700 ~/nanosoc-rm/data` once |
 
 ### Store schema upgrade (CR-ROB-store)
 

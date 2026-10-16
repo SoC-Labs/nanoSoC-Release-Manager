@@ -52,8 +52,8 @@ def path(config: Config) -> Path:
 
 @contextlib.contextmanager
 def connect(config: Config) -> Iterator[sqlite3.Connection]:
-    p = path(config)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    from nanosoc_rm.db import private_store
+    p = private_store(path(config))
     con = sqlite3.connect(str(p), timeout=30, isolation_level=None)
     try:
         con.row_factory = sqlite3.Row

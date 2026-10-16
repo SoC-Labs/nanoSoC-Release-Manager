@@ -47,6 +47,7 @@ import datetime as dt
 import json
 import re
 import secrets
+import os
 import sqlite3
 import zlib
 from contextlib import closing, contextmanager
@@ -298,13 +299,28 @@ def ensure_schema(con: sqlite3.Connection, statements: Iterable[str], version: i
         con.isolation_level = level
 
 
+def private_store(path: Path) -> Path:
+    """Make sure a store file the tool is about to open exists with mode 0600 (and its directory, when this call
+    creates it, 0700), so no store is ever created world-readable whatever the process umask (evaluation
+    2026-10-16). SQLite gives the -wal and -shm files the main file's mode. An existing file is left as it is
+    (docs/DEPLOY.md has the one-line chmod for stores created before this change)."""
+    path = Path(path)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not path.exists():
+        try:
+            os.close(os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        except FileExistsError:                   # another process created it first: theirs is 0600 too
+            pass
+    return path
+
+
 @contextmanager
 def connect(config: Config | str | Path | None = None) -> Iterator[sqlite3.Connection]:
     """A connection to the store (created on first use, WAL mode), closed on exit. For this package's
     modules; prefer the functions below, which keep the README section 4 rules. Opening it writes nothing once
     the store is at SCHEMA_VERSION (ensure_schema)."""
-    path = database_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = private_store(database_path(config))
     with closing(sqlite3.connect(str(path), timeout=30)) as con:
         con.row_factory = sqlite3.Row
         ensure_schema(con, _SCHEMA, SCHEMA_VERSION)

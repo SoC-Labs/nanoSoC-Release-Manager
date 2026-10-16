@@ -17,6 +17,12 @@
     });
   });
 
+  /* A <select data-autosubmit> submits its form on change (no inline handler: the CSP forbids them). */
+  document.addEventListener("change", function (ev) {
+    var t = ev.target;
+    if (t && t.hasAttribute && t.hasAttribute("data-autosubmit") && t.form) t.form.submit();
+  });
+
   /* Keep a job log scrolled to its end while it grows. */
   document.addEventListener("htmx:afterSwap", function (ev) {
     ev.target.querySelectorAll && ev.target.querySelectorAll("pre.log").forEach(function (p) { p.scrollTop = p.scrollHeight; });

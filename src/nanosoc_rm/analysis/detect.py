@@ -34,6 +34,7 @@ import hashlib
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -231,6 +232,21 @@ def _fetch_source(cfg: Config, reg: inp.Registry, source: dict, tmp: Path) -> Pa
     return checkout
 
 
+def detector_env(tmp: Path, python_dir: str | None = None) -> dict[str, str]:
+    """The detector's whole environment (evaluation 2026-10-16): the detector is code fetched from a repo, so it
+    gets none of the caller's variables (no token, no SSH_AUTH_SOCK, no HOME with keys, no PYTHONPATH), only a
+    fixed PATH (the directory of the caller's python3 first, so the same interpreter runs it), a scratch HOME and
+    TMPDIR inside this run's temporary directory, and a C UTF-8 locale. The same rule as the tier sandbox
+    (analysis/tierrun.py _env)."""
+    home, scratch = Path(tmp) / "detector-home", Path(tmp) / "detector-tmp"
+    for d in (home, scratch):
+        d.mkdir(parents=True, exist_ok=True)
+    path = "/usr/bin:/bin" if not python_dir or python_dir in ("/usr/bin", "/bin") else python_dir + ":/usr/bin:/bin"
+    return {"PATH": path, "HOME": str(home), "TMPDIR": str(scratch), "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1",
+            "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"}
+
+
 def _command_fired(cfg: Config, reg: inp.Registry, det: dict, root: Path, tmp: Path) -> tuple[bool, str]:
     argv = [a.replace("{dir}", str(root)) for a in shlex.split(det["command"])]
     if len(argv) < 3 or argv[0] not in ("python", "python3") or argv[1] != "-m":
@@ -238,8 +254,10 @@ def _command_fired(cfg: Config, reg: inp.Registry, det: dict, root: Path, tmp: P
                             % (det["id"], det["command"]))
     checkout = _fetch_source(cfg, reg, det["source"], tmp)
     module, args = argv[2], argv[3:]
-    env = {k: v for k, v in os.environ.items() if k != "PYTHONSAFEPATH"}
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    python = shutil.which("python3")
+    if python is None:
+        raise DetectorError("python3 is not on PATH: the detector cannot run")
+    env = detector_env(tmp, python_dir=os.path.dirname(python))
     try:
         proc = subprocess.run(["python3", "-c", _WRAPPER, module, *args], cwd=checkout, env=env,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=DETECTOR_TIMEOUT_S)

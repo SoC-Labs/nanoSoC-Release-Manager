@@ -260,12 +260,16 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 #               <release_repo>/<project>/<version>/, a build-info record, a status-only promotion), refused in the
 #               web process, run only by a person's confirmed publish; never scheduled (A7: soc_release)
 #
+# `sites` (optional, default 1; evaluation 2026-10-16): how many call sites the census cannot pin to one target
+# (target `?`, or method `?`) the entry covers. One more unresolved call in that file is refused, so a second
+# `POST ?` cannot hide behind the first one's entry.
+#
 # `file` names where the contract layout (interfaces.md sections 0.5, 10, 14) puts the call. A builder who
 # puts the call in a different file moves the entry with it, in the same commit.
 # ---------------------------------------------------------------------------------------------------------
 WRITE_EFFECTS = ("write", "read-post", "local", "git-runner", "publish")
 
-WRITE_CALLS: list[dict[str, str]] = [
+WRITE_CALLS: list[dict] = [
     {"file": "nanosoc_rm/ci/client.py", "kind": "http", "method": "POST", "target": "trigger/pipeline",
      "effect": "write",
      "guard": "target is the configured ci.project only; the trigger token is scoped to that project",
@@ -307,7 +311,7 @@ WRITE_CALLS: list[dict[str, str]] = [
                "process, so a cancel can stop the whole process tree and the service never imports the tier runner"},
     {"file": "nanosoc_rm/publish/client.py", "kind": "http", "method": "PUT",
      "target": "<release_repo>/<project>/<version>/<file> and api/build",
-     "effect": "publish",
+     "effect": "publish", "sites": 2,
      "guard": "Store.check() allows a PUT only to a new file directly under [stores.artifactory] release_repo/<project>/"
               "<version>/ (never a checksum name) or to api/build, before any network I/O; the service HEADs every "
               "target first and refuses a path that holds other bytes (never overwrite); refused in the web process "

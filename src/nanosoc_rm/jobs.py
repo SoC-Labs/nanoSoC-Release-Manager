@@ -171,8 +171,7 @@ def job_dir(config: Config, job_id: int) -> Path:
 
 @contextlib.contextmanager
 def _connect(config: Config) -> Iterator[sqlite3.Connection]:
-    path = _db_path(config)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = db.private_store(_db_path(config))
     con = sqlite3.connect(str(path), timeout=30, isolation_level=None)
     try:
         con.row_factory = sqlite3.Row

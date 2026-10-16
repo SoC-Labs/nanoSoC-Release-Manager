@@ -22,7 +22,6 @@ routes are the negative controls' own: reserved `.invalid` URLs of scratch repos
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -382,6 +381,8 @@ class GitWork:
                 resolved = (resolve_relative(e["url"], pin.resolved or pin.url) if kind == "relative"
                             else e["url"])
                 tree_path = "/".join(x for x in (pin.tree_path, e["path"]) if x)
+                # override_of says the walk REACHED the override (the parent's gitlink was read), not that the
+                # moved commit was fetched or scanned: compat._unjudged reads the gates' items for that.
                 override_of = None
                 if tree_path in overrides:
                     override_of, sha = sha, overrides[tree_path]
@@ -421,11 +422,3 @@ def iter_pins(root: Pin):
 def git_version() -> str:
     r = run_git("version", timeout=30)
     return r.stdout.strip().replace("git version ", "") if r.ok else "unknown"
-
-
-def sha_of(text: str) -> str:
-    return hashlib.sha1(text.encode()).hexdigest()
-
-
-def env_has(name: str) -> bool:
-    return bool(os.environ.get(name))

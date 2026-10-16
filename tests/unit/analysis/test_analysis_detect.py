@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tarfile
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from click.testing import CliRunner
 
 from nanosoc_rm import cli, contracts
 from nanosoc_rm.analysis import UsageProblem
-from nanosoc_rm.analysis.detect import DetectorError, input_md5, md5_manifest, run
+from nanosoc_rm.analysis.detect import DetectorError, detector_env, input_md5, md5_manifest, run
 
 from analysis_fixtures import git, load_at, route_hosts, write_config
 
@@ -127,6 +128,33 @@ def test_command_detector_runs_at_its_pinned_source(cfg, tmp_path, monkeypatch):
     assert (run("SL-DEF-0001", "D1", out).result, run("SL-DEF-0001", "D1", out).forms) == ("clean", [])
     rc, docs, res = cli_run("detect", "SL-DEF-0001", "D1", "--input", str(out), "--json")
     assert rc == 0 and docs[0]["result"] == "clean" and contracts.validate_detector_run(docs[0]) == [], res.output
+
+
+ENVDUMP = """import os, sys
+for k in sorted(os.environ):
+    print("ENV %s=%s" % (k, os.environ[k]))
+sys.exit(0)
+"""
+
+
+def test_a_detector_gets_a_minimal_environment(cfg, tmp_path, monkeypatch):
+    """Evaluation 2026-10-16 (detect.py:240): a detector is repo code; none of the caller's variables reach it."""
+    _path, _data, registry = cfg
+    sha = publish_detector(tmp_path, monkeypatch, {"lintpkg/__init__.py": "", "lintpkg/check.py": ENVDUMP})
+    point_d1_at(registry, sha)
+    monkeypatch.setenv("NANOSOC_PLANTED_TOKEN", "tok-7f3a9c")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/tmp/planted-agent.sock")
+    monkeypatch.setenv("PYTHONPATH", "/planted/path")
+    out = tmp_path / "rtl"
+    out.mkdir()
+    r = run("SL-DEF-0001", "D1", out)
+    seen = dict(line[4:].split("=", 1) for line in r.log.splitlines() if line.startswith("ENV "))
+    assert r.result == "clean", r.log
+    assert "tok-7f3a9c" not in r.log and "planted" not in r.log, r.log
+    assert seen["PATH"].endswith("/usr/bin:/bin") and seen["PATH"].count(":") <= 2, seen["PATH"]
+    assert seen["HOME"].endswith("detector-home")
+    assert seen["HOME"] != os.path.expanduser("~")
+    assert set(seen) <= set(detector_env(tmp_path)) | {"PWD", "SHLVL", "_", "LC_CTYPE"}, sorted(seen)
 
 
 def test_a_crashing_detector_is_could_not_run_never_fired(cfg, tmp_path, monkeypatch):

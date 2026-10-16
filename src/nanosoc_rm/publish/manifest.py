@@ -346,14 +346,18 @@ def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str 
 
 def _configured_project(config: Config, configuration: Any) -> str | None:
     """The store project a release of `configuration` is filed under (its component through `[stores.artifactory]
-    projects`), or None when the registry does not name that configuration."""
+    projects`), or None when the registry does not name that configuration. Fails CLOSED (evaluation 2026-10-16):
+    a registry that cannot be read (no [registry] path, not a directory, a file with a problem) refuses the
+    publish, because without it the "filed under another project" check cannot run."""
     if not configuration:
         return None
     try:
         from nanosoc_rm.releases.builder import _registry
         cfg = _registry(config).configuration(str(configuration))
-    except Exception:                                     # noqa: BLE001 - no registry here: nothing to compare
-        return None
+    except Exception as e:                                # noqa: BLE001 - any load error refuses, named
+        raise PublishRefused("the registry cannot be read (%s: %s), so the check that configuration %s's releases "
+                             "are filed under this record's project cannot run: fix [registry] path, then publish "
+                             "again" % (type(e).__name__, str(e)[:300], configuration)) from None
     return settings(config).project(cfg["component"]) if cfg and cfg.get("component") else None
 
 

@@ -175,11 +175,6 @@ class StoreClient:
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
-    def bearer_headers(self) -> dict[str, str]:
-        """For the publish service only (it makes the one PUT, after check_request with publish_repo). Never
-        logged, printed or stored."""
-        return {"Authorization": "Bearer " + self._token}
-
     # --- calls ---------------------------------------------------------------------------------------------
     def _fail(self, call: str, r: httpx.Response) -> StoreError:
         cause = "auth" if r.status_code in (401, 403) else "absent" if r.status_code in (400, 404, 405, 501) else "http"

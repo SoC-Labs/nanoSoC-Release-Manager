@@ -119,6 +119,14 @@ def _cfg_href(cid: str, tab: str = "") -> str:
     return "/configurations/%s%s" % (_quote(cid), tab)
 
 
+def rail_dot(verdict: str | None) -> str:
+    """The rail's dot for a configuration's verdict: red for FAIL and UNVERIFIED (an unverified run measured
+    nothing it can vouch for), green only for a green verdict, grey otherwise (never checked, INFRA)."""
+    if verdict in V.RED:
+        return "d-fail"
+    return "d-pass" if verdict in V.GREEN else "d-notrun"
+
+
 def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()) -> dict:
     """The left rail (spec 1.3). Every block from stored data; a block whose module is not built here is empty."""
     login = getattr(identity, "login", "") or ""
@@ -140,7 +148,7 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
             dot = "d-notrun"
         else:
             cause = dec.label if dec.gate else ("frozen" if views.is_frozen(rec) else "no red gate")
-            dot = "d-fail" if dec.verdict in V.RED else "d-pass" if dec.verdict in V.GREEN else "d-notrun"
+            dot = rail_dot(dec.verdict)
         href = _cfg_href(cid)
         configs.append({"id": cid, "href": href, "verdict": "NOT CHECKED" if doc is None else dec.verdict,
                         "tone": tone(dec.verdict), "dot": dot, "cause": cause,

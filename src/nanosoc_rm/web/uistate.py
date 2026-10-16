@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
-import os
 import re
 import sqlite3
 from pathlib import Path
@@ -67,11 +66,8 @@ def path(config) -> Path:
 
 @contextlib.contextmanager
 def _connect(config) -> Iterator[sqlite3.Connection]:
-    p = path(config)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        fd = os.open(str(p), os.O_CREAT | os.O_WRONLY, 0o600)     # created 0600, never world-readable
-        os.close(fd)
+    from nanosoc_rm.db import private_store
+    p = private_store(path(config))                               # created 0600, never world-readable
     con = sqlite3.connect(str(p), timeout=30, isolation_level=None)
     try:
         con.row_factory = sqlite3.Row

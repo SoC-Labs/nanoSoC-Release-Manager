@@ -191,3 +191,22 @@ def test_a_vendor_gate_label_says_unverified_when_no_item_failed():
     pins = [pin("."), pin("a", vendor="fail"), pin("b", vendor="unverified")]
     (c,) = V.causes(doc("x", [gate("t0.vendor.no-arm-ip", "FAIL")], pins))
     assert c.label == "Arm source in a", c.label
+
+
+def test_an_unverified_run_has_a_deciding_cause_and_a_red_dot():
+    """Evaluation 2026-10-16 (mutant M5: UNVERIFIED added to GREEN survived 873 tests). deciding() on a doc whose
+    verdict is UNVERIFIED must name the gate that left it unverified, never answer "no red gate", and the rail
+    must give it the red dot."""
+    from nanosoc_rm.web import shell
+    pins = [pin("."), pin("nanosoc-multicore-system", vendor="unverified")]
+    d = doc("x", [gate("t0.pins.fetchable", "PASS"), gate("t0.vendor.no-arm-ip", "UNVERIFIED")], pins,
+            verdict="UNVERIFIED")
+    dec = V.deciding(d)
+    assert dec.verdict == "UNVERIFIED" and dec.gate == "t0.vendor.no-arm-ip", dec
+    assert dec.label == "Arm source scan unverified in nanosoc-multicore-system", dec.label
+    assert shell.rail_dot(dec.verdict) == "d-fail"
+    assert not set(V.GREEN) & {"UNVERIFIED", "FAIL", "INFRA", V.NO_RESULT}
+    # the control: a green verdict has no cause and a green dot; no result is grey
+    ok = V.deciding(doc("x", [gate("t0.pins.fetchable", "PASS")], [pin(".")], verdict="PASS"))
+    assert ok.gate is None and shell.rail_dot(ok.verdict) == "d-pass"
+    assert shell.rail_dot(V.NO_RESULT) == "d-notrun" and shell.rail_dot("INFRA") == "d-notrun"

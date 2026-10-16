@@ -18,7 +18,7 @@
   <p><code>{{ job.command }}</code></p>
   {% if job.reason %}<p class="{{ 'banner problem' if job.state in ('failed', 'infra') else 'note' }}">{{ job.reason }}</p>{% endif %}
   {% set r = job.result %}
-  {% if job.kind == 'compat' and r %}
+  {% if job.kind == 'compat' and r is mapping and r.fact is mapping %}
     {% set f = r.fact %}
     {% if stored %}<p class="note">Stored result: {{ fact(stored, 'compat_result ' ~ short(f.nonce, 12)) }}</p>
     {% elif f.overrides %}<p class="banner info">What-if run (pins overridden): shown here, never stored as a fact.{% if not compact %} <a href="/configurations/{{ quote(f.configuration) }}/whatif?job={{ job.id }}#whatif-result">Now vs After for this what-if</a>{% endif %}</p>{% endif %}
@@ -81,8 +81,16 @@
       </tbody>
     </table></div>
     {% if compact %}</details>{% endif %}
-  {% elif r %}
+  {% elif r is mapping and r.kinds is mapping %}
     <p class="note">{{ r.documents }} document(s){% for k, n in r.kinds|dictsort %}: {{ n }} {{ k }}{% endfor %}{% if r.failed %}; failed: {{ r.failed|join(', ') }}{% endif %}</p>
+  {% elif r is mapping and r %}
+    {# Any other kind's result (matrix cell, store index, freshness scan, a plug-in's own shape): its fields as
+       key and value, a nested value as its size. A result shape this template has never seen still renders. #}
+    <table class="kv" data-result="fields">
+      {% for k, v in r|dictsort %}<tr><th>{{ k }}</th><td>{% if v is mapping %}{{ v|length }} field(s){% for k2, v2 in v|dictsort %}{% if loop.index <= 8 %}{{ ':' if loop.first else ',' }} {{ k2 }} {{ v2 if v2 is not mapping and (v2 is string or v2 is not iterable) else '...' }}{% endif %}{% endfor %}{% elif v is string or v is not iterable %}{{ v }}{% else %}{{ v|length }} item(s){% endif %}</td></tr>{% endfor %}
+    </table>
+  {% elif r %}
+    <p class="note">Result: {{ r }}</p>
   {% endif %}
   <details{% if live or job.state in ('failed', 'infra') %} open{% endif %}><summary>Log</summary>
     <pre class="log">{{ log or '(no output yet)' }}</pre>

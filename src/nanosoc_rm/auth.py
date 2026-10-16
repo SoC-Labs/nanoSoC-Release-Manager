@@ -33,7 +33,7 @@ in `[[auth.users]]` (login, `hash` from `nanosoc-rm user add`: scrypt via hashli
 signed session cookie (HttpOnly, SameSite=Strict, 8 h) and the same CSRF token on every POST. A user removed from
 the config is signed out on the next request, and so is every session of a user whose hash changes. Roles: `roles.default`, `roles."<login>"` and the user's own
 `roles` (default `["member"]` when the key is absent; an explicit `roles = []` adds none). Without `[session] secret_file`, the secret is generated once in
-`<data_dir>/session.secret` (mode 0600). Failed sign-ins are throttled per login.
+`<data_dir>/session.secret` (mode 0600). Failed sign-ins are throttled per login and per source address.
 
 The OAuth exchange is a POST that writes nothing, declared `read-post` in `nanosoc_rm.contracts.WRITE_CALLS`.
 Tokens never appear in a URL, a log, an error or a page (interfaces.md section 0.3).
@@ -196,7 +196,8 @@ def hash_tag(encoded: str) -> str:
 
 
 def _revoked_db(config: Config) -> sqlite3.Connection:
-    con = sqlite3.connect(config.data_dir / "sessions.sqlite", timeout=10)
+    from nanosoc_rm.db import private_store
+    con = sqlite3.connect(private_store(config.data_dir / "sessions.sqlite"), timeout=10)
     con.execute("CREATE TABLE IF NOT EXISTS revoked (sid TEXT PRIMARY KEY, until REAL NOT NULL)")
     return con
 
@@ -223,6 +224,9 @@ def session_revoked(config: Config, sid: str) -> bool:
         return con.execute("SELECT 1 FROM revoked WHERE sid = ?", (sid,)).fetchone() is not None
     finally:
         con.close()
+
+
+IP_LIMIT = 20                     # failed sign-in checks per source address per window (per login: Throttle.limit)
 
 
 class Throttle:
@@ -267,10 +271,16 @@ class Throttle:
             self._fails[key] = fails + [now]
             return True
 
-    def fail(self, key: str) -> None:
+    def release(self, key: str) -> None:
+        """Give back the newest reservation of `key` (a check that did not count as a failure), leaving its
+        older failures in place. The per-address throttle uses it: one good sign-in from a host must not erase the
+        failures that host made against other logins."""
         with self._lock:
-            now = time.monotonic()
-            self._fails[key] = self._recent(key, now) + [now]
+            fails = self._fails.get(key)
+            if fails:
+                fails.pop()
+                if not fails:
+                    self._fails.pop(key, None)
 
     def clear(self, key: str) -> None:
         with self._lock:
