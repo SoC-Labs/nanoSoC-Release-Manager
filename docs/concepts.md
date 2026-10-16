@@ -5,7 +5,7 @@ docs. Other docs link here instead of repeating these definitions. Contract-leve
 applies) is in [contracts/README.md](contracts/README.md) and [contracts/interfaces.md](contracts/interfaces.md);
 where this page and a contract disagree, the contract is right and this page has a bug.
 
-Marked **(coming)**: agreed on 2026-10-16 and being built in Wave G, not yet on master.
+Marked **(coming)**: agreed but not built yet. Everything else here is on master (Wave G merged 2026-10-16).
 
 ## Things the tool knows about
 
@@ -31,11 +31,11 @@ Marked **(coming)**: agreed on 2026-10-16 and being built in Wave G, not yet on 
 | **Configuration** | A line that is registered in `eligibility.yaml`, with an id such as `eth-main` (follows the branch `main` of the Ethernet chiplet) or `eth-rc4` (the tag `v1.0.0`). Only configurations are checked, scanned for freshness and shown with a verdict. A project with no configuration reads **Not measured yet**. |
 | **Branch vs tag** | A branch moves when someone pushes; a configuration that follows a branch is re-judged at its newest commit. A tag names one commit for ever; a configuration on a tag is judged at that commit. |
 | **Submodule pin** (pin) | The commit a parent repository records for one submodule path (its gitlink), written `path @ sha`, for example `tidelink @ 1107151`. The pin is what a recursive clone checks out, whatever branch `.gitmodules` names. |
-| **Tracks B** | `.gitmodules` may name `branch = B` for a submodule. That only matters to `git submodule update --remote`; the pin is still one commit. **(coming)** shown beside the pin. |
+| **Tracks B** | `.gitmodules` may name `branch = B` for a submodule. That only matters to `git submodule update --remote`; the pin is still one commit. Shown as **Tracks** in the pin panel. |
 | **Tree** and **walk** | A configuration's whole submodule tree, every pin at every depth. A **walk** resolves it from the configuration's own `.gitmodules` and gitlinks and stores it; pages show the last stored walk. |
 | **Direct pin** | A pin one level below the configuration's root. A configuration's freshness is judged on its direct pins. |
-| **Split** | One component pinned at two different commits in the same tree. **(coming)** shown as **PINNED ×N**. |
-| **Host copies differ** | The GitHub and GitLab copies of one repository disagree. Pages say SPLIT for this too today; **(coming)** it reads **HOSTS DIFFER**, so it cannot be confused with a split pin. |
+| **Pinned more than once** | One component pinned at two or more paths of the same tree (code `B7`, "split" in older text). The rows read **PINNED ×N** and the pin panel lists **Also pinned at**. Not to be confused with the branch verdict PINNED below. |
+| **Hosts differ** | The GitHub and GitLab copies of one repository disagree. Pages say **HOSTS DIFFER** and how far one is ahead (`github ahead 23`). |
 | **Frozen** | A configuration whose commit never changes (`frozen: true`), usually because it was taped out. Its old pins are old on purpose. |
 | **Silicon** | A frozen configuration that became a chip (`silicon:` names the chip and revision). Its commits must stay reachable for ever; the Silicon page lists any that are not protected by a tag. |
 
@@ -69,9 +69,9 @@ example "Freshness: Outdated · Check: FAIL".
 | **Negative control** | Every gate also runs on input built to fail, in the same run. A gate whose control did not fail is UNVERIFIED, never PASS: a check that cannot fail proves nothing. |
 | **Tier** | A level of testing, cheapest first. **T0** resolve and hygiene (pins, URLs, vendor content; git only, under 2 minutes); **T1** lint and unit tests; **T2** smoke simulation; **T3** regression; **T4** FPGA build; **T5** on hardware; **T6** ASIC flow. The tool runs T0 itself and T1/T2 from the command a configuration declares. |
 | **T0** | The resolve tier. Its gates: the hosts answer; every pin is fetchable and reachable from a branch or tag; no public repo pins a submodule by ssh URL; manifests validate; an old release upgrades by clone; no Arm source (red) and no foundry data (amber) leaks into a public tree. |
-| **Capability** **(coming)** | A test a repository declares it can run (lint, elab, sim, cdc, formal, synth, fpga, ...), in `.nanosoc/capabilities.yaml` at its root: the command, the tools and licences it needs, its time budget, which submodules affect it, and how its result is judged. The tool reads the file at the commit under test, so the declaration moves with the code. The registry's `tiers.yaml` keeps only per-host paths and licence data. |
-| **Executor** **(coming)** | Where tier runs execute. The tool's own host has no EDA tools, so T1 and later run on a lab EDA server through a sandboxed, unprivileged pull agent that fetches the job and returns a signed result; GitLab CI takes over later. |
-| **Hygiene vs functional** **(coming)** | T0 is hygiene (is the tree well formed and publishable?); the tiers are functional (does it build and simulate?). A long-standing hygiene red will no longer hide the functional result: both are shown side by side. |
+| **Capability** | A test a repository declares it can run (lint, elab, sim, cdc, formal, synth, fpga, ...), in `.nanosoc/capabilities.yaml` at its root: the command, the tools and licences it needs, its time budget, which submodules affect it, and how its result is judged. The tool reads the file at the commit under test, so the declaration moves with the code. The registry's `tiers.yaml` keeps only per-host paths and licence data (`hosts`). Page: `/capabilities/<configuration>`. |
+| **Executor** | Where tier runs execute. The tool's own host has no EDA tools, so T1 and later run on a lab EDA server through a sandboxed, unprivileged pull agent (bubblewrap) that claims the job from the service and posts the result back; GitLab CI may take over later. Until an agent is installed, tier jobs wait ("waiting for an executor"). |
+| **Hygiene vs functional** | T0 is hygiene (is the tree well formed and publishable?); the tiers are functional (does it build and simulate?). A test-bump reports both side by side, so a long-standing hygiene red does not hide the functional result. |
 
 Every check ends in one verdict. Worst first:
 
@@ -93,21 +93,23 @@ re-run; two FLAKY results in 14 days quarantine the test). Exit code 3 always me
 | **Waiver** | A registry entry that accepts one known failure of a **frozen** configuration: one gate, one tree path, one result, with a reason, an approver and a date. It turns that item from FAIL into WAIVED so a new failure on the same tree still shows red. A waiver that covered nothing raises a `waiver_unused` alert so it can be retired. |
 | **What-if** | A check of a configuration with one or more pins moved (`compat --pin`, or the What-if tab). Shown, never stored. |
 | **Matrix** | For each component of a configuration: the check with that component at its pinned commit, the latest tag in range, the latest tag and its default-branch head. |
-| **Test this bump** **(coming)** | One command or button: move a component to a tag, branch or commit everywhere it is pinned, run the same gates before and after at the same root commit, and show each gate as better, worse or same. A gate that goes green to red blocks the bump. |
+| **Test this bump** | `nanosoc-rm test-bump CONFIG PATH TO` or the button on a pin: move a component to a tag, branch or commit everywhere it is pinned, run the same capabilities before and after at the same root commit on an executor, and show each as same, better, worse, same-red or new-red. Green to red is FAIL; already red and still red is WARN. A bump proposal, and a repository's CI, need a PASS of exactly that move. |
 
 ## Pin states on a host
 
 Each pin is also judged on each host (GitHub, GitLab). The pages show these as chips:
 
-| State | Plain meaning | Colour |
+The chip shows the words; the code is its tooltip and what the CLI and JSON print.
+
+| Chip (code) | Plain meaning | Colour |
 |---|---|---|
-| TAGGED | a release tag points at the commit | green |
-| ON_DEFAULT | on the default branch (shows how many commits it lags) | green, amber as it lags |
-| PROTECTED_BY_TAG | not on the default branch, but a tag keeps it reachable | grey-green |
-| BRANCH_ONLY | only some other branch keeps it; deleting that branch loses it | amber; red in a frozen tree |
-| REWRITTEN, PR_ONLY, ORPHAN, MISSING | not reachable from any branch or tag of that host, or absent | red |
-| UNREADABLE | the repository cannot be read with the tool's access | red |
-| LOCAL_URL, NO_GITLINK | the `.gitmodules` entry is broken (a local path, or no gitlink at that path) | red |
+| tagged (TAGGED) | a release tag points at the commit | green |
+| on default branch (ON_DEFAULT) | on the default branch (shows how many commits it lags) | green, amber as it lags |
+| kept by a tag (PROTECTED_BY_TAG) | not on the default branch, but a tag keeps it reachable | grey-green |
+| on a side branch only (BRANCH_ONLY) | only some other branch keeps it; deleting that branch loses it | amber; red in a frozen tree |
+| history rewritten, in a pull request only, on no branch or tag (REWRITTEN, PR_ONLY, ORPHAN), MISSING | not reachable from any branch or tag of that host, or absent | red |
+| repo unreadable (UNREADABLE) | the repository cannot be read with the tool's access | red |
+| local URL, no gitlink (LOCAL_URL, NO_GITLINK) | the `.gitmodules` entry is broken (a local path, or no gitlink at that path) | red |
 
 **SSH PIN** beside a state means `.gitmodules` uses an ssh URL, which nobody without a key can clone.
 
@@ -144,4 +146,4 @@ The tool only prints the `git push --delete` lines; a person runs them.
 | **CR** | A change request: a numbered, agreed change to a requirement or a contract, one row in [CHANGES.md](CHANGES.md). |
 | **Phase gate** | Each later phase (2 matrix, 3 versions, 4 bump bot, 5 releases) may be built and used by hand, but its automation (nightly runs, bot writes) stays off until its entry gate is met ([phase-gates.yaml](phase-gates.yaml); `nanosoc-rm phase-gates`). |
 | **Wave** | One batch of parallel build work, merged together (Wave A to Wave G). Used in the project record, not on the pages. |
-| **Hooks** **(coming)** | Git hooks that look at a submodule pointer change: they warn on a developer's machine, and the same check blocks in CI and in the tool's bump gate. |
+| **Hooks** | Git hooks that look at a submodule pointer change (`scripts/hooks/pre-push` in the eth chiplet and TideLink, on branch `rm/capabilities`, not merged there yet): they warn on a developer's machine; the same check blocks in CI (asking `GET /api/v1/bump-check`) and in the tool's bump gate. |

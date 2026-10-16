@@ -69,15 +69,14 @@ nanosoc-rm compat eth-main --pin tidelink=<40-hex sha>
 
 Limits today, so you are not misled:
 
-- Only **T0** (resolve and hygiene) runs on the tool's host. Lint and simulation tiers end **INFRA**, "tool not on
-  this host": the host has no EDA tools.
-- Most configurations carry a known T0 red (for example ssh submodule URLs), and a T0 FAIL skips the tiers.
-- A pin that was never fetched can show **FAIL** where it should say **UNVERIFIED**.
+- Only **T0** (resolve and hygiene) runs on the tool's host. Lint and simulation run on an **executor**, a
+  sandboxed agent on a lab EDA server; until one is installed, those jobs wait ("waiting for an executor").
+- Most configurations carry a known T0 red (for example ssh submodule URLs); in a what-if a T0 FAIL skips the
+  tiers. A what-if whose moved pin was never fetched says **UNVERIFIED**, unless a FAIL was found elsewhere.
 
-Coming in Wave G: one **Test this bump** button and `nanosoc-rm test-bump` command that moves a component
-everywhere it is pinned and compares before and after at the same commit; tiers that run on a lab EDA server
-through a sandboxed pull agent; each repository declaring its own tests in `.nanosoc/capabilities.yaml`; and a
-pre-existing hygiene red no longer hiding the functional result.
+**Test this bump** (the button on a pin, or `nanosoc-rm test-bump CONFIG PATH TO`) moves a component everywhere it
+is pinned and runs the capabilities the trees declare (`.nanosoc/capabilities.yaml`) before and after, at the same
+commit, on an executor. T0 is reported as hygiene beside the functional result, so a known T0 red does not hide it.
 
 ## 4. Who to ask
 

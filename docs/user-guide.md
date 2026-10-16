@@ -7,7 +7,7 @@ defined in [concepts.md](concepts.md); every command and option is in [cli.md](c
 The tool only reads repositories. It never pushes, tags or deletes; where a change is due it prints the command or
 writes a patch for a person.
 
-Marked **(coming)**: agreed on 2026-10-16 and being built in Wave G, not yet on master.
+Marked **(coming)**: agreed but not built yet. Everything else here is on master (Wave G merged 2026-10-16).
 
 ## Contents
 
@@ -101,9 +101,11 @@ sandbox checkout of the resolved tree, with a clean environment (`set_env.sh` is
 anyway and marks the result UNVERIFIED for release. A command that regenerates `build_soc` needs
 `NANOSOC_GEN_OK=1`. `--keep-work DIR` keeps the sandbox; `--store` records a run without overrides.
 
-Today the tool's host has no EDA tools, so T1 and T2 end INFRA "tool not on this host". **(coming)** Tier runs move
-to a lab EDA server through a sandboxed, unprivileged pull agent (later GitLab CI), and each repository declares
-its own tests in `.nanosoc/capabilities.yaml`, read at the commit under test.
+The tool's host has no EDA tools, so a tier job (`compat --tier`, a matrix tier cell, a test-bump) queued from the
+pages waits for an **executor**: a sandboxed, unprivileged pull agent on a lab EDA server (DEPLOY.md, "Remote tier
+executor"). Each repository declares its own tests in `.nanosoc/capabilities.yaml`, read at the commit under test
+(`nanosoc-rm capabilities validate FILE` while you write one; `capabilities show CONFIG` lists what each tree can
+run and where). Run on your own EDA login, `compat --tier` still runs the tier where you are.
 
 **Worked examples (real data, 2026-10-11).**
 
@@ -172,11 +174,17 @@ A configuration opts in with a `regen` entry in the registry's `tiers.yaml`. The
 a sandbox with the component moved and the command runs in a clean environment; the vendor-library variables are
 never set, so the vendor renderers are skipped and listed as not covered.
 
-**(coming)** `nanosoc-rm test-bump eth-main tidelink --to v1.0|main|<sha>` and a **Test this bump** button: one
-paired run, before and after at the same root commit and the same tests, chosen from the capability manifests (the
-moved component's own tests plus every consumer test that declares the moved path), reported as hygiene (T0) and
-functional (tiers) side by side. A gate that goes green to red blocks. Git hooks on a submodule pointer change
-will warn locally and the same check will block in CI and in the tool's bump gate.
+**Test this bump.** `nanosoc-rm test-bump eth-main tidelink v1.0` (TO: a tag, a branch, a full sha or a 7+ hex
+prefix; `--plan` shows what would run, `--queue` queues it for an executor), or the **Test this bump** button on a
+pin: one paired run, before and after at the same root commit and the same tests, chosen from the capability
+manifests (the moved tree's own tests, or the ones its parent composes, plus every consumer test whose
+`affected_by` names the moved path), reported as hygiene (T0) and functional (capabilities) side by side. Exit 0
+PASS or WARN (already red, still red), 1 FAIL (green to red), 2 UNVERIFIED, 3 usage. A bump proposal reads `would:
+hold` until a PASS of exactly that move exists.
+
+A repository's CI asks the same question: `GET /api/v1/bump-check?component=&path=&to=&root=` answers from the
+same evidence, with a reader token (`nanosoc-rm executor token new NAME --out F --reader`). The eth chiplet and
+TideLink carry the CI job and a warn-only pre-push hook on their `rm/capabilities` branches (not merged there yet).
 
 ## 4. Can I delete this branch?
 
@@ -299,11 +307,12 @@ To have a project measured, register a configuration for it: a merge request add
 
 | You see | Cause | What to do |
 |---|---|---|
-| INFRA "tool not on this host" | the tier needs an EDA tool (Verilator, VCS) the tool's host lacks | nothing yet; **(coming)** tiers run on the lab EDA server |
+| INFRA "tool not on this host", or a job "waiting for an executor" | the tier needs an EDA tool the tool's host lacks; tier jobs run on an executor | ask the operator whether the EDA-server agent is installed and running (DEPLOY.md, "Remote tier executor") |
 | Not measured, or UNREADABLE, on a private repo | the tool reads anonymously unless the operator configured read access for that host | ask the tool owner; the operator step is in [DEPLOY.md](DEPLOY.md), "Private repos" |
 | A T0 FAIL that never goes away | a long-standing hygiene problem, often an ssh URL in `.gitmodules` | fix the URL in the repo (use https), or, for a frozen tree, a waiver in the registry |
-| FAIL for a pin you moved in a what-if, with "not fetched" items | the moved commit was never fetched or scanned | treat it as UNVERIFIED; **(coming)** the tool says UNVERIFIED itself |
+| UNVERIFIED for a pin you moved in a what-if, "not fetched" | the moved commit was never fetched or scanned (an ssh or private URL) | fix the URL, or test the bump on an executor; a FAIL found elsewhere still reads FAIL |
 | "Data age 3 days" on a fresh-looking page | the header shows the age of the oldest fact on the page | open the fact's **src** link; **(coming)** two clocks, scan time and last check |
 | Sign-in refused with the right password | 5 wrong passwords for that login within 5 minutes lock it for the rest of the 5 minutes | wait 5 minutes, or ask the operator to restart the service |
-| A page says "analysing, refresh" | no stored result yet; a job was queued | refresh in about a minute |
+| A Quality page says "not analysed yet" | nothing stored for that ref, and opening a page never starts an analysis | press **Analyse** |
+| A page says "analysing, refresh" | an analysis job is queued or running | refresh in about a minute |
 | Exit code 3 | usage or config error: unknown configuration, bad `--pin`, missing `NANOSOC_RM_CONFIG` | read the message; `nanosoc-rm <command> --help` |

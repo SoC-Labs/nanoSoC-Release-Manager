@@ -244,7 +244,8 @@ On the service host:
    restart. The API is served by the same process at `/executor/v1/` (POST only, token only); it needs CR-20 TLS when
    the agent is on another host.
 3. Move `eda-1.token` to the agent host (scp, then delete it here). Grant `jobs` too only when the agent will run
-   whole `nanosoc-rm` tier jobs (step 8).
+   whole `nanosoc-rm` tier jobs (step 8); `jobs:test-bump` (or `jobs:compat`, `jobs:matrix-cell`) grants one job
+   kind only. A job's tools are checked on the agent host (a missing tool reads INFRA, so UNVERIFIED, never PASS).
 
 On the EDA host, as a DEDICATED user (no ssh keys, nothing else in its home; never a person's account):
 
@@ -267,12 +268,22 @@ On the EDA host, as a DEDICATED user (no ssh keys, nothing else in its home; nev
 
 Operate: `nanosoc-rm executor list|show ID|cancel ID` on the service host. Revoke an agent at once with
 `revoked = true` on its entry (or delete the entry). A task whose agent stops heartbeating is queued again, then
-ends INFRA after `max_attempts` claims.
+ends INFRA after `max_attempts` claims; a job ends INFRA (also one left running with no lease by a service crash).
+Never put `[executor] host` in the service config: a service config's host is ignored, and `nanosoc-rm test-bump
+--host` on the service host is refused, so tier commands never run here.
+
+Bump-check readers (the repositories' CI, interfaces.md section 26.7): for each repository whose CI asks
+`GET /api/v1/bump-check`, `nanosoc-rm executor token new <repo>-ci --out <repo>-ci.token --reader`, paste the
+printed `[[api.readers]]` entry into the private config, and put the token into that repository's CI secret
+`NANOSOC_RM_TOKEN` (and the service's HTTPS URL into variable `NANOSOC_RM_URL`). A reader token opens that one
+route and nothing else; revoke with `revoked = true`. The route must be reachable from where the CI runs.
 
 What the sandbox gives (interfaces.md section 27.4):
 - **bwrap** (preferred): an empty root with only `/usr` and `/etc` read-only, the tool trees read-only, the mirror
   read-only and the task's work dir writable; the agent user's home (its `~/.ssh`, `~/.config`, the token) is not
-  there; new user/pid/ipc namespaces; network shared for licence servers unless `network = false`.
+  there; new user/pid/ipc namespaces; network shared for licence servers unless `network = false`. In a tier job,
+  each tier command also runs in its own pid namespace (a nested bwrap), so it cannot reach the job's `nanosoc-rm`
+  process and forge its result.
 - **fallback**: environment built from nothing (no `SSH_AUTH_SOCK`, no token, empty HOME), umask 077, time and
   output limits, its own process group. **Residual risk:** no filesystem isolation. The command can read what the
   agent user can read, including the token file; with it, it could claim tasks and post results as this agent (and

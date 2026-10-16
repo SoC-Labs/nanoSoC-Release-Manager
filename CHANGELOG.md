@@ -21,6 +21,15 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
   older install against the same data directory afterwards. (CR-ROB-store, CR-1015-retention)
 - `release list`, `bumps queue` and `matrix quarantine` with a configuration nobody registered or stored exit 3
   (usage) instead of printing an empty list. (CR-ROB-cli)
+- Tier jobs (`compat --tier`, a matrix tier cell, `test-bump`) queued from the pages no longer run on the service
+  host: they wait for an executor, a sandboxed agent on the EDA host. `matrix --run --wait` runs only the cells it
+  queued. (CR-WG-capabilities, CR-WG-executor, CR-WG-integration)
+- A bump proposal reads `would: hold` until a passing `test-bump` of exactly that move exists, so every current
+  proposal holds at first. (CR-WG-capabilities)
+- A what-if whose moved pin was walked but never fetched (an ssh or private URL) reads UNVERIFIED (exit 2), not
+  FAIL, unless the gates judged a FAIL elsewhere. (CR-1016-quickfix, CR-WG-integration)
+- Opening a Quality page never starts an analysis: a page with nothing stored offers an **Analyse** button.
+  (CR-WG-integration)
 
 ### feature
 - Web pages for a team on one host: local sign-in with named users (`nanosoc-rm user add`), HTTPS with a
@@ -59,6 +68,18 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
   the catalogue marks a rule blocking. (CR-6, CR-6b, CR-19)
 - Store growth: an unchanged poll is recorded as a confirmation, not a copy; `nanosoc-rm store-maint compact`
   removes the old copies. (CR-1015-retention)
+- Each repository declares what it can test in `.nanosoc/capabilities.yaml`, read at the commit under test;
+  `nanosoc-rm capabilities validate|show` and the Capabilities pages show what each tree runs and where.
+  (CR-WG-capabilities)
+- **Test this bump**: `nanosoc-rm test-bump CONFIG PATH TO` and a button on a pin run the declared capabilities
+  before and after a move at the same root commit, with T0 reported as hygiene beside them. (CR-WG-capabilities)
+- A remote tier executor: a pull agent on the EDA host claims tier work over `/executor/v1/`, runs it under
+  bubblewrap and posts the result back; `nanosoc-rm executor run|check|token|list`. (CR-WG-executor,
+  CR-WG-integration)
+- `GET /api/v1/bump-check` answers a repository's CI from the bump gate's evidence, with a reader token
+  (`executor token new NAME --reader`). (CR-WG-integration)
+- Repository, line and submodule pin read differently on every page (`branch main @ sha`, `path @ sha`, PINNED ×N,
+  HOSTS DIFFER, Tracks), and requirement codes read as words with the code in a tooltip. (CR-WG-subrepo-ui)
 
 ### fix
 - A rate-limited or unreadable host answer is "could not answer", never stored as a red pin state; a tree that
@@ -73,6 +94,12 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - Faster pages on a large store; an identical queued compat request reuses the queued job. (CR-ROB-store,
   CR-ROB-store-2, CR-ROB-store-3, CR-ROB-jobs)
 - Fewer false comment findings (unknown names, commented-out code, README checks). (CR-WD-Q4)
+- History and Store job links that answered HTTP 500 render; any other page fault is the service's own error page.
+  Security headers on every answer, a per-address sign-in limit, private store files, a fail-closed publish
+  registry read. (CR-1016-quickfix)
+- A page never fetches from a git host to read a capabilities file; a failed claim can no longer leave a tier job
+  running for ever; an agent granted one job kind claims only that kind; a tier command in an executor job cannot
+  reach the job's own output. (CR-WG-integration)
 
 ### none
 - New documentation: a day-one guide (`docs/getting-started.md`), a task-led user guide (`docs/user-guide.md`,
