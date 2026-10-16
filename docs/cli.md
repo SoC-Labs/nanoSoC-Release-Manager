@@ -24,6 +24,9 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm bumps scan`](#nanosoc-rm-bumps-scan) | Scan one configuration (or all) for releases newer than their pins (the default subcommand). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps schedule`](#nanosoc-rm-bumps-schedule) | The bump schedule as shipped: disabled, naming the Phase 4 entry gate. |
 | &nbsp;&nbsp;[`nanosoc-rm bumps show`](#nanosoc-rm-bumps-show) | One kept proposal: the move, changelog, defects, matrix, blockers. |
+| [`nanosoc-rm capabilities`](#nanosoc-rm-capabilities) | Wave G: what each tree can test (.nanosoc/capabilities.yaml). |
+| &nbsp;&nbsp;[`nanosoc-rm capabilities show`](#nanosoc-rm-capabilities-show) | Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned commit, each capability, the hosts that can run it, and its last test-bump result. |
+| &nbsp;&nbsp;[`nanosoc-rm capabilities validate`](#nanosoc-rm-capabilities-validate) | Check a capabilities file while you write it (exit 1 with every problem). |
 | [`nanosoc-rm catalogue`](#nanosoc-rm-catalogue) | Catalogue characterisation: groups and types, new repos, change previews. |
 | &nbsp;&nbsp;[`nanosoc-rm catalogue org-scan`](#nanosoc-rm-catalogue-org-scan) | List the org and the group anonymously; report each repo the catalogue does not hold (section 23.2). |
 | &nbsp;&nbsp;[`nanosoc-rm catalogue preview`](#nanosoc-rm-catalogue-preview) | The catalogue.yaml patch for a JSON list of choices (section 23.3). |
@@ -35,6 +38,15 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | [`nanosoc-rm credentials`](#nanosoc-rm-credentials) | The service's credentials and their scopes (H3). |
 | &nbsp;&nbsp;[`nanosoc-rm credentials check`](#nanosoc-rm-credentials-check) | Check every credential's scope against its record and, where the host can say, the host (H3). |
 | [`nanosoc-rm detect`](#nanosoc-rm-detect) | Run DETECTOR of DEFECT on built output and print the run for the erratum's exposure.run. (F2) |
+| [`nanosoc-rm executor`](#nanosoc-rm-executor) | The remote tier executor: the pull agent and its queue (section 27). |
+| &nbsp;&nbsp;[`nanosoc-rm executor cancel`](#nanosoc-rm-executor-cancel) | Cancel a queued task, or ask the agent running it to stop. |
+| &nbsp;&nbsp;[`nanosoc-rm executor check`](#nanosoc-rm-executor-check) | What this host would run with: sandbox mode, exposure check, token file and mirror root (no network). |
+| &nbsp;&nbsp;[`nanosoc-rm executor enqueue`](#nanosoc-rm-executor-enqueue) | Queue the task in TASK_FILE (executor.schema.json#/$defs/task). |
+| &nbsp;&nbsp;[`nanosoc-rm executor list`](#nanosoc-rm-executor-list) | Executor tasks, newest first. |
+| &nbsp;&nbsp;[`nanosoc-rm executor run`](#nanosoc-rm-executor-run) | Claim tasks from the release manager and run them sandboxed (on the EDA host). |
+| &nbsp;&nbsp;[`nanosoc-rm executor show`](#nanosoc-rm-executor-show) | One task, with its result and log path. |
+| &nbsp;&nbsp;[`nanosoc-rm executor token`](#nanosoc-rm-executor-token) | Executor tokens (service host). |
+| &nbsp;&nbsp;&nbsp;&nbsp;[`nanosoc-rm executor token new`](#nanosoc-rm-executor-token-new) | A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to stdout. |
 | [`nanosoc-rm forks`](#nanosoc-rm-forks) | Forks of the example projects (I1): base release, divergence, errata, user-path changes (read-only, anonymous). |
 | [`nanosoc-rm freshness`](#nanosoc-rm-freshness) | How far each submodule pin lags its upstream and when it last moved (section 24). |
 | &nbsp;&nbsp;[`nanosoc-rm freshness scan`](#nanosoc-rm-freshness-scan) | Measure each registered configuration's stored walk against the mirrors (read-only git). |
@@ -94,6 +106,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm t0 run`](#nanosoc-rm-t0-run) | Run T0 for the RM_REQUEST pipeline variable and write the bundle (compat-ci job t0 only). |
 | &nbsp;&nbsp;[`nanosoc-rm t0 runs`](#nanosoc-rm-t0-runs) | Stored T0 runs, oldest first (latest state of each). |
 | &nbsp;&nbsp;[`nanosoc-rm t0 trigger`](#nanosoc-rm-t0-trigger) | Start T0 for CONFIGURATION (or --all) in the CI project. |
+| [`nanosoc-rm test-bump`](#nanosoc-rm-test-bump) | Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or commit of that component), Now against After, with the capabilities the trees declare in .nanosoc/capabilities.yaml. |
 | [`nanosoc-rm tiers`](#nanosoc-rm-tiers) | Test tiers with their budgets and, for CONFIGURATION, their commands (D1). |
 | [`nanosoc-rm trace`](#nanosoc-rm-trace) | Requirement -> tests -> commits (PR7), from test markers and `Requirements:` trailers. |
 | [`nanosoc-rm user`](#nanosoc-rm-user) | Local sign-in users (CR-16): print config stanzas; never writes a file. |
@@ -126,12 +139,14 @@ Commands:
   alerts              Open alerts (dashboard banners): rewrite, unknown_url, token_expiry,...
   branches            CR8: every branch of a repo (a component id, or host:path) from its local...
   bumps               Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15).
+  capabilities        Wave G: what each tree can test (.nanosoc/capabilities.yaml).
   catalogue           Catalogue characterisation: groups and types, new repos, change previews.
   changelog           The classed changelog (C2): lint it.
   compat              CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each...
   contains            B4: which configurations contain commit SHA, per host.
   credentials         The service's credentials and their scopes (H3).
   detect              F2: run DETECTOR of DEFECT on built output and print the run for the...
+  executor            The remote tier executor: the pull agent and its queue (section 27).
   forks               Forks of the example projects (I1): base release, divergence, errata,...
   freshness           How far each submodule pin lags its upstream and when it last moved...
   hosts               B6: compare each component's copies with its canonical repo (rev-list in...
@@ -154,6 +169,7 @@ Commands:
   store               The artefact store index: what Artifactory holds (read-only).
   store-maint         Store maintenance for the operator (CR-1015-retention).
   t0                  T0, the resolve tier: run (CI only), and the service's trigger and results.
+  test-bump           Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or...
   tiers               Test tiers with their budgets and, for CONFIGURATION, their commands (D1).
   trace               Requirement -> tests -> commits (PR7), from test markers and...
   user                Local sign-in users (CR-16): print config stanzas; never writes a file.
@@ -345,6 +361,52 @@ Options:
                         latest computed).
   --json                Print one JSON document per line.
   -h, --help            Show this message and exit.
+```
+
+<a id="nanosoc-rm-capabilities"></a>
+
+### `nanosoc-rm capabilities`
+
+```
+Usage: nanosoc-rm capabilities [OPTIONS] COMMAND [ARGS]...
+
+  Wave G: what each tree can test (.nanosoc/capabilities.yaml).
+
+Options:
+  -h, --help  Show this message and exit.
+
+Commands:
+  show      Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned...
+  validate  Check a capabilities file while you write it (exit 1 with every problem).
+```
+
+<a id="nanosoc-rm-capabilities-show"></a>
+
+#### `nanosoc-rm capabilities show`
+
+```
+Usage: nanosoc-rm capabilities show [OPTIONS] CONFIGURATION
+
+  Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned commit, each
+  capability, the hosts that can run it, and its last test-bump result. Reads only.
+
+Options:
+  --json      Print one JSON document per line.
+  -h, --help  Show this message and exit.
+```
+
+<a id="nanosoc-rm-capabilities-validate"></a>
+
+#### `nanosoc-rm capabilities validate`
+
+```
+Usage: nanosoc-rm capabilities validate [OPTIONS] FILE
+
+  Check a capabilities file while you write it (exit 1 with every problem). The release manager
+  itself only ever reads the file at a commit, from its mirror.
+
+Options:
+  -h, --help  Show this message and exit.
 ```
 
 <a id="nanosoc-rm-catalogue"></a>
@@ -542,6 +604,150 @@ Options:
   --input PATH  Built output: a generated-RTL archive or directory, or a netlist file.  [required]
   --json        Print one JSON document per line.
   -h, --help    Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor"></a>
+
+### `nanosoc-rm executor`
+
+```
+Usage: nanosoc-rm executor [OPTIONS] COMMAND [ARGS]...
+
+  The remote tier executor: the pull agent and its queue (section 27).
+
+Options:
+  -h, --help  Show this message and exit.
+
+Commands:
+  cancel   Cancel a queued task, or ask the agent running it to stop.
+  check    What this host would run with: sandbox mode, exposure check, token file and mirror...
+  enqueue  Queue the task in TASK_FILE (executor.schema.json#/$defs/task).
+  list     Executor tasks, newest first.
+  run      Claim tasks from the release manager and run them sandboxed (on the EDA host).
+  show     One task, with its result and log path.
+  token    Executor tokens (service host).
+```
+
+<a id="nanosoc-rm-executor-cancel"></a>
+
+#### `nanosoc-rm executor cancel`
+
+```
+Usage: nanosoc-rm executor cancel [OPTIONS] TASK_ID
+
+  Cancel a queued task, or ask the agent running it to stop.
+
+Options:
+  -h, --help  Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-check"></a>
+
+#### `nanosoc-rm executor check`
+
+```
+Usage: nanosoc-rm executor check [OPTIONS]
+
+  What this host would run with: sandbox mode, exposure check, token file and mirror root (no
+  network).
+
+Options:
+  --agent-config FILE  The agent's TOML (default: $NANOSOC_RM_AGENT_CONFIG).
+  --json               Print one JSON document per line.
+  -h, --help           Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-enqueue"></a>
+
+#### `nanosoc-rm executor enqueue`
+
+```
+Usage: nanosoc-rm executor enqueue [OPTIONS] TASK_FILE
+
+  Queue the task in TASK_FILE (executor.schema.json#/$defs/task).
+
+Options:
+  --json      Print one JSON document per line.
+  -h, --help  Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-list"></a>
+
+#### `nanosoc-rm executor list`
+
+```
+Usage: nanosoc-rm executor list [OPTIONS]
+
+  Executor tasks, newest first.
+
+Options:
+  --state [queued|claimed|done|lost|cancelled]
+  --limit INTEGER
+  --json                          Print one JSON document per line.
+  -h, --help                      Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-run"></a>
+
+#### `nanosoc-rm executor run`
+
+```
+Usage: nanosoc-rm executor run [OPTIONS]
+
+  Claim tasks from the release manager and run them sandboxed (on the EDA host).
+
+Options:
+  --once               Claim at most one task, run it, exit.
+  --loop               Claim and run until SIGTERM or SIGINT.
+  --agent-config FILE  The agent's TOML (default: $NANOSOC_RM_AGENT_CONFIG).
+  -h, --help           Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-show"></a>
+
+#### `nanosoc-rm executor show`
+
+```
+Usage: nanosoc-rm executor show [OPTIONS] TASK_ID
+
+  One task, with its result and log path.
+
+Options:
+  --json      Print one JSON document per line.
+  -h, --help  Show this message and exit.
+```
+
+<a id="nanosoc-rm-executor-token"></a>
+
+#### `nanosoc-rm executor token`
+
+```
+Usage: nanosoc-rm executor token [OPTIONS] COMMAND [ARGS]...
+
+  Executor tokens (service host).
+
+Options:
+  -h, --help  Show this message and exit.
+
+Commands:
+  new  A new executor token for agent NAME: the token goes to --out, the [[executor.agents]]...
+```
+
+<a id="nanosoc-rm-executor-token-new"></a>
+
+#### `nanosoc-rm executor token new`
+
+```
+Usage: nanosoc-rm executor token new [OPTIONS] NAME
+
+  A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to
+  stdout.
+
+Options:
+  --out FILE     Write the token here (created 0600; must not exist). It is never printed.
+                 [required]
+  --labels TEXT  Comma-separated labels to grant (vcs,xcelium,verilator,...).
+  -h, --help     Show this message and exit.
 ```
 
 <a id="nanosoc-rm-forks"></a>
@@ -1568,6 +1774,29 @@ Options:
   --by TEXT   Your login: a run from the shell is manual and is logged (H2).
   --json      Print one JSON document per line.
   -h, --help  Show this message and exit.
+```
+
+<a id="nanosoc-rm-test-bump"></a>
+
+### `nanosoc-rm test-bump`
+
+```
+Usage: nanosoc-rm test-bump [OPTIONS] CONFIGURATION PATH TO
+
+  Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or commit of that component),
+  Now against After, with the capabilities the trees declare in .nanosoc/capabilities.yaml. Every
+  tree path of that component moves together. T0 runs on both sides and is reported as hygiene. Exit
+  0 PASS or WARN; 1 FAIL (a gate went green to red); 2 UNVERIFIED (nothing covers the move, or
+  something did not run); 3 usage.
+
+Options:
+  --host TEXT  The executor host id whose site data (registry tiers.yaml hosts) builds the
+               environment. Default: $NANOSOC_RM_EXECUTOR_HOST, then [executor] host.
+  --plan       Show what would run, run nothing.
+  --queue      Queue it as a job for an executor instead of running it here (what the GUI's Test
+               this bump does).
+  --json       Print one JSON document per line.
+  -h, --help   Show this message and exit.
 ```
 
 <a id="nanosoc-rm-tiers"></a>
