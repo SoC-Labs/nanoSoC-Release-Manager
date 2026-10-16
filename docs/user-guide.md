@@ -62,7 +62,7 @@ Every command exits 0 answered (PASS), 1 finding or FAIL, 2 could not answer (UN
 
 **On the pages.** Open the configuration (Home, select it, **Open the configuration**). **Overview** lists the
 gates with the deciding rows first; **Submodule tree** shows every pin; **History** lists earlier runs. **Run**
-on the board checks it now (a T0 check takes about 3 minutes; one job runs at a time).
+on the board checks it now (a T0 check took about 35 seconds on eth-main once started; one job runs at a time, so it may queue first).
 
 **On the command line.**
 

@@ -58,7 +58,7 @@ Today, to see whether moving one submodule would break a configuration:
 1. Open the configuration: select it on Home, then **Open the configuration** in the right-hand panel. Go to the
    **What-if** tab.
 2. Pick the component and the target (a tag or branch from the mirror).
-3. Press **Run what-if**. It queues a job; a T0 check takes about 3 minutes. One job runs at a time.
+3. Press **Run what-if**. It queues a job; a T0 what-if took about 35 seconds on eth-main once started. One job runs at a time, so it may wait in the queue first.
 4. Read **Now vs After**: one row per gate. A gate that is green now and red after is the problem.
 
 From the command line (see [user-guide.md](user-guide.md) for setting it up):
