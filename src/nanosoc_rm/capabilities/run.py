@@ -20,7 +20,8 @@
    with no parser yet is one UNVERIFIED row, never a pass.
 5. **Compare.** Per row (block gates decide; report gates are shown): PASS->PASS same, red->PASS better, PASS->red
    worse (FAIL), red->red same-red (WARN), a red After with no green Now baseline UNVERIFIED, an After that did not
-   run UNVERIFIED. T0 is HYGIENE (David 2026-10-16 decision 4): reported per side, never hiding the functional rows.
+   run UNVERIFIED; a gate the After side no longer declares is `gone` (PASS) only when After's manifest reads ok,
+   else `not-run` (UNVERIFIED: a deleted or broken manifest is no evidence). T0 is HYGIENE (David 2026-10-16 decision 4): reported per side, never hiding the functional rows.
    The functional verdict: FAIL > UNVERIFIED > WARN > PASS; no planned row at all is UNVERIFIED.
 
 The document is the job's result (jobs.sqlite) and the bump gate's evidence (capabilities.gate); it is never a
@@ -450,9 +451,17 @@ def test_bump(configuration: str, path: str, to: str, *, config, host: str | Non
         for r in plan:
             now, after = results["now"].get(r.key), results["after"].get(r.key)
             c = r.cap()
+            change = compare(now, after)
+            if change == "gone" and (r.after is not None
+                                     or not getattr(after_c.reads.get(r.owner), "ok", False)):
+                # Gone only because After's manifest is absent, invalid or unreadable, or because a planned After
+                # run left no result: it did not run, so it is no evidence (a bump that deletes or breaks the file
+                # must not pass on that). A valid After manifest that drops the capability is a reviewed change:
+                # `gone` stays.
+                change = "not-run"
             fact["rows"].append({"key": r.key, "owner": PL.owner_label(r.owner), "id": r.id, "kind": c["kind"],
                                  "tier": c.get("tier"), "gate": c["gate"], "why": r.why, "now": now, "after": after,
-                                 "change": compare(now, after)})
+                                 "change": change})
         fact["verdict"], fact["reason"] = functional_verdict(fact["rows"])
         roots = {h.get("commit") for h in hygiene.values()} - {None}
         if len(roots) > 1:

@@ -424,6 +424,13 @@ def test_bump_gate_needs_a_passing_test_bump_of_exactly_this_move(scene, monkeyp
         assert ev["verdict"] == "PASS" and ev["job"] == j["id"] and GATE.blocker(ev, "top-main", "a", to) is None
         assert GATE.evidence(cfg, "top-main", ["a", "z"], to, scene.top)["verdict"] is None   # not every path
         assert GATE.evidence(cfg, "top-main", ["a"], scene.a4, scene.top)["verdict"] is None  # another move
+        # review g1: a PASS document from a command that exited non-zero is not a pass
+        j = jobs.submit(cfg, "test-bump", {"configuration": "top-main", "path": "a", "to": to}, by="m")
+        jobs.claim_for_executor(cfg, "eda-agent")
+        jobs.finish_for_executor(cfg, j["id"], "eda-agent", 1, json.dumps(_fake_doc(scene, "PASS", to=to)) + "\n")
+        ev = GATE.evidence(cfg, "top-main", ["a"], to, scene.top)
+        assert ev["job"] == j["id"] and ev["verdict"] == "UNVERIFIED" and "exited 1" in ev["note"]
+        assert GATE.blocker(ev, "top-main", "a", to) is not None
 
 
 def test_jobs_store_gains_the_executor_column_once(tmp_path):
@@ -550,3 +557,18 @@ def test_home_detail_panel_has_a_capabilities_section_and_the_button(site):
             raise RuntimeError("mirror gone")
     sec, _ = home._capabilities_section(Broken(), "top-main", "a", "main", True)
     assert sec["rows"] == [] and sec["line"].startswith("Capabilities not read: mirror gone")
+
+
+def test_a_gate_lost_to_a_broken_after_manifest_is_not_run_not_gone(scene):
+    """Review g1: a bump whose new commit breaks (or deletes) its own manifest must not pass on the gates it no
+    longer declares; `gone` (PASS) is only for a valid After manifest that drops the capability."""
+    at = load_at("test_pins")
+    h = scene.h
+    a5 = h.commit(GH, "SoC-Labs/alpha", parents=[scene.a3], files={"rtl/a.v": "good\n", CAPS: "schema: 1\nbad: [\n"})
+    h.push(GH, "SoC-Labs/alpha", a5, "broken-manifest")
+    with scene.env.active():
+        at.rm("mirror.sync_component")("alpha")
+    f = scene.test_bump("a", "broken-manifest")["fact"]
+    rows = rows_of({"fact": f})
+    assert rows[".:integ"]["change"] == "same" and rows["a:lint"]["change"] == "not-run"
+    assert f["verdict"] == "UNVERIFIED" and "a:lint not-run" in f["reason"]

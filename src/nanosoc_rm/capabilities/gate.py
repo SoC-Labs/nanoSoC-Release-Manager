@@ -6,7 +6,7 @@
 A test-bump counts only when it tested EXACTLY the move: the same configuration, the same root commit as the walk
 the proposal comes from, the same moved commit, and every tree path the proposal moves. Its functional verdict must
 be PASS: FAIL (a gate went green to red), WARN (a gate that was already red), UNVERIFIED (nothing covered the
-move, or something did not run) all hold the proposal. Hooks only warn; this gate, the CI bump-check template and
+move, or something did not run) all hold the proposal, and so does a PASS document whose job exited non-zero. Hooks only warn; this gate, the CI bump-check template and
 the bump engine are where a move is blocked. The gate reads job records only: it never runs anything.
 """
 from __future__ import annotations
@@ -37,9 +37,15 @@ def evidence(config, configuration: str, tree_paths: list[str], to: str, root_co
             stale += 1
             continue
         at = j.get("finished_at")
-        return dict(out, verdict=f.get("verdict") or j.get("verdict"), job=j["id"],
+        verdict, note = f.get("verdict") or j.get("verdict"), f.get("reason")
+        if verdict == "PASS" and j.get("exit_code") != 0:
+            # The printed document and the exit code disagree (a stale or stray PASS line, or a command that
+            # failed after printing): never greener than the exit code (as compat, ROB-faults-1).
+            verdict, note = "UNVERIFIED", ("its document says PASS but the command exited %s"
+                                           % j.get("exit_code"))
+        return dict(out, verdict=verdict, job=j["id"],
                     href="/capabilities/%s/bump?job=%d" % (configuration, j["id"]),
-                    finished_at=at if at and at.endswith("Z") else None, note=f.get("reason"))
+                    finished_at=at if at and at.endswith("Z") else None, note=note)
     if stale:
         out["note"] = ("%d test-bump%s of this move ran on another root commit than the walked %s: not used"
                        % (stale, "" if stale == 1 else "s", (root_commit or "?")[:12]))

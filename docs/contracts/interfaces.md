@@ -2478,8 +2478,9 @@ is met by the tool; `regen:`, `after:`, `lease:` and `siblings` are run-time nee
   it: INFRA, not run; a regenerating one without NANOSOC_GEN_OK=1: NOT-RUN. Verdict rows beyond the exit status:
   `forbid` (a FAIL row `tier.<label>.forbid`), `require`, junit, regex; regress-table and tidelink-sim-gate have no
   parser yet and give one UNVERIFIED row.
-- **Compare** per row: same, better, worse (green -> FAIL), same-red, new-red (no green baseline), new, gone,
-  not-run. Functional verdict over the block rows: worse FAIL > new-red/not-run UNVERIFIED > same-red WARN > PASS; no
+- **Compare** per row: same, better, worse (green -> FAIL), same-red, new-red (no green baseline), new, gone
+  (only when After's manifest reads ok; a capability lost to an absent, invalid or unreadable After manifest is
+  not-run), not-run. Functional verdict over the block rows: worse FAIL > new-red/not-run UNVERIFIED > same-red WARN > PASS; no
   block row at all is UNVERIFIED; Now and After on different root commits is UNVERIFIED. T0 per side is `hygiene`,
   reported and never hiding the rows (decision 4). Exit 0 PASS or WARN, 1 FAIL, 2 UNVERIFIED, 3 usage.
 - The document (schemas/test-bump.schema.json, kind `test_bump`) is the job's result, never a stored fact.
@@ -2488,7 +2489,8 @@ is met by the tool; `regen:`, `after:`, `lease:` and `siblings` are run-time nee
 
 `evidence(config, configuration, tree_paths, to, root_commit)`: the newest finished `test-bump` job whose result
 tested exactly this move (configuration, root commit = the walk's, moved commit, a superset of the tree paths;
-not `--plan`). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional). Anything but PASS makes
+not `--plan`). A PASS document whose job exited non-zero counts as UNVERIFIED (never greener than the exit
+code). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional). Anything but PASS makes
 `decision.would` = hold with the second blocker "bump gate: ..." naming the `nanosoc-rm test-bump` command; the E2
 ledger then scores the proposal `held`, as for any held proposal.
 
