@@ -207,3 +207,22 @@ def test_lines_helpers():
     nodes = [{"component": "a", "pinned": "1"}, {"component": "a", "pinned": "2"}, {"component": "b", "pinned": "1"},
              {"component": "b", "pinned": "1"}]
     assert lines.pinned_again(nodes) == {"a": 2}
+
+
+def _visible(template: str) -> str:
+    """A template's text as a reader sees it: tooltips, Jinja comments, tags and expressions removed."""
+    t = re.sub(r'title="[^"]*"', "", template)
+    for pat in (r"\{#.*?#\}", r"\{%.*?%\}", r"\{\{.*?\}\}", r"<[^>]*>"):
+        t = re.sub(pat, "", t, flags=re.S)
+    return t
+
+
+@pytest.mark.parametrize("rel", ["matrix/templates/matrix.html", "web/templates/compat.html"])
+def test_matrix_and_compat_print_no_split_and_no_d_codes(rel):
+    """Review of wave-g/subrepo-ui: the Matrix notes still printed (D4), (D7), (D8), (D9) and "split component",
+    and the compat pin table a bare "split" badge."""
+    from pathlib import Path
+    import nanosoc_rm
+    text = _visible((Path(nanosoc_rm.__file__).parent / rel).read_text())
+    assert not re.search(r"\(D\d+\)", text), rel
+    assert not re.search(r"\bsplit\b", text, re.I), rel
