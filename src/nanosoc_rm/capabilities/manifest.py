@@ -160,15 +160,31 @@ _SETTLED: dict[tuple, "Read"] = {}
 _SETTLED_MAX = 4096
 
 
+def no_fetch_env(environ=None) -> dict[str, str]:
+    """Environment additions that stop git reaching any remote: lazy (promisor) fetching off, and every transport
+    refused (`protocol.allow=never`, for a git that ignores GIT_NO_LAZY_FETCH). No credential helper is set."""
+    import os
+    env = os.environ if environ is None else environ
+    n = int(env.get("GIT_CONFIG_COUNT", "0") or 0)
+    return {"GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": str(n + 1),
+            "GIT_CONFIG_KEY_%d" % n: "protocol.allow", "GIT_CONFIG_VALUE_%d" % n: "never"}
+
+
 class Reader:
     """Reads manifests from the component mirrors (interfaces.md section 3), once per (component, commit).
 
     `git -C <mirror> cat-file -p <commit>:.nanosoc/capabilities.yaml` (the `git show` of the file at the commit):
     the file as the commit holds it, so a capability is always the one that ships with the code under test. A
-    working tree is never read."""
+    working tree is never read.
 
-    def __init__(self, config):
+    `fetch=False` (every GET page; integration review 2026-10-16): the mirrors are partial clones, so reading a blob
+    they lack makes git fetch it from the host, with the read credential when one is configured. A page must never
+    reach the network: it reads anonymously with lazy fetching off (`NO_FETCH_ENV`), and a blob the mirror lacks
+    reads `unreadable` ("not fetched yet") until a command or a job reads it with `fetch=True`."""
+
+    def __init__(self, config, *, fetch: bool = True):
         self.config = config
+        self.fetch = fetch
         self._cache: dict[tuple, Read] = {}
 
     def at(self, component: str | None, commit: str | None, host: str | None = None) -> Read:
@@ -194,10 +210,13 @@ class Reader:
         if not (mirror / "HEAD").is_file():
             return Read(component, commit, "unreadable",
                         problems=["no mirror of %s: run `nanosoc-rm mirror sync --component %s`" % (component, component)])
-        try:
-            env = layout.git_env(self.config, host) if host else None
-        except Exception:                                          # noqa: BLE001 - anonymous then
-            env = None
+        if not self.fetch:
+            env = no_fetch_env()
+        else:
+            try:
+                env = layout.git_env(self.config, host) if host else None
+            except Exception:                                      # noqa: BLE001 - anonymous then
+                env = None
         present = layout.run_in(mirror, "cat-file", "-e", "%s^{commit}" % commit, env=env, timeout=60)
         if not present.ok:
             return Read(component, commit, "unreadable", sources=[present.source()],

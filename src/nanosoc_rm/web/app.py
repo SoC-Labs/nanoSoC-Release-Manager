@@ -44,6 +44,7 @@ from starlette.websockets import WebSocketClose
 from nanosoc_rm import auth as authmod
 from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.config import Config, ConfigError, load_config
+from nanosoc_rm.capabilities import bumpcheck
 from nanosoc_rm.executor import api as executor_api
 from nanosoc_rm.web import plugins, registry_facts, routers, shell, views
 from nanosoc_rm.web.page import NAV, Page, env, render
@@ -168,6 +169,9 @@ class Guard:
         path = scope.get("path", "")
         if _is_under(path, executor_api.PREFIX):       # CR-WG-executor: bearer token only, never a session
             await executor_api.serve(scope, receive, send, self.state.config)
+            return
+        if path == bumpcheck.PATH and bumpcheck.bearer(scope):   # a CI job's reader token (section 26.7)
+            await bumpcheck.serve(scope, receive, send, self.state.config)
             return
         if any(_is_under(path, p) for p in _OPEN_PREFIXES):
             await self.app(scope, receive, send)
@@ -901,6 +905,14 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
         config, _ = _ctx(request)
         return _ndjson([_redacted_alert(a, config) for a in db.alerts(open_only=True, config=config)])
 
+    def api_bump_check(request: Request) -> Response:
+        # section 26.7: the same answer a CI job's reader token gets, for a signed-in member
+        config, _ = _ctx(request)
+        try:
+            return JSONResponse(bumpcheck.answer(config, dict(request.query_params)), headers={"cache-control": "no-store"})
+        except bumpcheck.BadRequest as e:
+            return JSONResponse({"error": str(e)}, 400)
+
     # ----- auth (section 14) -------------------------------------------------------------------------------
     def login(request: Request) -> Response:
         try:
@@ -1065,7 +1077,7 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
                      ("/api/v1/silicon-protection", api_silicon), ("/api/v1/runs", api_runs),
                      ("/api/v1/errata/{configuration}", api_errata), ("/api/v1/mirrors", api_mirrors),
                      ("/api/v1/inventory", api_inventory), ("/api/v1/runner", api_runner),
-                     ("/api/v1/alerts", api_alerts),
+                     ("/api/v1/alerts", api_alerts), (bumpcheck.PATH, api_bump_check),
                      (authmod.LOGIN_PATH, login), (authmod.CALLBACK_PATH, callback), (authmod.LOGOUT_PATH, logout_form)):
         app.add_api_route(path, fn, methods=get, include_in_schema=False)
     app.add_api_route("/configurations/{id}/runs", post_run, methods=["POST"], include_in_schema=False)

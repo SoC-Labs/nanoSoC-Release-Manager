@@ -152,8 +152,11 @@ def _view_exit(doc: dict) -> int:
 def _wait(job_ids: list[int], config) -> None:
     """Work the queue here until every job in `job_ids` has finished (or watch the service's worker do it)."""
     from nanosoc_rm import jobs
-    # a person working the queue HERE (a login server) runs its tier cells here too: that is the executor (Wave G)
-    w = jobs.Worker(config.path, log=lambda m: click.echo("worker: %s" % m, err=True), run_tiers=True)
+    # a person working the queue HERE (a login server) runs its tier cells here too: that is the executor (Wave G).
+    # Only THEIR cells: the queue may hold other people's tier jobs (a test-bump queued from the GUI), which only a
+    # sandboxed executor may run (integration review 2026-10-16).
+    w = jobs.Worker(config.path, log=lambda m: click.echo("worker: %s" % m, err=True), run_tiers=True,
+                    only=job_ids)
     mine = w.acquire(config)
     if not mine:
         click.echo("another worker (the service) holds the queue: waiting for it to run the cells", err=True)

@@ -14,11 +14,14 @@
     GET /quality/{target}/docs                  Q4 files ranked least concise first
     GET /quality/{target}/trend                 Q5 stored results per commit
 
-Query: `ref` (branch, tag or sha; default the default branch, or the work tree for a `[quality] paths` target),
-`analyse=1` to analyse again. A page shows the stored result for the commit the ref names when there is one.
-When there is none (or `analyse=1`), the page never analyses inside the request (CR-R2): it queues
-`nanosoc-rm quality all TARGET [--ref REF] --store` in the local job worker (job kind `quality`, one per target and
-ref at a time) and answers 202 "analysing, refresh" with the job's live card. Every page shows the same rows as
+    POST /quality/{target}/analyse              queue the analysis (local deployments; form ref, next)
+
+Query: `ref` (branch, tag or sha; default the default branch, or the work tree for a `[quality] paths` target).
+A page shows the stored result for the commit the ref names when there is one. It never analyses inside the
+request (CR-R2) and a GET never queues work (integration review 2026-10-16): with nothing stored it says "not
+analysed yet" and offers the Analyse button, a POST that queues `nanosoc-rm quality all TARGET [--ref REF] --store`
+in the local job worker (job kind `quality`, one per target and ref at a time); while that job waits or runs the
+page answers 202 "analysing, refresh" with the job's live card. Every page shows the same rows as
 its CLI command (`nanosoc-rm quality ...`) and links each result to `/facts/<subject>` (A3).
 """
 from __future__ import annotations
@@ -32,7 +35,7 @@ from fastapi import APIRouter
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse, Response
+from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import quality as q
 from nanosoc_rm.config import load_config
@@ -135,6 +138,12 @@ def _key(fact_or_source) -> str:
     return "%s:%s%s" % (s.label, s.commit or "worktree", "+worktree" if s.worktree and s.commit else "")
 
 
+class NotAnalysed(Exception):
+    """No stored result and no quality job queued or running for this target and ref. A GET never queues one
+    (integration review 2026-10-16: link prefetchers and previews started analyses); the page offers the POST
+    Analyse button instead."""
+
+
 class Pending(Exception):
     """No stored result: a quality job was queued (or one already runs) for this target and ref."""
 
@@ -143,30 +152,41 @@ class Pending(Exception):
         self.job = job
 
 
-def _queue(config, target: str, ref: str | None, login: str) -> dict:
-    """The queued or running quality job for (target, ref), or a new one (CR-R2: never analyse in a request)."""
+def _waiting(config, target: str, ref: str | None) -> dict | None:
+    """The queued or running quality job for (target, ref), or None."""
     from nanosoc_rm import jobs
     params = {"target": target, "ref": ref}
+    for j in jobs.jobs(config, limit=200, kind="quality", states=("queued", "running")):
+        if j["params"] == params:
+            return j
+    return None
+
+
+def _queue(config, target: str, ref: str | None, login: str) -> dict:
+    """The queued or running quality job for (target, ref), or a new one (CR-R2: never analyse in a request).
+    Called by the POST Analyse route only: a GET never queues work."""
+    from nanosoc_rm import jobs
     with _lock("queue:%s:%s" % (target, ref)):
-        for j in jobs.jobs(config, limit=200, kind="quality", states=("queued", "running")):
-            if j["params"] == params:
-                return j
-        return jobs.submit(config, "quality", params, login or "web")
+        return _waiting(config, target, ref) or jobs.submit(config, "quality", {"target": target, "ref": ref},
+                                                            login or "web")
 
 
-def _result(config, kind: str, target: str, ref: str | None, analyse: bool, login: str = "") -> tuple[dict, Any]:
+def _result(config, kind: str, target: str, ref: str | None, analyse: bool = False, login: str = "") -> tuple[dict, Any]:
     """(observation, source) for one kind at one ref when it is stored (a work-tree result only while the disk is
-    as it was). Otherwise, or with `analyse`, Pending with the quality job that will store it."""
+    as it was). Otherwise Pending with the queued or running quality job, or NotAnalysed when there is none: the
+    page offers the POST Analyse button (a GET never queues). `analyse` and `login` are kept for callers; ignored."""
     from nanosoc_rm import db
     source = q.open_source(target, ref=ref, config=config)
     obs_kind = q.KINDS[kind]
     subject = "%s:%s" % (obs_kind, _key(source))
-    if not analyse:
-        hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
-        # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
-        if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
-            return hit[-1], source
-    raise Pending(_queue(config, target, ref, login))
+    hit = [d for d in db.latest(obs_kind, subject, config=config) if d["subject"] == subject]
+    # a work-tree result is reused only while the disk is as it was (same files, sizes, mtimes)
+    if hit and (not source.worktree or hit[-1]["fact"].get("worktree_state") == source.state):
+        return hit[-1], source
+    job = _waiting(config, target, ref)
+    if job is not None:
+        raise Pending(job)
+    raise NotAnalysed(target)
 
 
 def _targets(config, by_kind: dict[str, dict[str, list[dict]]] | None = None) -> list[dict]:
@@ -268,8 +288,32 @@ def _pending(request: Request, target: str, ref: str | None, job: dict) -> HTMLR
                  job=job, job_html=Markup(html), refresh_url=str(request.url.remove_query_params("analyse")))
 
 
-def router() -> APIRouter:
+def _not_analysed(request: Request, target: str, ref: str | None) -> HTMLResponse:
+    """200: nothing stored and nothing queued; a local deployment offers the Analyse button (a POST)."""
+    return _page(request, "quality_unanalysed.html", "Quality: %s" % target, target=target, ref=ref,
+                 here=str(request.url.path))
+
+
+def router(app: Any = None) -> APIRouter:
+    from nanosoc_rm.web.plugins import local_routes
+    local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
+
+    async def post_analyse(request: Request, target: str) -> Response:
+        """Queue the quality job for (target, ref) and go back to the page it was asked from (303)."""
+        from starlette.concurrency import run_in_threadpool
+        form = await request.form()
+        ref = str(form.get("ref") or "").strip() or None
+        back = str(form.get("next") or "")
+        if not back.startswith(PREFIX + "/") or "//" in back or "\\" in back:
+            back = _qurl(target, ref=ref) if ref else _qurl(target)
+        config = _config(request)
+        try:
+            await run_in_threadpool(q.open_source, target, ref=ref, config=config)
+            await run_in_threadpool(_queue, config, target, ref, _login(request))
+        except (q.UsageError, q.QualityError, q.SourceError) as e:
+            return _error(request, e)
+        return RedirectResponse(back, 303)
 
     def overview(request: Request) -> HTMLResponse:
         config = _config(request)
@@ -279,11 +323,12 @@ def router() -> APIRouter:
     def summary(request: Request, target: str) -> Response:
         config = _config(request)
         ref = request.query_params.get("ref") or None
-        analyse = request.query_params.get("analyse") == "1"
         try:
-            res = {k: _result(config, k, target, ref, analyse, _login(request))[0] for k in q.KINDS}
+            res = {k: _result(config, k, target, ref)[0] for k in q.KINDS}
         except Pending as p:
             return _pending(request, target, ref, p.job)
+        except NotAnalysed:
+            return _not_analysed(request, target, ref)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return _error(request, e)
         trends = {k: q.trend(k, target, config=config) for k in q.KINDS}
@@ -294,11 +339,12 @@ def router() -> APIRouter:
         def handler(request: Request, target: str) -> Response:
             config = _config(request)
             ref = request.query_params.get("ref") or None
-            analyse = request.query_params.get("analyse") == "1"
             try:
-                obs, _ = _result(config, kind, target, ref, analyse, _login(request))
+                obs, _ = _result(config, kind, target, ref)
             except Pending as p:
                 return _pending(request, target, ref, p.job)
+            except NotAnalysed:
+                return _not_analysed(request, target, ref)
             except (q.UsageError, q.QualityError, q.SourceError) as e:
                 return _error(request, e)
             sel = request.query_params.get("kind") or ""
@@ -312,10 +358,13 @@ def router() -> APIRouter:
         ref = request.query_params.get("ref") or None
         sel = request.query_params.get("kind") or ""
         try:
-            obs, source = _result(config, "comments", target, ref, False, _login(request))
+            obs, source = _result(config, "comments", target, ref)
         except Pending as p:                                              # not stored, or the disk moved on
             return PlainTextResponse("Analysing %s (job %d): download again when it has finished.\n"
                                      % (target, p.job["id"]), 202)
+        except NotAnalysed:
+            return PlainTextResponse("%s is not analysed at this ref: open %s and press Analyse, then download "
+                                     "again.\n" % (target, _qurl(target, ref=ref) if ref else _qurl(target)), 404)
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return PlainTextResponse(str(e), 404 if isinstance(e, q.UsageError) else 503)
         banners = request.query_params.get("banners") == "1"
@@ -368,6 +417,8 @@ def router() -> APIRouter:
                     methods=get, include_in_schema=False)
     r.add_api_route("/{target}/trend", trend_page, methods=get, include_in_schema=False)
     r.add_api_route("/{target}", summary, methods=get, include_in_schema=False)
+    if local:
+        r.add_api_route("/{target}/analyse", post_analyse, methods=["POST"], include_in_schema=False)
     return r
 
 

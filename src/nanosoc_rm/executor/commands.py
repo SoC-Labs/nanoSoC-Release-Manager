@@ -109,13 +109,19 @@ def register(main: click.Group) -> None:
     @click.option("--out", "out", required=True, type=click.Path(dir_okay=False),
                   help="Write the token here (created 0600; must not exist). It is never printed.")
     @click.option("--labels", default="", help="Comma-separated labels to grant (vcs,xcelium,verilator,...).")
-    def token_new_cmd(name: str, out: str, labels: str) -> int:
-        """A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to stdout."""
+    @click.option("--reader", is_flag=True, help="A bump-check READER token instead (a CI job's NANOSOC_RM_TOKEN): "
+                                                  "prints an [[api.readers]] entry; it opens GET /api/v1/bump-check "
+                                                  "only.")
+    def token_new_cmd(name: str, out: str, labels: str, reader: bool) -> int:
+        """A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to stdout
+        (with --reader: a bump-check reader token and its [[api.readers]] entry)."""
         from nanosoc_rm.executor import tokens
         import re
         if not re.match(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z", name):
             raise click.UsageError("NAME must be lower case letters, digits, _ . -")
         labs = [x.strip() for x in labels.split(",") if x.strip()]
+        if reader and labs:
+            raise click.UsageError("--labels is for an executor agent; a reader token has none")
         value = tokens.new_token()
         try:
             fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -123,6 +129,13 @@ def register(main: click.Group) -> None:
             raise click.UsageError("%s exists; a token file is never overwritten" % out) from None
         with os.fdopen(fd, "w") as f:
             f.write(value + "\n")
+        if reader:
+            click.echo("# add to the service config; put the token in %s into the repository's CI secret "
+                       "NANOSOC_RM_TOKEN:" % out)
+            click.echo("[[api.readers]]")
+            click.echo("name = %s" % json.dumps(name))
+            click.echo("token_sha256 = %s" % json.dumps(tokens.digest(value)))
+            return EXIT_OK
         click.echo("# add to the service config, then copy %s to the agent host (0600):" % out)
         click.echo("[[executor.agents]]")
         click.echo("name = %s" % json.dumps(name))

@@ -1,13 +1,15 @@
 """What each tree of a configuration can test, where, and its last result (the Capabilities page, the CLI `show`).
 
-    tree_view(config, configuration) -> dict     one dict per tree of the latest STORED walk, never a re-walk
+    tree_view(config, configuration, fetch=False) -> dict   one dict per tree of the latest STORED walk, never a re-walk
     last_results(config, configuration) -> {key: {verdict, job, side, finished_at, commit}}
 
 Each tree's `.nanosoc/capabilities.yaml` is read at the commit the stored walk pins (from its mirror), so the page
 shows what the tree at THAT commit declares. "Runs on" lists the registry tiers.yaml hosts whose site data can run
 the capability (tools, versions, licences, needs); "Last result" is the newest finished test-bump row for that
 capability at that same commit (the Now side of a test-bump, or the After side of one whose move has landed).
-Reads only: stored walk, mirrors, registry, job records. Nothing runs and nothing is queued.
+Reads only: stored walk, mirrors, registry, job records. Nothing runs and nothing is queued. By default nothing is
+fetched either (the pages): a manifest blob the partial-clone mirror lacks reads "unreadable" until the CLI
+(`capabilities show`, fetch=True) or a test-bump reads it.
 """
 from __future__ import annotations
 
@@ -36,7 +38,7 @@ def last_results(config, configuration: str) -> dict[str, dict]:
     return out
 
 
-def tree_view(config, configuration: str) -> dict:
+def tree_view(config, configuration: str, *, fetch: bool = False) -> dict:
     """{configuration, root_commit, trees: [...], composed: [...], problems, hosts} (module docstring)."""
     from nanosoc_rm.analysis import _inputs as I
     from nanosoc_rm.capabilities import manifest as MF
@@ -46,7 +48,7 @@ def tree_view(config, configuration: str) -> dict:
     docs = I.stored_tree(configuration, config)           # CannotAnswer when never walked
     root = _root_node(config, configuration, docs)
     nodes = PL.nodes_of(docs, root)
-    comp = PL.composed(nodes, MF.Reader(config))
+    comp = PL.composed(nodes, MF.Reader(config, fetch=fetch))
     try:
         sites = configs._registry(config).sites()
     except Exception:                                    # noqa: BLE001 - the page says so

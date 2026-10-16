@@ -167,3 +167,37 @@ def test_read_secret_never_leaks(tmp_path):
         with pytest.raises(ConfigError) as e:
             cfg.read_secret(name)
         assert "s3cr3t" not in str(e.value) and name in str(e.value)
+
+
+def test_api_readers_are_checked_and_never_share_a_token_with_an_agent(tmp_path):
+    """Section 26.7 (integration review 2026-10-16): [[api.readers]] holds bump-check reader tokens (digests only);
+    one digest in both lists would let one token open two doors, so the config is refused."""
+    from nanosoc_rm.config import ConfigError, load_config
+    from nanosoc_rm.executor import tokens
+    d = tokens.digest(tokens.new_token())
+    base = '[service]\ndata_dir = "%s"\n' % (tmp_path / "data")
+    ok = tmp_path / "ok.toml"
+    ok.write_text(base + '[[api.readers]]\nname = "eth-ci"\ntoken_sha256 = "%s"\n' % d)
+    assert load_config(ok)["api"]["readers"][0]["name"] == "eth-ci"
+    for bad, words in (('[[api.readers]]\nname = "eth-ci"\ntoken_sha256 = "abc"\n', "token_sha256 is required"),
+                       ('[api]\nwriters = []\n', "unknown key"),
+                       ('[[api.readers]]\nname = "a"\ntoken_sha256 = "%s"\n[[executor.agents]]\nname = "eda-1"\n'
+                        'token_sha256 = "%s"\nlabels = ["jobs:test-bump"]\n' % (d, d), "repeats")):
+        p = tmp_path / "bad.toml"
+        p.write_text(base + bad)
+        with pytest.raises(ConfigError, match=words):
+            load_config(p)
+
+
+def test_token_new_reader_prints_an_api_readers_entry(tmp_path):
+    from click.testing import CliRunner
+
+    from nanosoc_rm.cli import main
+    out = tmp_path / "r.token"
+    r = CliRunner().invoke(main, ["executor", "token", "new", "eth-ci", "--out", str(out), "--reader"])
+    assert r.exit_code == 0, r.output
+    assert "[[api.readers]]" in r.output and "[[executor.agents]]" not in r.output
+    assert out.read_text().strip() not in r.output                       # the token itself is never printed
+    r = CliRunner().invoke(main, ["executor", "token", "new", "x", "--out", str(tmp_path / "x"), "--reader",
+                                  "--labels", "vcs"])
+    assert r.exit_code != 0

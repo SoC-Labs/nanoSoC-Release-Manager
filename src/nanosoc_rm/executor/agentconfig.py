@@ -128,7 +128,8 @@ def load_agent_config(path: str | os.PathLike | None = None) -> AgentConfig:
     if isinstance(server, str) and "@" in server.split("//", 1)[-1].split("/", 1)[0]:
         problems.append("[agent] server must carry no user or token (token_file is the only credential)")
     for k in ("labels",):
-        if isinstance(a.get(k), list) and not all(isinstance(x, str) and _NAME.match(x) for x in a[k]):
+        if isinstance(a.get(k), list) and not all(isinstance(x, str) and (_NAME.match(x) or (
+                x.startswith("jobs:") and _NAME.match(x[5:]))) for x in a[k]):
             problems.append("[agent] labels must be label names")
     for k in ("poll_seconds", "heartbeat_seconds", "max_budget_s", "max_log_bytes", "max_upload_bytes",
               "max_file_bytes"):

@@ -346,8 +346,20 @@ def _site(config, host: str | None) -> dict:
     return sites[host] or {}
 
 
+def is_service_config(config) -> bool:
+    """A config that lists executor agents is the SERVICE's: tier runs belong to an executor, never to it."""
+    return bool((config.get("executor") or {}).get("agents"))
+
+
 def default_host(config, environ: Mapping[str, str]) -> str | None:
-    return (environ.get("NANOSOC_RM_EXECUTOR_HOST") or ((config.get("executor") or {}).get("host")) or None)
+    """The executor host id: $NANOSOC_RM_EXECUTOR_HOST (the agent sets it for a job), else `[executor] host` of an
+    agent's own config. A service config's `[executor] host` is never used (integration review 2026-10-16: with
+    it, a person's direct `nanosoc-rm test-bump` on the service host ran capabilities there, outside any sandbox)."""
+    if environ.get("NANOSOC_RM_EXECUTOR_HOST"):
+        return environ["NANOSOC_RM_EXECUTOR_HOST"]
+    if is_service_config(config):
+        return None
+    return (config.get("executor") or {}).get("host") or None
 
 
 def test_bump(configuration: str, path: str, to: str, *, config, host: str | None = None, plan_only: bool = False,
@@ -360,6 +372,11 @@ def test_bump(configuration: str, path: str, to: str, *, config, host: str | Non
     from nanosoc_rm.ci import configs
     environ = os.environ if environ is None else environ
     host = host or default_host(config, environ)
+    if host and not plan_only and is_service_config(config) and not environ.get("NANOSOC_RM_EXECUTOR_HOST"):
+        from nanosoc_rm.jobs import local_tiers_allowed
+        if not local_tiers_allowed(config, dict(environ)):
+            raise TestBumpUsage("this is the service's config (it lists executor agents): capabilities run on an "
+                                "executor, never here; queue it with --queue, or --plan to see what would run")
     started = clock.iso()
     nonce = nonce or secrets.token_hex(16)
     path = (path or "").strip().strip("/")

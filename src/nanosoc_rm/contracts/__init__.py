@@ -313,10 +313,15 @@ WRITE_CALLS: list[dict] = [
               "read/local allowlist, before git is started",
      "reason": "the one git runner: every git call of the package goes through nanosoc_rm.gitrun.run_git"},
     {"file": "nanosoc_rm/analysis/tierrun.py", "kind": "exec", "method": "?", "target": "unresolved argv",
-     "effect": "local",
-     "guard": "only `nanosoc-rm compat --tier` on a person's own machine runs it (the service and the CI runner never "
-              "import tierrun); the command is the registry tiers.yaml entry (protected main), run in a sandbox "
-              "checkout with a clean environment that carries no token, HOME or ssh agent of the caller",
+     "effect": "local", "sites": 2,
+     "guard": "runs only inside a `nanosoc-rm compat --tier`, `matrix cell --tier` or `test-bump` process: on a "
+              "person's own machine, or on the EDA host under the executor agent's bwrap sandbox, where each command "
+              "also gets its own pid namespace (pidns_wrap: a fixed nested-bwrap probe argv, then the command). The "
+              "service's own worker never claims a tier job (jobs.needs_executor) unless `[executor] "
+              "local_fallback` is set, a switch for the hermetic tests and a developer's laptop (the evaluation "
+              "2026-10-16 found the earlier claim that the service never imports tierrun false). The command is "
+              "the registry tiers.yaml entry or the tree's own .nanosoc/capabilities.yaml at the commit under test, "
+              "run in a sandbox checkout with a clean environment that carries no token, HOME or ssh agent",
      "reason": "CR-12: run a configuration's local T1/T2 command (lint, smoke sim); it writes only inside the "
                "sandbox work directory"},
     {"file": "nanosoc_rm/jobs.py", "kind": "exec", "method": "?", "target": "unresolved argv",

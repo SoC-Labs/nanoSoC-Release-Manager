@@ -78,6 +78,27 @@ def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], li
     return out, why
 
 
+def judged_failures(gates: list[dict], items: dict, unjudged: list[str]) -> list[str]:
+    """The FAILs the gates judged OUTSIDE the unjudged moves (integration review 2026-10-16): a FAIL gate with a
+    failing item at a tree path that is not an unjudged move or below one, or with a failing item that names no
+    tree path (a registry item), or with no failing item at all (the gate itself failed). Each is "<gate> at
+    <path>". Empty when every FAIL comes from the moves nobody looked at: only then may UNVERIFIED replace FAIL."""
+    def under(tp: str) -> bool:
+        return any(tp == u.strip("/") or tp.startswith(u.strip("/") + "/") for u in unjudged)
+    out = []
+    for g in gates:
+        if g.get("verdict") != "FAIL":
+            continue
+        bad = [i for i in (items.get(g.get("id")) or []) if i.get("result") == "fail"]
+        if not bad:
+            out.append("%s (the gate itself)" % g.get("id"))
+        for i in bad:
+            tp = i.get("tree_path")
+            if tp is None or not under(str(tp)):
+                out.append("%s at %s" % (g.get("id"), tp if tp is not None else "the registry"))
+    return out
+
+
 def ladder(*verdicts: str) -> str:
     """README section 6 run ladder over verdicts (NOT-RUN entries are ignored)."""
     vs = [v for v in verdicts if v in _LADDER]
@@ -205,9 +226,15 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
         unjudged, why_not = _unjudged(overrides, judged, items)
         reason = None
         if unjudged:
-            verdict = "UNVERIFIED"
-            reason = ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
-                      % "; ".join(why_not))
+            kept = judged_failures(gates, items, unjudged) if verdict == "FAIL" else []
+            if kept:
+                # a FAIL the gates judged elsewhere stays a FAIL: the unjudged move cannot make it less red
+                reason = ("FAIL judged outside the moved commit(s) (%s); the gates also did not judge: %s"
+                          % ("; ".join(kept[:5]), "; ".join(why_not)))
+            else:
+                verdict = "UNVERIFIED"
+                reason = ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
+                          % "; ".join(why_not))
         t0_finished_at = clock.iso()
 
         # 4. the tier (CR-12), in a sandbox checkout of the same tree

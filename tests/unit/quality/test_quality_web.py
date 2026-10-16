@@ -40,10 +40,22 @@ def _rows(html: str, attr: str) -> list[str]:
     return re.findall(r'<tr[^>]*\b%s="([^"]*)"' % attr, html)
 
 
+def _analyse(client, url):
+    """Press the page's Analyse button: POST /quality/<target>/analyse, back to the page (303)."""
+    target = url.split("/quality/", 1)[1].split("/", 1)[0].split("?", 1)[0]
+    r = client.post("/quality/%s/analyse" % target, data={"next": url.split("?", 1)[0]}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == url.split("?", 1)[0], (r.status_code, r.text[:300])
+    return r
+
+
 def _settle(client, url, cfg):
-    """CR-R2: a page with no stored result queues a quality job and answers 202; the worker runs it (the real CLI,
-    as a child process), and the same page then shows the stored result."""
+    """CR-R2 and the integration review 2026-10-16: a page with no stored result says "not analysed" and offers
+    the POST Analyse button (a GET never queues); the button queues a quality job, the page then answers 202
+    while it runs, the worker runs it (the real CLI, as a child process), and the page shows the stored result."""
     r = client.get(url)
+    if r.status_code == 200 and "data-not-analysed" in r.text:
+        _analyse(client, url)
+        r = client.get(url)
     if r.status_code == 202:
         assert "Analysing, refresh" in r.text and "data-pending-job" in r.text, r.text[:500]
         w = jobs.Worker(cfg)
@@ -57,6 +69,13 @@ def test_a_cold_page_queues_a_job_and_never_analyses_in_the_request(site):
     """CR-R2 (Wave A follow-up b): no stored result -> 202 "analysing, refresh" and one queued quality job; nothing
     is stored by the request itself; a second view reuses the queued job; the worker's run stores every kind."""
     c, cfg = site["client"], load_config(site["cfg"])
+    cold = c.get("/quality/demo/density")
+    # integration review 2026-10-16: a GET never queues work (link prefetchers and previews started analyses)
+    assert cold.status_code == 200 and "data-not-analysed" in cold.text and "data-analyse-form" in cold.text
+    assert jobs.jobs(cfg, kind="quality") == [], "a GET queued a job"
+    assert c.get("/quality/demo/comments.diff").status_code == 404 and jobs.jobs(cfg, kind="quality") == []
+    assert c.get("/quality/demo/density?analyse=1").status_code == 200 and jobs.jobs(cfg, kind="quality") == []
+    _analyse(c, "/quality/demo/density")
     first = c.get("/quality/demo/density")
     assert first.status_code == 202 and "Analysing, refresh" in first.text
     assert db.latest("quality_density", "quality_density:demo:", config=cfg) == [], "the request analysed inline"
@@ -64,6 +83,7 @@ def test_a_cold_page_queues_a_job_and_never_analyses_in_the_request(site):
     assert len(queued) == 1 and queued[0]["params"] == {"target": "demo", "ref": None}
     assert queued[0]["command"] == "nanosoc-rm quality all demo --store"
     assert c.get("/quality/demo/comments").status_code == 202
+    _analyse(c, "/quality/demo/comments")                                 # pressing it again reuses the job
     assert len(jobs.jobs(cfg, kind="quality")) == 1, "a second cold page queues no second job"
     assert c.get("/quality/demo/comments.diff").status_code == 202
     assert jobs.Worker(site["cfg"]).step() == queued[0]["id"]
@@ -71,8 +91,11 @@ def test_a_cold_page_queues_a_job_and_never_analyses_in_the_request(site):
     for kind in quality.KINDS.values():
         assert len(db.latest(kind, "%s:demo:" % kind, config=cfg)) == 1, kind
     assert c.get("/quality/demo/density").status_code == 200
-    again = c.get("/quality/demo/density?analyse=1")
-    assert again.status_code == 202 and 'href="http://testserver/quality/demo/density"' in again.text
+    shown = c.get("/quality/demo/density")
+    assert 'action="/quality/demo/analyse"' in shown.text                 # "Analyse again" is a POST form
+    _analyse(c, "/quality/demo/density")
+    again = c.get("/quality/demo/density")
+    assert again.status_code == 200, "a stored result is shown while the re-analysis waits"
     assert len(jobs.jobs(cfg, kind="quality", states=("queued",))) == 1
 
 
@@ -158,7 +181,8 @@ def test_worktree_pages_follow_the_disk(site):
     assert "src/b.py" not in _rows(_settle(c, "/quality/demo/density", site["cfg"]).text, "data-path")
     (repo / "src" / "b.py").write_text("".join("# note %d about the helper\n" % i for i in range(50)) + "X = 1\n")
     git("add", "src/b.py", cwd=repo)
-    assert c.get("/quality/demo/density").status_code == 202, "a changed disk is never served the old result"
+    changed = c.get("/quality/demo/density")
+    assert "data-not-analysed" in changed.text, "a changed disk is never served the old result"
     assert "src/b.py" in _rows(_settle(c, "/quality/demo/density", site["cfg"]).text, "data-path"), \
         "a new tracked file shows"
     before = c.get("/quality/demo/comments.diff?kind=banner").text

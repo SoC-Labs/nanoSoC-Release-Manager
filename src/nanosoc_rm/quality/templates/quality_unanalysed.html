@@ -1,0 +1,12 @@
+{% include "_qstyle.html" %}
+<p class="banner info" data-not-analysed="{{ target }}"><strong>Not analysed yet.</strong> {{ target }}{% if ref %} at <code>{{ ref }}</code>{% endif %} has no stored result for this page, and no analysis is queued. Opening a page never starts one.</p>
+{% if actions is defined and actions %}
+<form method="post" action="{{ qurl(target, 'analyse') }}" data-analyse-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+  <input type="hidden" name="ref" value="{{ ref or '' }}">
+  <input type="hidden" name="next" value="{{ here }}">
+  <button type="submit">Analyse {{ target }}</button> <span class="note">queues one quality job (about a minute on a large repository)</span>
+</form>
+{% else %}
+<p>Run it from a command line: <code>nanosoc-rm quality all {{ target }}{% if ref %} --ref {{ ref }}{% endif %} --store</code>.</p>
+{% endif %}

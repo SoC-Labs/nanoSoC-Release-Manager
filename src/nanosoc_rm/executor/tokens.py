@@ -20,7 +20,7 @@ import secrets
 
 from nanosoc_rm.config import Config
 
-__all__ = ["new_token", "digest", "identify", "TOKEN_PREFIX", "TOKEN_RE"]
+__all__ = ["new_token", "digest", "identify", "identify_in", "TOKEN_PREFIX", "TOKEN_RE"]
 
 TOKEN_PREFIX = "rmx_"
 TOKEN_RE = re.compile(r"^rmx_[0-9a-f]{64}\Z")
@@ -37,6 +37,13 @@ def digest(token: str) -> str:
 def identify(config: Config, authorization: str | None) -> dict | None:
     """The configured, unrevoked agent whose token is the request's `Authorization: Bearer <token>`. Every entry
     is compared (constant time each), so the answer time does not depend on which entry matched."""
+    return identify_in((config.get("executor") or {}).get("agents") or [], authorization)
+
+
+def identify_in(entries, authorization: str | None) -> dict | None:
+    """The unrevoked entry of `entries` ({token_sha256, revoked?}) whose token is the bearer token, or None. The
+    executor agents and the bump-check readers (`[[api.readers]]`) are separate lists: a token opens only the
+    door its own list guards."""
     if not authorization:
         return None
     scheme, _, token = authorization.partition(" ")
@@ -45,7 +52,7 @@ def identify(config: Config, authorization: str | None) -> dict | None:
         return None
     want = digest(token).encode("ascii")
     found = None
-    for agent in ((config.get("executor") or {}).get("agents") or []):
+    for agent in entries or []:
         have = str(agent.get("token_sha256", "")).encode("ascii", "replace")
         if hmac.compare_digest(have, want) and found is None:
             found = agent

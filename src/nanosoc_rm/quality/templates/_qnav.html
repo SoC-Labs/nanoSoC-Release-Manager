@@ -10,5 +10,5 @@
 {% if f is defined and f %}
 <p class="note">{{ f.target }} at <code>{{ short(f.commit) if f.commit else 'no commit' }}</code>{% if f.worktree %} + work tree{% endif %}{% if f.ref %} (ref <code>{{ f.ref }}</code>){% endif %} ·
   {{ fact(obs, 'analysed ' ~ obs.observed_at) }} ·
-  <a href="{{ qurl(target, here if here != 'summary' else '', ref=ref, analyse=1) }}">analyse again</a></p>
+  {% if actions is defined and actions %}<form class="inline" method="post" action="{{ qurl(target, 'analyse') }}"><input type="hidden" name="csrf_token" value="{{ csrf }}"><input type="hidden" name="ref" value="{{ ref or '' }}"><input type="hidden" name="next" value="{{ qurl(target, here if here != 'summary' else '', ref=ref) }}"><button type="submit">Analyse again</button></form>{% else %}analyse again: <code>nanosoc-rm quality all {{ target }}{% if ref %} --ref {{ ref }}{% endif %} --store</code>{% endif %}</p>
 {% endif %}

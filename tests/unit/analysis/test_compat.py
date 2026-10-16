@@ -207,6 +207,39 @@ def test_unjudged_reads_each_gate_item():
                    "e not reached by the gates' anonymous walk"]
 
 
+def test_a_fail_judged_elsewhere_is_never_softened_by_an_unjudged_move():
+    """Integration review 2026-10-16: an unjudged move made the whole what-if UNVERIFIED even when the gates had
+    judged a FAIL on another path (the vendor gate on multicore, say). Only FAILs that come from the unjudged
+    moves (at them or below them) may read UNVERIFIED."""
+    gates = [{"id": "t0.pins.fetchable", "verdict": "FAIL"}, {"id": "t0.vendor.no-arm-ip", "verdict": "FAIL"},
+             {"id": "t0.pins.reachable", "verdict": "PASS"}]
+    items = {"t0.pins.fetchable": [{"tree_path": "s", "result": "fail"}, {"tree_path": "m", "result": "pass"}],
+             "t0.vendor.no-arm-ip": [{"tree_path": "s/x", "result": "fail"}, {"tree_path": "m", "result": "fail"}],
+             "t0.pins.reachable": [{"tree_path": "m", "result": "fail"}]}
+    assert C.judged_failures(gates, items, ["s"]) == ["t0.vendor.no-arm-ip at m"]
+    items["t0.vendor.no-arm-ip"][1]["result"] = "pass"
+    assert C.judged_failures(gates, items, ["s"]) == []              # every FAIL is at or below the move
+    assert C.judged_failures(gates, items, ["s/"]) == []
+    assert C.judged_failures(gates, items, ["sx"]) != []              # a sibling path is not below the move
+    assert C.judged_failures(gates, {"t0.pins.fetchable": [{"tree_path": None, "result": "fail"}]}, ["s"]) == \
+        ["t0.pins.fetchable at the registry", "t0.vendor.no-arm-ip (the gate itself)"]
+
+
+def test_compat_keeps_a_judged_fail_beside_an_unjudged_move(scene, monkeypatch):
+    real = C.judged_failures
+    seen = {}
+
+    def spy(gates, items, unjudged):
+        seen["args"] = unjudged
+        return ["t0.vendor.no-arm-ip at m"]
+    monkeypatch.setattr(C, "judged_failures", spy)
+    f = scene.run("frozen-nowaiver", {"s": scene.a2})["fact"]
+    assert seen["args"] == ["s"] and f["verdict"] == "FAIL" and C.exit_for(f["verdict"]) == 1
+    assert "judged outside the moved commit" in f["reason"] and "s not fetched" in f["reason"]
+    monkeypatch.setattr(C, "judged_failures", real)
+    assert scene.run("frozen-nowaiver", {"s": scene.a2})["fact"]["verdict"] == "UNVERIFIED"
+
+
 def test_override_at_a_path_with_no_pin_is_a_usage_error(scene):
     from nanosoc_rm.walker import OverrideError
     with pytest.raises(OverrideError):

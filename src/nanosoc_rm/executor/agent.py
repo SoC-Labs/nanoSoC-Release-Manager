@@ -248,7 +248,7 @@ def _say(msg: str) -> None:
 def asked_labels(cfg: AgentConfig) -> list[str]:
     """What the agent asks for: its labels, without `jobs` when it has no nanosoc-rm config to run a job with."""
     from nanosoc_rm.executor.jobbridge import JOB_LABEL
-    return [x for x in cfg.labels if x != JOB_LABEL or cfg.rm_config is not None]
+    return [x for x in cfg.labels if (x != JOB_LABEL and not x.startswith(JOB_LABEL + ":")) or cfg.rm_config is not None]
 
 
 def _job_binds(cfg: AgentConfig) -> tuple[list[Path], list[Path], str | None]:
@@ -308,6 +308,11 @@ def run_job(cfg: AgentConfig, client: ExecutorClient, claim: dict, mode: str) ->
             for k in ("TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_NONCE"):
                 env.pop(k, None)
             env["NANOSOC_RM_CONFIG"] = str(cfg.rm_config)
+            if mode == "bwrap":
+                # each tier command of the job gets its own pid namespace (tierrun.pidns_wrap): it cannot reach
+                # this nanosoc-rm's stdout through /proc and forge the job's documents
+                from nanosoc_rm.analysis.tierrun import PIDNS_ENV
+                env[PIDNS_ENV] = sandbox.BWRAP
             if cfg.site_host:
                 env["NANOSOC_RM_EXECUTOR_HOST"] = cfg.site_host
             argv = [sys.executable, "-c", CLI_BOOT] + list(claim["argv"])

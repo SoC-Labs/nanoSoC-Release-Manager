@@ -46,7 +46,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm executor run`](#nanosoc-rm-executor-run) | Claim tasks from the release manager and run them sandboxed (on the EDA host). |
 | &nbsp;&nbsp;[`nanosoc-rm executor show`](#nanosoc-rm-executor-show) | One task, with its result and log path. |
 | &nbsp;&nbsp;[`nanosoc-rm executor token`](#nanosoc-rm-executor-token) | Executor tokens (service host). |
-| &nbsp;&nbsp;&nbsp;&nbsp;[`nanosoc-rm executor token new`](#nanosoc-rm-executor-token-new) | A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to stdout. |
+| &nbsp;&nbsp;&nbsp;&nbsp;[`nanosoc-rm executor token new`](#nanosoc-rm-executor-token-new) | A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to stdout (with --reader: a bump-check reader token and its [[api.readers]] entry). |
 | [`nanosoc-rm forks`](#nanosoc-rm-forks) | Forks of the example projects (I1): base release, divergence, errata, user-path changes (read-only, anonymous). |
 | [`nanosoc-rm freshness`](#nanosoc-rm-freshness) | How far each submodule pin lags its upstream and when it last moved (section 24). |
 | &nbsp;&nbsp;[`nanosoc-rm freshness scan`](#nanosoc-rm-freshness-scan) | Measure each registered configuration's stored walk against the mirrors (read-only git). |
@@ -741,12 +741,14 @@ Commands:
 Usage: nanosoc-rm executor token new [OPTIONS] NAME
 
   A new executor token for agent NAME: the token goes to --out, the [[executor.agents]] entry to
-  stdout.
+  stdout (with --reader: a bump-check reader token and its [[api.readers]] entry).
 
 Options:
   --out FILE     Write the token here (created 0600; must not exist). It is never printed.
                  [required]
   --labels TEXT  Comma-separated labels to grant (vcs,xcelium,verilator,...).
+  --reader       A bump-check READER token instead (a CI job's NANOSOC_RM_TOKEN): prints an
+                 [[api.readers]] entry; it opens GET /api/v1/bump-check only.
   -h, --help     Show this message and exit.
 ```
 

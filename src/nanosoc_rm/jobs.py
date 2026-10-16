@@ -634,13 +634,17 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
             "result": _summary(job["kind"], docs)}
 
 
-def _claim_next(config: Config, eligible: Callable[[str, dict], bool], executor: str, *, tier_only: bool) -> dict | None:
+def _claim_next(config: Config, eligible: Callable[[str, dict], bool], executor: str, *, tier_only: bool,
+                only: frozenset[int] | None = None) -> dict | None:
     """Mark the oldest queued job that `eligible(kind, params)` accepts as running, under one write lock. A tier job
-    records `executor`; with `tier_only` only tier jobs are eligible (an executor claims nothing else)."""
+    records `executor`; with `tier_only` only tier jobs are eligible (an executor claims nothing else); with `only`,
+    only those job ids are (a person working their own jobs never runs anyone else's)."""
     with _connect(config) as con:
         con.execute("BEGIN IMMEDIATE")
         hit = None
         for r in con.execute("SELECT id, kind, params FROM jobs WHERE state = 'queued' ORDER BY id"):
+            if only is not None and r["id"] not in only:
+                continue
             params = json.loads(r["params"])
             tier = needs_executor(r["kind"], params)
             if (tier or not tier_only) and eligible(r["kind"], params):
@@ -698,9 +702,13 @@ class Worker:
     for `nanosoc-rm` (default: this Python running the package's CLI)."""
 
     def __init__(self, config_path: str | os.PathLike | None = None, *, argv_prefix: Sequence[str] | None = None,
-                 poll_s: float = 1.0, log: Callable[[str], None] | None = None, run_tiers: bool | None = None):
+                 poll_s: float = 1.0, log: Callable[[str], None] | None = None, run_tiers: bool | None = None,
+                 only: Sequence[int] | None = None):
         self.config_path = None if config_path is None else os.fspath(config_path)
         self.run_tiers = run_tiers          # None: local_tiers_allowed(config) decides at each claim (Wave G)
+        # `only`: claim just these job ids (`matrix --run --wait`: the caller's own cells, never someone else's
+        # queued test-bump run unsandboxed as the caller; integration review 2026-10-16)
+        self.only = None if only is None else frozenset(int(i) for i in only)
         self.argv_prefix = list(argv_prefix) if argv_prefix else [sys.executable, "-c", CLI_BOOT]
         self.poll_s = poll_s
         self._stop = threading.Event()
@@ -770,7 +778,7 @@ class Worker:
         the local fallback is on (module docstring; Wave G)."""
         tiers = self.run_tiers if self.run_tiers is not None else local_tiers_allowed(config)
         return _claim_next(config, lambda kind, params: tiers or not needs_executor(kind, params),
-                           LOCAL_EXECUTOR, tier_only=False)
+                           LOCAL_EXECUTOR, tier_only=False, only=self.only)
 
     FINISH_RETRY_S = (0.2, 1.0)                     # waits between the attempts to record a job's end
 

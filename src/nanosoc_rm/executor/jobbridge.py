@@ -14,20 +14,23 @@ job whose agent stops heartbeating ends INFRA (finished with no exit code) inste
     finish(config, job_id, agent, lease, exit_code, stdout, log) -> dict   the job, finished
     expire(config, *, now=None) -> list[int]
 
-An agent claims jobs only when its `[[executor.agents]]` entry grants the label JOB_LABEL: a job runs the whole
+An agent claims jobs only when its `[[executor.agents]]` entry grants the label JOB_LABEL (every tier job kind) or
+`jobs:<kind>` (that kind only: `jobs:test-bump`, `jobs:compat`, `jobs:matrix-cell`): a job runs the whole
 `nanosoc-rm` command on the agent host (with that host's own nanosoc-rm config), which is a wider grant than one
-capability command.
+capability command. Which TOOLS a job needs is not known when it is claimed (the plan is read on the agent host);
+the job checks them there (`host_check`: a capability whose tool the host lacks is INFRA, so the job reads
+UNVERIFIED, never PASS), so grant a kind only to an agent whose host can run it.
 """
 from __future__ import annotations
 
 import secrets
 import time
 
-from nanosoc_rm import jobs
+from nanosoc_rm import clock, jobs
 from nanosoc_rm.config import Config
 from nanosoc_rm.executor import queue as Q
 
-__all__ = ["available", "claim", "heartbeat", "finish", "expire", "JOB_LABEL", "MAX_STDOUT_BYTES"]
+__all__ = ["available", "claim", "heartbeat", "finish", "expire", "kinds_granted", "JOB_LABEL", "MAX_STDOUT_BYTES"]
 
 JOB_LABEL = "jobs"
 MAX_STDOUT_BYTES = 1024 * 1024
@@ -51,10 +54,40 @@ def _expired(config: Config, t: float) -> list[tuple[int, str]]:
     return [(int(r["job_id"]), r["agent"]) for r in rows]
 
 
-def expire(config: Config, *, now: float | None = None) -> list[int]:
-    """Jobs whose agent stopped heartbeating: finished with no exit code (the job queue reads that as INFRA)."""
+def _orphans(config: Config, t: float) -> list[tuple[int, str]]:
+    """Running executor jobs with NO lease row, started more than a lease ago (integration review 2026-10-16).
+    A claim marks the job running in jobs.sqlite, then writes its lease to executor.sqlite in a second
+    transaction; a service that dies between the two (or a finish that dropped the lease, then failed) leaves a
+    job `running` on an executor that holds no lease, which recover() rightly skips and no heartbeat can end."""
+    try:
+        lease_s = Q.settings(config)["lease_seconds"]
+    except Exception:                                     # noqa: BLE001 - no [executor]: nothing was claimed
+        return []
+    with Q._tx(config) as con:
+        con.execute(_DDL)
+        leased = {int(r["job_id"]) for r in con.execute("SELECT job_id FROM job_leases")}
     out = []
-    for job_id, agent in _expired(config, _now(now)):
+    for j in jobs.jobs(config, limit=10 ** 6, states=("running",)):
+        ex = j.get("executor")
+        if not ex or ex == jobs.LOCAL_EXECUTOR or int(j["id"]) in leased:
+            continue
+        try:
+            started = clock.parse(j.get("started_at") or "").timestamp()
+        except Exception:                                 # noqa: BLE001 - an unreadable start is old
+            started = 0.0
+        if t - started > lease_s:
+            out.append((int(j["id"]), ex))
+    return out
+
+
+def expire(config: Config, *, now: float | None = None) -> list[int]:
+    """Jobs whose agent stopped heartbeating, and running executor jobs that never got a lease (`_orphans`):
+    finished with no exit code (the job queue reads that as INFRA)."""
+    out = []
+    t = _now(now)
+    gone = _expired(config, t)
+    ended = {j for j, _ in gone}
+    for job_id, agent in gone + [o for o in _orphans(config, t) if o[0] not in ended]:
         try:
             jobs.finish_for_executor(config, job_id, agent, None, "",
                                      "[executor] %s stopped reporting: the lease expired\n" % agent)
@@ -64,13 +97,22 @@ def expire(config: Config, *, now: float | None = None) -> list[int]:
     return out
 
 
+def kinds_granted(labels) -> set[str] | None:
+    """The job kinds a label set grants: None for every kind (`jobs`), else the kinds named by `jobs:<kind>`."""
+    have = set(labels or ())
+    if JOB_LABEL in have:
+        return None
+    return {x.split(":", 1)[1] for x in have if x.startswith(JOB_LABEL + ":") and x.split(":", 1)[1]}
+
+
 def claim(config: Config, agent: str, labels, *, now: float | None = None) -> dict | None:
-    if JOB_LABEL not in set(labels or ()) or not available():
+    kinds = kinds_granted(labels)
+    if kinds == set() or not available():
         return None
     s = Q.settings(config)
     t = _now(now)
     expire(config, now=t)
-    job = jobs.claim_for_executor(config, agent)
+    job = jobs.claim_for_executor(config, agent, None if kinds is None else (lambda j: j["kind"] in kinds))
     if job is None:
         return None
     lease = secrets.token_hex(16)

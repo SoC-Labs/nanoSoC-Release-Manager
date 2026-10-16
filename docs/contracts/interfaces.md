@@ -521,7 +521,10 @@ def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict
    schema are unchanged; `gitwork.GitWork.walk` applies `pin_overrides` the same way as the walker, so every gate
    that walks the tree (fetchable, reachable, no-ssh, manifest, both vendor gates) judges the overridden pins. The controls'
    scratch superprojects drop `pin_overrides`. An override the gates' anonymous walk does not reach (below a tree
-   no anonymous fetch can read) is listed in `unjudged_overrides` and makes the run UNVERIFIED.
+   no anonymous fetch can read) is listed in `unjudged_overrides` and makes the run UNVERIFIED, unless the
+   gates judged a FAIL elsewhere (a failing item at a tree path that is not an unjudged move or below one, a
+   registry item, or a FAIL gate with no failing item: `compat.judged_failures`): that run stays FAIL, and its
+   `reason` names both (integration review 2026-10-16).
 3. **Local run mode.** `Context.for_local`: allowed off CI (no `CI_JOB_ID` needed); every git call isolated and
    anonymous: HOME, XDG_CONFIG_HOME and TMPDIR are empty directories inside the work directory (so `~/.netrc`,
    `~/.git-credentials` and the user's git config are never read; unit-tested against an http host that asks for
@@ -1024,10 +1027,14 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
 8. **Pages (Q6).** `GET /quality/` (every target: ratio, outliers, findings, README mismatches, doc score, trend
    sparklines), `/quality/{target}` (summary), `/{target}/density|comments|readme|docs|trend`,
    `/{target}/comments.diff`, `/{target}/readme.diff` (404 with a plain-text reason when there is nothing to
-   patch). Query `ref`, `analyse=1` (analyse again). A page never analyses inside its request (CR-R2): with no
-   stored result for the ref (or with `analyse=1`) it queues job kind `quality` (`nanosoc-rm quality all TARGET
-   [--ref R] --store`, one per target and ref at a time) and answers 202 "analysing, refresh" with the job's card
-   (`comments.diff`: 202 as text). GET only;
+   patch). Query `ref`. A page never analyses inside its request (CR-R2), and a GET never queues work
+   (integration review 2026-10-16: link prefetchers and previews started analyses; `analyse=1` is ignored): with
+   no stored result for the ref it answers 200 "not analysed yet" (hook `data-not-analysed`) with an Analyse
+   button, or, while a quality job for that target and ref is queued or running, 202 "analysing, refresh" with
+   the job's card (`comments.diff`: 404 / 202 as text). The button (and "Analyse again" on an analysed page) is
+   `POST /quality/{target}/analyse` (form `ref`, `next`; local deployments, CSRF-guarded): it queues job kind
+   `quality` (`nanosoc-rm quality all TARGET [--ref R] --store`, one per target and ref at a time) and answers
+   303 to `next` (a /quality/ path) or the summary. Otherwise GET only;
    mounted through the plug-in seam (`web/plugins.py`: navigation entry "Quality", the app's layout, sign-in and
    CSRF token); behind the section 14 guard; the same rows as the CLI's `--json`. Row hooks: `data-path` (density, docs),
    `data-kind` (comments, readme), `data-commit` (trend), `data-target` (overview).
@@ -2530,7 +2537,11 @@ ledger then scores the proposal `held`, as for any held proposal.
 `jobs.needs_executor(kind, params)`: a compat job with a tier, a matrix cell with a tier, every `test-bump`
 (`register_kind(..., executor=True | callable)`). The local worker never claims one unless the local fallback is
 on (`[executor] local_fallback = true`, or NANOSOC_RM_LOCAL_TIERS=1 in the worker's environment, or
-`Worker(run_tiers=True)`; the hermetic test suite sets the variable). `claim_for_executor(config, executor,
+`Worker(run_tiers=True)`; the hermetic test suite sets the variable). `Worker(only=ids)` claims just those job ids:
+`matrix --run --wait` works only the cells it queued, never another person's queued tier job (integration review
+2026-10-16). A direct `nanosoc-rm test-bump` never takes its host from a SERVICE config (one that lists
+`[[executor.agents]]`): there `[executor] host` is ignored and an explicit `--host` is refused (exit 3) unless the
+local fallback is on or the agent set `NANOSOC_RM_EXECUTOR_HOST`. `claim_for_executor(config, executor,
 accepts=None)` claims the oldest queued tier job (the job records `executor`; `local` is reserved);
 `finish_for_executor(config, job_id, executor, rc, stdout, log)` records its end exactly as the local worker reads a
 child (`_outcome`); a cancel asked while it ran ends it `cancelled`. `recover()` at service start leaves an
@@ -2550,7 +2561,24 @@ these three calls and runs `nanosoc-rm <cli_args>` with `NANOSOC_RM_EXECUTOR_HOS
 Home's detail panel (section 25) gains a Capabilities section (what that tree can run, on which host, its last
 result) for a pin or a configuration, and, for a live pin in a local deployment, a "Test this bump (to <default
 branch>)" form posting to the route above. The submodule tree's pin aside links "Test this bump" for a live pin.
-Every GET reads stored facts, mirrors, the registry and job records only.
+Every GET reads stored facts, mirrors, the registry and job records only, and never fetches: the pages read
+manifests with `Reader(config, fetch=False)` (lazy fetching off, every transport refused, no credential), so a
+blob the partial-clone mirror lacks reads `unreadable` until `capabilities show` or a test-bump reads it
+(integration review 2026-10-16).
+
+### 26.7 `GET /api/v1/bump-check` (the repositories' CI and pre-push hook; integration review 2026-10-16)
+
+Query `component` (catalogue id of the asking repository), `path` (the gitlink's tree path), `to` (40 hex),
+`root` (40 hex: the asking repository's commit BEFORE the move, a CI range's base), optional `from`. Answer 200
+`{verdict, url, command, configurations, note}`: for each registered configuration of `component`,
+`gate.evidence(config, configuration, [path], to, root)`; a PASS in any one answers PASS with its job page;
+otherwise the first non-PASS verdict found, or null with a `note` (none finished, other root commits, no
+configuration of that component). `command` is the `nanosoc-rm test-bump CONFIG PATH TO` to run. 400 a malformed
+parameter. Who may ask: a signed-in member (session), or a bearer READER token: `[[api.readers]]` in the service
+config (`name`, `token_sha256`, optional `revoked`; `nanosoc-rm executor token new NAME --out F --reader`). The
+Guard answers a bearer request for this one path before its session check (`capabilities.bumpcheck`); a reader
+token opens no other route and an executor token does not open this one (the two digest lists are separate, and
+config load refuses a digest in both). Read-only: job records and the registry; nothing runs, queues or fetches.
 
 ## 27. The remote tier executor (CR-WG-executor; D1, D4, A2, A6, PR6; David 2026-10-16 decisions 1 and 3)
 
@@ -2696,7 +2724,14 @@ the same sandbox with `NANOSOC_RM_CONFIG=<rm_config>` and `NANOSOC_RM_EXECUTOR_H
 the Python prefix, the nanosoc-rm install, the rm_config directory and its registry checkout; writable: its data dir
 (all under the exposure check). stdout (the JSON documents) and the log go back with the exit code, and
 `jobs.finish_for_executor` reads them as the local worker would. A job whose agent stops heartbeating is finished
-with no exit code (INFRA) by `jobbridge.expire`; cancel is the job's `cancel_by`.
+with no exit code (INFRA) by `jobbridge.expire`; so is a running executor job with NO lease row older than one lease
+(the claim's two transactions were cut by a service crash: integration review 2026-10-16). Cancel is the job's
+`cancel_by`. Grants: `jobs` claims every tier job kind; `jobs:<kind>` (`jobs:test-bump`, `jobs:compat`,
+`jobs:matrix-cell`) only that kind. The tools a job needs are checked on the agent host (`host_check`: a missing
+tool is INFRA, so the job reads UNVERIFIED, never PASS). In a bwrap job the agent sets
+`NANOSOC_RM_TIER_PIDNS=<bwrap>`: every tier command of the job then runs in its own pid namespace under a nested
+bwrap (`tierrun.pidns_wrap`), so it cannot reach the launching `nanosoc-rm`'s stdout through `/proc/<pid>/fd/1` and
+forge the job's documents; a namespace that cannot be made is INFRA, never a bare run.
 
 Paired runs: a capability task may carry `subject.side` (`now`|`after`) and `subject.pair`, so a planner can queue
 both sides of one bump as tasks and compare the two results (section 26 compares inside one test-bump job today).
@@ -2705,7 +2740,8 @@ both sides of one bump as tasks and compare the two results (section 26 compares
 
 `nanosoc-rm executor run --once|--loop [--agent-config P]` (exit 0 ran or nothing queued; 3 token refused; 2 service
 unreachable with --once), `executor check [--agent-config P] [--json]` (sandbox mode, exposure, token file, mirror
-root; no network; exit 1 on a problem), `executor token new NAME --out FILE [--labels]`, `executor enqueue
+root; no network; exit 1 on a problem), `executor token new NAME --out FILE [--labels | --reader]` (`--reader`: a
+bump-check reader token and its `[[api.readers]]` entry, section 26.7), `executor enqueue
 TASK.json [--json]` (exit 3 when it breaks the contract), `executor list [--state S] [--limit N] [--json]`,
 `executor show ID [--json]`, `executor cancel ID`. The install (a systemd --user unit, never started by the tool)
 is in DEPLOY.md, "Remote tier executor".

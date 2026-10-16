@@ -448,6 +448,7 @@ NOT_200_HERE = {
     "/publish/tapeout/{tapeout_id}": (404, "No tapeout draft"),      # Wave E: the fixture registry has no tapeouts/
     "/capabilities/{configuration}": (404, "no registered configuration"),       # Wave G: "x" is not one
     "/capabilities/{configuration}/bump": (404, "no registered configuration"),
+    "/api/v1/bump-check": (400, "component is required"),           # section 26.7: a CI query names its move
 }
 
 
@@ -538,7 +539,8 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               ("POST", "/freshness/scan"),                    # CR-WF-fresh: queues the read-only freshness-scan job
               ("POST", "/catalogue/patch"),                   # CR-WF-gui: builds a catalogue patch, writes nothing
               ("POST", "/catalogue/scan"),                    # CR-1015-orgscan: queues the read-only org-scan job
-              ("POST", "/capabilities/{configuration}/test-bump")}   # Wave G: queues a test-bump for an executor
+              ("POST", "/capabilities/{configuration}/test-bump"),   # Wave G: queues a test-bump for an executor
+              ("POST", "/quality/{target}/analyse")}   # integration review 2026-10-16: GETs never queue; this does
     assert base | plugin | routers.WAVE_F_POSTS <= writes, sorted(base | plugin | routers.WAVE_F_POSTS - writes)
     allowed = base | plugin | routers.WAVE_C_POSTS | routers.WAVE_F_POSTS          # CR-WF-gui: + the Wave F POSTs
     assert writes <= allowed, sorted(writes - allowed)

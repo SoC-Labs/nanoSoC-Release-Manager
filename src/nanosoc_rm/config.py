@@ -65,7 +65,11 @@ _STORES = {"disk": {"path": _STR},
                            "allowed_signers": _STR, "signer_identity": _STR, "ssh_keygen": _STR,
                            "projects": _TABLE, "repos": _STRS}}
 _ART_PATHS = ("token_file", "signing_key", "allowed_signers", "ssh_keygen")
-_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth", "executor"}
+_KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth", "executor", "api"}
+# [api] (integration review 2026-10-16, section 26.7): `[[api.readers]]` (name, token_sha256, revoked), the bearer
+# tokens a repository's CI uses for GET /api/v1/bump-check and nothing else. Digests only, as for executor agents.
+_API = {"readers": "list[table]"}
+_API_READER = {"name": _STR, "token_sha256": _STR, "revoked": _BOOL}
 # [executor] (CR-WG-executor, section 27.5): the pull agents allowed to claim tier tasks. A token is never stored,
 # only its sha256 (`nanosoc-rm executor token new`); `revoked = true` (or deleting the entry) refuses it at once.
 # `host` and `local_fallback` are read by the capabilities unit (section 26: the site-data host id, and the local
@@ -74,6 +78,7 @@ _EXECUTOR = {"lease_seconds": _INT, "max_attempts": _INT, "agents": "list[table]
              "local_fallback": _BOOL}
 _EXECUTOR_AGENT = {"name": _STR, "token_sha256": _STR, "labels": _STRS, "revoked": _BOOL}
 _LABEL = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z")
+_GRANT = re.compile(r"^(jobs:)?[a-z0-9][a-z0-9_.-]{0,63}\Z")       # a label, or `jobs:<kind>` (one job kind)
 _SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
 AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
 _AUTH = {"mode": _STR, "users": "list[table]"}
@@ -168,6 +173,7 @@ def validate(doc: dict) -> list[str]:
                     _check_artifactory(table, problems)
     _check_auth(doc.get("auth"), problems)
     _check_executor(doc.get("executor"), problems)
+    _check_api(doc.get("api"), doc.get("executor"), problems)
     roles = doc.get("roles", {})
     if not isinstance(roles, dict):
         problems.append("[roles] must be a table")
@@ -302,9 +308,46 @@ def _check_executor(ex: Any, problems: list[str]) -> None:
         else:
             digests.add(dig)
         if _type_ok(a.get("labels", []), _STRS):
-            bad = [x for x in a.get("labels", []) if not _LABEL.match(x)]
+            bad = [x for x in a.get("labels", []) if not _GRANT.match(x)]
             if bad:
                 problems.append("[%s] labels: %r is not a label" % (where, bad[0][:40]))
+
+
+def _check_api(api: Any, ex: Any, problems: list[str]) -> None:
+    """`[api]`: `[[api.readers]]` with a unique name and a 64-hex token_sha256 that no other reader and no executor
+    agent uses (a token opens exactly one door)."""
+    if api is None:
+        return
+    if not isinstance(api, dict):
+        problems.append("[api] must be a table")
+        return
+    for k in api:
+        if k not in _API:
+            problems.append("[api] unknown key %r" % k)
+    readers = api.get("readers", [])
+    if not isinstance(readers, list) or not all(isinstance(r, dict) for r in readers):
+        problems.append("[[api.readers]] must be an array of tables")
+        return
+    agents = (ex or {}).get("agents") if isinstance(ex, dict) else None
+    taken = {a.get("token_sha256") for a in agents or [] if isinstance(a, dict)}
+    names = set()
+    for i, r in enumerate(readers):
+        where = "api.readers[%d]" % i
+        _check_table(where, r, _API_READER, problems)
+        name, dig = r.get("name"), r.get("token_sha256")
+        if not isinstance(name, str) or not _LABEL.match(name):
+            problems.append("[%s] name is required (lower case letters, digits, _ . -)" % where)
+        elif name in names:
+            problems.append("[%s] name %s is given twice" % (where, name))
+        else:
+            names.add(name)
+        if not isinstance(dig, str) or not _SHA256.match(dig):
+            problems.append("[%s] token_sha256 is required: the line `nanosoc-rm executor token new NAME --reader` "
+                            "prints" % where)
+        elif dig in taken:
+            problems.append("[%s] token_sha256 repeats another reader's or an executor agent's token" % where)
+        else:
+            taken.add(dig)
 
 
 class Config(dict):

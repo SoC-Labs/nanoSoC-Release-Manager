@@ -358,6 +358,37 @@ def _tail(log: Path) -> list[str]:
     return [G.clean_detail(x)[:300] for x in lines[-LOG_TAIL:]]
 
 
+PIDNS_ENV = "NANOSOC_RM_TIER_PIDNS"
+PIDNS_PROBE_S = 20
+
+
+def pidns_wrap(argv: list[str], environ: Mapping[str, str] | None = None) -> tuple[list[str], str | None]:
+    """(argv, problem). When the executor agent asks for it ($NANOSOC_RM_TIER_PIDNS = the bwrap binary, set for a
+    job run in its bwrap sandbox), the tier command runs in its OWN pid namespace under a nested bwrap: it cannot
+    see the `nanosoc-rm` process that launched it, so it cannot write that process's stdout through
+    /proc/<pid>/fd/1 and forge the job's result documents (integration review 2026-10-16). The file system is the
+    outer sandbox's, unchanged (`--dev-bind / /`). A requested namespace that cannot be made is a problem (the
+    run is INFRA), never a silent run without it."""
+    env = os.environ if environ is None else environ
+    bwrap = env.get(PIDNS_ENV)
+    if not bwrap:
+        return list(argv), None
+    if not os.path.isabs(bwrap) or not os.access(bwrap, os.X_OK):
+        return list(argv), "%s=%s is not an executable bwrap: the pid namespace was not made" % (PIDNS_ENV, bwrap)
+    wrap = [bwrap, "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "--die-with-parent",
+            "--new-session", "--"]
+    try:
+        probe = subprocess.run(wrap + ["/bin/true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE, timeout=PIDNS_PROBE_S, env={"PATH": "/usr/bin:/bin"})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return list(argv), "the nested bwrap did not start (%s): the pid namespace was not made" % e
+    if probe.returncode != 0:
+        why = (probe.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        return list(argv), "the nested bwrap failed (%s): the pid namespace was not made" % (why[-1] if why else
+                                                                                         "exit %d" % probe.returncode)
+    return wrap + list(argv), None
+
+
 def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, layout: Layout | None = None,
              lock_dir: str | Path | None = None) -> dict:
     """Run one tier command in the sandbox tree (module docstring, steps 3 and 4). One compat_tier document."""
@@ -391,6 +422,11 @@ def run_tier(spec: Mapping, tier: str, tree: Path, work: Path, nonce: str, *, la
         pass                               # no record: the matrix re-read says the layout is unknown (UNVERIFIED)
     cmd = spec["command"]
     argv = ["/bin/bash", "--noprofile", "--norc", "-c", cmd] if isinstance(cmd, str) else list(cmd)
+    argv, no_ns = pidns_wrap(argv)
+    if no_ns is not None:
+        for fd in held:
+            os.close(fd)
+        return _doc(spec, tier, verdict="INFRA", reason="%s; the tier was not run" % no_ns, **base)
     budget = int(spec["budget_s"])
     limit = budget * KILL_FACTOR
     log = work / ("tier-%s.log" % tier)

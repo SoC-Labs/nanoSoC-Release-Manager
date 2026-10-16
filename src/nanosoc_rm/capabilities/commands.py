@@ -111,7 +111,7 @@ def register(main: click.Group) -> None:
         config = load_config()
         try:
             get_cfg(configuration, config)
-            v = tree_view(config, configuration)
+            v = tree_view(config, configuration, fetch=True)
         except UnknownConfiguration as e:
             click.echo("nanosoc-rm: %s" % e, err=True)
             return EXIT_USAGE

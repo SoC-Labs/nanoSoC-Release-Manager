@@ -429,6 +429,24 @@ def test_e2e_a_tier_job_runs_nanosoc_rm_and_reports_to_the_job_queue(rig, fake_j
     assert rig.token not in done["stdout"] + done["log"]
 
 
+@pytest.mark.parametrize("mode", ["fallback", "bwrap"])
+def test_a_bwrap_job_asks_for_a_pid_namespace_per_tier_command(rig, fake_jobs, monkeypatch, mode):
+    """Integration review 2026-10-16: in a bwrap job each tier command runs in its own pid namespace
+    (tierrun.pidns_wrap), so it cannot forge the job's stdout through /proc; the agent asks for it."""
+    from nanosoc_rm.analysis.tierrun import PIDNS_ENV
+    _job_rig(rig)
+    seen = {}
+
+    def fake_run(argv, env, cwd, log, limits, **kw):
+        seen.update(env)
+        return S.Outcome(0, 0.1)
+    monkeypatch.setattr(A.sandbox, "run", fake_run)
+    monkeypatch.setattr(A.sandbox, "exposure", lambda *a, **k: [])
+    A.run_once(rig.agent, rig.client(), mode=mode)
+    assert seen, "the job did not reach the sandbox"
+    assert seen.get(PIDNS_ENV) == (S.BWRAP if mode == "bwrap" else None)
+
+
 def test_a_job_needs_the_jobs_label_granted(rig, fake_jobs):
     _job_rig(rig, labels=("verilator",))                              # the agent asks for jobs; eda-1 is not granted it
     assert "jobs" in A.asked_labels(rig.agent)
@@ -436,12 +454,29 @@ def test_a_job_needs_the_jobs_label_granted(rig, fake_jobs):
     assert fake_jobs.queued and not fake_jobs.finished
 
 
+def test_a_kind_scoped_job_label_claims_only_that_kind(rig):
+    """Integration review 2026-10-16: an agent granted `jobs` claimed every tier job; `jobs:<kind>` grants one."""
+    from nanosoc_rm import jobs
+    from nanosoc_rm.executor import jobbridge as JB
+    jobs._load_kinds()
+    tb = jobs.submit(rig.config, "test-bump", {"configuration": "eth-main", "path": "tidelink", "to": "v1.0"}, "ann")
+    cell = jobs.submit(rig.config, "compat", {"configuration": "eth-main", "tier": "t1"}, "ann")
+    assert jobs.needs_executor("compat", cell["params"])
+    assert JB.kinds_granted(["jobs"]) is None and JB.kinds_granted(["jobs:compat", "vcs"]) == {"compat"}
+    assert JB.kinds_granted(["vcs", "jobs:"]) == set()
+    assert JB.claim(rig.config, "eda-1", ["vcs"]) is None
+    got = JB.claim(rig.config, "eda-1", ["jobs:compat"])
+    assert got["job_id"] == cell["id"]                         # the older test-bump is not its kind: left queued
+    assert jobs.get(rig.config, tb["id"])["state"] == "queued"
+    assert JB.claim(rig.config, "eda-1", ["jobs"])["job_id"] == tb["id"]
+
+
 def test_an_agent_without_rm_config_does_not_ask_for_jobs(rig):
     cfg = rig.agent
-    cfg.labels = ["verilator", "jobs"]
+    cfg.labels = ["verilator", "jobs", "jobs:compat"]
     assert A.asked_labels(cfg) == ["verilator"]
     cfg.rm_config = Path("/x/rm.toml")
-    assert A.asked_labels(cfg) == ["verilator", "jobs"]
+    assert A.asked_labels(cfg) == ["verilator", "jobs", "jobs:compat"]
 
 
 def test_job_leases_are_enforced_and_expire_to_infra(rig, fake_jobs):
@@ -459,6 +494,28 @@ def test_job_leases_are_enforced_and_expire_to_infra(rig, fake_jobs):
     assert fake_jobs.finished[0]["rc"] is None and "lease expired" in fake_jobs.finished[0]["log"]
     with pytest.raises(Q.LeaseLost):
         JB.finish(rig.config, 5, "eda-1", c["lease"], 0, "", "")
+
+
+def test_a_claimed_job_whose_lease_was_never_written_ends_infra(rig):
+    """Integration review 2026-10-16: the claim marks the job running (jobs.sqlite), then writes its lease
+    (executor.sqlite) in a second transaction. A service that dies between the two left the job running on an
+    executor with no lease: recover() skips it and no heartbeat can end it. expire() now ends it INFRA once it is
+    older than a lease, and leaves a job that holds a lease, or a younger one, alone."""
+    from nanosoc_rm import clock, jobs
+    from nanosoc_rm.executor import jobbridge as JB
+    jobs._load_kinds()
+    a = jobs.submit(rig.config, "test-bump", {"configuration": "eth-main", "path": "tidelink", "to": "v1.0"}, "ann")
+    b = jobs.submit(rig.config, "test-bump", {"configuration": "eth-main", "path": "tidechart", "to": "v1.0"}, "ann")
+    assert jobs.claim_for_executor(rig.config, "eda-1")["id"] == a["id"]        # the crash: no lease row written
+    t0 = clock.parse(jobs.get(rig.config, a["id"])["started_at"]).timestamp()
+    lease_s = Q.settings(rig.config)["lease_seconds"]
+    held = JB.claim(rig.config, "eda-1", ["jobs"], now=t0 + lease_s)            # b: claimed later, with its lease
+    assert held["job_id"] == b["id"]
+    assert JB.expire(rig.config, now=t0 + lease_s - 5) == []                    # younger than a lease: left alone
+    assert JB.expire(rig.config, now=t0 + lease_s + 5) == [a["id"]]
+    done = jobs.get(rig.config, a["id"])
+    assert done["state"] == "infra" and done["executor"] == "eda-1"
+    assert jobs.get(rig.config, b["id"])["state"] == "running"                  # its lease is current
 
 
 def test_job_api_over_http(rig, fake_jobs):

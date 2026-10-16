@@ -572,3 +572,60 @@ def test_a_gate_lost_to_a_broken_after_manifest_is_not_run_not_gone(scene):
     rows = rows_of({"fact": f})
     assert rows[".:integ"]["change"] == "same" and rows["a:lint"]["change"] == "not-run"
     assert f["verdict"] == "UNVERIFIED" and "a:lint not-run" in f["reason"]
+
+
+# ---------------------------------------------------------------------------------------------------------
+# GET /api/v1/bump-check (section 26.7; integration review 2026-10-16): the repositories' CI asks it
+# ---------------------------------------------------------------------------------------------------------
+def test_bump_check_answers_from_the_gate_evidence_of_exactly_this_move(scene, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from nanosoc_rm.capabilities import bumpcheck as BC
+    from nanosoc_rm.config import load_config
+    from nanosoc_rm.executor import tokens
+    from nanosoc_rm.web import create_app
+    monkeypatch.delenv("NANOSOC_RM_LOCAL_TIERS", raising=False)
+    to, path = scene.a4, "zz/bc"                            # a move no other test records
+    with scene.env.active():
+        base = scene.config()
+        q = {"component": "top", "path": path, "to": to, "root": scene.top}
+        a = BC.answer(base, q)
+        assert a["verdict"] is None and a["configurations"] == ["top-main"]
+        assert a["command"] == "nanosoc-rm test-bump top-main %s %s" % (path, to)
+        assert BC.answer(base, dict(q, component="beta"))["configurations"] == []
+        with pytest.raises(BC.BadRequest):
+            BC.answer(base, dict(q, to="v1.0"))                # a full commit, never a ref
+        j = jobs.submit(base, "test-bump", {"configuration": "top-main", "path": path, "to": to}, by="m")
+        jobs.claim_for_executor(base, "eda-agent")
+        jobs.finish_for_executor(base, j["id"], "eda-agent", 0,
+                                 json.dumps(_fake_doc(scene, "PASS", to=to, paths=(path,))) + "\n")
+        a = BC.answer(base, q)
+        assert a["verdict"] == "PASS" and a["url"] == "/capabilities/top-main/bump?job=%d" % j["id"]
+        assert BC.answer(base, dict(q, root="f" * 40))["verdict"] is None      # another base: no evidence
+        assert BC.answer(base, dict(q, path="a"))["verdict"] is None           # a neighbouring move: none
+        # over HTTP: a reader token opens it; an executor token, no token and a revoked one do not
+        reader, agent = tokens.new_token(), tokens.new_token()
+        p = tmp_path / "svc.toml"
+        p.write_text(base.path.read_text() + '\n[roles]\ndefault = ["member"]\n[api]\n[[api.readers]]\nname = "eth-ci"\ntoken_sha256 = "%s"\n'
+                     '\n[executor]\n[[executor.agents]]\nname = "eda-1"\ntoken_sha256 = "%s"\nlabels = ["jobs"]\n'
+                     % (tokens.digest(reader), tokens.digest(agent)))
+        class NoSession:                                     # nobody is signed in
+            requires_csrf = False
+
+            def identify(self, cookies, config, sessions):
+                return None
+        c = TestClient(create_app(p, auth=NoSession()))
+        r = c.get(BC.PATH, params=q, headers={"Authorization": "Bearer " + reader})
+        assert r.status_code == 200 and r.json()["verdict"] == "PASS", r.text
+        assert c.get(BC.PATH, params=q, headers={"Authorization": "Bearer " + agent}).status_code == 401
+        assert c.get(BC.PATH, params=dict(q, to="x"), headers={"Authorization": "Bearer " + reader}).status_code == 400
+        assert c.get(BC.PATH, params=q).status_code == 401                     # no token, no session: refused
+        assert c.get("/api/v1/configurations", headers={"Authorization": "Bearer " + reader}).status_code == 401
+        assert c.post("/executor/v1/claim", json={}, headers={"Authorization": "Bearer " + reader}).status_code == 401
+        from nanosoc_rm import auth
+        member = TestClient(create_app(p, auth=auth.FakeMembership(login="member-a")))
+        r = member.get(BC.PATH, params=q)                                       # a signed-in member asks too
+        assert r.status_code == 200 and r.json()["verdict"] == "PASS", r.text
+        p.write_text(p.read_text().replace('name = "eth-ci"', 'name = "eth-ci"\nrevoked = true'))
+        load_config(p)
+        assert c.get(BC.PATH, params=q, headers={"Authorization": "Bearer " + reader}).status_code == 401
