@@ -1,0 +1,26 @@
+# The pull agent's config (interfaces.md section 27.4). Copy to ~/.config/nanosoc-rm-executor/agent.toml (0600) on
+# the EDA host, as the dedicated agent user. No credential lives here: the token is in token_file (0600).
+[agent]
+name = "eda-1"                                   # the [[executor.agents]] name on the service
+server = "https://<host>:<port>"                 # the release manager (CR-20 TLS)
+token_file = "~/.config/nanosoc-rm-executor/token"
+# ca_file = "~/.config/nanosoc-rm-executor/ca.pem"   # the service's certificate when it is self-signed
+mirror_root = "/<scratch-volume>/nanosoc-rm-mirror"  # read-only replica of the service's <data_dir>/mirrors
+scratch_dir = "/<scratch-volume>/nanosoc-rm-exec"    # one work dir per task, removed after the upload
+labels = ["verilator", "vcs", "xcelium", "genus"]   # what this host can run; the service grants at most its list
+poll_seconds = 30
+heartbeat_seconds = 30
+max_budget_s = 28800
+max_log_bytes = 8388608
+max_upload_bytes = 2097152
+# rm_config = "~/nanosoc-rm-agent/rm.toml"       # only to run tier JOBS (section 27.6): add "jobs" to labels
+# site_host = "eda-1"                            # the registry tiers.yaml host id for jobs
+
+[sandbox]
+mode = "bwrap"                                   # refuse to run without bwrap; "auto" falls back SILENTLY to
+                                                 # the scrubbed fallback, where a command can read the token
+network = true                                   # licence servers
+ro_binds = ["/<eda-tools-root>"]                 # tool trees, read-only inside the sandbox
+path = ["/<eda-tools-root>/verilator/bin"]       # prepended to /usr/bin:/bin
+[sandbox.env]
+# LM_LICENSE_FILE = "<port>@<licence-host>"

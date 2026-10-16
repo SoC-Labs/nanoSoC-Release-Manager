@@ -1179,7 +1179,9 @@ def _exec_argv(node, name, mod):
 #   git-runner  the one dynamic git runner; its guard refuses GIT_WRITES at run time (AT-A6 proves it).
 #   publish     CR-ART-publish: the release store's PUT/POST, in nanosoc_rm/publish/ only, guarded; a person's
 #               confirmed publish (never the CI trigger's "one write", never scheduled: AT-A7 soc_release).
-EFFECTS = ("write", "read-post", "local", "git-runner", "publish")
+#   executor    CR-WG-executor: the pull agent's POSTs to the release manager's own /executor/v1/ API, in
+#               nanosoc_rm/executor/client.py only, POST only, guarded (never a git host, CI or store).
+EFFECTS = ("write", "read-post", "local", "git-runner", "publish", "executor")
 
 
 def allowed(entry, allowlist):
@@ -1230,6 +1232,11 @@ def allowlist_problems(allowlist):
                                              or a["method"] not in ("PUT", "POST") or not a.get("guard")):
             probs.append("publish entry %s:%s is outside nanosoc_rm/publish/, not PUT/POST, or unguarded"
                          % (a["file"], a["method"]))
+    for a in allowlist:
+        if a.get("effect") == "executor" and (a["file"] != "nanosoc_rm/executor/client.py" or a["method"] != "POST"
+                                              or "/executor/v1/" not in a["target"] or not a.get("guard")):
+            probs.append("executor entry %s:%s is outside nanosoc_rm/executor/client.py, not a POST to /executor/v1/, "
+                         "or unguarded" % (a["file"], a["method"]))
     if sum(1 for a in allowlist if a.get("effect") == "git-runner") > 1:
         probs.append("more than one git runner is allowlisted: every git call must go through one")
     return probs

@@ -142,7 +142,9 @@ DEF_PREFIXES = {"eligibility.tiers": ("eligibility", "/$defs/tiers_file"),
                 "release-lock.draft": ("release-lock", "/$defs/draft_lock"),         # CR-R1: release.lock.draft.yaml
                 "regen.class": ("regen", "/$defs/regen_class"),                      # section 20 (C3, C7)
                 "store.index": ("store", "/$defs/store_index"),                      # section 22 (B10, G8)
-                "tapeout-record.draft": ("tapeout-record", "/$defs/tapeout_draft")}  # CR-ART-publish: registry tapeouts/
+                "tapeout-record.draft": ("tapeout-record", "/$defs/tapeout_draft"),  # CR-ART-publish: registry tapeouts/
+                "executor.claim": ("executor", "/$defs/claim"),                      # section 26 (CR-WG-executor)
+                "executor.result": ("executor", "/$defs/result")}  # CR-ART-publish: registry tapeouts/
 # rm-bundle/items/<gate>.jsonl lines: result-bundle.items.<gate>.example.jsonl (EXCERPTS: the non-pass items
 # of rc4's four non-pass gates, which the T0 waivers in eligibility.example.yaml cover; README section 6).
 ITEMS_PREFIX = "result-bundle.items."

@@ -259,6 +259,10 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 #               nanosoc_rm/publish/client.py, allow-listed there before any I/O (new files under
 #               <release_repo>/<project>/<version>/, a build-info record, a status-only promotion), refused in the
 #               web process, run only by a person's confirmed publish; never scheduled (A7: soc_release)
+#   executor    CR-WG-executor (David 2026-10-16): the pull agent's POSTs to the release manager's OWN executor API
+#               (claim, heartbeat, log, result), only in nanosoc_rm/executor/client.py, whose check_path allows the
+#               four /executor/v1/ paths of the configured server before any I/O; it writes only the service's own
+#               executor queue, never a git host, CI or store
 #
 # `sites` (optional, default 1; evaluation 2026-10-16): how many call sites the census cannot pin to one target
 # (target `?`, or method `?`) the entry covers. One more unresolved call in that file is refused, so a second
@@ -267,9 +271,22 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 # `file` names where the contract layout (interfaces.md sections 0.5, 10, 14) puts the call. A builder who
 # puts the call in a different file moves the entry with it, in the same commit.
 # ---------------------------------------------------------------------------------------------------------
-WRITE_EFFECTS = ("write", "read-post", "local", "git-runner", "publish")
+WRITE_EFFECTS = ("write", "read-post", "local", "git-runner", "publish", "executor")
 
 WRITE_CALLS: list[dict] = [
+    {"file": "nanosoc_rm/executor/client.py", "kind": "http", "method": "POST", "target": "/executor/v1/",
+     "effect": "executor",
+     "guard": "client.check_path allows only /executor/v1/claim and /executor/v1/tasks/<id>/{heartbeat,log,result} "
+              "on the agent config's [agent] server, before any I/O; bearer token from the 0600 token_file only, in "
+              "a header; no redirects followed; TLS verified",
+     "reason": "CR-WG-executor (decision 1): the pull agent on the EDA host claims a queued tier task, heartbeats, and "
+               "posts the log and result back to the release manager's own queue; nothing outside the service"},
+    {"file": "nanosoc_rm/executor/sandbox.py", "kind": "exec", "method": "?", "target": "unresolved argv",
+     "effect": "local", "sites": 2,
+     "guard": "run() starts only the claimed task's command (checked by task.check_task: no set_env.sh) inside "
+              "bubblewrap (no home, no ssh, read-only tools) or the scrubbed-environment fallback, with a time and "
+              "output limit; the probe is a fixed bwrap argv; the file imports no HTTP client",
+     "reason": "CR-WG-executor: run a capability's command on the EDA host; it writes only inside the task's work dir"},
     {"file": "nanosoc_rm/ci/client.py", "kind": "http", "method": "POST", "target": "trigger/pipeline",
      "effect": "write",
      "guard": "target is the configured ci.project only; the trigger token is scoped to that project",

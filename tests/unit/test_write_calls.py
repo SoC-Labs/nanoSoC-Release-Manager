@@ -116,3 +116,19 @@ def test_a_second_unresolved_call_cannot_hide_behind_an_entry(sw, tmp_path):
     over = sw.wildcard_overflow(census, WRITE_CALLS)
     assert len(over) == 1 and "nanosoc_rm/ci/client.py POST trigger/pipeline covers 1" in over[0], over
     assert sw.wildcard_overflow(sw.write_call_census(SRC_PKG), WRITE_CALLS) == []   # the real package: none
+def test_the_executor_effect_is_confined(sw, tmp_path):
+    # CR-WG-executor: effect `executor` is a POST to /executor/v1/ from executor/client.py, guarded; anything else is
+    # an allowlist problem, and a POST planted in another executor module is not covered by the entry.
+    ok = [w for w in WRITE_CALLS if w["effect"] == "executor"]
+    assert [(w["file"], w["method"]) for w in ok] == [("nanosoc_rm/executor/client.py", "POST")]
+    for bad in (dict(ok[0], file="nanosoc_rm/executor/agent.py"), dict(ok[0], method="PUT"),
+                dict(ok[0], target="api/v1/anything"), {k: v for k, v in ok[0].items() if k != "guard"}):
+        assert any("executor entry" in p for p in sw.allowlist_problems(
+            [w for w in WRITE_CALLS if w["effect"] != "executor"] + [bad])), bad
+    pkg = tmp_path / "nanosoc_rm"
+    shutil.copytree(SRC_PKG, pkg, ignore=shutil.ignore_patterns("__pycache__"))
+    with (pkg / "executor" / "agent.py").open("a") as f:
+        f.write("\n\ndef _sneak(http):\n    http.post('/executor/v1/claim')\n")
+    census = sw.write_call_census(pkg)
+    assert [(c["file"], c["method"]) for c in census if not sw.allowed(c, WRITE_CALLS)] == \
+        [("nanosoc_rm/executor/agent.py", "POST")]

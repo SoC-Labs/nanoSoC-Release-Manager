@@ -33,12 +33,17 @@ def _target(name):
         return "store", "/$defs/store_index"
     if name.startswith("tapeout-record.draft"):                  # CR-ART-publish: registry tapeouts/ draft
         return "tapeout-record", "/$defs/tapeout_draft"
+    if name.startswith("executor.claim"):                        # section 27: an executor claim
+        return "executor", "/$defs/claim"
+    if name.startswith("executor.result"):                       # section 27: an executor result
+        return "executor", "/$defs/result"
     return DEF_EXAMPLES.get(name) or (name.split(".", 1)[0], None)
 
 
 def test_all_schemas_load():
     assert contracts.schema_names() == sorted([
         "bump-proposal", "component-catalogue", "component-manifest", "defect", "defs", "eligibility", "erratum",
+        "executor",                                                              # CR-WG-executor
         "import-ledger", "matrix", "observation", "pin-state", "regen", "release-lock", "release-manifest",
         "result-bundle", "store", "tapeout-record", "tool-release",          # CR-WE-index, CR-ART-publish
         "capabilities", "test-bump"])                                       # Wave G

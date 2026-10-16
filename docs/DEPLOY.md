@@ -221,8 +221,63 @@ target, **Run what-if**, wait for Now vs After), `/components/<component>/branch
 ## What this host can and cannot run
 
 T0 (resolve, pins, URLs, vendor scan) needs only git. T1 and T2 tiers call EDA tools (Verilator, VCS); on a host
-without them the tier result says the tool is not on this host. By default every fetch is anonymous and private
+without them the tier result says the tool is not on this host. The remote tier executor (below) runs them on the
+EDA host instead. By default every fetch is anonymous and private
 repos stay unreadable (one `mirror_failed` alert group, "private repos cannot be mirrored anonymously").
+
+## Remote tier executor (optional; CR-WG-executor, interfaces.md section 27)
+
+T1 and up need the EDA host (decision 1, 2026-10-16). A pull agent there claims tier work from this service over
+HTTPS, runs it sandboxed, and posts the result back. This service never connects to the agent. Nothing in the tool
+installs or starts the agent: these steps are for the operator. About 30 minutes.
+
+On the service host:
+
+1. Make a token for the agent. The token goes to a new 0600 file and is never printed; the config entry is:
+   ```
+   nanosoc-rm executor token new eda-1 --out eda-1.token --labels verilator,vcs,xcelium,genus
+   ```
+2. Paste the printed `[[executor.agents]]` entry into the private config under an `[executor]` table
+   (`lease_seconds = 300`, `max_attempts = 2` are the defaults). The service reads its config per request: no
+   restart. The API is served by the same process at `/executor/v1/` (POST only, token only); it needs CR-20 TLS when
+   the agent is on another host.
+3. Move `eda-1.token` to the agent host (scp, then delete it here). Grant `jobs` too only when the agent will run
+   whole `nanosoc-rm` tier jobs (step 8).
+
+On the EDA host, as a DEDICATED user (no ssh keys, nothing else in its home; never a person's account):
+
+4. Check the sandbox: `command -v bwrap && bwrap --ro-bind / / --unshare-all /bin/true && echo usable`. Without a
+   usable bubblewrap the agent falls back to a scrubbed environment only (residual risk below). The example
+   config sets `mode = "bwrap"`, so the agent refuses to start instead of falling back silently; choose
+   `fallback` only on purpose.
+5. Install the tool in a venv (as in "Install" steps 1 and 2) and put the token at
+   `~/.config/nanosoc-rm-executor/token` (`chmod 600`).
+6. Give it a read-only mirror: a copy of the service's `<data_dir>/mirrors/` (`<component>.git` bare repos) that the
+   agent user can read but not write, refreshed by another account (for example an rsync on a timer). The agent never
+   fetches from a git host; a commit missing from the mirror is INFRA ("sync the agent's mirror").
+7. Write `~/.config/nanosoc-rm-executor/agent.toml` from `scripts/executor/agent.example.toml` (server URL, mirror
+   root, scratch dir, labels, tool trees as `ro_binds`, licence values in `[sandbox.env]`), then check it:
+   `NANOSOC_RM_AGENT_CONFIG=... nanosoc-rm executor check` (sandbox mode, exposure, token file; no network).
+8. Optional, tier jobs (`test-bump`, `compat --tier`): a nanosoc-rm config on this host (`rm_config`), with its own
+   data dir, mirror and registry checkout, anonymous reads only and NO credentials in it, plus `jobs` in `labels`.
+9. Try one task by hand: `nanosoc-rm executor run --once`. Then install `scripts/executor/nanosoc-rm-executor.service`
+   as a `systemctl --user` unit (`loginctl enable-linger` for the agent user) and enable it.
+
+Operate: `nanosoc-rm executor list|show ID|cancel ID` on the service host. Revoke an agent at once with
+`revoked = true` on its entry (or delete the entry). A task whose agent stops heartbeating is queued again, then
+ends INFRA after `max_attempts` claims.
+
+What the sandbox gives (interfaces.md section 27.4):
+- **bwrap** (preferred): an empty root with only `/usr` and `/etc` read-only, the tool trees read-only, the mirror
+  read-only and the task's work dir writable; the agent user's home (its `~/.ssh`, `~/.config`, the token) is not
+  there; new user/pid/ipc namespaces; network shared for licence servers unless `network = false`.
+- **fallback**: environment built from nothing (no `SSH_AUTH_SOCK`, no token, empty HOME), umask 077, time and
+  output limits, its own process group. **Residual risk:** no filesystem isolation. The command can read what the
+  agent user can read, including the token file; with it, it could claim tasks and post results as this agent (and
+  reach nothing else: the token opens only `/executor/v1/`). Use bwrap; if you cannot, keep the agent user empty and
+  revoke the token on any doubt.
+- Both: no bind may contain the token file, the home, `~/.ssh`, `~/.config` or `~/.gnupg` (the task is INFRA, not
+  run); a time limit of `budget_s x 1.5`, `max_log_bytes` of output, `max_file_bytes` per file written.
 
 ## Private repos (optional, off by default; CR-PR1)
 
