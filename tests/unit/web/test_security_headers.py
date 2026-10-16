@@ -144,6 +144,15 @@ def test_an_unhandled_error_is_the_services_own_500_page(local):
     assert j.status_code == 500 and "RuntimeError" in j.json()["error"]
 
 
+def test_a_500_after_a_post_never_claims_nothing_changed():
+    """A GET that raised changed nothing; a POST that raised may have written before it failed, so its page must
+    not say "nothing was changed" (review of wave-g/quickfix)."""
+    get = appmod._server_error({"type": "http", "method": "GET", "path": "/x"}, RuntimeError("x")).body.decode()
+    post = appmod._server_error({"type": "http", "method": "POST", "path": "/x"}, RuntimeError("x")).body.decode()
+    assert "nothing was changed" in get
+    assert "nothing was changed" not in post and "partly applied" in post
+
+
 def test_control_without_the_handler_the_answer_is_the_bare_text(local, monkeypatch):
     app = _boom_app(local)
     c = signed_in(app)

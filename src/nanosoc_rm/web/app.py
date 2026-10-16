@@ -303,8 +303,11 @@ def _server_error(scope: dict, error: BaseException) -> Response:
     """The answer to a request whose handler raised: 500, the fault class and when, styled like every page (the
     stylesheet is served without sign-in). No traceback and no data in the page."""
     when = clock.iso()
-    text = ("This page failed with %s%s. The service is up and nothing was changed by this request; the details "
-            "are in the service log." % (type(error).__name__, " at %s" % when if when else ""))
+    # Only a GET or HEAD is known to have changed nothing: a POST that raised may have written before it failed.
+    effect = ("nothing was changed by this request" if scope.get("method", "GET") in _SAFE_METHODS
+              else "this request may have been partly applied, so check the page before trying again")
+    text = ("This page failed with %s%s. The service is up and %s; the details are in the service log."
+            % (type(error).__name__, " at %s" % when if when else "", effect))
     if _is_under(scope.get("path", ""), "/api"):
         return JSONResponse({"error": text}, 500)
     body = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
