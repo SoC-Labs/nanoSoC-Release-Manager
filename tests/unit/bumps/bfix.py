@@ -232,3 +232,17 @@ def world(tmp_path, monkeypatch, *, manifest_range=None, arch_tag_on="gitlab"):
     ])
     return {"cfg": cfg, "data": data, "registry": reg, "g": [g1, g2, g3, g4, g5], "a": [a1, a2], "m1": m1, "r1": r1,
             "t1": t1, "gen": gen, "arch": arch, "mc": mc, "eth": eth}
+
+
+# Wave G bump gate (capabilities.gate, David 2026-10-16 decision 3): a proposal opens a pull request only after a
+# passing test-bump of exactly that move. These tests are about the other E1-E5 rules and the shadow ledger, so this
+# fixture stands for "a passing test-bump exists"; test_bumps_engine.py's gate test removes it and checks the hold.
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def bump_gate_passes(monkeypatch):
+    from nanosoc_rm.capabilities import gate
+    monkeypatch.setattr(gate, "evidence", lambda config, configuration, tree_paths, to, root_commit: {
+        "verdict": "PASS", "job": None, "href": None, "finished_at": None,
+        "note": "test fixture: a passing test-bump of this move"})

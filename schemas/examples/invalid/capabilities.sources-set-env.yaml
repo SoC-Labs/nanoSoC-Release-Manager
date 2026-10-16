@@ -1,0 +1,8 @@
+# expect-error: oneOf at /capabilities/0/run
+# A capability never sources a set_env.sh: the runner builds the environment from `env`.
+schema: 1
+component: tidelink
+capabilities:
+  - id: lint
+    kind: lint
+    run: source set_env.sh && make lint

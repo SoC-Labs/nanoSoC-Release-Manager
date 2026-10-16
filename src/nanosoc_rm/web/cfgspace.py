@@ -429,7 +429,17 @@ def pin_aside(config: Any, ctx: Ctx, path: str | None) -> dict | None:
             "cover_tone": "c-pass" if covering and not uncovered else ("c-fail" if uncovered else "c-neutral"),
             "twins": [{"path": t["fact"]["tree_paths"][0], "commit": t["fact"]["child"]["commit"][:7], "doc": t,
                        "href": "%s/tree?node=%s" % (base, _q(t["fact"]["tree_paths"][0]))} for t in twins],
-            "notes": notes, "next": nxt, "code": code, "action": action}
+            "notes": notes, "next": nxt, "code": code, "action": action,
+            # Wave G: Test this bump on a pin row (the capabilities page queues it for an executor)
+            "test_bump": None if ctx.frozen else _test_bump_href(ctx.cid, f["tree_paths"][0])}
+
+
+def _test_bump_href(cid: str, tree_path: str) -> str | None:
+    try:
+        from nanosoc_rm.capabilities.web import bump_href
+    except ImportError:                                          # the capabilities module is not built here
+        return None
+    return bump_href(cid, tree_path)
 
 
 # ---------------------------------------------------------------------------------------------------------

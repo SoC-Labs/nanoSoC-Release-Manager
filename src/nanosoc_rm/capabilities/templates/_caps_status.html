@@ -1,0 +1,4 @@
+{%- macro verdict(v) -%}
+{%- set cls = {'PASS': 'state-green', 'WARN': 'state-amber', 'FAIL': 'state-red', 'UNVERIFIED': 'state-red', 'INFRA': 'state-amber', 'NOT-RUN': 'state-grey'} -%}
+{%- if v %}<span class="pill {{ cls.get(v, '') }}">{{ v }}</span>{% else %}<span class="note">none yet</span>{% endif -%}
+{%- endmacro -%}

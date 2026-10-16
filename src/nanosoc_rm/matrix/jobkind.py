@@ -88,4 +88,5 @@ def limit_s(config, job: dict) -> float:
     return float(LIMIT_S + 2 * kill)
 
 
-register_kind("matrix-cell", params, cli_args, outcome=outcome, limit_s=limit_s, action=ACTION)
+register_kind("matrix-cell", params, cli_args, outcome=outcome, limit_s=limit_s, action=ACTION,
+              executor=lambda p: bool(p.get("tier")))       # Wave G: a tier cell runs only on an executor

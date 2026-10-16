@@ -446,6 +446,8 @@ NOT_200_HERE = {
     "/store/file/{sha1}": (404, "no verified copy"),                 # Wave E: the fixture's store holds no file
     "/publish/release/{configuration}/{version}": (404, "No such release"),     # Wave E: "x" is not a version
     "/publish/tapeout/{tapeout_id}": (404, "No tapeout draft"),      # Wave E: the fixture registry has no tapeouts/
+    "/capabilities/{configuration}": (404, "no registered configuration"),       # Wave G: "x" is not one
+    "/capabilities/{configuration}/bump": (404, "no registered configuration"),
 }
 
 
@@ -535,7 +537,8 @@ def test_the_local_post_routes_exist_only_in_a_local_deployment(local):
               ("POST", "/publish/tapeout/{tapeout_id}/preview"), ("POST", "/publish/tapeout/{tapeout_id}/confirm"),
               ("POST", "/freshness/scan"),                    # CR-WF-fresh: queues the read-only freshness-scan job
               ("POST", "/catalogue/patch"),                   # CR-WF-gui: builds a catalogue patch, writes nothing
-              ("POST", "/catalogue/scan")}                    # CR-1015-orgscan: queues the read-only org-scan job
+              ("POST", "/catalogue/scan"),                    # CR-1015-orgscan: queues the read-only org-scan job
+              ("POST", "/capabilities/{configuration}/test-bump")}   # Wave G: queues a test-bump for an executor
     assert base | plugin | routers.WAVE_F_POSTS <= writes, sorted(base | plugin | routers.WAVE_F_POSTS - writes)
     allowed = base | plugin | routers.WAVE_C_POSTS | routers.WAVE_F_POSTS          # CR-WF-gui: + the Wave F POSTs
     assert writes <= allowed, sorted(writes - allowed)

@@ -8,6 +8,9 @@ from __future__ import annotations
 import pytest
 
 from bfix import GL_ARCH, GL_GEN, GL_MC, world
+from bfix import bump_gate_passes
+
+AUTOUSE = (bump_gate_passes,)          # the autouse fixture: a passing test-bump exists (Wave G bump gate)
 
 pytestmark = pytest.mark.requirement("E2")
 

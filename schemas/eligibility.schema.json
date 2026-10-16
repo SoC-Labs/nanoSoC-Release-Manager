@@ -28,11 +28,20 @@
     "tiers_file": {
       "description": "CR-12: registry `tiers.yaml` (optional), the local T1/T2 commands of each configuration (`nanosoc-rm compat CONFIG --tier t1|t2`, interfaces.md section 9a 'Tiers'). A configuration it names must be registered in eligibility.yaml (README section 3 rule 14). Additive optional file: no schema bump.",
       "type": "object",
-      "required": ["schema", "configurations"],
+      "required": ["schema"],
+      "anyOf": [ { "required": ["configurations"] }, { "required": ["hosts"] } ],
       "additionalProperties": false,
       "properties": {
         "schema": { "const": 1 },
+        "hosts": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Wave G (David 2026-10-16, decision 2): the per-host SITE data a tree's .nanosoc/capabilities.yaml cannot know, and nothing else: where each tool is installed and at which version, which licences the host holds, and the values of the site variables the trees declare (env.site). What a tree can test lives in the tree. A key is a host id (never a hostname in a public file); the executor that claims a job names the host it runs on.",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+          "additionalProperties": { "$ref": "#/$defs/site_host" }
+        },
         "configurations": {
+          "description": "CR-12 (legacy): per-configuration T1/T2 commands. Superseded by the trees' own .nanosoc/capabilities.yaml (Wave G); still read by `compat --tier` until each tree carries one.",
           "type": "object",
           "minProperties": 1,
           "propertyNames": { "$ref": "defs.schema.json#/$defs/configuration_id" },
@@ -43,6 +52,33 @@
             "properties": { "t1": { "$ref": "#/$defs/tier_command" }, "t2": { "$ref": "#/$defs/tier_command" }, "regen": { "$ref": "#/$defs/regen_command" } }
           }
         }
+      }
+    },
+    "site_host": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "tools": {
+          "type": "object",
+          "description": "Tool name (as the trees' `tools` name it) -> where it is and which version.",
+          "propertyNames": { "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$" },
+          "additionalProperties": {
+            "type": "object", "required": ["version"], "additionalProperties": false,
+            "properties": {
+              "version": { "type": "string", "minLength": 1 },
+              "bin": { "type": "string", "pattern": "^/", "description": "The directory put first on the run's PATH." }
+            }
+          }
+        },
+        "licences": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Licence features or vendors this host can check out (a tool's `licence` must be here)." },
+        "env": {
+          "type": "object",
+          "description": "Values of the trees' env.site variables on this host (Arm IP roots, PDK roots, licence-server variables).",
+          "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "not": { "enum": ["TREE", "NANOSOC_RM_TIER", "NANOSOC_RM_VERDICTS", "NANOSOC_GEN_OK", "PATH", "HOME", "TMPDIR"] } },
+          "additionalProperties": { "type": "string" }
+        },
+        "needs": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 }, "description": "Capability `needs` this host can meet beyond seats (pdk, network, board:<kind>)." }
       }
     },
     "tier_command": {

@@ -38,6 +38,11 @@ def venv_on_path(environ=os.environ, bin_dir=VENV_BIN) -> bool:
 
 venv_on_path()
 
+# Wave G: tier jobs run only on an executor; the hermetic suite keeps the local-runner fallback (jobs.py
+# local_tiers_allowed), so the worker tests still run tier jobs in-process. A test that checks the executor queue
+# itself clears this with monkeypatch.
+os.environ.setdefault("NANOSOC_RM_LOCAL_TIERS", "1")
+
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "requirement(id): the requirement this acceptance test accepts (PR5, PR7)")

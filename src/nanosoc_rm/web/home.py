@@ -239,6 +239,21 @@ class _Data:
             self._tree_cache[cid] = self._fview.tree(cid, today=self.today, config=self._config)
         return self._tree_cache[cid]
 
+    def capabilities(self, cid: str) -> dict:
+        """Wave G: the configuration's capabilities view (capabilities.view.tree_view), once per request."""
+        if not hasattr(self, "_caps_cache"):
+            self._caps_cache: dict[str, Any] = {}
+        if cid not in self._caps_cache:
+            from nanosoc_rm.capabilities.view import tree_view
+            try:
+                self._caps_cache[cid] = tree_view(self._config, cid)
+            except Exception as e:                               # noqa: BLE001 - kept, re-raised per caller
+                self._caps_cache[cid] = e
+        got = self._caps_cache[cid]
+        if isinstance(got, Exception):
+            raise got
+        return got
+
     def group_of(self, comp: str | None) -> str | None:
         ch = self.chars.get(comp or "")
         return ch.group if ch is not None else None
@@ -532,7 +547,7 @@ def _detail(sel: str | None, data: _Data, today: dt.date, local: bool) -> dict |
     if not sel:
         return None
     if sel.startswith("n:"):
-        return _pin_detail(sel, data, today)
+        return _pin_detail(sel, data, today, local)
     if sel.startswith("c:"):
         return _cfg_detail(sel[2:], data, today, local)
     if sel.startswith("p:"):
@@ -547,7 +562,7 @@ def _detail(sel: str | None, data: _Data, today: dt.date, local: bool) -> dict |
     return None
 
 
-def _pin_detail(sel: str, data: _Data, today: dt.date) -> dict | None:
+def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> dict | None:
     from nanosoc_rm.catalogue.model import GROUP_LABELS
     _, rest = sel.split(":", 1)
     cid, _, path = rest.partition(":")
@@ -606,9 +621,48 @@ def _pin_detail(sel: str, data: _Data, today: dt.date) -> dict | None:
             urllib.parse.quote(comp, safe=""), urllib.parse.quote(comp, safe=""))),
                   ("Component %s" % comp, "/components/%s" % urllib.parse.quote(comp, safe=""))]
     links.append(("Submodule tree of %s" % cid, "/configurations/%s/tree" % urllib.parse.quote(cid, safe="")))
+    caps, forms = _capabilities_section(data, cid, n["tree_path"], None if frozen else up.get("default_branch"),
+                                        local)
+    links += caps["links"]
     return {"kind": "Pin in " + cid, "title": comp or n["name"], "title_cls": "t-mono", "state": state,
             "css": STATE_KEY[state], "word": WORD[state], "sub": sub, "chips": chips, "blurb": None,
-            "facts": facts, "note": note, "links": links, "obs": n, "forms": []}
+            "facts": facts, "note": note, "links": links, "obs": n, "forms": forms, "caps": caps}
+
+
+def _capabilities_section(data: _Data, cid: str, tree_path: str | None, to: str | None, local: bool
+                          ) -> tuple[dict, list[dict]]:
+    """Wave G: the detail panel's Capabilities section (what this tree can run, on which host, its last result) and
+    the "Test this bump" form of a live pin (local deployments; it only queues a job for an executor). Reads the
+    capabilities view once per configuration per page; a problem is a line in the section, never a 500."""
+    from nanosoc_rm.capabilities.web import bump_href
+    q = urllib.parse.quote(cid, safe="")
+    out = {"rows": [], "line": None, "links": [("Capabilities of %s" % cid, "/capabilities/%s" % q)]}
+    try:
+        view = data.capabilities(cid)
+    except Exception as e:                                       # noqa: BLE001 - one line, never a 500
+        out["line"] = "Capabilities not read: %s" % str(e)[:160]
+        view = None
+    if view is not None:
+        label = tree_path or "."
+        t = next((t for t in view["trees"] if t["tree_path"] == label), None)
+        if t is None or t["status"] == "absent":
+            out["line"] = "This tree declares no test capability (.nanosoc/capabilities.yaml) at this commit."
+        elif t["status"] != "ok":
+            out["line"] = "Capabilities file %s: %s" % (t["status"], "; ".join(t["problems"])[:200])
+        else:
+            for c in t["capabilities"]:
+                last = (c.get("last") or {}).get("verdict")
+                out["rows"].append({"id": c["id"], "kind": c["kind"], "tier": c["tier"] or "-",
+                                    "hosts": ", ".join(c["hosts"]) or "no host", "last": last or "none yet"})
+            if not out["rows"]:
+                out["line"] = "The capabilities file declares nothing of its own."
+    forms = []
+    if tree_path and to and local:
+        forms.append({"action": "/capabilities/%s/test-bump" % q, "label": "Test this bump (to %s)" % to,
+                      "fields": {"path": tree_path, "to": to}})
+    if tree_path:
+        out["links"].append(("Test a bump of %s" % tree_path, bump_href(cid, tree_path, to)))
+    return out, forms
 
 
 def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | None:
@@ -657,9 +711,11 @@ def _cfg_detail(cid: str, data: _Data, today: dt.date, local: bool) -> dict | No
     links = [("Open the configuration", "/configurations/%s" % q), ("Open the matrix", "/matrix/")]
     forms = [{"action": "/freshness/scan", "label": "Scan %s now" % cid, "fields": {"configuration": cid}}] \
         if local else []
+    caps, _ = _capabilities_section(data, cid, None, None, local)
+    links += caps["links"]
     return {"kind": "Configuration of " + proj, "title": cid, "title_cls": "t-mono", "state": state,
             "css": STATE_KEY[state], "word": _cfg_word(c), "sub": sub, "chips": ["not counted"] if frozen else [],
-            "blurb": None, "facts": facts, "note": note, "links": links, "obs": t, "forms": forms}
+            "blurb": None, "facts": facts, "note": note, "links": links, "obs": t, "forms": forms, "caps": caps}
 
 
 def _proj_detail(pid: str, data: _Data, today: dt.date) -> dict | None:

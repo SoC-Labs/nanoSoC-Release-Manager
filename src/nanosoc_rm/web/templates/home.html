@@ -98,6 +98,17 @@
     <dt>{{ f.label }}</dt><dd class="{% if f.mono %}mono{% endif %}{% if f.strong %} is-strong{% endif %}">{{ f.value }}</dd>
   {% endfor %}
   </dl>
+  {% if d.caps %}
+  <section class="fp-caps" aria-label="Capabilities" data-capabilities>
+    <p class="fp-kind">Capabilities</p>
+    {% if d.caps.rows %}
+    <table class="fp-captable"><thead><tr><th scope="col">Can run</th><th scope="col">Tier</th><th scope="col">On</th><th scope="col">Last</th></tr></thead><tbody>
+    {% for c in d.caps.rows %}<tr><td><code>{{ c.id }}</code> {{ c.kind }}</td><td>{{ c.tier }}</td><td>{{ c.hosts }}</td><td>{{ c.last }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% endif %}
+    {% if d.caps.line %}<p class="fp-muted">{{ d.caps.line }}</p>{% endif %}
+  </section>
+  {% endif %}
   {% if d.obs %}<p class="fp-src">{{ fact(d.obs, "Stored fact") }}</p>{% endif %}
   {% if d.note %}<p class="fp-note">{{ d.note }}</p>{% endif %}
   <p class="fp-links">

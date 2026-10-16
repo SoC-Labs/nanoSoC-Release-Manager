@@ -176,6 +176,19 @@
             "note": { "type": ["string", "null"], "description": "Why the cell is what it is (stale what-ifs not used, tiers still missing)." }
           }
         },
+        "test_bump": {
+          "type": "object",
+          "required": ["verdict", "job", "href", "finished_at", "note"],
+          "additionalProperties": false,
+          "description": "Wave G bump gate (David 2026-10-16, decision 3): the newest finished test-bump job of exactly this move (configuration, root commit, moved commit, every tree path). Anything but PASS holds the proposal (decision.would = hold) with a blocker naming the command. Optional so older stored proposals stay valid.",
+          "properties": {
+            "verdict": { "enum": ["PASS", "WARN", "FAIL", "UNVERIFIED", null] },
+            "job": { "type": ["integer", "null"] },
+            "href": { "type": ["string", "null"] },
+            "finished_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
+            "note": { "type": ["string", "null"] }
+          }
+        },
         "patch": {
           "type": "object",
           "required": ["file", "regenerated", "note"],
