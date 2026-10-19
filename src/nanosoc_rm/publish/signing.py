@@ -1,4 +1,4 @@
-"""Manifest signatures in the OpenSSH SSHSIG format, namespace `nanosoc-rm` (CR-ART-publish).
+"""Manifest signatures in the OpenSSH SSHSIG format, namespace `nanosoc-rm`.
 
     sign(data, key_path, *, ssh_keygen) -> Signature           the armored `.sig` text and how it was made
     verify(data, armored, allowed, *, ssh_keygen) -> str        the signer's key fingerprint, or SignatureError

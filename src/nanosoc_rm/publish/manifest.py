@@ -1,4 +1,4 @@
-"""Build the two published records (CR-ART-publish): a release manifest from a local release draft, a tapeout
+"""Build the two published records: a release manifest from a local release draft, a tapeout
 record from a tapeout draft. Pure apart from reading the draft files and, for referenced artefacts, the store
 (GET only, through `resolve_artefact`).
 
@@ -24,7 +24,7 @@ __all__ = ["release_manifest", "tapeout_record", "canonical", "diff", "parse_art
            "DOCUMENTS", "ARTEFACT_ROLES", "tapeout_draft_path", "pins_md5", "load_tapeout_draft"]
 
 # The draft files uploaded beside a release manifest: the ones the draft's `vendor.scan` covers (D11). The
-# generated-RTL archive copy is never uploaded from here: it is private (CR-R8), referenced by --artefact.
+# generated-RTL archive copy is never uploaded from here: it is private, referenced by --artefact.
 DOCUMENTS = ("release.lock.yaml", "ERRATA.md", "ERRATA.html", "RELEASE_NOTES.md", "GATES.md", "CHECKLIST.md",
              "build_soc.md5sums.txt")
 ARTEFACT_ROLES = ("archive", "gds", "netlist", "bitstream", "logs", "flists", "signoff", "foundry-return", "doc",
@@ -390,7 +390,7 @@ def _foundry_verdict(fv: Any, status: str, dates: dict, returns: list[dict], cit
 
 def _configured_project(config: Config, configuration: Any) -> str | None:
     """The store project a release of `configuration` is filed under (its component through `[stores.artifactory]
-    projects`), or None when the registry does not name that configuration. Fails CLOSED (evaluation 2026-10-16):
+    projects`), or None when the registry does not name that configuration. Fails CLOSED:
     a registry that cannot be read (no [registry] path, not a directory, a file with a problem) refuses the
     publish, because without it the "filed under another project" check cannot run."""
     if not configuration:

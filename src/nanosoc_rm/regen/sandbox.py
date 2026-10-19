@@ -8,7 +8,7 @@ A render:
 
 1. **Request.** The configuration's commit is resolved once (`ci.trigger.build_request`: a frozen configuration's
    recorded commit, else its ref in the mirror); every tree path where the stored walk pins the component (a B7
-   split moves together) is overridden to `commit` (`pin_overrides`, CR-11). Two renders of one measurement share
+   split moves together) is overridden to `commit` (`pin_overrides`). Two renders of one measurement share
    the request's root commit, so only the component differs between them.
 2. **Tree.** The overridden tree is walked anonymously in a fresh work directory (`t0.gates.Context.for_local`:
    empty HOME, no credential, no user git config) and the spec's `pins` are checked out (`tierrun.materialise`),

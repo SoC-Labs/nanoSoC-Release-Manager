@@ -1,4 +1,4 @@
-"""The Capabilities pages and "Test this bump" (Wave G), mounted at /capabilities through the web plug-in seam.
+"""The Capabilities pages and "Test this bump", mounted at /capabilities through the web plug-in seam.
 
     GET  /capabilities/                                   every configuration: how many trees declare capabilities
     GET  /capabilities/{configuration}                    per tree: its capabilities at the pinned commit, the hosts
@@ -10,7 +10,7 @@
 Every GET reads stored facts, mirrors, the registry and job records only: it never walks, fetches, runs or queues.
 The POST is CSRF-checked by the app's guard like every other POST, exists only in a local deployment
 (`app.state.rm.local_routes`, section 13a) and only QUEUES: the job is an executor kind, so the service host never
-runs it (Wave G decision 1). No navigation entry (the rail is long enough): Home's detail panel, the configuration
+runs it. No navigation entry (the rail is long enough): Home's detail panel, the configuration
 pages and the submodule tree link here.
 """
 from __future__ import annotations

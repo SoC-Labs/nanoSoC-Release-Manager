@@ -1,4 +1,4 @@
-"""Code and documentation quality (requirements Q1-Q6, CR-14).
+"""Code and documentation quality (requirements Q1-Q6).
 
 One function per capability; the CLI (`commands.py`) and the web pages (`web.py`) are front ends over these.
 Each returns one observation (kinds quality_density, quality_finding, readme_check, doc_score), stored per
@@ -204,7 +204,7 @@ def stored(kind: str, target: str | None = None, *, config=None) -> list[dict]:
 
 def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
     """{target: stored(kind, target)} for every target with a stored observation of `kind`, in ONE store read
-    (ROB-load-7: the overview must not read the store once per target and kind)."""
+    (the overview must not read the store once per target and kind)."""
     out: dict[str, list[dict]] = {}
     k = KINDS.get(kind, kind)
     for d in stored(kind, config=config):                       # oldest first, kept per target

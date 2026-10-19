@@ -2,7 +2,7 @@
 
     nanosoc-rm mirror sync [--component ID] [--host H] [--json]   exit 1 a rewrite was found, 2 a fetch failed
     nanosoc-rm mirror status [--component ID] [--json]           the table prints each repo's `age` in seconds (H6)
-                                                                  and how it was read (`access`, CR-PR1);
+                                                                  and how it was read (`access`);
                                                                   exit 2 when a mirror's last fetch failed
     nanosoc-rm mirror status --summary [--json]                  one line per (access, cause, method): how many
                                                                   repos are public, private-and-read, unreadable
@@ -27,7 +27,8 @@ def _age(fact: dict, now) -> str:
 
 def access_cell(fact: dict) -> str:
     """One word: anonymous, credentials:<method> (private, readable with credentials), or unreadable:<cause>.
-    A row stored before CR-PR1 has no `access`: ok reads anonymous, a failure unreadable:<cause from its error>."""
+    A row stored before private reads existed has no `access`: ok reads anonymous, a failure
+    unreadable:<cause from its error>."""
     from nanosoc_rm.mirror.private_read import classify
     access = fact.get("access") or ("anonymous" if fact["ok"] else "unreadable")
     if access == "credentials":

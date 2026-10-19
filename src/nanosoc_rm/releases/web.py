@@ -1,4 +1,4 @@
-"""The release pages (CR-R1): a FastAPI router mounted at /releases through the plug-in seam (web/plugins.py).
+"""The release pages: a FastAPI router mounted at /releases through the plug-in seam (web/plugins.py).
 
     GET  /releases/                          drafts list, the new-draft form, recent release jobs
     GET  /releases/forks                     the latest fork listing (I1), and a button to list them again

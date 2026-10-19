@@ -204,7 +204,7 @@ class HostJudge:
         _refuse_rate_limited(host, ans)
         if ans.status == 200 and not isinstance(ans.body, dict):
             # A 200 that is not a JSON object (a proxy, sign-in or maintenance page) says nothing about the
-            # commit. Ask once more; a second such answer means the walk cannot answer (ROB-soak-3).
+            # commit. Ask once more; a second such answer means the walk cannot answer.
             ans = self._get(host, commit_path, sources)
             _refuse_rate_limited(host, ans)
             if ans.status == 200 and not isinstance(ans.body, dict):
@@ -232,7 +232,7 @@ class HostJudge:
 def _rate_limited(ans) -> bool:
     """True when a refusal is the host's request quota, not the repo's permissions: GitHub answers 403 (or 429)
     with `x-ratelimit-remaining: 0` and a "rate limit" message; GitLab answers 429 with `ratelimit-remaining`
-    and `retry-after`. Such an answer decides nothing about the repo (ROB-soak-1/2)."""
+    and `retry-after`. Such an answer decides nothing about the repo."""
     if ans.status not in (401, 403, 404, 429):
         return False
     headers = ans.headers or {}
@@ -246,7 +246,7 @@ def _rate_limited(ans) -> bool:
 
 
 def _refuse_rate_limited(host: str, ans) -> None:
-    """WalkError (exit 2, could not answer) for a rate-limited answer, never UNREADABLE (ROB-soak-1/2)."""
+    """WalkError (exit 2, could not answer) for a rate-limited answer, never UNREADABLE."""
     if _rate_limited(ans):
         reset = (ans.headers or {}).get("x-ratelimit-reset") or (ans.headers or {}).get("ratelimit-reset")
         raise WalkError("%s: %s answered %s: the host's API rate limit is spent%s, so it decided nothing (add a "

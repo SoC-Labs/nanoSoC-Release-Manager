@@ -77,7 +77,7 @@ def waivers(cfg_id: str, config: Config | None = None) -> list[dict]:
 
 
 def tiers(cfg_id: str, config: Config | None = None) -> dict:
-    """CR-12: {tier: command spec} from the registry's tiers.yaml for a registered configuration ({} if none)."""
+    """{tier: command spec} from the registry's tiers.yaml for a registered configuration ({} if none)."""
     configuration(cfg_id, config)                       # UnknownConfiguration for an unregistered id
     return _registry(_cfg(config)).tiers(cfg_id)
 

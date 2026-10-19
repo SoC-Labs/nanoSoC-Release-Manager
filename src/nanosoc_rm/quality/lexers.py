@@ -601,6 +601,5 @@ LEXERS = {
 
 def lex(language: str, text: str) -> Lexed:
     """The lexed lines of `text` in `language` (a key of LEXERS). A CRLF line ending is read as LF first (the
-    line count is the same), so no comment text keeps a CR and a backslash before CRLF still continues a line
-    (ROB-property-8/9)."""
+    line count is the same), so no comment text keeps a CR and a backslash before CRLF still continues a line."""
     return LEXERS[language](text.replace("\r\n", "\n"))

@@ -49,7 +49,7 @@ class Docs:
     catalogue: tuple[str, Any] | None = None
     eligibility: tuple[str, Any] | None = None
     imports: tuple[str, Any] | None = None
-    tiers: tuple[str, Any] | None = None                              # CR-12: tiers.yaml (optional)
+    tiers: tuple[str, Any] | None = None                              # tiers.yaml (optional)
     defects: list[tuple[str, Any]] = field(default_factory=list)
     errata: list[tuple[str, Any]] = field(default_factory=list)       # file = errata/<dir>/<name>
 
@@ -432,7 +432,7 @@ def _rule13(docs: Docs) -> Iterator[Problem]:
 
 
 def _rule14(docs: Docs) -> Iterator[Problem]:
-    """CR-12: tiers.yaml names only configurations registered in eligibility.yaml."""
+    """tiers.yaml names only configurations registered in eligibility.yaml."""
     if not docs.tiers or not docs.eligibility:
         return
     known = {_str(c.get("id")) for _i, c in _items(_dict(docs.eligibility[1]).get("configurations"))}
@@ -443,7 +443,7 @@ def _rule14(docs: Docs) -> Iterator[Problem]:
 
 
 def _rule15(docs: Docs) -> Iterator[Problem]:
-    """CR-WF-catalogue: the characterisation fields agree across entries. Each `wraps` id is another catalogue
+    """The characterisation fields agree across entries. Each `wraps` id is another catalogue
     component whose group the wrapper may wrap (model.WRAP_TARGETS, the target's group explicit or derived from
     its class); a stated group carries a class model.GROUP_CLASSES allows (so `group: legacy` exactly when
     `class: legacy`: watch-only stays one fact, and group and class never drift apart); `guessed` names only

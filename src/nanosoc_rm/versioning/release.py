@@ -11,7 +11,7 @@ G5 approval matrix (APPROVAL_MATRIX): tool candidate by the bot; tool final (fix
 passes; tool final (breaking) by an owner and David; SoC release or train by David; a tapeout SoC release or an
 errata revision by David and a second reviewer. Roles come from the service config `[roles]`: `release-manager`
 (David), `reviewer` (the second reviewer), `owner:<component>`. The bot's steps stay pending while the Phase 3 gate
-is not met: the bot is automation, and automation ships disabled (CR-15).
+is not met: the bot is automation, and automation ships disabled.
 """
 from __future__ import annotations
 

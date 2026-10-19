@@ -1,4 +1,4 @@
-"""`nanosoc-rm release draft CONFIG VERSION` and `release verify DIR` (G2, G3, G4, G7, F4; CR-R1).
+"""`nanosoc-rm release draft CONFIG VERSION` and `release verify DIR` (G2, G3, G4, G7, F4).
 
     draft(configuration, version, ...) -> release_draft observation   builds the draft folder
     verify(path, ...) -> release_verify observation                    re-checks a draft against the mirrors now
@@ -201,7 +201,7 @@ def _lock_of(d: Path) -> dict | None:
         if (d / name).is_file():
             try:
                 lock = contracts.load_yaml((d / name).read_text())
-            except (OSError, ValueError, yaml.YAMLError):          # unreadable or not YAML: no lock (ROB-coverage-4)
+            except (OSError, ValueError, yaml.YAMLError):          # unreadable or not YAML: no lock
                 return None
             return lock if isinstance(lock, dict) else None
     return None

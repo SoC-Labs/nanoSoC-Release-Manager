@@ -42,7 +42,7 @@ __all__ = ["Gate", "GATES", "Context", "STATUSES", "MAY_SKIP", "HOST_DEPENDENT",
 
 STATUSES = ("PASS", "FAIL", "UNVERIFIED", "WARN", "SKIP", "INFRA")      # verdict_row status
 SCOPES = ("configuration", "registry")
-# Run modes (CR-11). `ci`: the compat-ci job, the only mode whose bundle the service accepts (section 9). `local`:
+# Run modes. `ci`: the compat-ci job, the only mode whose bundle the service accepts (section 9). `local`:
 # `nanosoc-rm compat` on a developer's machine, allowed off CI; the gates below are never run there and roll up
 # NOT-RUN with this reason, never PASS and never FAIL (a laptop is not the hardened runner, D10).
 MODES = ("ci", "local")
@@ -52,7 +52,7 @@ HOST_DEPENDENT = ("t0.pins.fetchable", "t0.pins.reachable", "t0.urls.no-ssh-publ
                   "t0.clone.upgrade-path", "t0.vendor.no-arm-ip", "t0.vendor.no-foundry-data")
 
 
-# Every character str.splitlines() breaks at, plus the tab: none may stay in a detail (ROB-property-10).
+# Every character str.splitlines() breaks at, plus the tab: none may stay in a detail.
 _DETAIL_BREAKS = re.compile("[\t\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]")
 
 
@@ -136,7 +136,7 @@ class Context:
         self._items: dict[str, list[dict]] = {}
         self._shared: dict[str, Any] = {}          # the walk, shared with derived contexts of the same request
         self.citations_override: list[dict] | None = None
-        self.foundry_fail_all = False              # CR-6: the foundry gate's control judges every rule as fail
+        self.foundry_fail_all = False              # The foundry gate's control judges every rule as fail
 
     @classmethod
     def for_tests(cls, *, nonce, workdir, request=None, parents=None, env=None, service_account=None,
@@ -151,7 +151,7 @@ class Context:
 
     @classmethod
     def for_local(cls, *, nonce, workdir, request, registry_dir=None, host_bases=None, url_map=None) -> "Context":
-        """The `local` run mode (CR-11, `nanosoc-rm compat`): allowed off CI. Every git call is anonymous and
+        """The `local` run mode (`nanosoc-rm compat`): allowed off CI. Every git call is anonymous and
         isolated from the user: HOME, XDG_CONFIG_HOME and TMPDIR point at empty directories inside `workdir`
         (so ~/.netrc, ~/.git-credentials and the user's git config are never read), global and system git config
         are ignored, no ssh agent, no prompt. `request` is an rm_request minus schema and nonce, plus the
@@ -783,7 +783,7 @@ def _upgrade_control(ctx: Context) -> Context:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# t0.vendor.no-arm-ip and t0.vendor.no-foundry-data (D2, D11; CR-6a, CR-6 split)
+# t0.vendor.no-arm-ip and t0.vendor.no-foundry-data (D2, D11)
 # ---------------------------------------------------------------------------------------------------------
 def _catalogue_index(registry_dir: Path | None) -> dict[tuple[str, str], str]:
     """(host, casefolded path) -> component or external id, for every catalogue repo (canonical, copies,
@@ -824,7 +824,7 @@ def _some(paths: list[str], limit: int = 8) -> str:
 
 
 def _scan_pins(ctx: Context, root: Pin, rules, tk, index: Mapping[tuple[str, str], str]) -> list[tuple]:
-    """Scan every fetched tree of the walk ONCE per request and rule set, for both vendor gates (CR-6): a list of
+    """Scan every fetched tree of the walk ONCE per request and rule set, for both vendor gates: a list of
     (item, kind, result, shas) with kind `not-reached`, `error` (result: the message) or `scanned` (result: the
     raw ScanResult, no catalogue entry applied; shas: file -> blob id). Cached in the request's shared state, keyed
     by the rule set and the toolkit copy, so the second gate reads the first gate's scans."""
@@ -869,11 +869,11 @@ NO_FOUNDRY_RULES = ("no foundry rule on this host: no toolkit scanner ($RM_SCAN_
 
 
 def _family_check(ctx: Context, gate_id: str, fam: str) -> tuple[str, str]:
-    """One vendor gate (CR-6): the scans of `_scan_pins`, cut to rule family `fam` (nanosoc_rm.scan.families),
+    """One vendor gate: the scans of `_scan_pins`, cut to rule family `fam` (nanosoc_rm.scan.families),
     judged with the catalogue. Shared by `t0.vendor.no-arm-ip` (fam `arm`) and `t0.vendor.no-foundry-data`
     (fam `foundry`).
 
-    CR-6a (catalogue `vendor_allowlist`, David's U1 decision 2026-10-10), both gates: a finding an `allow` entry
+    The catalogue's `vendor_allowlist`, both gates: a finding an `allow` entry
     covers is clean and is recorded as allowed in the item's `why`; a finding a `warn` entry covers keeps its item
     `pass` (the gate_item result enum has no warn) with a `why` starting "WARN:", and makes the ROW status WARN
     when, and only when, no finding is left and every tree was scanned. A tree that was not fetched is UNVERIFIED
@@ -882,7 +882,7 @@ def _family_check(ctx: Context, gate_id: str, fam: str) -> tuple[str, str]:
     Arm family: an uncovered finding is FAIL. Foundry family: an uncovered finding is WARN by default (amber,
     never FAIL), and FAIL only when the catalogue's `foundry_rules` gives its rule `severity: fail`; with no
     foundry rule on this host (no toolkit scanner, no private non-arm rule) the gate SKIPs with that reason
-    (NOT-RUN). Roll-up (CR-9): a WARN row with a fired control is gate verdict WARN. The negative controls plant
+    (NOT-RUN). Roll-up: a WARN row with a fired control is gate verdict WARN. The negative controls plant
     a specimen in a scratch superproject served at a reserved URL that names no catalogue component, so a
     `component` entry never covers it; a path-only entry wide enough to cover the planted file (`path_glob: "*"`)
     stops the control firing, and the gate is then UNVERIFIED rather than a PASS the allowlist bought."""
@@ -976,7 +976,7 @@ def _vendor_check(ctx: Context) -> tuple[str, str]:
 
 
 def _foundry_check(ctx: Context) -> tuple[str, str]:
-    """t0.vendor.no-foundry-data (CR-6): the foundry family (foundry file types, values, site inventory, big
+    """t0.vendor.no-foundry-data: the foundry family (foundry file types, values, site inventory, big
     files); WARN by default; see `_family_check`."""
     return _family_check(ctx, "t0.vendor.no-foundry-data", "foundry")
 
@@ -1274,7 +1274,7 @@ def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
     """One t0_result gate item {id, verdict, control, detail} per declared gate of `scope`, in table order.
     Rows of undeclared gates are ignored. Pure.
 
-    mode="local" (CR-11): a gate in LOCAL_NOT_RUN must have exactly one SKIP row whose detail is its reason and
+    mode="local": a gate in LOCAL_NOT_RUN must have exactly one SKIP row whose detail is its reason and
     no control row; it then rolls up NOT-RUN (control not-applicable). Any other row for it (a PASS above all) is
     UNVERIFIED: a local run can never vouch for the hardened runner."""
     if mode not in MODES:
@@ -1307,7 +1307,7 @@ def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
             elif st == "FAIL":
                 verdict = "FAIL"
             elif st == "WARN":
-                # CR-9 (David 2026-10-10): WARN is its own amber gate verdict. Like PASS it needs a fired control:
+                # WARN is its own amber gate verdict. Like PASS it needs a fired control:
                 # a warning from a gate that cannot be shown to fail proves nothing.
                 verdict = "WARN" if control == "fired" else "UNVERIFIED"
                 if verdict != "WARN":
@@ -1330,7 +1330,7 @@ def rollup(rows: list[dict], scope: str, mode: str = "ci") -> list[dict]:
     return out
 
 
-# Review VS-3 (CR-6): the two vendor gates judge one scan, so a tree that was never fetched is unscanned for both.
+# The two vendor gates judge one scan, so a tree that was never fetched is unscanned for both.
 # A waiver of a `not-reached` item in the arm gate covers the same item in the foundry gate (never a `fail` or
 # `unverified` item: those are findings of one family only).
 _SHARED_NOT_REACHED = {"t0.vendor.no-arm-ip": ("t0.vendor.no-foundry-data",)}
@@ -1347,7 +1347,7 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
     covered, the waivers that covered nothing). An item is covered by a waiver naming its gate, tree path and
     result, or, when it is `not-reached`, by a directly covered item above it in the same gate (the superproject's
     item, tree path '.', is above every other). A `t0.vendor.no-arm-ip` waiver of a `not-reached` item also names
-    that item in `t0.vendor.no-foundry-data` (one scan, so one unscanned tree; review VS-3). A gate becomes
+    that item in `t0.vendor.no-foundry-data` (one scan, so one unscanned tree). A gate becomes
     WAIVED only when its verdict is FAIL or UNVERIFIED, its control fired, it has at least one non-pass item and
     every one is covered. Pure: the inputs are never changed."""
     out, used = [], set()
@@ -1389,12 +1389,12 @@ def apply_waivers(gates: list[dict], items: Mapping[str, list[dict]], waivers: l
     return out, [copy.deepcopy(w) for n, w in enumerate(waivers) if n not in used]
 
 
-CHECKED = ("PASS", "WARN")            # gate verdicts that show something was checked (README section 6, CR-9)
+CHECKED = ("PASS", "WARN")            # gate verdicts that show something was checked (README section 6)
 
 
 def run_verdict(items: list[dict]) -> tuple[str, int]:
     """(run verdict, NOT-RUN count): FAIL > UNVERIFIED (also when no gate PASSed or WARNed) > INFRA > WAIVED >
-    WARN > PASS (README section 6; CR-9 puts WAIVED above WARN: a waived gate hides a real failure, a WARN gate
+    WARN > PASS (README section 6; WAIVED is above WARN: a waived gate hides a real failure, a WARN gate
     passed with listed warnings)."""
     verdicts = [g.get("verdict") for g in items]
     not_run = verdicts.count("NOT-RUN")

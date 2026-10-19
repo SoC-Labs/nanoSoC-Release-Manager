@@ -27,7 +27,7 @@
 Stored (event kind `matrix_cell`) when `store`; the job always stores. A what-if is not involved: every cell's
 inputs are registered refs, so its result is a fact about them.
 
-**Tier cells (CR-WD-matrix-t1).** `tier="t1"` makes a separate cell of the same (component, column): the run is
+**Tier cells.** `tier="t1"` makes a separate cell of the same (component, column): the run is
 `compat(..., tier="t1")`, T0 then the registry's t1 command in a sandbox checkout of the same tree, and the
 attempt's verdict is compat's `run_verdict` (T0 and the tier). Before anything runs, `tiers.preflight`: no t1
 command (or a refused one) is NOT-RUN; a tool the spec names that this host lacks is INFRA "tool not on this host"
@@ -185,7 +185,7 @@ def compare(cell_fact: Mapping, baseline: Mapping | None, quarantined: set[str] 
     for gid in sorted(set(mine) | set(theirs)):
         b, c = theirs.get(gid), mine.get(gid)
         # A baseline failure is "fixed" only by an answer that the gate held; a cell that gave no answer (INFRA,
-        # NOT-RUN, or no row) is "unanswered": missing evidence is never shown as an improvement (ROB-coverage-6).
+        # NOT-RUN, or no row) is "unanswered": missing evidence is never shown as an improvement.
         change = ("same" if b == c else "new-failure" if c in bad and b not in bad else
                   "fixed" if b in bad and c in answered_good else
                   "unanswered" if b in bad and c not in bad else "changed")

@@ -1,4 +1,4 @@
-"""The two things the bump engine needs from other Wave B modules, as small interfaces (interfaces.md section 19.6).
+"""The two things the bump engine needs from other modules, as small interfaces (interfaces.md section 19.6).
 
 Both are looked up when a proposal is computed. A module that is not built (or not installed) here is not an
 error: the engine falls back to what it can read itself and says which source it used.
@@ -17,7 +17,7 @@ error: the engine falls back to what it can read itself and says which source it
            {"verdict": <gate verdict>, "observed_at": utc, "href": "/matrix/...", "detail": str}
 
    for the stored result of exactly that configuration with exactly those pins moved, or None. Fallback: a
-   finished local compat job (CR-17) whose pins are exactly those overrides (`source: compat-job`), else no result
+   finished local compat job whose pins are exactly those overrides (`source: compat-job`), else no result
    and a Run button that queues that compat job.
 """
 from __future__ import annotations

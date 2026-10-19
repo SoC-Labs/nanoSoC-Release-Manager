@@ -1,4 +1,4 @@
-"""The Artifactory client of the store index (Wave E; interfaces.md section 22).
+"""The Artifactory client of the store index (interfaces.md section 22).
 
     settings(config) -> Settings          `[stores.artifactory]`: url, release repo, token file, repos, projects
     StoreClient.from_config(config)       a client with the configured Bearer token
@@ -11,7 +11,7 @@ server cannot be trusted to refuse a write; this module refuses it first):
                 (tested on the percent-decoded, lower-cased path; an empty, `;`, `.`, `..` or double-encoded
                 segment is refused, so `..;/`, `%2e%2e/` and `api//security` cannot reach them)
     POST        `api/search/aql` only (AQL is a read; WRITE_CALLS `read-post`)
-    PUT         only through the publish service (`nanosoc_rm.store.publish`, the Wave E publish unit), only to a
+    PUT         only through the publish service (`nanosoc_rm.store.publish`), only to a
                 path inside the configured release repository, and never from the web process. This module makes
                 no PUT itself: `check_request(..., publish_repo=...)` is the guard that service calls.
 
@@ -69,7 +69,7 @@ class Settings:
     token_expires: str | None
     repos: tuple[str, ...]
     projects: dict[str, str]                 # catalogue component -> store project folder (the publish unit's key)
-    # Trust in a release-repository manifest (shared with the publish unit, CR-ART-cfg): the allowed signers file
+    # Trust in a release-repository manifest (shared with the publish unit): the allowed signers file
     # (or the signing key's .pub), the principal it names, the ssh-keygen for non-RSA keys, the shared logins.
     allowed_signers: str | None = None
     signer_identity: str = "nanosoc-rm"

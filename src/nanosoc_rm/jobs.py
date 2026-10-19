@@ -1,4 +1,4 @@
-"""The local job runner (CR-17; interfaces.md section 13a).
+"""The local job runner (interfaces.md section 13a).
 
 With no `[ci] project` in the service config, Run executes `compat` in the service's own worker instead of
 triggering CI. The same worker runs `mirror sync` and `walk` for the Mirrors and Configuration pages.
@@ -27,7 +27,7 @@ logged in `actions` as `run_t0` with the login (H2).
 States: queued, running, done (the command answered: its verdict is set), failed (a usage error, exit 3),
 cancelled, infra (no answer: a crash, the ceiling, or a service restart while it ran).
 
-The executor queue (Wave G, David 2026-10-16 decision 1). A TIER job (`needs_executor`: a compat or matrix cell
+The executor queue. A TIER job (`needs_executor`: a compat or matrix cell
 with a tier, a test-bump) never runs on the service host: the local worker leaves it queued, and an executor (the
 pull agent on the EDA host, later a CI runner) claims it with `claim_for_executor(config, executor)`, runs the same
 `nanosoc-rm` argv there, and hands back its exit code and output with `finish_for_executor`, which reads them exactly
@@ -65,7 +65,7 @@ __all__ = ["KINDS", "STATES", "FINAL", "JobUsage", "submit", "cancel", "get", "j
            "local_tiers_allowed", "claim_for_executor", "finish_for_executor", "executor_queue", "LOCAL_EXECUTOR"]
 
 # Job kinds: three built in (KINDS); every other kind is a JobKind that a package registers with register_kind()
-# when one of KIND_MODULES is imported. ONE seam for every plug-in kind (Wave C, CR-WC-seams): the matrix cell,
+# when one of KIND_MODULES is imported. ONE seam for every plug-in kind: the matrix cell,
 # bumps, quality, release and versioning kinds all register the same way. The worker imports KIND_MODULES once,
 # on first use of a kind it does not know, so a fresh worker process knows them all.
 KINDS = ("compat", "mirror-sync", "walk")
@@ -81,14 +81,14 @@ LOG_TAIL_BYTES = 64 * 1024
 CLI_BOOT = "import sys; sys.argv[0] = 'nanosoc-rm'; from nanosoc_rm.cli import main; main()"
 _ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
 _SCHEMA_VERSION = 1
-_SCHEMA = (                     # run once per store (db.ensure_schema), not on every connect (ROB-load-3)
+_SCHEMA = (                     # run once per store (db.ensure_schema), not on every connect
     """CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, params TEXT NOT NULL, state TEXT NOT NULL,
     by TEXT NOT NULL, created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT, pid INTEGER, exit_code INTEGER,
     verdict TEXT, reason TEXT, result TEXT, cancel_by TEXT, command TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS jobs_state ON jobs (state)",
 )
-_EXECUTOR_VERSION = 2           # Wave G: the `executor` column (who ran or runs a job), added to a v1 store once
+_EXECUTOR_VERSION = 2           # the `executor` column (who ran or runs a job), added to a v1 store once
 LOCAL_EXECUTOR = "local"
 _EXECUTOR_ID = re.compile(r"^[a-z0-9][a-z0-9_.@-]{0,63}\Z")
 
@@ -115,7 +115,7 @@ class JobKind:
     outcome: Callable[[list[dict], str], dict] | None = None
     limit_s: Callable[[Config, dict], float] | None = None
     action: str | None = None
-    executor: bool | Callable[[dict], bool] = False      # Wave G: a tier kind runs only on an executor
+    executor: bool | Callable[[dict], bool] = False      # a tier kind runs only on an executor
 
 
 _REGISTERED: dict[str, JobKind] = {}
@@ -170,12 +170,12 @@ def all_kinds() -> tuple[str, ...]:
 
 
 def is_local_ci(config: Config) -> bool:
-    """CR-17: no CI project configured, so Run executes locally."""
+    """No CI project configured, so Run executes locally."""
     return not (config.get("ci") or {}).get("project")
 
 
 def needs_executor(kind: str, params: dict) -> bool:
-    """Wave G: does this job run a tier (so only an executor may run it)? A compat job with a tier, and every
+    """Does this job run a tier (so only an executor may run it)? A compat job with a tier, and every
     registered kind that says so (a matrix cell with a tier, a test-bump)."""
     if kind == "compat":
         return bool((params or {}).get("tier"))
@@ -220,8 +220,8 @@ def _connect(config: Config) -> Iterator[sqlite3.Connection]:
 
 
 def _ensure_executor_column(con: sqlite3.Connection) -> None:
-    """Add the `executor` column to a store created before Wave G (user_version 1 -> 2), once. A store already at 2
-    is two reads and no write (ROB-load-3)."""
+    """Add the `executor` column to a version-1 store (user_version 1 -> 2), once. A store already at 2
+    is two reads and no write."""
     if con.execute("PRAGMA user_version").fetchone()[0] >= _EXECUTOR_VERSION:
         return
     con.execute("BEGIN IMMEDIATE")
@@ -260,7 +260,7 @@ _JOB_ID = re.compile(r"[0-9]{1,19}")
 def parse_id(text: str | None) -> int | None:
     """A job id read from a URL, query or environment value: ASCII decimal digits only, at most 19 of them
     (every SQLite INTEGER fits), else None. `str.isdigit()` also accepts superscripts and other Unicode digits
-    that int() refuses, and int() refuses a string longer than the interpreter's digit limit (ROB-coverage-2/3)."""
+    that int() refuses, and int() refuses a string longer than the interpreter's digit limit."""
     if not isinstance(text, str) or not _JOB_ID.fullmatch(text):
         return None
     return int(text)
@@ -276,7 +276,7 @@ def get(config: Config, job_id: int) -> dict | None:
 def jobs(config: Config, *, limit: int = 50, kind: str | None = None, configuration: str | None = None,
          states: Sequence[str] | None = None) -> list[dict]:
     """Job records, newest first, at most `limit`. The filters and the limit run in SQL, so only the rows returned
-    are decoded (ROB-load-4)."""
+    are decoded."""
     where, args = [], []
     if kind:
         where.append("kind = ?")
@@ -361,7 +361,7 @@ def command_text(kind: str, params: dict) -> str:
     return "nanosoc-rm " + shlex.join([a for a in cli_args(kind, params) if a != "--json"])
 
 
-# Kinds whose identical request, while one is still queued, is that queued job rather than a second one (ROB-load-5):
+# Kinds whose identical request, while one is still queued, is that queued job rather than a second one:
 # a compat run answers for the configuration's tree as it is when the job STARTS, so a second queued copy can only
 # repeat the first one's answer (about 3 minutes of the single worker each). A running job is not reused: it may
 # have read the tree before the change the person is asking about.
@@ -524,14 +524,14 @@ def recover(config: Config, log: Callable[[str], None] | None = None) -> list[in
     """Service start: every job still marked running belongs to a service that is gone. Its process (if still
     alive) is stopped and the job becomes INFRA with the reason. Returns the ids of the jobs it marked.
 
-    One job that cannot be handled (its log cannot be written, its row cannot be updated) never stops the others
-    (ROB-faults-3): the problem goes to `log` (default stderr) and recovery carries on. Listing the running jobs
+    One job that cannot be handled (its log cannot be written, its row cannot be updated) never stops the others:
+    the problem goes to `log` (default stderr) and recovery carries on. Listing the running jobs
     itself (a corrupt jobs.sqlite) still raises; Worker.start logs that and starts anyway."""
     log = log or (lambda m: print("nanosoc-rm worker: %s" % m, file=sys.stderr))
     out = []
     for job in jobs(config, limit=10 ** 6, states=("running",)):
         if job.get("executor") not in (None, LOCAL_EXECUTOR):
-            continue                    # another host runs it: its executor reports its end (Wave G)
+            continue                    # another host runs it: its executor reports its end
         pid = job.get("pid")
         try:
             alive = bool(pid) and _is_job_process(pid, job["id"])
@@ -625,7 +625,7 @@ def _outcome(job: dict, rc: int | None, stdout: str, log_tail: str) -> dict:
         verdict, reason = printed, f.get("reason")
         if _COMPAT_EXIT.get(printed, 2) != rc:
             # The exit code and the printed verdict disagree (the child failed after printing, or printed a stale
-            # line): never greener than either (ROB-faults-1). rc 1 reads FAIL, rc 2 UNVERIFIED.
+            # line): never greener than either. rc 1 reads FAIL, rc 2 UNVERIFIED.
             verdict = _worse(printed, {0: "PASS", 1: "FAIL", 2: "UNVERIFIED"}[rc])
             reason = "compat printed %s but exited %s%s" % (printed, rc, ": " + last if last else "")
         return {"state": "done", "verdict": verdict, "reason": reason, "result": doc}
@@ -705,9 +705,9 @@ class Worker:
                  poll_s: float = 1.0, log: Callable[[str], None] | None = None, run_tiers: bool | None = None,
                  only: Sequence[int] | None = None):
         self.config_path = None if config_path is None else os.fspath(config_path)
-        self.run_tiers = run_tiers          # None: local_tiers_allowed(config) decides at each claim (Wave G)
+        self.run_tiers = run_tiers          # None: local_tiers_allowed(config) decides at each claim
         # `only`: claim just these job ids (`matrix --run --wait`: the caller's own cells, never someone else's
-        # queued test-bump run unsandboxed as the caller; integration review 2026-10-16)
+        # queued test-bump, which would run unsandboxed as the caller)
         self.only = None if only is None else frozenset(int(i) for i in only)
         self.argv_prefix = list(argv_prefix) if argv_prefix else [sys.executable, "-c", CLI_BOOT]
         self.poll_s = poll_s
@@ -715,7 +715,7 @@ class Worker:
         self._thread: threading.Thread | None = None
         self._lock_fd: int | None = None
         self._log = log or (lambda m: print("nanosoc-rm worker: %s" % m, file=sys.stderr))
-        self._unrecorded: dict[int, dict] = {}       # job id -> final fields whose write failed (ROB-faults-2)
+        self._unrecorded: dict[int, dict] = {}       # job id -> final fields whose write failed
 
     def config(self) -> Config:
         return load_config(self.config_path)
@@ -748,7 +748,7 @@ class Worker:
         try:
             for job_id in recover(config, self._log):
                 self._log("job %d was running when the service stopped: marked INFRA" % job_id)
-        except Exception as e:                                    # noqa: BLE001 - serve still starts (ROB-faults-3)
+        except Exception as e:                                    # noqa: BLE001 - serve still starts
             self._log("could not recover jobs left running (%s: %s); starting anyway" % (type(e).__name__, e))
         self._thread = threading.Thread(target=self._loop, name="rm-jobs", daemon=True)
         self._thread.start()
@@ -775,7 +775,7 @@ class Worker:
     # -- one job ----------------------------------------------------------------------------------------------
     def _claim(self, config: Config) -> dict | None:
         """The oldest queued job this worker may run: every job but a tier job, which waits for an executor unless
-        the local fallback is on (module docstring; Wave G)."""
+        the local fallback is on (module docstring)."""
         tiers = self.run_tiers if self.run_tiers is not None else local_tiers_allowed(config)
         return _claim_next(config, lambda kind, params: tiers or not needs_executor(kind, params),
                            LOCAL_EXECUTOR, tier_only=False, only=self.only)
@@ -785,7 +785,7 @@ class Worker:
     def _record_end(self, config: Config, job_id: int, fields: dict) -> None:
         """Write a job's final fields, retrying a store error (a locked or briefly full jobs.sqlite). If every
         attempt fails the fields are kept and written again before the next job is claimed, so the job is
-        never left `running` while this worker lives (ROB-faults-2); the store error is raised for _loop to log."""
+        never left `running` while this worker lives; the store error is raised for _loop to log."""
         for wait in (*self.FINISH_RETRY_S, None):
             try:
                 _update(config, job_id, **fields)

@@ -1,6 +1,6 @@
-"""CLI: `nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (CR-R1; G2, G3, G4, G7, F4, I1, I2).
+"""CLI: `nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (G2, G3, G4, G7, F4, I1, I2).
 
-Built for local use under CR-15; nothing here tags, pushes or publishes (the Phase 5 gate governs that). Exit
+Built for local use; nothing here tags, pushes or publishes (the Phase 5 gate governs that). Exit
 codes (interfaces.md section 0.2): 0 the draft's verdict is PASS, WARN or WAIVED; 1 FAIL; 2 UNVERIFIED or INFRA
 (a draft with person steps or pending lock fields still open is UNVERIFIED); 3 usage.
 """

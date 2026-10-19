@@ -1,4 +1,4 @@
-"""The store index (Wave E; interfaces.md section 22): what the artefact store holds, read once, stored as one fact.
+"""The store index (interfaces.md section 22): what the artefact store holds, read once, stored as one fact.
 
     build_index(client, st, *, now=None) -> fact      read the store (AQL, build-info, manifests); pure over the client
     index(config, *, store=False, client=None) -> doc  build, cache collateral, and (with store) put the observation

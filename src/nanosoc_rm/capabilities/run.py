@@ -21,8 +21,9 @@
 5. **Compare.** Per row (block gates decide; report gates are shown): PASS->PASS same, red->PASS better, PASS->red
    worse (FAIL), red->red same-red (WARN), a red After with no green Now baseline UNVERIFIED, an After that did not
    run UNVERIFIED; a gate the After side no longer declares is `gone` (PASS) only when After's manifest reads ok,
-   else `not-run` (UNVERIFIED: a deleted or broken manifest is no evidence). T0 is HYGIENE (David 2026-10-16 decision 4): reported per side, never hiding the functional rows.
-   The functional verdict: FAIL > UNVERIFIED > WARN > PASS; no planned row at all is UNVERIFIED.
+   else `not-run` (UNVERIFIED: a deleted or broken manifest is no evidence). T0 is HYGIENE: reported per side,
+   never hiding the functional rows. The functional verdict: FAIL > UNVERIFIED > WARN > PASS; no planned row at all
+   is UNVERIFIED. The bump gate lets PASS and WARN land (capabilities.gate): an already-red gate does not hold it.
 
 The document is the job's result (jobs.sqlite) and the bump gate's evidence (capabilities.gate); it is never a
 stored fact. Nothing is written to any repo; a tier never sources a set_env.sh.
@@ -353,8 +354,8 @@ def is_service_config(config) -> bool:
 
 def default_host(config, environ: Mapping[str, str]) -> str | None:
     """The executor host id: $NANOSOC_RM_EXECUTOR_HOST (the agent sets it for a job), else `[executor] host` of an
-    agent's own config. A service config's `[executor] host` is never used (integration review 2026-10-16: with
-    it, a person's direct `nanosoc-rm test-bump` on the service host ran capabilities there, outside any sandbox)."""
+    agent's own config. A service config's `[executor] host` is never used: with it, a person's direct
+    `nanosoc-rm test-bump` on the service host would run capabilities there, outside any sandbox."""
     if environ.get("NANOSOC_RM_EXECUTOR_HOST"):
         return environ["NANOSOC_RM_EXECUTOR_HOST"]
     if is_service_config(config):

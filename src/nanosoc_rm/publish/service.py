@@ -1,4 +1,4 @@
-"""The publish service (CR-ART-publish; G8, D12): a release manifest or a tapeout record, from draft to ledger.
+"""The publish service (G8, D12): a release manifest or a tapeout record, from draft to ledger.
 
     preview(config, kind, key, by=...) -> preview          build, validate, diff, check every target path (GET/HEAD
                                                             only); written to <data_dir>/publish/previews/

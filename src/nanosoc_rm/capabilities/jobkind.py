@@ -1,6 +1,6 @@
 """The `test-bump` job kind (registered with nanosoc_rm.jobs.register_kind): one test-bump as a queued job.
 
-It is an EXECUTOR kind (Wave G, decision 1): the service's local worker never claims it (unless the local fallback
+It is an EXECUTOR kind: the service's local worker never claims it (unless the local fallback
 is on, for the hermetic tests); the pull agent on the EDA host claims it and runs
 `nanosoc-rm test-bump CONFIG PATH TO --json` there, with its own host id ($NANOSOC_RM_EXECUTOR_HOST or `[executor]
 host`). The job's verdict is the test-bump's functional verdict; its result is the whole test_bump document, which

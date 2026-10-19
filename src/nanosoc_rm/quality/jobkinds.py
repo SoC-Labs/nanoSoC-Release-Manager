@@ -1,4 +1,4 @@
-"""The quality job kind (CR-R2): a page that has no stored result queues `nanosoc-rm quality all TARGET --store`
+"""The quality job kind: a page that has no stored result queues `nanosoc-rm quality all TARGET --store`
 in the local job worker instead of analysing inside the request (interfaces.md section 14a, item 8)."""
 from __future__ import annotations
 

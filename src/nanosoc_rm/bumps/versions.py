@@ -38,7 +38,7 @@ class Version:
     def key(self) -> tuple:
         """Sort key: a release sorts after its pre-releases (SemVer 11.3); pre-release identifiers compare one by
         one, numeric ones as numbers and below alphanumeric ones, a shorter list first on a tie (SemVer 11.4;
-        ROB-property-6: `rc.2` < `rc.10`)."""
+        `rc.2` < `rc.10`)."""
         pre = tuple((0, int(p), "") if p.isascii() and p.isdigit() else (1, 0, p)
                     for p in self.pre.lstrip("-").split(".")) if self.pre else ()
         return (self.major, self.minor, self.patch, 0 if self.pre else 1, pre)

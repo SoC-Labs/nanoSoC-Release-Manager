@@ -1,4 +1,4 @@
-"""Submodule-tree freshness (interfaces.md section 24; CR-WF-fresh, David 2026-10-14).
+"""Submodule-tree freshness (interfaces.md section 24).
 
 How far each stored pin lags its upstream default branch, when its parent last moved it, and a tree verdict, for
 the projects home page and the freshness grid.

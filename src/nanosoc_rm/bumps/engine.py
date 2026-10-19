@@ -66,7 +66,7 @@ REGEN_NOTE = ("Gitlink move only. E1 asks a bump to regenerate generated RTL: th
               "if the consumer commits generated output, and runs the configuration's T1/T2.")
 CannotAnswer = inp.CannotAnswer
 # E3 "T0-T2 pass on the exact commits": a compat what-if with --tier t1 (or t2) runs T0 first and its verdict is the
-# ladder over both (CR-12), so PASS from a t1 and a t2 what-if covers T0, T1 and T2. A T0-only what-if never does.
+# ladder over both, so PASS from a t1 and a t2 what-if covers T0, T1 and T2. A T0-only what-if never does.
 E3_TIERS = ("t1", "t2")
 NOT_CHECKED_CONTROLS = ("controls fired: not checked (no control result is recorded per move until the tiers report "
                         "their controls; E3 needs every control to fire)")
@@ -761,7 +761,7 @@ def _finish(cid: str, props: dict, rows: list[dict], cfg: Config, auto_merge: di
         p["tree_paths"] = sorted(set(p["tree_paths"]))
         p["matrix"] = _matrix(cid, p["tree_paths"], p["to"]["commit"], cfg, root_commit)
         p["patch"] = {"file": "%s.diff" % p["id"], "regenerated": False, "note": REGEN_NOTE}
-        # the bump gate (Wave G, decision 3): a passing test-bump of exactly this move, or the proposal holds
+        # the bump gate: a passing test-bump of exactly this move, or the proposal holds
         from nanosoc_rm.capabilities import gate as bump_gate
         p["test_bump"] = bump_gate.evidence(cfg, cid, p["tree_paths"], p["to"]["commit"], root_commit)
         gate_blocker = bump_gate.blocker(p["test_bump"], cid, p["tree_paths"][0], p["to"]["commit"])

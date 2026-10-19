@@ -20,7 +20,7 @@ One sync of one component: for each of its repos (canonical and copies, or the e
 Everything returned is stored: the mirror_status rows as one snapshot (scope `mirror_status:<component>`), each
 rewrite_alert as an event.
 
-Private repos (CR-PR1): when the anonymous fetch fails the way a private repo fails (`private_read.RETRY_CAUSES`)
+Private repos: when the anonymous fetch fails the way a private repo fails (`private_read.RETRY_CAUSES`)
 and the host has a `private_read` method, steps 1 and 2 run once more with it (`--filter=blob:limit=1m`). The
 mirror_status says how the repo was read: `access` anonymous, credentials (private, readable with credentials) or
 unreadable, with the `cause` of a failure and the `method` tried.
@@ -250,7 +250,8 @@ def mirror_status(component_id: str | None = None, *, config: Config | None = No
 
 def access_summary(docs: list[dict]) -> list[dict]:
     """Mirror rows counted by how they were read: [{access, cause, method, count, by_host}], unreadable first,
-    biggest first. Rows stored before CR-PR1 have no `access`: ok is anonymous, a failure is unreadable."""
+    biggest first. Rows stored before private reads existed have no `access`: ok is anonymous, a failure is
+    unreadable."""
     out: dict[tuple, dict] = {}
     for d in docs:
         f = d["fact"]

@@ -1,4 +1,4 @@
-"""Optional read-only credentials for the mirrors of private repos (interfaces.md section 3, Private repos; CR-PR1).
+"""Optional read-only credentials for the mirrors of private repos (interfaces.md section 3, Private repos).
 
 Off by default. Per host, `[hosts.<host>] private_read` names ONE read method:
 
@@ -49,7 +49,7 @@ CAUSES: tuple[tuple[str, re.Pattern], ...] = tuple((c, re.compile(p, re.I)) for 
     ("auth", r"could not read (username|password)|terminal prompts disabled|authentication failed"
              r"|http basic: access denied|\b40[13]\b|invalid username or password"),
     # A transport failure before not-found: over ssh git always ends with "Could not read from remote repository",
-    # so a DNS, refused or unreachable failure would otherwise read as "private or missing" (ROB-faults-10).
+    # so a DNS, refused or unreachable failure would otherwise read as "private or missing".
     ("network", r"could not resolve host(name)?|connection (refused|reset|timed out)|network is unreachable"
                 r"|no route to host|operation timed out|failed to connect to"),
     ("not-found", r"repository .*not found|not found|does not exist|does not appear to be a git repository"

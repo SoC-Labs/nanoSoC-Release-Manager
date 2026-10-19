@@ -51,7 +51,7 @@ class ScanResult:
     tool: str = "nanosoc-rm scan"
     why: str = ""                             # why the verdict is unverified, when it is
     flagged_files: list[str] = field(default_factory=list)   # distinct files with an uncovered finding, in order
-    # CR-6a: findings a catalogue vendor_allowlist entry covers (scan.allowlist.apply_allowlist), each with `by`.
+    # Findings a catalogue vendor_allowlist entry covers (scan.allowlist.apply_allowlist), each with `by`.
     # `warn` makes the verdict "warn" (the gate row WARN); `allowed` is clean and recorded only.
     warnings: list[dict] = field(default_factory=list)
     allowed: list[dict] = field(default_factory=list)
@@ -236,9 +236,9 @@ def scan_tree(repo: str | os.PathLike, commit: str, rules: RuleSet | None = None
     the toolkit scanner also needs a non-bare repo). Finding paths are `prefix/<path in the tree>`. Reads
     objects only; writes nothing in `repo`.
 
-    `allowlist` (CR-6a): the catalogue's vendor_allowlist entries (scan.allowlist.VendorAllow), applied after
+    `allowlist`: the catalogue's vendor_allowlist entries (scan.allowlist.VendorAllow), applied after
     every engine has reported, with `component` as the tree's catalogue component: covered findings move to
-    `warnings` or `allowed`; the rest stay findings. `shas` (CR-6), when given, is filled with each scanned
+    `warnings` or `allowed`; the rest stay findings. `shas`, when given, is filled with each scanned
     file's blob id, so a caller can apply the allowlist itself per rule family (t0 gates)."""
     from nanosoc_rm.scan.allowlist import apply_allowlist
     shas = shas if shas is not None else {}

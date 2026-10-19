@@ -1,4 +1,4 @@
-"""What other Wave B modules read from versioning (wired at the Wave B integration).
+"""What other modules read from versioning.
 
     changelog_entries(component, old, new, *, config) -> [{class, summary, commit}]    the releases module (notes.py)
     classify_bump(component, from_commit, to_commit, *, config) -> {class, detail, sources} | None

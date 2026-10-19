@@ -1,4 +1,4 @@
-"""The remote tier executor (interfaces.md section 27; CR-WG-executor, David 2026-10-16 decision 1).
+"""The remote tier executor (interfaces.md section 27).
 
 Tier runs need EDA tools the service host does not have. A pull agent on the EDA host claims queued tasks from
 the release manager, runs each one sandboxed and unprivileged, and posts the result back. The service never

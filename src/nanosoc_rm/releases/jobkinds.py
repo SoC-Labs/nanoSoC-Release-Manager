@@ -1,4 +1,4 @@
-"""Job kinds of the release pages (CR-R2, through nanosoc_rm.jobs.register_kind): a draft, a verify and a fork
+"""Job kinds of the release pages (through nanosoc_rm.jobs.register_kind): a draft, a verify and a fork
 listing each run as `nanosoc-rm ...` in the local job worker, never inside a web request."""
 from __future__ import annotations
 

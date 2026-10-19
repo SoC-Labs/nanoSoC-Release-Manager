@@ -26,9 +26,9 @@ Kinds (each fires on a planted fixture and stays quiet on its clean twin, tests/
 
 `edit` is a mechanical change (delete or replace whole lines) when one is safe; the patch applies only those.
 
-Wave D (quality precision, CR-WD-Q1..Q3):
+Precision:
 
-- Every finding carries `severity` (SEVERITY_BY_KIND: one level per kind) and `context` (CR-W4: the analysed
+- Every finding carries `severity` (SEVERITY_BY_KIND: one level per kind) and `context` (the analysed
   lines around the finding and its edit), so a page shows the real deleted text without reading git.
 - `banner` and `boilerplate` are one bulk rule per repository (BULK_RULE, kinds BULK_KINDS): each such finding
   carries `bulk: "decoration"` and the fact a `bulk_rules` summary (count, files, edits), so pages count, hide
@@ -59,7 +59,7 @@ __all__ = ["find", "KINDS", "identifier_index", "is_code_line", "BULK_KINDS", "B
 KINDS = ("commented_out_code", "restates_code", "banner", "boilerplate", "stale_todo", "unknown_identifier")
 BULK_RULE = "decoration"
 BULK_KINDS = ("banner", "boilerplate")
-# One level per kind (CR-WD-Q2). High: a promise in the code that has gone stale. Medium: dead code a reader must
+# One level per kind. High: a promise in the code that has gone stale. Medium: dead code a reader must
 # skip. Low: noise a mechanical edit removes. Check: a guess a person must confirm (a close name is not proof).
 SEVERITY_BY_KIND = {"stale_todo": "High", "commented_out_code": "Medium", "restates_code": "Low",
                     "banner": "Low", "boilerplate": "Low", "unknown_identifier": "Check"}
@@ -181,7 +181,7 @@ _SCRIPT_WORDS = _C_WORDS | set("if then else elif fi for in do done case esac wh
 
 
 def _sentence(t: str) -> bool:
-    """Review Q-4 (sampled from tidelink 3d4748fc): a code-looking comment line that is a sentence. It ends in a
+    """A code-looking comment line that is a sentence. It ends in a
     word and a full stop (`... raw X behaviour.`), carries an arrow, a section sign or a dash (`delta==0 =>
     frozen`), opens a parenthesis with two plain words (`(hold until ...`), says `VAR=1 : text`, or holds three
     plain words in a row that are not keywords (`and hclk does`). Quoted text is ignored."""
@@ -490,7 +490,7 @@ _ACTION_VERBS = set("create write enable disable wait start stop configure updat
 
 def _restated_share(words: list[str], code: str) -> float:
     """The share of the comment's words that the code line says. String literals do not count: a YAML `desc:` or a
-    Tcl `-name "QSPI_SCLK"` is text the comment may label, not code it restates (CR-WD-Q1)."""
+    Tcl `-name "QSPI_SCLK"` is text the comment may label, not code it restates."""
     bare = re.sub(r"\"[^\"]*\"|'[^']*'", " ", code)
     cw = set(_words(bare))
     matched = 0
@@ -528,7 +528,7 @@ def _restates(doc: Doc, b: _Block) -> list[dict]:
 # ---------------------------------------------------------------------------------------------------------
 # A rule is one decoration character repeated (`-----`, `=====`, `#####`, `/* *** */`), flush with the comment
 # marker. Anything else built from the same characters is comment art and stays: a waveform (`__   ___`, an
-# indented `______`), a table separator (`|----|----|`), a box or an arrow (`+----+`, `|<---->|`). Review Q-1.
+# indented `______`), a table separator (`|----|----|`), a box or an arrow (`+----+`, `|<---->|`).
 _RULE = set("-=*#/~+.")
 _MARKS = set("#/*")
 _TITLED = re.compile(r"^\s?([-=*#/~+])\1{2,}\s*(\S.*?)\s*([-=*#/~+])\3{2,}\s*$")
@@ -891,7 +891,7 @@ BULK_CONTEXT_MAX_LINES = 8        # tidelink: 4885 decoration findings; uncapped
 
 
 def _annotate(lines: list[str], f: dict) -> None:
-    """severity (per kind), bulk (the decoration rule) and context (CR-W4): the analysed lines around the finding
+    """severity (per kind), bulk (the decoration rule) and context: the analysed lines around the finding
     and its whole edit, so the preview shows the real deleted text. A bulk finding keeps only its edit's lines, and
     only up to BULK_CONTEXT_MAX_LINES; any longer span gets no context (the page reads the blob, when it is
     local)."""
@@ -915,7 +915,7 @@ def is_bulk(f: dict) -> bool:
 
 
 def bulk_rules(findings: list[dict]) -> list[dict]:
-    """The bulk rule summary (CR-WD-Q1): one entry, counted and patched as a group, hidden from the review queue."""
+    """The bulk rule summary: one entry, counted and patched as a group, hidden from the review queue."""
     group = [f for f in findings if is_bulk(f)]
     if not group:
         return []

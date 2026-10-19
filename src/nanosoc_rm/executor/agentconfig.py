@@ -6,7 +6,7 @@ It is NOT the service config: the agent host holds no service secret, no store a
     name = "eda-1"                         # the [[executor.agents]] name on the service
     server = "https://<host>:8771"         # the release manager; http only for 127.0.0.1/localhost
     token_file = "~/.config/nanosoc-rm-executor/token"   # 0600; never inside a sandbox bind
-    ca_file = "/path/ca.pem"               # optional: the service's CA (CR-20 self-signed TLS)
+    ca_file = "/path/ca.pem"               # optional: the service's CA (self-signed TLS)
     mirror_root = "/srv/nanosoc-mirrors"   # read-only replica of <data_dir>/mirrors (<entry>.git)
     scratch_dir = "/scratch/nanosoc-exec"  # one work dir per task, removed after the upload
     labels = ["verilator", "vcs"]          # what this agent asks for (the service grants at most its own list)

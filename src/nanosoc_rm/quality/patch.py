@@ -70,7 +70,7 @@ def combine(original: list[str], edits: list[dict]) -> tuple[list[str], list[dic
 def file_patch(path: str, text: str, new_lines: list[str]) -> str:
     """The unified diff of one file (a/ and b/ prefixes, as git apply expects)."""
     ends_nl = text.endswith("\n")
-    old_lines = text.split("\n") if text else []           # an empty file has no lines (ROB-property-12)
+    old_lines = text.split("\n") if text else []           # an empty file has no lines
     if ends_nl:
         old_lines.pop()
     a = [ln + "\n" for ln in old_lines]
@@ -81,7 +81,7 @@ def file_patch(path: str, text: str, new_lines: list[str]) -> str:
         if b:
             b[-1] = b[-1][:-1]
     out = []
-    qa, qb = quote_path("a/" + path), quote_path("b/" + path)   # git's C quoting (ROB-property-13)
+    qa, qb = quote_path("a/" + path), quote_path("b/" + path)   # git's C quoting
     for line in difflib.unified_diff(a, b, qa, qb, n=3):
         if not line.endswith("\n"):
             line += "\n\\ No newline at end of file\n"

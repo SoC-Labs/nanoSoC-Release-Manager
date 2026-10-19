@@ -71,8 +71,8 @@ def _canonical_urls(config: Config, configuration: str) -> dict[str, str]:
 
 
 def canonical_urls_from(config: Config, pin_docs) -> dict[str, str]:
-    """canonical_urls from the given pin_state observations (the same rule as a stored walk's; CR-11 `compat`
-    passes its own, possibly overridden, walk)."""
+    """canonical_urls from the given pin_state observations (the same rule as a stored walk's; `compat` passes its
+    own, possibly overridden, walk)."""
     out: dict[str, str] = {}
     for obs in pin_docs:
         f = obs["fact"]

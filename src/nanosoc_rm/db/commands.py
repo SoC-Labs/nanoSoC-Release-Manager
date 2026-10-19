@@ -3,7 +3,7 @@
     nanosoc-rm alerts [--all] [--json]          exit 1 when an open alert is listed, else 0
     nanosoc-rm alerts clear SUBJECT --by LOGIN  a write to the service's own database only; logged in actions
 
-`nanosoc-rm store-maint compact --dry-run|--apply` (interfaces.md section 12; CR-1015-retention): collapse the runs
+`nanosoc-rm store-maint compact --dry-run|--apply` (interfaces.md section 12): collapse the runs
 of identical set-kind snapshots stored before keep-on-change, keeping each state's first and last observed times.
 One transaction; --dry-run rolls it back and reports what --apply would remove. An operator command: stop the
 service and back up rm.sqlite first (DEPLOY.md, "Store growth and retention").
@@ -59,7 +59,7 @@ def register(main: click.Group) -> None:
 
     @main.group("store-maint")
     def store_maint() -> None:
-        """Store maintenance for the operator (CR-1015-retention). Stop the service and back up rm.sqlite first."""
+        """Store maintenance for the operator. Stop the service and back up rm.sqlite first."""
 
     @store_maint.command("compact")
     @click.option("--dry-run", "dry_run", is_flag=True, help="Report what --apply would remove; change nothing.")

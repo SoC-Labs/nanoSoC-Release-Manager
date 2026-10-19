@@ -1,6 +1,6 @@
-"""Releases in local mode (CR-R1; G2, G3, G4, G7, F4, I1, I2): drafts, re-verification, errata documents, forks.
+"""Releases in local mode (G2, G3, G4, G7, F4, I1, I2): drafts, re-verification, errata documents, forks.
 
-Built under CR-15: usable locally now, while the Phase 5 entry gate still governs enabling (published releases,
+Built for local use now, while the Phase 5 entry gate still governs enabling (published releases,
 tags made by a tool). Nothing in this package tags, pushes, uploads or writes to any host: every such action is a
 person step the draft lists with its command.
 

@@ -1,4 +1,4 @@
-"""The freshness rule, as pure functions over stored facts (interfaces.md section 24.2; David 2026-10-14).
+"""The freshness rule, as pure functions over stored facts (interfaces.md section 24.2).
 
 Nothing here reads git, the store or the clock: every function takes the measured facts and `today` (a UTC
 date), so a page can re-judge stored facts on the day it is drawn and a test can pin the day.
@@ -15,8 +15,8 @@ Per pin, first match wins (the reviewer's rule, board R):
     behind        1 to 9 behind and bumped within 90 days (or the bump date is unknown)
 
 Per tree: the verdict is the worst DIRECT pin (depth 1) by SEVERITY, except that a tree whose worst direct pin is
-`not_measured` while at least one direct pin is `current` reads `current_except` ("Current except N not measured",
-David 2026-10-15: a tree with a pin that cannot be measured is not Current). Worse states (unpushed, outdated,
+`not_measured` while at least one direct pin is `current` reads `current_except` ("Current except N not measured":
+a tree with a pin that cannot be measured is not Current). Worse states (unpushed, outdated,
 behind) still win; a tree none of whose direct pins was measured (or with none) reads `not_measured`; a frozen
 configuration stays `frozen`. "Updated" is the days since the newest bump anywhere in the tree, worded Fresh under
 30, Aging 30 to 89, Stale 90 or more.
@@ -33,7 +33,7 @@ __all__ = ["STATES", "LIVE_STATES", "TREE_STATES", "CURRENT_EXCEPT", "WORDS", "t
 
 STATES = ("frozen", "unpushed", "not_measured", "current", "outdated", "behind")   # a pin's states
 LIVE_STATES = STATES[1:]
-# A tree's verdict is one of STATES or `current_except` (CR-1015-unmeasured): every measured direct pin is current
+# A tree's verdict is one of STATES or `current_except`: every measured direct pin is current
 # but N direct pins could not be measured. It is a tree verdict only; no pin, node rollup or grid cell has it.
 CURRENT_EXCEPT = "current_except"
 TREE_STATES = STATES + (CURRENT_EXCEPT,)

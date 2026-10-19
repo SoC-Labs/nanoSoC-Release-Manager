@@ -245,7 +245,7 @@ _DRAFT_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")          # the publish 
 
 
 def registry_tapeout_drafts(config: Any, cid: str) -> list[dict]:
-    """CR-WE-int: the registry's unpublished tapeout drafts (`<registry>/tapeouts/<id>.tapeout.yaml`, the publish
+    """The registry's unpublished tapeout drafts (`<registry>/tapeouts/<id>.tapeout.yaml`, the publish
     unit's input) whose record names configuration `cid`. A local file read, never the store. A draft that does not
     read or does not meet `tapeout-record#/$defs/tapeout_draft` is listed with the reason, never dropped."""
     from nanosoc_rm import contracts

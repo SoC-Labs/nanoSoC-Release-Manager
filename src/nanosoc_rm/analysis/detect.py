@@ -233,7 +233,7 @@ def _fetch_source(cfg: Config, reg: inp.Registry, source: dict, tmp: Path) -> Pa
 
 
 def detector_env(tmp: Path, python_dir: str | None = None) -> dict[str, str]:
-    """The detector's whole environment (evaluation 2026-10-16): the detector is code fetched from a repo, so it
+    """The detector's whole environment: the detector is code fetched from a repo, so it
     gets none of the caller's variables (no token, no SSH_AUTH_SOCK, no HOME with keys, no PYTHONPATH), only a
     fixed PATH (the directory of the caller's python3 first, so the same interpreter runs it), a scratch HOME and
     TMPDIR inside this run's temporary directory, and a C UTF-8 locale. The same rule as the tier sandbox

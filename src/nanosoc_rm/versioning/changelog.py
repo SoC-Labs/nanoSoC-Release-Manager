@@ -388,7 +388,7 @@ def _tag_findings(cl: Changelog, tags: dict[str, dict], grandfathered) -> list[d
 
 
 # Markdown's line endings (CommonMark 2.1): \n, \r\n or \r. Not str.splitlines(), which also breaks at \x0b,
-# \x0c, \x1c-\x1e, \x85, U+2028 and U+2029, characters an entry may hold (ROB-property-7).
+# \x0c, \x1c-\x1e, \x85, U+2028 and U+2029, characters an entry may hold.
 _EOL = re.compile(r"\r\n|\r|\n")
 
 

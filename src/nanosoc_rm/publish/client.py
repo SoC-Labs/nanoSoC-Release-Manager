@@ -1,4 +1,4 @@
-"""The publish unit's Artifactory client (CR-ART-publish): Bearer token only, and its own method allow-list.
+"""The publish unit's Artifactory client: Bearer token only, and its own method allow-list.
 
 On Artifactory OSS every token is effectively admin (no per-repo permissions), so the TOOL decides what it may do.
 Every call is checked here BEFORE any network I/O, and anything else raises `StoreRefused`:

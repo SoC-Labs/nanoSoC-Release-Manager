@@ -17,7 +17,7 @@ What is checked, per README (every `README*.md`; `docs/*.md` too with include_do
 
 A mismatch the reader could not confirm (a Makefile include it could not resolve) is `unverified`, not missing.
 
-Precision (CR-WD-Q4): in a shell block that shows prompts (`$ cmd`), only the prompted lines are commands (the rest
+Precision: in a shell block that shows prompts (`$ cmd`), only the prompted lines are commands (the rest
 is output); an untagged block is read as commands only on lines that start with a known command or `./`; a
 `console` or `shell-session` block only on prompted lines. Never a mismatch: URLs and host names
 (`git.example.org/x.git`), branch names on a submodule line, home and absolute paths, virtual environments the
@@ -156,8 +156,8 @@ def _has_prompts(lines: list[str], opened_at: int, fence: str) -> bool:
 
 
 def _fence_command(st: str, lang: str, prompted: bool) -> str | None:
-    """The command on a line of a shell code block, or None when the line is output, a comment or prose
-    (CR-WD-Q4): with prompts in the block only prompted lines are commands; a transcript block (`console`)
+    """The command on a line of a shell code block, or None when the line is output, a comment or prose:
+    with prompts in the block only prompted lines are commands; a transcript block (`console`)
     needs a prompt; an untagged block needs a known command (or `./x`) first."""
     has_prompt = bool(re.match(r"^(\$|%)\s+\S", st))
     if prompted or lang in _TRANSCRIPT_FENCES:
@@ -758,7 +758,7 @@ def _layout_target(text: str) -> tuple[int, str, int, int] | None:
 
 
 def _harvest(source: Source, body: list[str], base: str = "") -> tuple[dict[str, str], list[str]]:
-    """What a hand-written layout section says, so a regenerated one keeps it (review Q-3): {path: description}
+    """What a hand-written layout section says, so a regenerated one keeps it: {path: description}
     for each tree row, list item or table row naming an entry, and the prose lines around them."""
     exists = {e.path for e in source.files()} | source.dirs() | source.gitlinks()
     desc: dict[str, str] = {}

@@ -1,4 +1,4 @@
-"""Submodule compatibility check (CR-11, MVP S2; interfaces.md section 9a).
+"""Submodule compatibility check (interfaces.md section 9a).
 
     compat(configuration, overrides={tree path: sha}, ...) -> dict     one compat_result observation
 
@@ -17,7 +17,7 @@
    (README section 6). An override the gates' own walk did not reach (below a tree no anonymous fetch can read)
    makes the run UNVERIFIED: the what-if was not judged.
 
-4. **Tier** (CR-12, `tier="t1"|"t2"`): after the T0 roll-up, the registry's tiers.yaml command for the
+4. **Tier** (`tier="t1"|"t2"`): after the T0 roll-up, the registry's tiers.yaml command for the
    configuration runs in a sandbox checkout of the same walked tree (`analysis.tierrun`). A T0 FAIL skips it
    (NOT-RUN) unless `force_tier` (a person's override; the result is UNVERIFIED for release). `run_verdict` is the
    ladder over the T0 verdict and the tier's; the exit code follows it.
@@ -54,7 +54,7 @@ _LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
 
 
 def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], list[str]]:
-    """The overrides the gates did not judge, and why (evaluation 2026-10-16, report action 3). A moved pin is
+    """The overrides the gates did not judge, and why. A moved pin is
     judged when the gates' walk reached it as an override AND either fetched its commit anonymously and scanned
     it (fetchable `pass`, and the vendor scan reached it), or proved the commit absent from its host (reachable
     `fail`: the move is a real FAIL). A moved pin that was walked but not fetched (an ssh or private URL) is never
@@ -79,7 +79,7 @@ def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], li
 
 
 def judged_failures(gates: list[dict], items: dict, unjudged: list[str]) -> list[str]:
-    """The FAILs the gates judged OUTSIDE the unjudged moves (integration review 2026-10-16): a FAIL gate with a
+    """The FAILs the gates judged OUTSIDE the unjudged moves: a FAIL gate with a
     failing item at a tree path that is not an unjudged move or below one, or with a failing item that names no
     tree path (a registry item), or with no failing item at all (the gate itself failed). Each is "<gate> at
     <path>". Empty when every FAIL comes from the moves nobody looked at: only then may UNVERIFIED replace FAIL."""
@@ -244,7 +244,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
     (exit 3), CompatUsage (3), walker.WalkError, ci.trigger.TriggerError or ci.configs.RegistryUnreadable (2).
     `url_map` is the test-only seam of `Context.for_local`.
 
-    `on_tree(git, root, work, t0_verdict)` (Wave G, `test-bump`): called once after the T0 roll-up, inside the work
+    `on_tree(git, root, work, t0_verdict)` (`test-bump`): called once after the T0 roll-up, inside the work
     directory's lifetime, with the gates' git, the walked root Pin (None when the walk did not start) and the T0
     verdict, so a caller can lay the same tree out (`tierrun.materialise`) and run its own capabilities on it. It
     is called whatever T0 says: the caller reports T0 as hygiene, beside its functional result."""
@@ -293,7 +293,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
         verdict, reason = _what_if_verdict(gates_verdict, gates, items, unjudged, why_not)
         t0_finished_at = clock.iso()
 
-        # 4. the tier (CR-12), in a sandbox checkout of the same tree; it reads the gates, not the what-if verdict
+        # 4. the tier, in a sandbox checkout of the same tree; it reads the gates, not the what-if verdict
         tier_doc = None
         if spec is not None:
             tier_doc = _tier_run(spec, tier, gates_verdict, force_tier, ctx.git, root, work, nonce, lock_dir)

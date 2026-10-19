@@ -1,4 +1,4 @@
-"""CLI: `nanosoc-rm test-bump` and `nanosoc-rm capabilities show|validate` (Wave G; interfaces.md section 26)."""
+"""CLI: `nanosoc-rm test-bump` and `nanosoc-rm capabilities show|validate` (interfaces.md section 26)."""
 from __future__ import annotations
 
 from pathlib import Path

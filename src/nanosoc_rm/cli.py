@@ -21,7 +21,7 @@ but fails to import is an error, never skipped. Two modules that share a command
 
 Rules for plug-ins: import heavy or CI-only code inside the command function, not at module level (the
 service process imports every plug-in, and must never import `nanosoc_rm.t0.runner`, AT-A4). A later phase's
-command may be built for local use (CR-15); what it may not do before its entry gate is enable automation (a
+command may be built for local use; what it may not do before its entry gate is enable automation (a
 schedule, a bot write): the phase-gate check (AT-A7) reads that from the scheduler and the write allowlist.
 """
 from __future__ import annotations
@@ -42,8 +42,8 @@ __all__ = ["main", "EXIT_OK", "EXIT_FINDING", "EXIT_UNVERIFIED", "EXIT_USAGE", "
            "emit", "table", "exit_code", "subgroup", "load_plugins", "RMGroup"]
 
 # interfaces.md section 0.5 modules that own commands, in --help order of registration. `db` is the
-# foundation's own (`alerts`, section 8). `releases` (CR-R1) is a Phase 5 capability built for local use under
-# CR-15: it drafts, never tags or publishes; the phase gate governs enabling (A7, phasegates.py).
+# foundation's own (`alerts`, section 8). `releases` is a Phase 5 capability built for local use under
+# It drafts, never tags or publishes; the phase gate governs enabling (A7, phasegates.py).
 PLUGIN_MODULES = ("db", "registry", "mirror", "walker", "analysis", "t0", "ci", "scan", "credentials", "web",
                   "schedule", "trace", "quality", "matrix", "versioning", "bumps", "releases", "regen", "store",
                   "publish", "catalogue", "freshness", "capabilities", "executor")

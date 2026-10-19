@@ -67,7 +67,7 @@ def _bounds(op: str, major: int, minor: int | None, patch: int | None) -> list[t
         return [("=", lo)]
     if op in (">", "<=") and patch is None:
         # Cargo: a partial version names every release it matches, so `>1.2` is `>=1.3.0`, `>1` is `>=2.0.0`,
-        # `<=1.2` is `<1.3.0` and `<=1` is `<2.0.0` (ROB-property-5; bumps/versions.py reads them the same way).
+        # `<=1.2` is `<1.3.0` and `<=1` is `<2.0.0` (bumps/versions.py reads them the same way).
         nxt = (major + 1, 0, 0) if minor is None else (major, minor + 1, 0)
         return [(">=" if op == ">" else "<", nxt)]
     return [(op, lo)]

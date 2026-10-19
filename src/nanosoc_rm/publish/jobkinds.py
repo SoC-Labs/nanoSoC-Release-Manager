@@ -1,4 +1,4 @@
-"""Job kinds of the Publish pages (CR-ART-publish, through nanosoc_rm.jobs.register_kind): a preview or a confirmed
+"""Job kinds of the Publish pages (through nanosoc_rm.jobs.register_kind): a preview or a confirmed
 publish runs as `nanosoc-rm publish-release ...` / `register-tapeout ...` in the local job worker, a child process,
 never inside a web request (the web process refuses every store write: client.refuse_writes_here)."""
 from __future__ import annotations

@@ -10,8 +10,9 @@
    NO_GITLINK and is kept. `branch=` is recorded in `branch_field` and never used.
 3. URLs are normalised against the config's host table (relative URLs against the parent's pinned URL; aliases to
    their component's repo). A local path is pin-level state LOCAL_URL. A URL naming no catalogue entry is
-   `catalogued_as: unknown` and raises an `unknown_url` alert. So does a URL naming an `ignored` repo (K1 option a,
-   David 2026-10-10): a repo a registered tree pins is a dependency, so it is flagged to be classified, not hidden. The walker recurses into each (child repo, child
+   `catalogued_as: unknown` and raises an `unknown_url` alert. So does a URL naming an `ignored` repo: a repo a
+   registered tree pins is a dependency, so it is flagged to be classified, not hidden. The walker recurses into
+   each (child repo, child
    commit) once, at depth <= 10, and records every tree path at which a pin occurs.
 4. Every host holding a copy of the child gets a state (walker.states), judged only on that host's namespace.
 5. `split` = the child component is pinned at more than one commit in the tree (B7); `effective` stays unknown.
@@ -43,7 +44,7 @@ class UnknownConfiguration(KeyError):
 
 
 class OverrideError(ValueError):
-    """A pin override (CR-11, `compat --pin`) names a tree path at which the tree holds no gitlink pin. CLI exit 3."""
+    """A pin override (`compat --pin`) names a tree path at which the tree holds no gitlink pin. CLI exit 3."""
 
 
 @dataclass
@@ -59,7 +60,7 @@ class _Edge:
     repo: dict | None
     resolved_url: str
     sources: list = field(default_factory=list)
-    override_of: str | None = None              # CR-11: the gitlink a pin override replaced at this tree path
+    override_of: str | None = None              # The gitlink a pin override replaced at this tree path
 
     @property
     def child_key(self):
@@ -91,7 +92,7 @@ def _read_node(config: Config, node: _Node, catalogue: Catalogue) -> None:
     has = run_in(mirror, "ls-tree", node.commit, "--", ".gitmodules", env=env)
     if not has.ok:
         # The commit is here but its tree is not readable (a corrupt or truncated pack): only a successful, empty
-        # answer means "no .gitmodules". Reading a failure as "no submodules" would store fewer pins (ROB-faults-9).
+        # answer means "no .gitmodules". Reading a failure as "no submodules" would store fewer pins.
         raise WalkError("cannot read the tree of %s at %s: %s" % (node.component, node.commit,
                                                                   has.stderr.strip()[-300:]))
     if not has.stdout.strip():
@@ -168,12 +169,12 @@ def walk(configuration_id: str, *, config: Config | None = None, store: bool = T
     """Walk one registered configuration's whole tree. Returns (and stores, as one snapshot) its pin_state
     observations, ordered by tree path. UnknownConfiguration (exit 3); WalkError when it cannot answer (exit 2).
 
-    `overrides` ({tree path: sha}; CR-11, `compat --pin`): the gitlink at that tree path is replaced by the sha,
+    `overrides` ({tree path: sha}, `compat --pin`): the gitlink at that tree path is replaced by the sha,
     and the tree below it is walked from that commit's own .gitmodules. A what-if is never stored and raises no
     alert (`store` must be False). A tree path that holds no gitlink pin in the (overridden) tree is OverrideError.
     `alerts=False` raises no alert (tag_moved, unknown_url): a read that must leave the store untouched.
     `replaced`, when given, is filled with {tree path: the gitlink each override replaced}.
-    `at` (CR-R7): walk the tree from this root commit instead of the one the configuration resolves to now (a
+    `at`: walk the tree from this root commit instead of the one the configuration resolves to now (a
     release re-check of the commit it drafted). Like an override it is a what-if: never stored, no alert."""
     overrides = dict(overrides or {})
     if (overrides or at) and store:

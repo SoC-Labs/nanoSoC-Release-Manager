@@ -1,4 +1,4 @@
-"""CR8 (MVP S1): the branch inventory of one repo, from its local mirror only.
+"""The branch inventory of one repo, from its local mirror only.
 
     branches(target, all_repos=False, stale_days=90, sync=False) -> Answer of branch_state observations
     delete_list(docs) -> the deletable rows (MERGED or STALE, no pin, no citation, no tag)
@@ -16,8 +16,8 @@ Per branch (every head of the repo's namespace except the default branch itself)
 - `pins`: registered pins (every pin of every stored walk, section 4 "Storage": never re-walked) of this
   component whose commit the tip reaches and the default branch does not: deleting the branch would orphan them;
 - `cited`: the registry's structured citations of this component (defect benches, fixes, detector sources;
-  gates.registry_citations) that THIS branch holds (CR-10, David 2026-10-10: "citations hold a branch only on
-  branch-unique commits"). A citation c the default branch does not reach is held by at most one branch:
+  gates.registry_citations) that THIS branch holds (citations hold a branch only on branch-unique commits).
+  A citation c the default branch does not reach is held by at most one branch:
     1. none, when a tag of the repo reaches c (the delete list never touches a tag, so c stays reachable);
     2. else, when exactly one branch reaches c (c is unique to it), that branch;
     3. else, one of the branches that reach c: one already kept by a tag on its tip or a pin if there is one,
@@ -156,7 +156,7 @@ def _distance(mirror: Path, sha: str, tip: str) -> int:
 
 def _cite_holders(mirror: Path, prefix: str, cites: list[dict], reach: dict[str, list[dict]],
                   kept: set[str], tips: dict[str, str], sources: list[dict]) -> dict[str, list[dict]]:
-    """CR-10: branch -> the citations it holds. `reach` = branch -> the citations its tip reaches that the default
+    """Branch -> the citations it holds. `reach` = branch -> the citations its tip reaches that the default
     branch does not; `kept` = branches already kept by a tag on the tip or a pin (module docstring, rules 1-3)."""
     out: dict[str, list[dict]] = {b: [] for b in reach}
     for c in cites:

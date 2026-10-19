@@ -1,4 +1,4 @@
-"""The regenerator (interfaces.md section 20; C3 3/3 and C7, Phase 3, built per CR-15).
+"""The regenerator (interfaces.md section 20; C3 3/3 and C7, Phase 3: built, not enabled).
 
     render(configuration, component, commit, *, config) -> Render         one sandbox regeneration (sandbox.py)
     measure_class(configuration, component, frm, to, *, config, store) -> regen_class obs  (measure.measure)

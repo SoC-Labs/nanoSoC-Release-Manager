@@ -1,6 +1,6 @@
 """The retired /freshness page and the on-demand scan (interfaces.md section 24.4), through the web plug-in seam.
 
-David 2026-10-15 (CR-1015-retire): the older /freshness/ page duplicated Home and the Matrix's Freshness tab, so it
+The older /freshness/ page duplicated Home and the Matrix's Freshness tab, so it
 is retired. Its GETs redirect to Home; the scan it queued stays, as Home's "Scan <id> now" and the CLI
 (`nanosoc-rm freshness show` and `freshness scan` are unchanged).
 
@@ -30,7 +30,7 @@ from nanosoc_rm.config import load_config
 __all__ = ["router", "PREFIX", "NAV_LABEL", "home_url"]
 
 PREFIX = "/freshness"
-NAV_LABEL = None                    # CR-1015-retire: no navigation entry (web.plugins.load skips it)
+NAV_LABEL = None                    # no navigation entry (web.plugins.load skips it)
 
 
 def _config(request: Request):

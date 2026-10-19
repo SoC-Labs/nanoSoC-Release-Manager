@@ -196,7 +196,7 @@ class Pin:
     gm_via: str | None = None    # pinned | canonical
     children: list["Pin"] = field(default_factory=list)
     gitlink_read_from_pinned: bool = False   # the parent's gitlink was read in a pinned-URL fetch
-    override_of: str | None = None   # local mode (CR-11): the gitlink this pin's commit replaced (`pin_overrides`)
+    override_of: str | None = None   # local mode: the gitlink this pin's commit replaced (`pin_overrides`)
 
     def ancestors(self):
         p = self.parent
@@ -351,7 +351,7 @@ class GitWork:
         """The pinned tree below `commit` of `root_url`: every .gitmodules entry with a gitlink, recursed once
         per (repo, commit), depth <= 10. .gitmodules is read from the pinned fetch, else the canonical clone.
 
-        `overrides` ({tree path: sha}; the local-mode request's `pin_overrides`, CR-11) replaces the gitlink read
+        `overrides` ({tree path: sha}; the local-mode request's `pin_overrides`) replaces the gitlink read
         at that tree path: the pin is judged at the override's commit and the tree below it is walked from that
         commit's own .gitmodules. The replaced gitlink is kept in `Pin.override_of`."""
         overrides = dict(overrides or {})

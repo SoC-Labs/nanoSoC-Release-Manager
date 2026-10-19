@@ -1,4 +1,4 @@
-"""Tier cells of the matrix (D3 with T1; CR-WD-matrix-t1, interfaces.md section 18 item 8).
+"""Tier cells of the matrix (D3 with T1, interfaces.md section 18 item 8).
 
     TIERS = ("t1",)                                     the tiers a matrix cell may add to its T0 run
     parse_tiers(text) -> [tier]                         MatrixUsage-style ValueError for anything else

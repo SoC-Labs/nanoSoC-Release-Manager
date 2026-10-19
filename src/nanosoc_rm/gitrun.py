@@ -35,7 +35,7 @@ __all__ = ["GitRefused", "GitError", "GitResult", "check_argv", "check_credentia
 
 GIT_WRITES = ("push", "send-pack", "receive-pack")        # interfaces.md section 17.5: the guard's minimum
 DEFAULT_TIMEOUT_S = 900                                   # the T0 kill limit; callers pass less where they can
-# CR-PR1: an environment carrying this variable holds a private-read credential (mirror/private_read.py). With
+# An environment carrying this variable holds a private-read credential (mirror/private_read.py). With
 # it, run_git allows only these subcommands, on top of every other refusal.
 CREDENTIALED_MARKER = "NANOSOC_RM_PRIVATE_READ"
 CREDENTIALED_READS = ("fetch", "ls-remote")
@@ -303,7 +303,7 @@ def check_argv(args: Sequence[str]) -> None:
 
 
 def check_credentialed(args: Sequence[str]) -> None:
-    """CR-PR1: raise GitRefused unless `args` is a `fetch` or `ls-remote` (no submodule recursion), the only
+    """Raise GitRefused unless `args` is a `fetch` or `ls-remote` (no submodule recursion), the only
     calls a private-read credential may reach. Called by run_git when the environment carries the marker."""
     args = [str(a) for a in args]
     i = 0

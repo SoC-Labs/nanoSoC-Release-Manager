@@ -1,4 +1,4 @@
-"""Catalogue characterisation (interfaces.md section 23; CR-WF-catalogue, David 2026-10-14: front page approved).
+"""Catalogue characterisation (interfaces.md section 23).
 
     nanosoc_rm.catalogue.model     characterise / characterise_all / socs_without_forkable_project (pure)
     nanosoc_rm.catalogue.orgscan   org_scan(): anonymous org and group listing -> repo_seen observations

@@ -14,12 +14,12 @@ job runner (`nanosoc_rm.jobs`, kind `matrix-cell`), never run inside a web reque
 latest stored result, its age, the job queued or running for it, whether the result is for the column's current
 commit (`stale` when the mirror moved since), and its gate-by-gate comparison with the same night's pinned run (D9).
 
-A view may add tier t1 (`tiers=["t1"]`, CR-WD-matrix-t1): every shown cell gets a t1 cell beside it, a separate
+A view may add tier t1 (`tiers=["t1"]`): every shown cell gets a t1 cell beside it, a separate
 stored cell of the same (component, column) whose run adds the registry's t1 command (`cells`, `tiers`). The
 view runs the tier's preflight for this host: no command is NOT-RUN, a missing tool INFRA "tool not on this host",
 and neither is queued by Run.
 
-Building and using this locally is allowed now (CR-15). ENABLING the nightly matrix is not: it is automation and
+Building and using this locally is allowed now. ENABLING the nightly matrix is not: it is automation and
 waits for the Phase 2 entry gate (docs/phase-gates.yaml). `NIGHTLY.enabled` is False and the schedule module does
 not list it; `nightly_plan` only says what it would queue.
 """

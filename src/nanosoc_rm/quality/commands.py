@@ -1,4 +1,4 @@
-"""CLI front ends of the quality functions (Q1-Q6, CR-14). No logic of their own.
+"""CLI front ends of the quality functions (Q1-Q6). No logic of their own.
 
     nanosoc-rm quality density  [TARGET] [--ref R] [--path DIR] [--thresholds FILE] [--top N] [--store] [--json]
     nanosoc-rm quality comments [TARGET] [--ref R] [--path DIR] [--kind K]... [--patch OUT] [--all] [--store] [--json]

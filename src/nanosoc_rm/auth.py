@@ -27,7 +27,7 @@ the service config. Everything else is refused.
   login, as an active member. Roles still come from the config. There is no cookie, so there is no
   cross-site request to forge, and the CSRF check does not apply to it.
 
-**Local mode (CR-16).** `[auth] mode = "local"` replaces GitHub sign-in for a single-host deployment: named users
+**Local mode.** `[auth] mode = "local"` replaces GitHub sign-in for a single-host deployment: named users
 in `[[auth.users]]` (login, `hash` from `nanosoc-rm user add`: scrypt via hashlib, salted), a login form at
 `/auth/login` (POST, with a double-submit CSRF cookie so nobody can sign a browser in as someone else), the same
 signed session cookie (HttpOnly, SameSite=Strict, 8 h) and the same CSRF token on every POST. A user removed from
@@ -89,7 +89,7 @@ class AuthError(Exception):
 @dataclass
 class Identity:
     """Who a request is. `status`: member (active SoC-Labs member) or refused. `via`: session (signed cookie),
-    local (the CR-16 login form) or fake (the FakeMembership test seam). `sid` binds the CSRF token to one
+    local (the local login form) or fake (the FakeMembership test seam). `sid` binds the CSRF token to one
     session."""
     login: str
     status: str
@@ -121,19 +121,19 @@ def roles_for(config: Mapping[str, Any], login: str) -> set[str]:
     if (config.get("auth") or {}).get("mode") == "local":
         user = local_users(config).get(login)
         if user is not None:
-            own = user.get("roles")                     # absent: member; an explicit [] grants nothing (ROB-mutation-1)
+            own = user.get("roles")                     # absent: member; an explicit [] grants nothing
             roles |= set([MEMBER_ROLE] if own is None else own)
     return roles
 
 
 def same_site(config: Mapping[str, Any]) -> str:
-    """The session cookie's SameSite: Strict in local mode (CR-16); Lax for GitHub sign-in, whose callback is a
+    """The session cookie's SameSite: Strict in local mode; Lax for GitHub sign-in, whose callback is a
     cross-site redirect."""
     return "strict" if (config.get("auth") or {}).get("mode") == "local" else "lax"
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Local users (CR-16)
+# Local users
 # ---------------------------------------------------------------------------------------------------------
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
@@ -234,9 +234,9 @@ class Throttle:
     refused until the window passes. In memory: a restart forgets it.
 
     `attempt(key)` reserves a slot under the lock BEFORE the (slow) password check, so concurrent guesses cannot
-    all pass the check before any failure is counted (ROB-security-3); a successful sign-in calls `clear(key)`.
+    all pass the check before any failure is counted; a successful sign-in calls `clear(key)`.
     Logins whose window has passed are swept at most once per window, so unique login names cannot grow the
-    table without bound (ROB-security-4)."""
+    table without bound."""
 
     def __init__(self, limit: int = 5, window_s: float = 300.0):
         self.limit, self.window_s = limit, window_s
@@ -426,7 +426,7 @@ def _local_secret(config: Config) -> str:
     except FileExistsError:
         value = path.read_text().strip()
         if not value:                            # an empty file (truncated, full disk): replace it atomically,
-            os.replace(tmp, path)                # never sign with '' (ROB-coverage-1)
+            os.replace(tmp, path)                # never sign with ''
             value = path.read_text().strip()
     finally:
         tmp.unlink(missing_ok=True)
@@ -441,7 +441,7 @@ class Sessions:
 
     def __init__(self, secret: str):
         if not secret:
-            raise ConfigError("an empty session secret signs nothing")   # ROB-coverage-1: '' is a known key
+            raise ConfigError("an empty session secret signs nothing")   # '' is a known key
         self._session = URLSafeTimedSerializer(secret, salt="nanosoc-rm session")
         self._state = URLSafeTimedSerializer(secret, salt="nanosoc-rm oauth state")
         self._csrf_key = hashlib.sha256(("csrf|" + secret).encode()).digest()
@@ -512,7 +512,7 @@ class GitHubAuth:
         if d is None:
             return None
         if session_revoked(config, d.get("sid", "")):
-            return None                                   # signed out: a copied cookie is refused too (ROB-security-2)
+            return None                                   # signed out: a copied cookie is refused too
         ident = Identity(login=d["login"], status=d["status"], via="session", sid=d.get("sid", ""),
                          checked_at=d.get("checked_at", ""), iat=d.get("iat", ""), attempt_at=d.get("attempt_at", ""))
         if ident.status != "member":
@@ -539,7 +539,7 @@ class GitHubAuth:
 
 
 class LocalAuth:
-    """CR-16: the signed session cookie set by the local login form. The login must still be a configured user:
+    """The signed session cookie set by the local login form. The login must still be a configured user:
     removing a user from [[auth.users]] signs them out on their next request."""
     requires_csrf = True
 
@@ -559,7 +559,7 @@ class LocalAuth:
 
 
 class ConfiguredAuth:
-    """The default authenticator: the config's [auth] mode, read per request (CR-16). GitHub sign-in unless
+    """The default authenticator: the config's [auth] mode, read per request. GitHub sign-in unless
     mode = "local"."""
     requires_csrf = True
 
