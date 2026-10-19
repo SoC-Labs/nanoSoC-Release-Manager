@@ -362,13 +362,91 @@ def default_host(config, environ: Mapping[str, str]) -> str | None:
     return (config.get("executor") or {}).get("host") or None
 
 
+def _pin_at(configuration: str, path: str, now_docs: list[dict]) -> tuple[str, str]:
+    """(component, pinned commit) at PATH of the walked tree; TestBumpUsage when PATH pins nothing catalogued."""
+    at = next((d for d in now_docs if path in d["fact"]["tree_paths"]), None)
+    if at is None:
+        raise TestBumpUsage("%s has no pin at %s (its tree paths: %s)" % (
+            configuration, path or "(empty)", ", ".join(sorted(tp for d in now_docs for tp in d["fact"]["tree_paths"]))
+            [:400]))
+    component = at["fact"]["child"]["component"]
+    if not component:
+        raise TestBumpUsage("the pin at %s names no catalogued component, so TO cannot be resolved" % path)
+    return component, at["fact"]["child"]["commit"]
+
+
+def _not_run(reason: str, commit: str | None, host: str | None, verdict: str = "UNVERIFIED") -> dict:
+    return {"verdict": verdict, "reason": reason, "rows": [], "log_tail": [], "seconds": None, "exit_code": None,
+            "commit": commit, "host": host}
+
+
+class _Sides:
+    """Now and After, each a local compat (T0, reported as hygiene) and every planned capability of that side on
+    the tree compat laid out, in one job, on one host."""
+
+    def __init__(self, configuration, config, site, host, environ, nonce, url_map, lock_dir):
+        self.configuration, self.config, self.site, self.host = configuration, config, site, host
+        self.environ, self.nonce, self.url_map, self.lock_dir = environ, nonce, url_map, lock_dir
+
+    def run(self, plan, now_c: PL.Composition, after_c: PL.Composition, overrides: dict) -> tuple[dict, dict]:
+        """({side: {row key: result}}, {side: hygiene})."""
+        from nanosoc_rm.analysis import compat as C
+        results: dict[str, dict] = {"now": {}, "after": {}}
+        hygiene = {}
+        for side, comp, ov in (("now", now_c, None), ("after", after_c, overrides)):
+            items = {r.key: getattr(r, side) for r in plan if getattr(r, side) is not None}
+            try:
+                doc = C.compat(self.configuration, ov, config=self.config, url_map=self.url_map, nonce=self.nonce,
+                               lock_dir=self.lock_dir, on_tree=self._on_tree(results[side], comp, items))
+                hygiene[side] = {"verdict": doc["fact"]["verdict"], "reason": doc["fact"].get("reason"),
+                                 "commit": doc["fact"]["commit"]}
+            except Exception as e:                                 # noqa: BLE001 - one side cannot answer: said
+                hygiene[side] = {"verdict": "INFRA", "reason": "%s: %s" % (type(e).__name__, str(e)[:300]),
+                                 "commit": None}
+                for k, it in items.items():
+                    results[side].setdefault(k, _not_run("the %s run did not complete: %s" % (side, str(e)[:200]),
+                                                         it.commit, self.host, "INFRA"))
+        return results, hygiene
+
+    def _on_tree(self, out: dict, comp: PL.Composition, items: dict):
+        from nanosoc_rm.analysis import tierrun
+
+        def on_tree(git, root_pin, work, t0):
+            if root_pin is None:
+                for k in items:
+                    out[k] = _not_run("no tree to lay out: the T0 walk did not start", items[k].commit, self.host)
+                return
+            tree = Path(work) / "tree"
+            lay = tierrun.materialise(git, root_pin, tree, None) if items else None
+            for k, it in items.items():
+                out[k] = _run_item(it, comp, self.site, self.host, self.environ, tree, Path(work), lay, self.nonce,
+                                   self.lock_dir)
+        return on_tree
+
+
+def _change_rows(plan, results: dict, after_c: PL.Composition) -> list[dict]:
+    """One row per planned capability: Now, After and how it changed (module docstring step 5)."""
+    rows = []
+    for r in plan:
+        now, after = results["now"].get(r.key), results["after"].get(r.key)
+        c = r.cap()
+        change = compare(now, after)
+        if change == "gone" and (r.after is not None or not getattr(after_c.reads.get(r.owner), "ok", False)):
+            # Gone only because After's manifest is absent, invalid or unreadable, or because a planned After run
+            # left no result: it did not run, so it is no evidence (a bump that deletes or breaks the file must
+            # not pass on that). A valid After manifest that drops the capability is a reviewed change: `gone`.
+            change = "not-run"
+        rows.append({"key": r.key, "owner": PL.owner_label(r.owner), "id": r.id, "kind": c["kind"],
+                     "tier": c.get("tier"), "gate": c["gate"], "why": r.why, "now": now, "after": after,
+                     "change": change})
+    return rows
+
+
 def test_bump(configuration: str, path: str, to: str, *, config, host: str | None = None, plan_only: bool = False,
               environ: Mapping[str, str] | None = None, url_map=None, lock_dir=None, nonce: str | None = None,
               argv: str | None = None) -> dict:
     """One test_bump document (module docstring). TestBumpUsage (exit 3) or CannotTest (exit 2)."""
     from nanosoc_rm import walker
-    from nanosoc_rm.analysis import compat as C
-    from nanosoc_rm.analysis import tierrun
     from nanosoc_rm.ci import configs
     environ = os.environ if environ is None else environ
     host = host or default_host(config, environ)
@@ -391,15 +469,7 @@ def test_bump(configuration: str, path: str, to: str, *, config, host: str | Non
         now_docs = walker.walk(configuration, config=config, store=False, alerts=False)
     except walker.WalkError as e:
         raise CannotTest("the tree of %s cannot be walked: %s" % (configuration, e)) from None
-    at = next((d for d in now_docs if path in d["fact"]["tree_paths"]), None)
-    if at is None:
-        raise TestBumpUsage("%s has no pin at %s (its tree paths: %s)" % (
-            configuration, path or "(empty)", ", ".join(sorted(tp for d in now_docs for tp in d["fact"]["tree_paths"]))
-            [:400]))
-    component = at["fact"]["child"]["component"]
-    frm = at["fact"]["child"]["commit"]
-    if not component:
-        raise TestBumpUsage("the pin at %s names no catalogued component, so TO cannot be resolved" % path)
+    component, frm = _pin_at(configuration, path, now_docs)
     commit, resolved_as, srcs = resolve_to(config, component, to)
     tree_paths = sorted({tp for d in now_docs if d["fact"]["child"]["component"] == component
                          for tp in d["fact"]["tree_paths"]})
@@ -431,54 +501,10 @@ def test_bump(configuration: str, path: str, to: str, *, config, host: str | Non
     elif frm == commit:
         fact["reason"] = "the pin at %s is already %s: nothing moves" % (path, commit[:12])
     else:
-        results: dict[str, dict] = {"now": {}, "after": {}}
-        hygiene = {}
-
-        def runner(side: str, comp: PL.Composition, items: dict):
-            def on_tree(git, root_pin, work, t0):
-                if root_pin is None:
-                    for k in items:
-                        results[side][k] = {"verdict": "UNVERIFIED", "reason": "no tree to lay out: the T0 walk "
-                                            "did not start", "rows": [], "log_tail": [], "seconds": None,
-                                            "exit_code": None, "commit": items[k].commit, "host": host}
-                    return
-                tree = Path(work) / "tree"
-                lay = tierrun.materialise(git, root_pin, tree, None) if items else None
-                for k, it in items.items():
-                    results[side][k] = _run_item(it, comp, site, host, environ, tree, Path(work), lay, nonce,
-                                                 lock_dir)
-            return on_tree
-
-        for side, comp, ov in (("now", now_c, None), ("after", after_c, overrides)):
-            items = {r.key: getattr(r, side) for r in plan if getattr(r, side) is not None}
-            try:
-                doc = C.compat(configuration, ov, config=config, url_map=url_map, nonce=nonce, lock_dir=lock_dir,
-                               on_tree=runner(side, comp, items))
-                hygiene[side] = {"verdict": doc["fact"]["verdict"], "reason": doc["fact"].get("reason"),
-                                 "commit": doc["fact"]["commit"]}
-            except Exception as e:                                 # noqa: BLE001 - one side cannot answer: said
-                hygiene[side] = {"verdict": "INFRA", "reason": "%s: %s" % (type(e).__name__, str(e)[:300]),
-                                 "commit": None}
-                for k, it in items.items():
-                    results[side].setdefault(k, {"verdict": "INFRA", "reason": "the %s run did not complete: %s"
-                                                 % (side, str(e)[:200]), "rows": [], "log_tail": [],
-                                                 "seconds": None, "exit_code": None, "commit": it.commit,
-                                                 "host": host})
+        sides = _Sides(configuration, config, site, host, environ, nonce, url_map, lock_dir)
+        results, hygiene = sides.run(plan, now_c, after_c, overrides)
         fact["hygiene"] = hygiene
-        for r in plan:
-            now, after = results["now"].get(r.key), results["after"].get(r.key)
-            c = r.cap()
-            change = compare(now, after)
-            if change == "gone" and (r.after is not None
-                                     or not getattr(after_c.reads.get(r.owner), "ok", False)):
-                # Gone only because After's manifest is absent, invalid or unreadable, or because a planned After
-                # run left no result: it did not run, so it is no evidence (a bump that deletes or breaks the file
-                # must not pass on that). A valid After manifest that drops the capability is a reviewed change:
-                # `gone` stays.
-                change = "not-run"
-            fact["rows"].append({"key": r.key, "owner": PL.owner_label(r.owner), "id": r.id, "kind": c["kind"],
-                                 "tier": c.get("tier"), "gate": c["gate"], "why": r.why, "now": now, "after": after,
-                                 "change": change})
+        fact["rows"] = _change_rows(plan, results, after_c)
         fact["verdict"], fact["reason"] = functional_verdict(fact["rows"])
         roots = {h.get("commit") for h in hygiene.values()} - {None}
         if len(roots) > 1:

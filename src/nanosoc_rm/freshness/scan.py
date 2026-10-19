@@ -151,17 +151,7 @@ class _Measurer:
             m["mirror_at"] = canon.status["last_success_at"]
         present = self._is_present(entry.id, g, sha)
         if present:
-            m["pin_date"] = _utc(g.out("log", "-1", "--format=%cI", sha))
-            prefixes = [ref_prefix(r.repo["host"], r.repo["path"]) for r in repos if r.has_refs]
-            refs = []
-            if prefixes:
-                listed = g.out("for-each-ref", "--contains", sha, "--format=%(refname)",
-                               *[p + kind for p in prefixes for kind in ("/heads/", "/tags/")])
-                refs = (listed or "").splitlines()
-            m["reachable"] = bool(refs)
-            cheads = ref_prefix(canon.repo["host"], canon.repo["path"]) + "/heads/"
-            branches = sorted(r[len(cheads):] for r in refs if r.startswith(cheads))
-            m["branches"], m["branches_more"] = branches[:BRANCHES_SHOWN], max(0, len(branches) - BRANCHES_SHOWN)
+            _reachability(m, g, sha, repos, canon)
         else:
             m["reachable"] = False
         unreadable = [r for r in repos if not r.readable]
@@ -180,14 +170,8 @@ class _Measurer:
             m["note"] = m["note"] or ("the canonical repo %s:%s has no refs in the mirror (%s)"
                                                       % (canon.repo["host"], canon.repo["path"], str(cause)[:120]))
             return self._done(m, g)
-        key = repo_key(canon.repo["host"], canon.repo["path"])
         pfx = ref_prefix(canon.repo["host"], canon.repo["path"])
-        branch = default_branch(g.mirror, key) or stored_default
-        if not branch:
-            for cand in ("main", "master"):
-                if g.run("rev-parse", "--verify", "-q", "%s/heads/%s" % (pfx, cand), record=False).ok:
-                    branch = cand
-                    break
+        branch = _default_branch(g, canon, stored_default)
         m["upstream"]["default_branch"] = branch
         head = g.out("rev-parse", "--verify", "-q", "%s/heads/%s^{commit}" % (pfx, branch)) if branch else None
         if not head:
@@ -199,15 +183,7 @@ class _Measurer:
         if not present:
             m["note"] = m["note"] or "the pinned commit is not in the mirror"
             return self._done(m, g)
-        behind = g.out("rev-list", "--count", "%s..%s" % (sha, head))
-        ahead = g.out("rev-list", "--count", "%s..%s" % (head, sha))
-        if behind is None or ahead is None:
-            m["note"] = "git could not count commits between the pin and %s" % head[:12]
-            return self._done(m, g)
-        m["behind"], m["ahead"] = int(behind), int(ahead)
-        anc = g.run("merge-base", "--is-ancestor", sha, head)
-        m["on_default"] = True if anc.returncode == 0 else False if anc.returncode == 1 else None
-        m["lower_bound"] = not canon.readable
+        _distance(m, g, sha, head, canon)
         return self._done(m, g)
 
     @staticmethod
@@ -236,6 +212,45 @@ class _Measurer:
         total = g.out("rev-list", "--count", parent_commit, "--", path)
         return ({"commit": commit, "date": _utc(date), "author": author, "subject": subject[:200],
                  "total": int(total) if total and total.isdigit() else None}, list(g.sources))
+
+
+def _reachability(m: dict, g: _Git, sha: str, repos: list[_Repo], canon: _Repo) -> None:
+    """The pin's commit date, whether any readable host's branch or tag holds it, and the canonical branches."""
+    m["pin_date"] = _utc(g.out("log", "-1", "--format=%cI", sha))
+    prefixes = [ref_prefix(r.repo["host"], r.repo["path"]) for r in repos if r.has_refs]
+    refs = []
+    if prefixes:
+        listed = g.out("for-each-ref", "--contains", sha, "--format=%(refname)",
+                       *[p + kind for p in prefixes for kind in ("/heads/", "/tags/")])
+        refs = (listed or "").splitlines()
+    m["reachable"] = bool(refs)
+    cheads = ref_prefix(canon.repo["host"], canon.repo["path"]) + "/heads/"
+    branches = sorted(r[len(cheads):] for r in refs if r.startswith(cheads))
+    m["branches"], m["branches_more"] = branches[:BRANCHES_SHOWN], max(0, len(branches) - BRANCHES_SHOWN)
+
+
+def _default_branch(g: _Git, canon: _Repo, stored_default: str | None) -> str | None:
+    """The canonical repo's default branch: the mirror's record, the stored one, else main or master."""
+    pfx = ref_prefix(canon.repo["host"], canon.repo["path"])
+    branch = default_branch(g.mirror, repo_key(canon.repo["host"], canon.repo["path"])) or stored_default
+    if not branch:
+        for cand in ("main", "master"):
+            if g.run("rev-parse", "--verify", "-q", "%s/heads/%s" % (pfx, cand), record=False).ok:
+                return cand
+    return branch
+
+
+def _distance(m: dict, g: _Git, sha: str, head: str, canon: _Repo) -> None:
+    """Commits behind and ahead of the default branch's head, and whether the head contains the pin."""
+    behind = g.out("rev-list", "--count", "%s..%s" % (sha, head))
+    ahead = g.out("rev-list", "--count", "%s..%s" % (head, sha))
+    if behind is None or ahead is None:
+        m["note"] = "git could not count commits between the pin and %s" % head[:12]
+        return
+    m["behind"], m["ahead"] = int(behind), int(ahead)
+    anc = g.run("merge-base", "--is-ancestor", sha, head)
+    m["on_default"] = True if anc.returncode == 0 else False if anc.returncode == 1 else None
+    m["lower_bound"] = not canon.readable
 
 
 def _statuses(config: Config) -> dict:

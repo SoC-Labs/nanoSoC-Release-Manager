@@ -204,86 +204,101 @@ def _apply(lines: list[str], choices: list[dict], ids: set[str]) -> tuple[list[s
                                 "by hand" % cid)
                 continue
             n, lead, doc, tail = hit
-            if op == "set":
-                fields = ch.get("fields")
-                if not isinstance(fields, dict) or not fields or any(f not in SETTABLE for f in fields):
-                    raise PreviewUsage("choice %d: fields must map some of %s to values" % (k, ", ".join(SETTABLE)))
-                derived = characterise(doc)
-                if "group" not in doc and ("type" in fields or "role" in fields):
-                    doc["group"] = derived.group             # a type or role needs its group written out
-                for fname, value in fields.items():
-                    _check_value(fname, value)
-                    if value is None:
-                        doc.pop(fname, None)
-                    else:
-                        doc[fname] = value
-                    if fname != "question":
-                        _drop_guess(doc, fname)
-                recls = ""
-                if "group" in fields:
-                    _normalise(doc)
-                    if doc.get("group") in LADDER_GROUPS and "role" not in doc and derived.role:
-                        doc["role"] = derived.role
-                    g = doc.get("group")
-                    if g in GROUPS and not class_agrees(g, doc["class"]):
-                        new_cls = class_for(g, doc.get("role"))
-                        recls = " (class %s -> %s)" % (doc["class"], new_cls)
-                        doc["class"] = new_cls
-                changes.append("%s: set %s%s" % (cid, ", ".join("%s=%s" % (f, json.dumps(v)) for f, v in fields.items()),
-                                                 recls))
-            else:
-                names = ch.get("fields")
-                if not isinstance(names, list) or not names or any(f not in GUESSABLE for f in names):
-                    raise PreviewUsage("choice %d: fields must list some of %s" % (k, ", ".join(GUESSABLE)))
-                derived = characterise(doc)
-                for fname in names:
-                    if fname in ("group", "type", "role") and fname not in doc and getattr(derived, fname):
-                        doc[fname] = getattr(derived, fname)
-                if any(f in doc for f in ("type", "role")) and "group" not in doc:
-                    doc["group"] = derived.group
-                _drop_guess(doc, *names)
-                changes.append("%s: confirm %s" % (cid, ", ".join(names)))
+            changes.append((_set if op == "set" else _confirm)(doc, ch, k, cid))
             lines[n] = lead + _render(doc) + tail
         elif op == "add":
-            repo = _repo(ch)
-            group = ch.get("group")
-            if group not in GROUPS:
-                raise PreviewUsage("choice %d: group %r is not one of %s" % (k, group, ", ".join(GROUPS)))
-            cid = ch.get("id") or _new_id(repo["path"])
-            if not isinstance(cid, str) or not _ID.match(cid):
-                raise PreviewUsage("choice %d: %r is not a component id" % (k, cid))
-            if cid in ids:
-                raise PreviewUsage("choice %d: id %s is already in the catalogue" % (k, cid))
-            for fname in ("type", "role", "wraps"):
-                _check_value(fname, ch.get(fname))
-            doc: dict[str, Any] = {"id": cid, "class": class_for(group, ch.get("role")), "group": group}
-            for fname in ("type", "role", "wraps"):
-                if ch.get(fname) is not None:
-                    doc[fname] = ch[fname]
-            _normalise(doc)
-            doc["canonical"] = repo
-            at = _last_line(lines, "components")
-            if at is None:
-                raise PreviewUsage("catalogue.yaml has no flow-style components list to append to")
-            lead = _LINE.match(lines[at]).group("lead")
-            lines.insert(at + 1, lead + _render(doc) + "  # added from the new-repo queue")
-            ids.add(cid)
-            changes.append("%s: add %s:%s as %s (class %s)" % (cid, repo["host"], repo["path"], group, doc["class"]))
+            changes.append(_add(lines, ch, k, ids))
         elif op == "ignore":
-            repo = _repo(ch)
-            reason = ch.get("reason")
-            if not isinstance(reason, str) or not reason.strip():
-                raise PreviewUsage("choice %d: ignore needs a reason" % k)
-            item = json.dumps({"repo": repo, "reason": " ".join(reason.split())}, ensure_ascii=False)
-            at = _last_line(lines, "ignored")
-            if at is None:
-                lines += ["ignored:", "  - " + item]
-            else:
-                lines.insert(at + 1, _LINE.match(lines[at]).group("lead") + item)
-            changes.append("ignore %s:%s (%s)" % (repo["host"], repo["path"], " ".join(reason.split())))
+            changes.append(_ignore(lines, ch, k))
         else:
             raise PreviewUsage("choice %d: op %r is not set, confirm, add or ignore" % (k, op))
     return lines, changes, problems
+
+
+def _set(doc: dict, ch: dict, k: int, cid: str) -> str:
+    """Set fields of one entry; a group change normalises it and may change its class."""
+    fields = ch.get("fields")
+    if not isinstance(fields, dict) or not fields or any(f not in SETTABLE for f in fields):
+        raise PreviewUsage("choice %d: fields must map some of %s to values" % (k, ", ".join(SETTABLE)))
+    derived = characterise(doc)
+    if "group" not in doc and ("type" in fields or "role" in fields):
+        doc["group"] = derived.group             # a type or role needs its group written out
+    for fname, value in fields.items():
+        _check_value(fname, value)
+        if value is None:
+            doc.pop(fname, None)
+        else:
+            doc[fname] = value
+        if fname != "question":
+            _drop_guess(doc, fname)
+    recls = ""
+    if "group" in fields:
+        _normalise(doc)
+        if doc.get("group") in LADDER_GROUPS and "role" not in doc and derived.role:
+            doc["role"] = derived.role
+        g = doc.get("group")
+        if g in GROUPS and not class_agrees(g, doc["class"]):
+            new_cls = class_for(g, doc.get("role"))
+            recls = " (class %s -> %s)" % (doc["class"], new_cls)
+            doc["class"] = new_cls
+    return "%s: set %s%s" % (cid, ", ".join("%s=%s" % (f, json.dumps(v)) for f, v in fields.items()), recls)
+
+
+def _confirm(doc: dict, ch: dict, k: int, cid: str) -> str:
+    """Write the derived value of each named field out, and drop its guess marker."""
+    names = ch.get("fields")
+    if not isinstance(names, list) or not names or any(f not in GUESSABLE for f in names):
+        raise PreviewUsage("choice %d: fields must list some of %s" % (k, ", ".join(GUESSABLE)))
+    derived = characterise(doc)
+    for fname in names:
+        if fname in ("group", "type", "role") and fname not in doc and getattr(derived, fname):
+            doc[fname] = getattr(derived, fname)
+    if any(f in doc for f in ("type", "role")) and "group" not in doc:
+        doc["group"] = derived.group
+    _drop_guess(doc, *names)
+    return "%s: confirm %s" % (cid, ", ".join(names))
+
+
+def _add(lines: list[str], ch: dict, k: int, ids: set[str]) -> str:
+    """Append a new one-line entry to the flow-style components list."""
+    repo = _repo(ch)
+    group = ch.get("group")
+    if group not in GROUPS:
+        raise PreviewUsage("choice %d: group %r is not one of %s" % (k, group, ", ".join(GROUPS)))
+    cid = ch.get("id") or _new_id(repo["path"])
+    if not isinstance(cid, str) or not _ID.match(cid):
+        raise PreviewUsage("choice %d: %r is not a component id" % (k, cid))
+    if cid in ids:
+        raise PreviewUsage("choice %d: id %s is already in the catalogue" % (k, cid))
+    for fname in ("type", "role", "wraps"):
+        _check_value(fname, ch.get(fname))
+    doc: dict[str, Any] = {"id": cid, "class": class_for(group, ch.get("role")), "group": group}
+    for fname in ("type", "role", "wraps"):
+        if ch.get(fname) is not None:
+            doc[fname] = ch[fname]
+    _normalise(doc)
+    doc["canonical"] = repo
+    at = _last_line(lines, "components")
+    if at is None:
+        raise PreviewUsage("catalogue.yaml has no flow-style components list to append to")
+    lead = _LINE.match(lines[at]).group("lead")
+    lines.insert(at + 1, lead + _render(doc) + "  # added from the new-repo queue")
+    ids.add(cid)
+    return "%s: add %s:%s as %s (class %s)" % (cid, repo["host"], repo["path"], group, doc["class"])
+
+
+def _ignore(lines: list[str], ch: dict, k: int) -> str:
+    repo = _repo(ch)
+    reason = ch.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise PreviewUsage("choice %d: ignore needs a reason" % k)
+    item = json.dumps({"repo": repo, "reason": " ".join(reason.split())}, ensure_ascii=False)
+    at = _last_line(lines, "ignored")
+    if at is None:
+        lines += ["ignored:", "  - " + item]
+    else:
+        lines.insert(at + 1, _LINE.match(lines[at]).group("lead") + item)
+    return "ignore %s:%s (%s)" % (repo["host"], repo["path"], " ".join(reason.split()))
 
 
 def _problems(registry, text: str) -> list[str]:
