@@ -96,7 +96,7 @@ def register(main: click.Group) -> None:
             return EXIT_OK
         return _EXIT.get(doc["fact"]["verdict"], EXIT_UNVERIFIED)
 
-    caps = subgroup(main, "capabilities", help="Wave G: what each tree can test (.nanosoc/capabilities.yaml).")
+    caps = subgroup(main, "capabilities", help="What each tree can test (.nanosoc/capabilities.yaml).")
 
     @caps.command("show")
     @click.argument("configuration")

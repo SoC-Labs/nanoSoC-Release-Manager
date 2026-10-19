@@ -24,7 +24,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm bumps scan`](#nanosoc-rm-bumps-scan) | Scan one configuration (or all) for releases newer than their pins (the default subcommand). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps schedule`](#nanosoc-rm-bumps-schedule) | The bump schedule as shipped: disabled, naming the Phase 4 entry gate. |
 | &nbsp;&nbsp;[`nanosoc-rm bumps show`](#nanosoc-rm-bumps-show) | One kept proposal: the move, changelog, defects, matrix, blockers. |
-| [`nanosoc-rm capabilities`](#nanosoc-rm-capabilities) | Wave G: what each tree can test (.nanosoc/capabilities.yaml). |
+| [`nanosoc-rm capabilities`](#nanosoc-rm-capabilities) | What each tree can test (.nanosoc/capabilities.yaml). |
 | &nbsp;&nbsp;[`nanosoc-rm capabilities show`](#nanosoc-rm-capabilities-show) | Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned commit, each capability, the hosts that can run it, and its last test-bump result. |
 | &nbsp;&nbsp;[`nanosoc-rm capabilities validate`](#nanosoc-rm-capabilities-validate) | Check a capabilities file while you write it (exit 1 with every problem). |
 | [`nanosoc-rm catalogue`](#nanosoc-rm-catalogue) | Catalogue characterisation: groups and types, new repos, change previews. |
@@ -139,7 +139,7 @@ Commands:
   alerts              Open alerts (dashboard banners): rewrite, unknown_url, token_expiry,...
   branches            Every branch of a repo (a component id, or host:path) from its local...
   bumps               Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15).
-  capabilities        Wave G: what each tree can test (.nanosoc/capabilities.yaml).
+  capabilities        What each tree can test (.nanosoc/capabilities.yaml).
   catalogue           Catalogue characterisation: groups and types, new repos, change previews.
   changelog           The classed changelog (C2): lint it.
   compat              Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin...
@@ -370,7 +370,7 @@ Options:
 ```
 Usage: nanosoc-rm capabilities [OPTIONS] COMMAND [ARGS]...
 
-  Wave G: what each tree can test (.nanosoc/capabilities.yaml).
+  What each tree can test (.nanosoc/capabilities.yaml).
 
 Options:
   -h, --help  Show this message and exit.
@@ -533,9 +533,9 @@ Options:
                        here; it must be new or empty. Default: a temporary directory, deleted
                        afterwards.
   --store              Store the walk and the compat_result (real runs only: not with --pin).
-  --tier [t1|t2]       CR-12: after T0, run the registry tiers.yaml command of this tier in a
-                       sandbox checkout of the resolved tree (budget enforced, killed at 1.5 x).
-                       Skipped when T0 is FAIL.
+  --tier [t1|t2]       After T0, run the registry tiers.yaml command of this tier in a sandbox
+                       checkout of the resolved tree (budget enforced, killed at 1.5 x). Skipped
+                       when T0 is FAIL.
   --force-tier         Run --tier even when T0 is FAIL: a person's override, recorded; the result is
                        UNVERIFIED for release.
   --json               Print one JSON document per line.

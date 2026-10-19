@@ -198,7 +198,7 @@ def register(main: click.Group) -> None:
                        "be new or empty. Default: a temporary directory, deleted afterwards.")
     @click.option("--store", is_flag=True, help="Store the walk and the compat_result (real runs only: not with --pin).")
     @click.option("--tier", type=click.Choice(["t1", "t2"]), default=None,
-                  help="CR-12: after T0, run the registry tiers.yaml command of this tier in a sandbox checkout of "
+                  help="After T0, run the registry tiers.yaml command of this tier in a sandbox checkout of "
                        "the resolved tree (budget enforced, killed at 1.5 x). Skipped when T0 is FAIL.")
     @click.option("--force-tier", is_flag=True,
                   help="Run --tier even when T0 is FAIL: a person's override, recorded; the result is UNVERIFIED "

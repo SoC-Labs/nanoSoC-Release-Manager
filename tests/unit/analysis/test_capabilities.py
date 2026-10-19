@@ -494,6 +494,25 @@ def test_a_warn_whose_command_exited_non_zero_holds(scene, monkeypatch):
     assert not GATE.lands(ev) and GATE.blocker(ev, "top-main", "a", to) is not None
 
 
+@pytest.mark.requirement("E3")
+@pytest.mark.requirement("PR6")
+@pytest.mark.parametrize("other,verdict,lands", [
+    (("PASS", "FAIL", "block"), "FAIL", False),         # an already-red gate never hides a new red beside it
+    ((None, "FAIL", "block"), "UNVERIFIED", False),     # nor a red with no known Now
+    (("PASS", "INFRA", "block"), "UNVERIFIED", False),  # nor a gate that did not run
+    (("PASS", "PASS", "block"), "WARN", True),          # only the already-red gate is red: lands
+    (("PASS", "FAIL", "report"), "WARN", True),         # a report gate never decides
+])
+def test_an_already_red_gate_beside_another_row(other, verdict, lands):
+    """D12 with two block rows: the already-red one lands only when nothing else on the move is red or unknown."""
+    def row(key, now, after, gate):
+        n = None if now is None else {"verdict": now}
+        return {"key": key, "gate": gate, "change": RUN.compare(n, {"verdict": after})}
+    got, _ = RUN.functional_verdict([row("a:lint", "FAIL", "FAIL", "block"), row("b:sim", *other)])
+    assert got == verdict
+    assert GATE.lands({"verdict": got}) is lands
+
+
 def test_jobs_store_gains_the_executor_column_once(tmp_path):
     import sqlite3
     from nanosoc_rm.config import load_config
