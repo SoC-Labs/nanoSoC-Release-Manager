@@ -10,19 +10,17 @@ change it gives a person the command or the patch.
 
 | If you want to | Read |
 |---|---|
-| use it for the first time | [docs/getting-started.md](docs/getting-started.md) |
-| do a task: check compatibility, bump, delete branches, release | [docs/user-guide.md](docs/user-guide.md) |
-| know what a word or a verdict means | [docs/concepts.md](docs/concepts.md) |
-| look up a command | [docs/cli.md](docs/cli.md) (generated from `--help`) |
-| see the pages | [docs/GUI.md](docs/GUI.md) |
-| install or operate the service | [docs/DEPLOY.md](docs/DEPLOY.md) |
+| use it for the first time | [Getting started](docs/getting-started.md) (day one, 20 minutes) |
+| do a task: check compatibility, bump, delete branches, release; what each page is for | [User guide](docs/user-guide.md) |
+| know what a word or a verdict means | [Concepts](docs/concepts.md) (the glossary) |
+| look up a command | [CLI reference](docs/cli.md) (generated from `--help`) |
+| install or operate the service | [Admin guide](docs/DEPLOY.md) |
 | see what changed | [CHANGELOG.md](CHANGELOG.md) |
-| change the tool | [Development](#development), then [docs/contracts/](docs/contracts/) |
+| change the tool | [Development](#development), then the [contracts](docs/contracts/) |
 
-The project record: requirements ([docs/REQUIREMENTS.md](docs/REQUIREMENTS.md), v1.0 frozen 2026-09-30), change
-requests ([docs/CHANGES.md](docs/CHANGES.md)), the gate 2 review ([docs/GATE2.md](docs/GATE2.md)), acceptance specs
-([docs/acceptance/](docs/acceptance/)), phase gates ([docs/phase-gates.yaml](docs/phase-gates.yaml)), version policy
-([docs/versioning.md](docs/versioning.md)) and the first week's plan ([docs/PLAN.md](docs/PLAN.md), historical).
+The project record: [requirements](docs/REQUIREMENTS.md) (v1.0, frozen 2026-09-30), [change requests](docs/CHANGES.md),
+[version policy](docs/versioning.md), [phase gates](docs/phase-gates.yaml), the [gate 2 review](docs/GATE2.md),
+[acceptance specs](docs/acceptance/) and [history](docs/archive/history.md) (finished plans, old upgrade notes).
 
 ## Quick start (command line)
 

@@ -1,4 +1,4 @@
-"""Load: the GUI pages (docs/GUI.md; interfaces.md sections 13, 13a) signed in as a local user.
+"""Load: the GUI pages (docs/user-guide.md section 10; interfaces.md sections 13, 13a) signed in as a local user.
 
 Every page carries the shell's left rail, and the rail ranks the whole inbox (web/shell.py rail ->
 web/inbox.py cards), so whatever the inbox reads, every page reads. Measured on <host> (2026-10-14), p50 of

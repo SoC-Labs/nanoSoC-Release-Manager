@@ -105,6 +105,10 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - New documentation: a day-one guide (`docs/getting-started.md`), a task-led user guide (`docs/user-guide.md`,
   replacing `docs/MVP.md`), one glossary (`docs/concepts.md`), a command reference generated from `--help`
   (`docs/cli.md`, kept in sync by a test) and this changelog. (CR-WG-docs)
+- Fewer, shorter documents: the README is an entry point to six guides; the page reference moved from
+  `docs/GUI.md` into the user guide (section 10) and the install steps into the admin guide (`docs/DEPLOY.md`);
+  finished plans and old upgrade notes moved to `docs/archive/history.md`; stale claims in the contracts fixed.
+  (CR-1019-docs)
 
 ## [0.1.0] - 2026-10-12
 

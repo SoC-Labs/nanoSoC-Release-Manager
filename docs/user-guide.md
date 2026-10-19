@@ -7,7 +7,7 @@ defined in [concepts.md](concepts.md); every command and option is in [cli.md](c
 The tool only reads repositories. It never pushes, tags or deletes; where a change is due it prints the command or
 writes a patch for a person.
 
-Marked **(coming)**: agreed but not built yet. Everything else here is on master (Wave G merged 2026-10-16).
+Marked **(coming)**: agreed but not built yet. Everything else is on master.
 
 ## Contents
 
@@ -20,6 +20,7 @@ Marked **(coming)**: agreed but not built yet. Everything else here is on master
 7. [Tidy comments and READMEs](#7-tidy-comments-and-readmes)
 8. [Classify a new repository](#8-classify-a-new-repository)
 9. [Troubleshooting](#9-troubleshooting)
+10. [The pages](#10-the-pages)
 
 ## 1. Set up the command line
 
@@ -316,3 +317,35 @@ To have a project measured, register a configuration for it: a merge request add
 | A Quality page says "not analysed yet" | nothing stored for that ref, and opening a page never starts an analysis | press **Analyse** |
 | A page says "analysing, refresh" | an analysis job is queued or running | refresh in about a minute |
 | Exit code 3 | usage or config error: unknown configuration, bad `--pin`, missing `NANOSOC_RM_CONFIG` | read the message; `nanosoc-rm <command> --help` |
+
+## 10. The pages
+
+The header holds **Projects** (Home), **Matrix**, **Releases**, **Silicon** and **Catalogue**; every other page is
+under **More**. `/` focuses the search box (configurations, components, commits); the bell opens Notifications.
+Every page shows its data age (the oldest fact on it), and every fact links to **src**, the commands that found it.
+States are always a word beside a shape, never colour alone. Buttons that change something exist only in a local
+deployment; elsewhere the page shows the CLI command instead.
+
+| Page | What it is for |
+|---|---|
+| Projects (`/`) | the tree of projects, configurations and pins with a freshness state each ([section 3](#3-should-i-bump-this-submodule)); freshness pills and **Filters** narrow it; **Timeline** draws each row's last bump; the right panel shows the selected row (for a pin: behind, upstream head, last bump, where else it lags, **Test this bump**; for a configuration: **Scan now**). Under the tree, closed: the configuration board with the last check verdict, red pins, errata, host drift and **Run** |
+| Notifications (the bell) | one line per item that needs a person, unread first; **Mark read**, **Mark all read** (only what the page showed), **Notify me about** (kinds and projects). The full cards with evidence and **Snooze** are at `/inbox` |
+| Configuration (`/configurations/<id>`) | tabs Overview (gates, deciding rows first; pins; waivers), Submodule tree, What-if (Now vs After per gate), Matrix, Silicon, History; **Walk now** |
+| Component (`/components/<id>`) | tabs Overview, Branches (the delete list; [section 4](#4-can-i-delete-this-branch)), Quality, Versions, Review (one finding at a time into a per-login `patch.diff`) |
+| Matrix (`/matrix/`) | **Freshness**: one row per repository, one column per configuration. **Compatibility** (`?tab=compat`): each component at its pin, the latest tag in range, the latest tag and its default-branch head; **Run cell/row/column/all** queue T0 jobs; the nightly matrix is off until its phase gate |
+| Releases, Publish | release drafts with **Draft** and **Verify** jobs, the errata document, forks of the example projects; Publish previews and then publishes a signed record ([section 6](#6-how-do-i-release)) |
+| Silicon | taped-out commits and whether a tag protects each, uncovered first |
+| Catalogue | new repositories from the nightly org scan (**Scan now**), entries with an open question, every group; **Save to catalogue** shows the `catalogue.yaml` patch ([section 8](#8-classify-a-new-repository)) |
+| Capabilities (`/capabilities/<id>`) | what each tree of a configuration declares in `.nanosoc/capabilities.yaml`, which hosts can run it, and its last test-bump result |
+| More | Compat, Branches, Hosts (**Compare now**), Contains, Registry, Mirrors (**Sync**; how each repo was read), Alerts (grouped by cause, **Clear**), Quality (**Analyse**), Versions, Bumps (shadow-mode proposals; **Scan now**), Store |
+
+**Repository, line, submodule pin.** A configuration is a line of its repository and reads "branch main @ 8e6d043"
+or "tag v1.0.0 @ ab73e40"; a submodule pin reads "path @ sha"; a repository pinned at two commits in one tree says
+PINNED ×2 on both rows. The legend is under **How is this judged?**. Codes such as ON_DEFAULT or T0 print as words;
+hover for the code.
+
+**Jobs.** Run, Sync, Walk, an analysis, a draft or verify and a fork listing each queue a job; one runs at a time,
+and its card shows the CLI command it runs. **Cancel** stops it and everything it started. A run without moved pins
+is stored; a what-if is shown but never stored. Tier jobs wait for an executor. If the service stops while a job
+runs, the job reads INFRA with the reason. Times on the eth configurations: walk about 15 s, a T0 check about 35 s
+once started, a sync of every mirror several minutes.

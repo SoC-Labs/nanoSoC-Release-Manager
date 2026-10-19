@@ -21,7 +21,7 @@ def test_a_local_user_with_an_explicit_empty_role_list_has_no_role():
 
 
 def test_a_local_user_without_roles_is_a_member_and_listed_roles_replace_it():
-    """The documented default (GUI.md: no [roles] needed, a local user is a member). Kills `or -> and`."""
+    """The documented default (DEPLOY.md step 5: no [roles] needed, a local user is a member). Kills `or -> and`."""
     assert auth.roles_for(_local([{"login": "alice", "hash": "h"}]), "alice") == {"member"}
     assert auth.roles_for(_local([{"login": "alice", "hash": "h", "roles": ["admin"]}]), "alice") == {"admin"}
     assert auth.roles_for(_local([{"login": "alice", "hash": "h"}]), "bob") == set()
