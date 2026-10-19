@@ -45,7 +45,7 @@ __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_pag
            "comments_view", "my_components", "overview_model"]
 
 PREFIX = "/quality"
-NAV_LABEL = "Quality"                                         # web/plugins.py: the top-navigation entry
+NAV_LABEL = "Code and doc quality"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
 _LOCKS: dict[str, threading.Lock] = {}

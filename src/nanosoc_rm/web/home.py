@@ -20,6 +20,8 @@ Rules this module keeps:
 - A configuration's verdict is its tree verdict (worst DIRECT pin, freshness.rules; a tree with a direct pin that
   could not be measured is never Current: "Current except N not measured" when nothing worse); a pin row shows the worst
   state at or below it (its rollup); a frozen silicon configuration says Frozen and "not counted", never Outdated.
+- "What needs me?" (web.needs): at most three one-line actions from stored facts, under the toolbar, hidden when
+  there are none.
 - The section 13 configuration board (AT-H1: per configuration the T0 result, red pins, errata, host drift,
   runner, data age and the one Run button) stays on this page, closed under the tree (`home.html`).
 """
@@ -34,7 +36,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock
-from nanosoc_rm.web import lines, registry_facts, uistate, views
+from nanosoc_rm.web import lines, needs, registry_facts, uistate, views
 from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["home_view", "dashboard", "router", "STATE_KEY", "WORD", "RULE", "PILLS", "KRANK", "sibling_rank",
@@ -469,7 +471,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
                          "span": tl.span_text() if tl else "",
                          "return_to": _url(st, open=open_, tl=None)},
             "rows": rows, "detail": detail, "state": st, "today": today.isoformat(),
-            "scanned": bool(data.trees), "n_projects": len(data.projects)}
+            "scanned": bool(data.trees), "n_projects": len(data.projects),
+            "needs": needs.items(config, data.chars)}
 
 
 def _open_default(st: dict, data: _Data) -> set[str]:

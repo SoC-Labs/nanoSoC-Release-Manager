@@ -127,6 +127,26 @@ header.top .topnav a[aria-current="page"] { background: var(--fp-accent-soft); c
   padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 6px 20px rgba(22, 24, 29, .14); }
 header.top .topnav-menu a { min-height: 32px; }
+.topnav-group { display: flex; flex-direction: column; }
+.topnav-group + .topnav-group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.topnav-h { margin: 4px 10px 2px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); }
+.topnav-more > summary.is-cur { background: var(--fp-accent-soft); color: var(--fp-accent-ink); font-weight: 700; }
+/* a phone: the header scrolls away with the page and keeps to two short rows (nav, then search and the bell) */
+@media (max-width: 700px) {
+  header.top { position: static; gap: 4px 10px; padding: 4px 12px; }
+  .brand-name span { display: none; }
+  .brand { min-height: 40px; }
+  .topnav { flex: 1 1 auto; gap: 2px; }
+  header.top .topnav a, .topnav-more > summary { padding: 6px 8px; }
+  .topnav-menu { left: auto; right: 0; }
+  .cmd { order: 3; flex: 1 1 60%; }
+  .cmdbox button { display: none; }
+  .hdr-right { order: 2; gap: 4px 8px; }
+  .hdr-right .age { font-size: 12px; }
+  .hdr-right [data-theme-toggle], .hdr-right .who { font-size: 12px; }
+  th { top: 0; }
+}
 .cmd { flex: 1 1 220px; max-width: 360px; margin-left: auto; position: relative; }
 .cmdbox { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border: 1px solid var(--control-line);
   border-radius: 8px; padding: 0 10px; min-height: 40px; }
@@ -409,6 +429,16 @@ form.inline { display: inline; margin: 0; }
 .fp-link { min-height: 32px; display: inline-flex; align-items: center; font-size: 13px; }
 .fp-filters { margin-top: 10px; padding: 10px 14px; background: var(--fp-panel); border: 1px solid var(--fp-line);
   border-radius: 10px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+/* "What needs me?" on Home: calm one-line rows, no tiles; the words carry it, the link is the action */
+.fp-needs { margin-top: 10px; padding: 6px 14px; background: var(--fp-panel); border: 1px solid var(--fp-line);
+  border-radius: 10px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; }
+.fp-needs-h { margin: 0; font-family: var(--font-body); font-size: 12px; font-weight: 700; color: var(--fp-muted);
+  text-transform: uppercase; letter-spacing: .04em; }
+.fp-needs ul { list-style: none; margin: 0; padding: 0; flex: 1 1 420px; }
+.fp-needs li { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: baseline; min-height: 32px; font-size: 14px;
+  color: var(--fp-ink); }
+.fp-needs li + li { border-top: 1px solid var(--fp-line-soft); }
+.fp-needs li a { font-weight: 700; }
 .fp-facet { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .fp-facet-h { font-size: 12px; font-weight: 700; color: var(--fp-muted); text-transform: uppercase; letter-spacing: .04em;
   margin-right: 4px; }

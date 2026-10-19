@@ -671,6 +671,7 @@ def _page(request: Request, ctx: Ctx, tab: str, template: str, problems: list[st
     head["primary"] = None if page_primary else ("action" if a and a.get("method") == "get" else "run")
     return request.app.state.rm.page(
         request, template, ctx.cid, status=status, problems=problems, crumbs=_crumbs(ctx, tab), c=ctx, tab=tab,
+        doc_title=ctx.cid if tab == "overview" else "%s · %s" % (dict((k, x) for k, x, _ in TABS)[tab], ctx.cid),
         head=head, tabs_=_tabs(request, ctx, tab, config), base=_base(ctx.cid),
         pending=[j for j in views.safe_jobs(config, states=("queued", "running"), configuration=ctx.cid)
                  if j["kind"] == "compat" and not j["params"].get("pins")]
@@ -686,7 +687,7 @@ def _fragment(request: Request, template: str, **kw: Any) -> HTMLResponse:
 
 def _not_found(request: Request) -> HTMLResponse:
     return request.app.state.rm.page(request, "message.html", "Not found", status=404,
-                                     message="No configuration is known here.")
+                                     message="No configuration is known here.", next_step=True)
 
 
 def _job_ctx(config: Any, job: dict | None) -> dict:

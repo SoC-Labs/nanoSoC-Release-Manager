@@ -35,7 +35,7 @@ __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV", "STATE_CLASS", "O
            "STATUS_CLASS"]
 
 PREFIX = "/bumps"
-NAV_LABEL = "Bumps"
+NAV_LABEL = "Bump proposals"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
 
@@ -166,7 +166,7 @@ def router(app: Any = None) -> APIRouter:
         data = await run_in_threadpool(_queue_data, config, request.query_params)
         job = request.query_params.get("job") or ""
         problems = data.pop("problems")
-        return _page(request, "bumps_queue.html", "Bump proposals (shadow mode)", problems=problems,
+        return _page(request, "bumps_queue.html", "Bump proposals", problems=problems,
                      job=_job_id(job), **data)
 
     async def proposal(request: Request, pid: str) -> Response:
@@ -200,7 +200,7 @@ def router(app: Any = None) -> APIRouter:
 
     async def ledger_page(request: Request) -> HTMLResponse:
         led, led_at, problems = await run_in_threadpool(_ledger_kept, config_of(request))
-        return _page(request, "bumps_ledger.html", "Shadow ledger (E2)", problems=problems, ledger=led,
+        return _page(request, "bumps_ledger.html", "Shadow ledger", problems=problems, ledger=led,
                      ledger_at=led_at)
 
     def facts(request: Request, subject: str) -> Response:

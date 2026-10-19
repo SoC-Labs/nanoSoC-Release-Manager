@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{{ title }} · nanoSoC Release Manager</title>
+<title>{{ doc_title }} · nanoSoC Release Manager</title>
 <link rel="stylesheet" href="/static/rm.css">
 <script src="/static/htmx.min.js" defer></script>
 <script src="/static/rm.js" defer></script>
@@ -20,9 +20,11 @@
   <nav aria-label="Main" class="topnav">
   {% for n in main_nav %}<a href="{{ n.href }}"{% if n.current %} aria-current="page"{% endif %}>{{ n.label }}</a>{% endfor %}
   {% if more_nav %}
-    <details class="topnav-more">
-      <summary>More</summary>
-      <div class="topnav-menu">{% for n in more_nav %}<a href="{{ n.href }}"{% if n.current %} aria-current="page"{% endif %}>{{ n.label }}</a>{% endfor %}</div>
+    <details class="topnav-more" data-more>
+      <summary{% if more_nav|selectattr("current")|list %} class="is-cur"{% endif %}>More</summary>
+      <div class="topnav-menu">{% for g in more_groups %}
+        <div class="topnav-group" role="group" aria-label="{{ g.label }}"><p class="topnav-h" aria-hidden="true">{{ g.label }}</p>{% for n in g.entries %}<a href="{{ n.href }}"{% if n.current %} aria-current="page"{% endif %}>{{ n.label }}</a>{% endfor %}</div>{% endfor %}
+      </div>
     </details>
   {% endif %}
   </nav>

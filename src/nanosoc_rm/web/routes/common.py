@@ -81,7 +81,8 @@ def _default_crumbs(nav: tuple, path: str, title: str) -> list[tuple[str, str | 
 
 
 def not_found(request: Request, what: str) -> HTMLResponse:
-    return page(request, "message.html", "Not found", status=404, message="No %s is known here." % what)
+    return page(request, "message.html", "Not found", status=404, message="No %s is known here." % what,
+                next_step=True)
 
 
 def registry_problems(config: Config) -> list[str]:

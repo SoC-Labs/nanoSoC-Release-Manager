@@ -24,7 +24,8 @@ from nanosoc_rm import clock
 from nanosoc_rm.web import lines as _lines, terms as _terms
 
 __all__ = ["Page", "env", "render", "fact_href", "short", "human_age", "STATE_CLASS", "EXPOSURE_CLASS",
-           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav"]
+           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav",
+           "MORE_GROUPS", "more_groups"]
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 
@@ -169,23 +170,31 @@ def _json(obj: Any) -> str:
 
 env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=select_autoescape(["html"]),
                   trim_blocks=True, lstrip_blocks=True)
-# The top navigation: (label, href, the path prefixes that mark it current). Plug-ins add entries per app.
-NAV = (("Projects", "/", ("/", "/configurations", "/runs")), ("Compat", "/compat", ("/compat",)),
-       ("Branches", "/branches", ("/branches",)), ("Hosts", "/hosts", ("/hosts",)),
-       ("Contains", "/contains", ("/contains",)), ("Silicon", "/silicon-protection", ("/silicon-protection",)),
-       ("Registry", "/components", ("/components", "/defects", "/errata")), ("Mirrors", "/mirrors", ("/mirrors",)),
+# Every page in the shell's navigation: (label, href, the path prefixes that mark it current). Each label is the
+# page's own title, so a link reads the same as the page it opens. Plug-ins add entries per app.
+NAV = (("Projects", "/", ("/", "/configurations", "/runs")), ("Compatibility check", "/compat", ("/compat",)),
+       ("Branches", "/branches", ("/branches",)), ("Host copies", "/hosts", ("/hosts",)),
+       ("Contains commit", "/contains", ("/contains",)),
+       ("Silicon protection", "/silicon-protection", ("/silicon-protection",)),
+       ("Components", "/components", ("/components", "/defects", "/errata")), ("Mirrors", "/mirrors", ("/mirrors",)),
        ("Alerts", "/alerts", ("/alerts",)))
 
 
-# The header's main navigation (design: Home.dc.html): label, href, the prefixes that mark it current.
-# An entry whose page is not built here (a plug-in not installed) is left out; every other page is under More.
+# The header's main navigation: four places plus the bell. An entry whose page is not built here (a plug-in not
+# installed) is left out; every other page is under More, in MORE_GROUPS.
 TOP_NAV = (("Projects", "/", ("/",)), ("Matrix", "/matrix/", ("/matrix",)), ("Releases", "/releases/", ("/releases",)),
-           ("Silicon", "/silicon-protection", ("/silicon-protection",)), ("Catalogue", "/catalogue/", ("/catalogue",)))
-_CORE_TOP = ("/", "/silicon-protection")
+           ("Catalogue", "/catalogue/", ("/catalogue",)))
+_CORE_TOP = ("/",)
+# More, in three groups: what checks a tree, what reads the repositories, what makes a release. A plug-in page not
+# listed here goes under Other.
+MORE_GROUPS = (("Check", ("/compat", "/silicon-protection", "/quality/", "/alerts")),
+               ("Repos", ("/components", "/branches", "/hosts", "/mirrors", "/contains")),
+               ("Release", ("/versions/", "/bumps/", "/store/", "/publish/")))
 
 
 def top_nav(nav: tuple, path: str) -> tuple[list[dict], list[dict]]:
-    """(main entries, the rest under More) for the header, each {label, href, current}."""
+    """(main entries, the rest under More) for the header, each {label, href, current}; a More entry also
+    carries its `group`, and the More list is in MORE_GROUPS order."""
     def cur(prefixes) -> bool:
         return any(path == p or (p != "/" and path.startswith(p.rstrip("/") + "/")) or
                    (p != "/" and path == p.rstrip("/")) for p in prefixes)
@@ -193,9 +202,22 @@ def top_nav(nav: tuple, path: str) -> tuple[list[dict], list[dict]]:
     main = [{"label": label, "href": href, "current": cur(prefixes)} for label, href, prefixes in TOP_NAV
             if href in _CORE_TOP or href in hrefs]
     taken = {m["href"] for m in main}
-    more = [{"label": label, "href": href, "current": cur(prefixes)} for label, href, prefixes in nav
-            if href not in taken]
+    group_of = {href: g for g, hrefs_ in MORE_GROUPS for href in hrefs_}
+    order = {g: i for i, (g, _) in enumerate(MORE_GROUPS)}
+    more = [{"label": label, "href": href, "current": cur(prefixes), "group": group_of.get(href, "Other")}
+            for label, href, prefixes in nav if href not in taken]
+    more.sort(key=lambda m: order.get(m["group"], len(order)))
     return main, more
+
+
+def more_groups(more: list[dict]) -> list[dict]:
+    """The More entries as [{label, entries}] in MORE_GROUPS order (Other last), leaving out empty groups."""
+    out: list[dict] = []
+    for m in more:
+        if not out or out[-1]["label"] != m["group"]:
+            out.append({"label": m["group"], "entries": []})
+        out[-1]["entries"].append(m)
+    return out
 
 
 def _age_text(at: str | None) -> str:
@@ -220,12 +242,13 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
            now: dt.datetime | None = None, csrf: str = "", environment: Environment | None = None,
            nav: tuple = NAV, path: str = "", auth_mode: str = "github", rail: dict | None = None,
            crumbs: list | None = None, tabs: list | None = None, tab_current: str | None = None,
-           bell: int | None = None, bare: bool = False, **ctx: Any) -> str:
+           bell: int | None = None, bare: bool = False, doc_title: str | None = None, **ctx: Any) -> str:
     """The body template rendered first (its facts recorded), then the layout with the page's data age.
     `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's).
     Shell: `rail` (shell.rail), `crumbs` [(label, href)], `tabs` [{key, label, href, count}] and
     `tab_current` (a tab's key or href) go to the layout only. Header: `bell` (unread notifications, None
-    when unknown) and `bare` (the page prints its own title: no title bar)."""
+    when unknown) and `bare` (the page prints its own title: no title bar). `doc_title`: the browser tab's title
+    when it should say more than the heading (a workspace tab: "History · eth-rc4")."""
     page = Page(now)
     body_env = environment or env
     body_env.globals.update({k: v for k, v in env.globals.items() if k not in body_env.globals})
@@ -234,7 +257,7 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
     current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
     main_nav, more_nav = top_nav(tuple(nav), path)
     return env.get_template("layout.html").render(
-        body=Markup(body), title=title, main_nav=main_nav, more_nav=more_nav, bell=bell, bare=bare,
+        body=Markup(body), title=title, doc_title=doc_title or title, main_nav=main_nav, more_nav=more_nav, more_groups=more_groups(more_nav), bell=bell, bare=bare,
         path_is_notifications=path == "/notifications" or path.startswith("/notifications/"), identity=identity, problems=problems or [], csrf=csrf, nav=nav,
         current=current[1] if current else None, auth_mode=auth_mode, rail=rail, crumbs=crumbs or [], tabs=tabs or [],
         tab_current=tab_current,

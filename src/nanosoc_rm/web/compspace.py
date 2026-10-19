@@ -448,14 +448,15 @@ def _workspace(request: Request, comp: str, tab: str, template: str, *, problems
              left=_left(config, login_of(request), comp, qv))
     return request.app.state.rm.page(
         request, template, comp, status=status, problems=problems, crumbs=_crumbs(comp, tab), hdr=hdr,
-        ws_tabs=t, ws_tab=tab, comp=comp, qv=qv, href=_href, **ctx)
+        ws_tabs=t, ws_tab=tab, comp=comp, qv=qv, href=_href,
+        doc_title=comp if tab == "overview" else "%s · %s" % (TAB_LABEL.get(tab, tab), comp), **ctx)
 
 
 def _bad(request: Request, comp: str) -> Response | None:
     config, _ = _ctx(request)
     if not views.is_valid_id(comp) or not _known(config, comp):
         return request.app.state.rm.page(request, "message.html", "Not found", status=404,
-                                         message="No component is known here.")
+                                         message="No component is known here.", next_step=True)
     return None
 
 

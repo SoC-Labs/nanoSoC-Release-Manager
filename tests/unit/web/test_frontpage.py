@@ -285,13 +285,21 @@ def test_no_github_ci_deployment_gets_a_wave_f_post(service, registry_spy, tmp_p
 
 
 # ----- the header ------------------------------------------------------------------------------------------------
-def test_the_header_has_the_five_entries_more_search_and_the_bell(fp):
+def test_the_header_has_four_places_more_search_and_the_bell(fp):
     text = fp["client"].get("/matrix/").text
     nav = re.search(r'<nav aria-label="Main" class="topnav">(.*?)</nav>', text, re.S).group(1)
     main = re.findall(r'<a href="([^"]+)"[^>]*>([^<]+)</a>', nav.split("<details")[0])
-    assert [x[1] for x in main] == ["Projects", "Matrix", "Releases", "Silicon", "Catalogue"]
+    assert [x[1] for x in main] == ["Projects", "Matrix", "Releases", "Catalogue"]
     assert re.search(r'<a href="/matrix/" aria-current="page">Matrix</a>', nav)
-    assert "<summary>More</summary>" in nav and ">Compat</a>" in nav
+    assert "<summary>More</summary>" in nav
+    # More: three labelled groups, each entry named as its page is titled
+    groups = re.findall(r'role="group" aria-label="([^"]+)"><p class="topnav-h"[^>]*>[^<]*</p>(.*?)</div>', nav, re.S)
+    assert [g for g, _ in groups][:3] == ["Check", "Repos", "Release"], groups
+    more = dict(groups)
+    assert ">Compatibility check</a>" in more["Check"] and ">Silicon protection</a>" in more["Check"]
+    assert ">Components</a>" in more["Repos"] and ">Host copies</a>" in more["Repos"]
+    for label in ("Compat", "Silicon", "Registry", "Hosts", "Contains"):
+        assert ">%s</a>" % label not in nav, label
     assert ">Freshness</a>" not in nav and 'href="/freshness/"' not in nav     # CR-1015-retire: page retired
     assert 'id="cmd" type="search"' in text
     bell = re.search(r'<a class="bell" href="/notifications" data-bell="(\d+)" aria-label="Notifications, (\d+) unread"',

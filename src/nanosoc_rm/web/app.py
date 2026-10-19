@@ -32,7 +32,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from fastapi import FastAPI
+from fastapi.exception_handlers import http_exception_handler
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import HTTPConnection, Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from starlette.staticfiles import StaticFiles
@@ -370,4 +372,15 @@ def create_app(config_path: str | os.PathLike | None = None, auth: Any = None, *
     routers.mount(app)                   # first: a workspace's deeper routes match before the app's own
     routers.mount_core(app)
     state.nav = NAV + tuple(plugins.load(app))
+    app.add_exception_handler(StarletteHTTPException, _http_error)
     return app
+
+
+async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
+    """An address no route serves: a signed-in person's page GET gets the styled Not found page with a next
+    step; the JSON API, other methods and other statuses keep the framework's answer."""
+    path = request.url.path
+    if (exc.status_code == 404 and request.method in _SAFE_METHODS and not _is_under(path, "/api")
+            and "identity" in request.scope.get("state", {})):
+        return common.not_found(request, "page at this address")
+    return await http_exception_handler(request, exc)
