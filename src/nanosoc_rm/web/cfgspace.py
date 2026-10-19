@@ -388,15 +388,7 @@ def pin_headline(v: dict, ctx: Ctx) -> str:
 
 def pin_aside(config: Any, ctx: Ctx, path: str | None) -> dict | None:
     """The selected-pin aside: headline, hosts, lag, silicon coverage, split twins, notes, next step."""
-    tv = tree_view(ctx, node=path)
-    v = None
-    stack = list(tv["rows"])
-    while stack:
-        x = stack.pop()
-        if x["path"] == tv["selected"]:
-            v = x
-            break
-        stack.extend(x["children"])
+    v = _selected_row(tree_view(ctx, node=path))
     if v is None:
         return None
     f = v["pin"]["fact"]
@@ -405,44 +397,80 @@ def pin_aside(config: Any, ctx: Ctx, path: str | None) -> dict | None:
     cover = [d for d in ctx.silicon if v["path"] in (d["fact"].get("tree_paths") or [])]
     covering = sorted({t for d in cover for t in d["fact"].get("covering_tags") or []})
     uncovered = [d for d in cover if not d["fact"].get("covered")]
-    twins = [p for p in ctx.pins if (p["fact"].get("child") or {}).get("component") == comp and comp
-             and p["fact"]["tree_paths"][0] != v["path"]] if v["split"] else []
-    notes, code, action = [], None, None
-    texts = [t for t, _ in v["flags"]]
-    if any(t.startswith("GATE FAIL") for t in texts):
-        act = V.next_action(ctx.decision, ctx.cid, V.https_url(config, comp) if ctx.decision.kind == "ssh-pin"
-                            else None, ctx.doc)
-        nxt = act["label"] if act else "Open the Overview"
-        code = (act or {}).get("code")
-        action = {"label": "What-if for %s" % comp, "href": "%s/whatif?component=%s" % (base, _q(comp))} \
-            if ctx.decision.kind == "ssh-pin" else {"label": "Open the deciding gate",
-                                                    "href": "%s#gate-%s" % (base, ctx.decision.gate)}
-    elif uncovered:
-        nxt = "Tag the commit so no branch delete can lose it."
-        code = "git tag keep/%s/%s %s\ngit push origin keep/%s/%s" % (ctx.cid, comp, f["child"]["commit"], ctx.cid,
-                                                                      comp)
-        if any(d["fact"].get("state") == "UNREADABLE" for d in uncovered):
-            notes.append("UNREADABLE: run it from a checkout that can read this repo.")
-        action = {"label": "Open the Silicon tab", "href": "%s/silicon" % base}
-    elif v["split"]:
-        nxt = "Decide whether the pins of %s should meet at one commit." % comp
-        action = {"label": "What-if for %s" % comp, "href": "%s/whatif?component=%s" % (base, _q(comp))}
-    else:
-        nxt = "Nothing to do here." if v["tone"] == "ok" else "Read the component's host copies and branches."
-        action = {"label": "Open component %s" % comp, "href": "/components/%s" % _q(comp)} if comp else None
+    nxt, code, action, notes = _aside_next(config, ctx, v, uncovered)
     if f.get("url_kind") == "ssh":
         notes.append("Pinned by an ssh URL: an anonymous clone cannot fetch it.")
     if v["below"]:
         notes.append("%d trees below this pin were never reached: the walk could not fetch it." % v["below"])
     return {"v": v, "headline": pin_headline(v, ctx), "lag": v["lag"], "hosts": v["hosts"],
-            "cover": ("covered by " + ", ".join(covering)) if covering and not uncovered else
-                     ("UNCOVERED" if uncovered else ("not a silicon commit" if not ctx.frozen else "no row stored")),
-            "cover_tone": "c-pass" if covering and not uncovered else ("c-fail" if uncovered else "c-neutral"),
-            "twins": [{"path": t["fact"]["tree_paths"][0], "commit": t["fact"]["child"]["commit"][:7], "doc": t,
-                       "href": "%s/tree?node=%s" % (base, _q(t["fact"]["tree_paths"][0]))} for t in twins],
+            **_aside_cover(ctx, covering, uncovered),
+            "twins": _aside_twins(ctx, v, comp, base),
             "notes": notes, "next": nxt, "code": code, "action": action,
             # Test this bump on a pin row (the capabilities page queues it for an executor)
             "test_bump": None if ctx.frozen else _test_bump_href(ctx.cid, f["tree_paths"][0])}
+
+
+def _aside_twins(ctx: Ctx, v: dict, comp: str, base: str) -> list[dict]:
+    """The other pins of a split component in this tree."""
+    twins = [p for p in ctx.pins if (p["fact"].get("child") or {}).get("component") == comp and comp
+             and p["fact"]["tree_paths"][0] != v["path"]] if v["split"] else []
+    return [{"path": t["fact"]["tree_paths"][0], "commit": t["fact"]["child"]["commit"][:7], "doc": t,
+             "href": "%s/tree?node=%s" % (base, _q(t["fact"]["tree_paths"][0]))} for t in twins]
+
+
+def _selected_row(tv: dict) -> dict | None:
+    """The tree row whose path is the view's selected one, searched depth first."""
+    stack = list(tv["rows"])
+    while stack:
+        x = stack.pop()
+        if x["path"] == tv["selected"]:
+            return x
+        stack.extend(x["children"])
+    return None
+
+
+def _aside_next(config: Any, ctx: Ctx, v: dict, uncovered: list[dict]) -> tuple[str, str | None, dict | None,
+                                                                                    list[str]]:
+    """The aside's next step: (sentence, code, action, notes), by the first of deciding gate, uncovered silicon,
+    split pin, else the component."""
+    if any(t.startswith("GATE FAIL") for t, _ in v["flags"]):
+        return _aside_gate_next(config, ctx, v["component"] or "") + ([],)
+    comp = v["component"] or ""
+    base = _base(ctx.cid)
+    if uncovered:
+        commit = v["pin"]["fact"]["child"]["commit"]
+        code = "git tag keep/%s/%s %s\ngit push origin keep/%s/%s" % (ctx.cid, comp, commit, ctx.cid, comp)
+        notes = ["UNREADABLE: run it from a checkout that can read this repo."] \
+            if any(d["fact"].get("state") == "UNREADABLE" for d in uncovered) else []
+        return ("Tag the commit so no branch delete can lose it.", code,
+                {"label": "Open the Silicon tab", "href": "%s/silicon" % base}, notes)
+    if v["split"]:
+        return ("Decide whether the pins of %s should meet at one commit." % comp, None,
+                {"label": "What-if for %s" % comp, "href": "%s/whatif?component=%s" % (base, _q(comp))}, [])
+    nxt = "Nothing to do here." if v["tone"] == "ok" else "Read the component's host copies and branches."
+    return nxt, None, ({"label": "Open component %s" % comp, "href": "/components/%s" % _q(comp)} if comp
+                       else None), []
+
+
+def _aside_gate_next(config: Any, ctx: Ctx, comp: str) -> tuple[str, str | None, dict]:
+    """The next step when the selected pin holds the deciding gate."""
+    base = _base(ctx.cid)
+    act = V.next_action(ctx.decision, ctx.cid, V.https_url(config, comp) if ctx.decision.kind == "ssh-pin"
+                        else None, ctx.doc)
+    nxt = act["label"] if act else "Open the Overview"
+    action = {"label": "What-if for %s" % comp, "href": "%s/whatif?component=%s" % (base, _q(comp))} \
+        if ctx.decision.kind == "ssh-pin" else {"label": "Open the deciding gate",
+                                                "href": "%s#gate-%s" % (base, ctx.decision.gate)}
+    return nxt, (act or {}).get("code"), action
+
+
+def _aside_cover(ctx: Ctx, covering: list[str], uncovered: list[dict]) -> dict:
+    """The silicon-coverage line and its tone."""
+    if covering and not uncovered:
+        return {"cover": "covered by " + ", ".join(covering), "cover_tone": "c-pass"}
+    if uncovered:
+        return {"cover": "UNCOVERED", "cover_tone": "c-fail"}
+    return {"cover": "not a silicon commit" if not ctx.frozen else "no row stored", "cover_tone": "c-neutral"}
 
 
 def _test_bump_href(cid: str, tree_path: str) -> str | None:
@@ -541,25 +569,34 @@ def targets(config: Any, cid: str, comp: str, pins: list[dict], refs: list[dict]
     refs = views.component_refs(config, comp) if refs is None else refs
     mine = [p for p in pins if (p["fact"].get("child") or {}).get("component") == comp]
     pinned = {p["fact"]["child"]["commit"] for p in mine}
+    canon_host, default = _canonical_default(mine)
+    out: list[dict] = []
+    seen: set[str] = set(pinned)
+    candidates = [(t["key"], t["label"], t["ref"], t["commit"], t["note"])
+                  for t in _matrix_targets(config, cid, comp)]
+    candidates += _ref_targets(refs, default, canon_host, pinned)
+    candidates += _pin_targets(config, cid, comp)
+    candidates += _fix_targets(config, comp)
+    for key, label, ref, commit, note in candidates:
+        if commit and commit not in seen:
+            seen.add(commit)
+            out.append({"key": key, "label": label, "ref": ref, "commit": commit, "note": note})
+    return out
+
+
+def _canonical_default(mine: list[dict]) -> tuple[str | None, str | None]:
+    """The canonical host of these pins (else the first host met) and its default branch."""
     canon_host, default = None, None
     for p in mine:
         for host, h in (p["fact"].get("hosts") or {}).items():
             if h.get("role") == "canonical" or canon_host is None:
                 canon_host, default = host, h.get("default_branch") or default
-    out: list[dict] = []
-    seen: set[str] = set(pinned)
+    return canon_host, default
 
-    def add(key: str, label: str, ref: str, commit: str | None, note: str) -> None:
-        if commit and commit not in seen:
-            seen.add(commit)
-            out.append({"key": key, "label": label, "ref": ref, "commit": commit, "note": note})
-    for t in _matrix_targets(config, cid, comp):
-        add(t["key"], t["label"], t["ref"], t["commit"], t["note"])
-    tip = next((r for r in refs if r["kind"] == "branch" and r["name"] == default and r["host"] == canon_host),
-               None) or next((r for r in refs if r["kind"] == "branch" and r["name"] == default), None)
-    if tip:
-        add("tip", "Default branch tip", "%s %s" % (tip["host"], tip["name"]), tip["sha"],
-            "last commit %s" % (tip["date"] or "")[:10])
+
+def _ref_targets(refs: list[dict], default: str | None, canon_host: str | None, pinned: set[str]) -> list[tuple]:
+    """The default branch tip, the latest version tag and the newest tag not pinned, from the mirror's refs."""
+    out = _tip_target(refs, default, canon_host)
     tags = [r for r in refs if r["kind"] == "tag"]
     try:                                         # the matrix's latest-tag rule (vMAJOR.MINOR[.PATCH]); pure, no git
         from nanosoc_rm.matrix.versions import DEFAULT_POLICY
@@ -568,24 +605,45 @@ def targets(config: Any, cid: str, comp: str, pins: list[dict], refs: list[dict]
         latest = None
     vt = next((r for r in tags if r["name"] == latest), None)
     if vt:
-        add("version-tag", "Latest version tag", vt["name"], vt["sha"],
-            "tagged %s on %s" % ((vt["date"] or "")[:10], vt["host"]))
+        out.append(("version-tag", "Latest version tag", vt["name"], vt["sha"],
+                    "tagged %s on %s" % ((vt["date"] or "")[:10], vt["host"])))
     tag = next((r for r in tags if r["sha"] not in pinned), None)
     if tag:
-        add("tag", "Newest tag by date", tag["name"], tag["sha"],
-            "tagged %s on %s" % ((tag["date"] or "")[:10], tag["host"]))
+        out.append(("tag", "Newest tag by date", tag["name"], tag["sha"],
+                    "tagged %s on %s" % ((tag["date"] or "")[:10], tag["host"])))
+    return out
+
+
+def _tip_target(refs: list[dict], default: str | None, canon_host: str | None) -> list[tuple]:
+    """The default branch's tip, on the canonical host when it has the branch."""
+    tip = next((r for r in refs if r["kind"] == "branch" and r["name"] == default and r["host"] == canon_host),
+               None) or next((r for r in refs if r["kind"] == "branch" and r["name"] == default), None)
+    if not tip:
+        return []
+    return [("tip", "Default branch tip", "%s %s" % (tip["host"], tip["name"]), tip["sha"],
+             "last commit %s" % (tip["date"] or "")[:10])]
+
+
+def _pin_targets(config: Any, cid: str, comp: str) -> list[tuple]:
+    """The commits the other configurations pin `comp` at."""
+    out = []
     for d in db.latest("pin_state", "pin_state:", config=config):
         f = d["fact"]
         if f.get("configuration") != cid and (f.get("child") or {}).get("component") == comp:
-            add("pin-" + f["configuration"], "Pinned in %s" % f["configuration"], f["tree_paths"][0],
-                f["child"].get("commit"), "the commit %s uses" % f["configuration"])
+            out.append(("pin-" + f["configuration"], "Pinned in %s" % f["configuration"], f["tree_paths"][0],
+                        f["child"].get("commit"), "the commit %s uses" % f["configuration"]))
+    return out
+
+
+def _fix_targets(config: Any, comp: str) -> list[tuple]:
+    """The commits that fix a defect form citing `comp`."""
+    out = []
     for dd in views.defects(config):
         rec = dd["fact"].get("record") or {}
         for form in rec.get("forms") or []:
-            for fx in form.get("fixed_in") or []:
-                if fx.get("component") == comp:
-                    add("fix-%s-%s" % (dd["fact"]["id"], form.get("id")), "Fix for %s" % dd["fact"]["id"],
-                        "form %s" % form.get("id"), fx.get("commit"), rec.get("title") or "")
+            out += [("fix-%s-%s" % (dd["fact"]["id"], form.get("id")), "Fix for %s" % dd["fact"]["id"],
+                     "form %s" % form.get("id"), fx.get("commit"), rec.get("title") or "")
+                    for fx in form.get("fixed_in") or [] if fx.get("component") == comp]
     return out
 
 
@@ -809,29 +867,74 @@ def whatif_page(request: Request, id: str) -> Response:
     if ctx is None:
         return _not_found(request)
     q = request.query_params
+    job, problems = _whatif_job(config, request, ctx, problems)
+    result = _whatif_result(config, ctx, job)
+    # the question: which component, which target, which of its paths
+    tree_comps = _tree_components(ctx)
+    comp, problems = _whatif_component(ctx, q, job, tree_comps, problems)
+    comp_rows = _whatif_comp_rows(config, ctx, q, tree_comps, comp)
+    refs = views.component_refs(config, comp) if comp else []
+    tg = targets(config, ctx.cid, comp, ctx.pins, refs) if comp else []
+    target, target_label = _whatif_target(q, tg, refs)
+    paths = [p["fact"]["tree_paths"][0] for p in tree_comps.get(comp, [])]
+    chosen = q.getlist("path") if q.get("paths_set") else paths
+    chosen = [p for p in paths if p in chosen]
+    tiers, problems = _whatif_tiers(config, ctx, problems)
+    act, steps = _whatif_steps(config, ctx)
+    refs_by_kind = {"tag": [r for r in refs if r["kind"] == "tag"], "branch": [r for r in refs if r["kind"] == "branch"]}
+    return _page(request, ctx, "whatif", "cfg_whatif.html", problems=problems, result=result,
+                 page_primary=bool(comp and target and request.app.state.rm.local_routes),
+                 change_tone=CHANGE_TONE, comp=comp, comp_rows=comp_rows, flt=q.get("q") or "", targets=tg,
+                 target=target, target_label=target_label, refs=refs_by_kind, n_refs=len(refs), paths=paths,
+                 chosen=chosen, tiers=tiers, steps=steps, code=(act or {}).get("code"),
+                 tier_blocked=views.tiers_this_host_could_not_run(views.compat_results(config, ctx.cid)[:10]),
+                 **_whatif_command(ctx, comp, paths, chosen, target),
+                 pin_refs=_whatif_pin_refs(config, ctx) if q.get("all") else None,
+                 **(_job_ctx(config, job) if job else {"job": None}))
+
+
+def _whatif_job(config: Any, request: Request, ctx: Ctx, problems: list[str]) -> tuple[dict | None, list[str]]:
+    """The ?job= the page shows, or None with a problem when it is not a compat job of this configuration."""
     job = _job_arg(config, request)
     if job is not None and (job["kind"] != "compat" or job["params"].get("configuration") != ctx.cid):
         problems = problems + ["job %d is not a compat job of %s" % (job["id"], ctx.cid)]
         job = None
-    result = None
-    if job is not None and job.get("result") and job["state"] not in ("queued", "running"):
-        after = job["result"]
-        now = ctx.doc
-        rows = diff_gates(now, after)
-        changed = sum(1 for r in rows if r["change"] != "same")
-        now_job = _job_matching(config, now)
-        result = {"rows": rows, "changed": changed, "unchanged": len(rows) - changed, "now": now, "after": after,
-                  "now_line": ("stored result %s%s, %s" % (now["fact"]["nonce"][:12],
-                                                          ", job %d" % now_job["id"] if now_job else "",
-                                                          _ago(now["fact"].get("finished_at")))) if now else None,
-                  "moved": (after.get("fact") or {}).get("overrides") or [],
-                  "infra": V.deciding(after, ctx.record).infra_text}
-    # the question: which component, which target, which of its paths
+    return job, problems
+
+
+def _whatif_result(config: Any, ctx: Ctx, job: dict | None) -> dict | None:
+    """The finished job's result set against the stored one, gate by gate; None while there is none to show."""
+    if job is None or not job.get("result") or job["state"] in ("queued", "running"):
+        return None
+    after = job["result"]
+    now = ctx.doc
+    rows = diff_gates(now, after)
+    changed = sum(1 for r in rows if r["change"] != "same")
+    return {"rows": rows, "changed": changed, "unchanged": len(rows) - changed, "now": now, "after": after,
+            "now_line": _whatif_now_line(config, now) if now else None,
+            "moved": (after.get("fact") or {}).get("overrides") or [],
+            "infra": V.deciding(after, ctx.record).infra_text}
+
+
+def _whatif_now_line(config: Any, now: dict) -> str:
+    now_job = _job_matching(config, now)
+    return "stored result %s%s, %s" % (now["fact"]["nonce"][:12], ", job %d" % now_job["id"] if now_job else "",
+                                       _ago(now["fact"].get("finished_at")))
+
+
+def _tree_components(ctx: Ctx) -> dict[str, list[dict]]:
+    """The stored tree's pins grouped by the component they pin, in pin order."""
     tree_comps: dict[str, list[dict]] = {}
     for p in ctx.pins:
         comp = (p["fact"].get("child") or {}).get("component")
         if comp:
             tree_comps.setdefault(comp, []).append(p)
+    return tree_comps
+
+
+def _whatif_component(ctx: Ctx, q: Any, job: dict | None, tree_comps: dict[str, list[dict]],
+                      problems: list[str]) -> tuple[str | None, list[str]]:
+    """The component asked about: ?component=, else the deciding ssh pin's, else the job's first override's."""
     comp = q.get("component") or (ctx.decision.component if ctx.decision.kind == "ssh-pin" else None) \
         or ((job or {}).get("params", {}).get("pins") and _comp_of_override(ctx, job)) or None
     if comp not in tree_comps:
@@ -840,28 +943,41 @@ def whatif_page(request: Request, id: str) -> Response:
             problems = problems + ["%s has no component %s in its stored tree: pick one from the list below"
                                    % (ctx.cid, asked[:80])]
         comp = None
+    return comp, problems
+
+
+def _whatif_comp_rows(config: Any, ctx: Ctx, q: Any, tree_comps: dict[str, list[dict]],
+                      comp: str | None) -> list[dict]:
+    """The component picker: flagged components first, filtered by ?q=."""
     fl = shell.component_flags(config)
     flt = (q.get("q") or "").strip().lower()
     comps = sorted(tree_comps, key=lambda c: (0 if fl.get(c) else 1, c))
-    comp_rows = [{"id": c, "flag": (fl.get(c) or [None])[0], "pin": tree_comps[c][0]["fact"]["child"]["commit"][:7],
-                  "n": len(tree_comps[c]), "on": c == comp,
-                  "href": "%s/whatif?component=%s" % (_base(ctx.cid), _q(c))}
-                 for c in comps if not flt or flt in c.lower()]
-    refs = views.component_refs(config, comp) if comp else []
-    tg = targets(config, ctx.cid, comp, ctx.pins, refs) if comp else []
+    return [{"id": c, "flag": (fl.get(c) or [None])[0], "pin": tree_comps[c][0]["fact"]["child"]["commit"][:7],
+             "n": len(tree_comps[c]), "on": c == comp, "href": "%s/whatif?component=%s" % (_base(ctx.cid), _q(c))}
+            for c in comps if not flt or flt in c.lower()]
+
+
+def _whatif_target(q: Any, tg: list[dict], refs: list[dict]) -> tuple[str, str | None]:
+    """The target commit (a full sha, else "") and the words that name it."""
     target = q.get("target_other") or q.get("target") or ""
     target = target if len(target) == 40 and all(ch in "0123456789abcdef" for ch in target) else ""
     target_label = next((t["label"] + (" " + t["ref"] if t["ref"] else "") for t in tg if t["commit"] == target),
                         None) or next((r["name"] for r in refs if r["sha"] == target), None) or (target[:7] or None)
-    paths = [p["fact"]["tree_paths"][0] for p in tree_comps.get(comp, [])]
-    chosen = q.getlist("path") if q.get("paths_set") else paths
-    chosen = [p for p in paths if p in chosen]
+    return target, target_label
+
+
+def _whatif_tiers(config: Any, ctx: Ctx, problems: list[str]) -> tuple[dict, list[str]]:
     tiers = {}
     try:
         from nanosoc_rm.ci import configs as cimod
         tiers = cimod.tiers(ctx.cid, config)
     except Exception as e:                                       # noqa: BLE001 - the form still works without tiers
         problems = problems + ["tiers.yaml could not be read for %s: %s" % (ctx.cid, str(e)[:200])]
+    return tiers, problems
+
+
+def _whatif_steps(config: Any, ctx: Ctx) -> tuple[dict | None, list[dict]]:
+    """The next action and the steps after it, in the order the causes decide."""
     https = V.https_url(config, ctx.decision.component) if ctx.decision.kind == "ssh-pin" else None
     act = V.next_action(ctx.decision, ctx.cid, https, ctx.doc)
     steps = []
@@ -869,22 +985,22 @@ def whatif_page(request: Request, id: str) -> Response:
         steps.append({"lead": act["label"] + ".", "rest": ctx.decision.label})
     for c in ctx.causes[1:]:
         steps.append({"lead": "Then:", "rest": "%s (%s)" % (c.label, ", ".join(c.gates))})
-    refs_by_kind = {"tag": [r for r in refs if r["kind"] == "tag"], "branch": [r for r in refs if r["kind"] == "branch"]}
-    return _page(request, ctx, "whatif", "cfg_whatif.html", problems=problems, result=result,
-                 page_primary=bool(comp and target and request.app.state.rm.local_routes),
-                 change_tone=CHANGE_TONE, comp=comp, comp_rows=comp_rows, flt=q.get("q") or "", targets=tg,
-                 target=target, target_label=target_label, refs=refs_by_kind, n_refs=len(refs), paths=paths,
-                 chosen=chosen, tiers=tiers, steps=steps, code=(act or {}).get("code"),
-                 tier_blocked=views.tiers_this_host_could_not_run(views.compat_results(config, ctx.cid)[:10]),
-                 pin_values=["%s=%s" % (p, target) for p in chosen] if target else [],
-                 cli="nanosoc-rm compat %s%s" % (ctx.cid, "".join(" --pin %s=%s" % (p, target) for p in chosen)
-                                                 if target else " --pin TREE_PATH=SHA"),
-                 expect=expectation(ctx.decision, comp, ctx.cid, paths) if comp else expectation(ctx.decision, None,
-                                                                                                    ctx.cid),
-                 pin_refs={p["fact"]["tree_paths"][0]: views.component_refs(config, (p["fact"].get("child") or {})
-                                                                            .get("component") or "")
-                           for p in ctx.pins} if q.get("all") else None,
-                 **(_job_ctx(config, job) if job else {"job": None}))
+    return act, steps
+
+
+def _whatif_command(ctx: Ctx, comp: str | None, paths: list[str], chosen: list[str], target: str) -> dict:
+    """The --pin values, the CLI line and the expectation for the question as asked."""
+    return {"pin_values": ["%s=%s" % (p, target) for p in chosen] if target else [],
+            "cli": "nanosoc-rm compat %s%s" % (ctx.cid, "".join(" --pin %s=%s" % (p, target) for p in chosen)
+                                               if target else " --pin TREE_PATH=SHA"),
+            "expect": expectation(ctx.decision, comp, ctx.cid, paths) if comp else expectation(ctx.decision, None,
+                                                                                               ctx.cid)}
+
+
+def _whatif_pin_refs(config: Any, ctx: Ctx) -> dict[str, list[dict]]:
+    return {p["fact"]["tree_paths"][0]: views.component_refs(config, (p["fact"].get("child") or {})
+                                                             .get("component") or "")
+            for p in ctx.pins}
 
 
 def _comp_of_override(ctx: Ctx, job: dict) -> str | None:

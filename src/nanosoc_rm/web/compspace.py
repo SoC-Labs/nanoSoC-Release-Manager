@@ -177,6 +177,20 @@ def quality_view(config: Any, comp: str, ref: str | None = None, commit: str | N
     docs = review.stored_fact(config, comp, "docs", ref=None if at else ref, commit=at)
     out: dict[str, Any] = {"comments": comments, "density": density, "readme": readme, "docs": docs,
                            "analysed": any((comments, density, readme, docs))}
+    out.update(_quality_findings(comments))
+    if density:
+        out.update(_quality_density(density["fact"]))
+    out.update(_quality_readme(readme))
+    if docs:
+        files = [f for f in docs["fact"].get("files") or [] if f.get("words")]
+        out.update(doc_score=docs["fact"].get("score") if docs["fact"].get("words") else None,
+                   weakest=sorted(files, key=lambda f: (f.get("score") or 0, f["path"]))[:2])
+    out["trend_points"] = _quality_trend_points(config, comp, comments)
+    return out
+
+
+def _quality_findings(comments: dict | None) -> dict:
+    """The comment findings split by the decoration rule (banner + boilerplate) and counted by kind."""
     findings = (comments or {}).get("fact", {}).get("findings") or []
     banner = [f for f in findings if is_bulk(f)]             # the decoration rule: banner + boilerplate
     rest = [f for f in findings if not is_bulk(f)]
@@ -184,43 +198,47 @@ def quality_view(config: Any, comp: str, ref: str | None = None, commit: str | N
     for f in rest:
         by_kind[f["kind"]] = by_kind.get(f["kind"], 0) + 1
     top = max(by_kind.values()) if by_kind else 0
-    out.update(total=len(findings), banner=len(banner), worth=len(rest),
-               banner_kinds={k: sum(1 for f in banner if f.get("kind") == k) for k in BULK_KINDS},
-               banner_files=len({f.get("path") for f in banner}),
-               banner_share=round(100 * len(banner) / len(findings)) if findings else 0,
-               kinds=[{"kind": k, "count": n, "width": round(100 * n / top) if top else 0}
-                      for k, n in sorted(by_kind.items(), key=lambda kv: (-kv[1], kv[0]))],
-               worst=review.queue(comments)[:5] if comments else [])
-    if density:
-        d = density["fact"]
-        over = [l for l in d.get("languages") or [] if l.get("over")]
-        worst = max(over, key=lambda l: l.get("ratio") or 0) if over else None
-        ratio = (d.get("totals") or {}).get("ratio")
-        out.update(ratio=ratio, ratio_text="%.1f%%" % (100 * ratio) if ratio is not None else "-",
-                   code_files=(d.get("totals") or {}).get("files"),
-                   outliers=len(d.get("outliers") or []), worst_language=worst,
-                   worst_text=("%s %.1f%% comments (threshold %.0f%%), %d outlier files" % (
-                       worst["language"], 100 * (worst.get("ratio") or 0), 100 * (worst.get("max_ratio") or 0),
-                       worst.get("outliers") or 0)) if worst else None)
+    return dict(total=len(findings), banner=len(banner), worth=len(rest),
+                banner_kinds={k: sum(1 for f in banner if f.get("kind") == k) for k in BULK_KINDS},
+                banner_files=len({f.get("path") for f in banner}),
+                banner_share=round(100 * len(banner) / len(findings)) if findings else 0,
+                kinds=[{"kind": k, "count": n, "width": round(100 * n / top) if top else 0}
+                       for k, n in sorted(by_kind.items(), key=lambda kv: (-kv[1], kv[0]))],
+                worst=review.queue(comments)[:5] if comments else [])
+
+
+def _quality_density(d: dict) -> dict:
+    """The comment-density figures and the worst language over its threshold."""
+    over = [l for l in d.get("languages") or [] if l.get("over")]
+    worst = max(over, key=lambda l: l.get("ratio") or 0) if over else None
+    ratio = (d.get("totals") or {}).get("ratio")
+    return dict(ratio=ratio, ratio_text="%.1f%%" % (100 * ratio) if ratio is not None else "-",
+                code_files=(d.get("totals") or {}).get("files"),
+                outliers=len(d.get("outliers") or []), worst_language=worst,
+                worst_text=("%s %.1f%% comments (threshold %.0f%%), %d outlier files" % (
+                    worst["language"], 100 * (worst.get("ratio") or 0), 100 * (worst.get("max_ratio") or 0),
+                    worst.get("outliers") or 0)) if worst else None)
+
+
+def _quality_readme(readme: dict | None) -> dict:
+    """The README mismatch rows, grouped by README in order."""
     rows = review.readme_rows(readme)
     groups: list[dict] = []
     for r in rows:
         if not groups or groups[-1]["readme"] != r["readme"]:
             groups.append({"readme": r["readme"], "rows": []})
         groups[-1]["rows"].append(r)
-    out.update(readme_rows=rows, readme_groups=groups,
-               readme_count=(readme or {}).get("fact", {}).get("mismatch_count", len(rows)),
-               readme_files=len({r["readme"] for r in rows}))
-    if docs:
-        files = [f for f in docs["fact"].get("files") or [] if f.get("words")]
-        out.update(doc_score=docs["fact"].get("score") if docs["fact"].get("words") else None,
-                   weakest=sorted(files, key=lambda f: (f.get("score") or 0, f["path"]))[:2])
+    return dict(readme_rows=rows, readme_groups=groups,
+                readme_count=(readme or {}).get("fact", {}).get("mismatch_count", len(rows)),
+                readme_files=len({r["readme"] for r in rows}))
+
+
+def _quality_trend_points(config: Any, comp: str, comments: dict | None) -> int:
     try:
         from nanosoc_rm import quality as qmod
-        out["trend_points"] = len(qmod.trend("comments", comp, config=config)) if comments else 0
+        return len(qmod.trend("comments", comp, config=config)) if comments else 0
     except Exception:                                            # noqa: BLE001
-        out["trend_points"] = 0
-    return out
+        return 0
 
 
 # ---------------------------------------------------------------------------------------------------------
