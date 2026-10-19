@@ -211,8 +211,13 @@ def test_the_workspace_names_both_axes_and_the_rail_says_its_chips_are_the_last_
 
 
 def test_projects_with_no_registered_configuration_say_how_to_register_one(fp):
-    text = fp["client"].get("/?sel=grp:none").text
-    assert "No configuration registered" in text and "eligibility.yaml" in text and "merge request" in text
+    text = fp["client"].get("/?v=1&o=grp:none&sel=grp:none").text
+    rows = re.findall(r'data-row="([^"]+)"', text)
+    assert "grp:none" in rows and "grp:unk" in rows
+    inside = rows[rows.index("grp:none") + 1:]
+    assert inside and all(r.startswith("p:") for r in inside)             # the unregistered projects, under it
+    assert re.search(r"No configuration registered \(%d\)" % len(inside), text)
+    assert "eligibility.yaml" in text and "merge request" in text
     assert "not scanned yet" in fp["client"].get("/?sel=grp:unk").text
 
 
