@@ -1,13 +1,13 @@
 """The matrix pages (D3, D8, D9, B7), mounted at /matrix through the web plug-in seam (nanosoc_rm.web.plugins).
 
-    GET  /matrix/                                     two tabs (CR-WF-gui, David 2026-10-14): Freshness (default; the
+    GET  /matrix/                                     two tabs: Freshness (default; the
                                                       freshness matrix of web.fmatrix, ?group= &rows= &sort= &comp=
                                                       &cfg=) and Compatibility (?tab=compat: configurations, each with
                                                       its matrix link; the nightly status). Both panels are in the page;
                                                       the tab strip shows one (links work without JavaScript)
     GET  /matrix/{configuration}                      the grid: cell verdict (text and colour), age, Run buttons
          ?component=C (repeatable) &columns=a,b       the same filters as the CLI
-         &tiers=t1                                    adds a t1 cell beside each cell (CR-WD-matrix-t1)
+         &tiers=t1                                    adds a t1 cell beside each cell
     GET  /matrix/{configuration}/cell?component=&column=[&tier=t1]   one cell: every run of it, attempts, D4 provenance,
                                                       the D9 comparison naming its baseline run, the latest job
     POST /matrix/{configuration}/run                  queue cells as local jobs: scope = cell | row | column | all
@@ -42,7 +42,7 @@ COLUMN_LABEL = {"pinned": "pinned", "in-range": "latest tag in range", "latest-t
 
 
 def _env() -> Environment:
-    web = HERE.parent / "web" / "templates"                  # _fp.html and _fmatrix.html (CR-WF-gui)
+    web = HERE.parent / "web" / "templates"                  # _fp.html and _fmatrix.html
     env = Environment(loader=ChoiceLoader([FileSystemLoader(str(HERE / "templates"))]
                                           + ([FileSystemLoader(str(web))] if web.is_dir() else [])),
                       autoescape=select_autoescape(["html"]), trim_blocks=True, lstrip_blocks=True)

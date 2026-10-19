@@ -19,7 +19,7 @@ def iso(t: dt.datetime | None = None) -> str:
 
 def parse(s: str) -> dt.datetime:
     """A contract timestamp (Z suffix, optional fraction) as an aware UTC datetime. Anything but a string (a null
-    time in an API answer) is a TypeError, never an AttributeError (ROB-coverage-8)."""
+    time in an API answer) is a TypeError, never an AttributeError."""
     if not isinstance(s, str):
         raise TypeError("a timestamp must be a string, not %s" % type(s).__name__)
     t = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))

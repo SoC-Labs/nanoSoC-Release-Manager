@@ -6,7 +6,7 @@ It is NOT the service config: the agent host holds no service secret, no store a
     name = "eda-1"                         # the [[executor.agents]] name on the service
     server = "https://<host>:8771"         # the release manager; http only for 127.0.0.1/localhost
     token_file = "~/.config/nanosoc-rm-executor/token"   # 0600; never inside a sandbox bind
-    ca_file = "/path/ca.pem"               # optional: the service's CA (CR-20 self-signed TLS)
+    ca_file = "/path/ca.pem"               # optional: the service's CA (self-signed TLS)
     mirror_root = "/srv/nanosoc-mirrors"   # read-only replica of <data_dir>/mirrors (<entry>.git)
     scratch_dir = "/scratch/nanosoc-exec"  # one work dir per task, removed after the upload
     labels = ["verilator", "vcs"]          # what this agent asks for (the service grants at most its own list)
@@ -97,6 +97,51 @@ def _check(where: str, table, keys: dict, problems: list[str]) -> dict:
     return table
 
 
+_POSITIVE = ("poll_seconds", "heartbeat_seconds", "max_budget_s", "max_log_bytes", "max_upload_bytes",
+             "max_file_bytes")
+
+
+def _agent_problems(a: dict) -> list[str]:
+    problems = []
+    for k in ("name", "server", "token_file", "mirror_root", "scratch_dir"):
+        if not isinstance(a.get(k), str) or not a.get(k):
+            problems.append("[agent] %s is required" % k)
+    if isinstance(a.get("site_host"), str) and not _NAME.match(a["site_host"]):
+        problems.append("[agent] site_host must be a host id (lower case letters, digits, _ . -)")
+    if isinstance(a.get("name"), str) and a["name"] and not _NAME.match(a["name"]):
+        problems.append("[agent] name must be lower case letters, digits, _ . -")
+    server = a.get("server")
+    if isinstance(server, str) and server and not (server.startswith("https://") or _LOCAL.match(server)):
+        problems.append("[agent] server must be https:// (http only for 127.0.0.1 or localhost)")
+    if isinstance(server, str) and "@" in server.split("//", 1)[-1].split("/", 1)[0]:
+        problems.append("[agent] server must carry no user or token (token_file is the only credential)")
+    if isinstance(a.get("labels"), list) and not all(_label_ok(x) for x in a["labels"]):
+        problems.append("[agent] labels must be label names")
+    for k in _POSITIVE:
+        if isinstance(a.get(k), int) and a[k] < 1:
+            problems.append("[agent] %s must be >= 1" % k)
+    return problems
+
+
+def _label_ok(x) -> bool:
+    return isinstance(x, str) and bool(_NAME.match(x) or (x.startswith("jobs:") and _NAME.match(x[5:])))
+
+
+def _sandbox_problems(s: dict, mode) -> list[str]:
+    problems = []
+    if mode not in MODES:
+        problems.append("[sandbox] mode must be one of %s" % ", ".join(MODES))
+    for k in ("ro_binds", "path"):
+        if isinstance(s.get(k), list) and not all(isinstance(x, str) and x.startswith("/") for x in s[k]):
+            problems.append("[sandbox] %s must be absolute paths" % k)
+    env = s.get("env", {})
+    if isinstance(env, dict):
+        for k, v in env.items():
+            if not _ENV_NAME.match(k) or not isinstance(v, str):
+                problems.append("[sandbox.env] %s must be an UPPER_CASE name with a string value" % k[:40])
+    return problems
+
+
 def load_agent_config(path: str | os.PathLike | None = None) -> AgentConfig:
     if path is None:
         path = os.environ.get(ENV_VAR)
@@ -115,37 +160,10 @@ def load_agent_config(path: str | os.PathLike | None = None) -> AgentConfig:
             problems.append("unknown section [%s]" % k)
     a = _check("agent", doc.get("agent", {}), _AGENT_KEYS, problems)
     s = _check("sandbox", doc.get("sandbox", {}), _SANDBOX_KEYS, problems)
-    for k in ("name", "server", "token_file", "mirror_root", "scratch_dir"):
-        if not isinstance(a.get(k), str) or not a.get(k):
-            problems.append("[agent] %s is required" % k)
-    if isinstance(a.get("site_host"), str) and not _NAME.match(a["site_host"]):
-        problems.append("[agent] site_host must be a host id (lower case letters, digits, _ . -)")
-    if isinstance(a.get("name"), str) and a["name"] and not _NAME.match(a["name"]):
-        problems.append("[agent] name must be lower case letters, digits, _ . -")
-    server = a.get("server")
-    if isinstance(server, str) and server and not (server.startswith("https://") or _LOCAL.match(server)):
-        problems.append("[agent] server must be https:// (http only for 127.0.0.1 or localhost)")
-    if isinstance(server, str) and "@" in server.split("//", 1)[-1].split("/", 1)[0]:
-        problems.append("[agent] server must carry no user or token (token_file is the only credential)")
-    for k in ("labels",):
-        if isinstance(a.get(k), list) and not all(isinstance(x, str) and (_NAME.match(x) or (
-                x.startswith("jobs:") and _NAME.match(x[5:]))) for x in a[k]):
-            problems.append("[agent] labels must be label names")
-    for k in ("poll_seconds", "heartbeat_seconds", "max_budget_s", "max_log_bytes", "max_upload_bytes",
-              "max_file_bytes"):
-        if isinstance(a.get(k), int) and a[k] < 1:
-            problems.append("[agent] %s must be >= 1" % k)
+    problems += _agent_problems(a)
     mode = s.get("mode", "auto")
-    if mode not in MODES:
-        problems.append("[sandbox] mode must be one of %s" % ", ".join(MODES))
-    for k in ("ro_binds", "path"):
-        if isinstance(s.get(k), list) and not all(isinstance(x, str) and x.startswith("/") for x in s[k]):
-            problems.append("[sandbox] %s must be absolute paths" % k)
+    problems += _sandbox_problems(s, mode)
     env = s.get("env", {})
-    if isinstance(env, dict):
-        for k, v in env.items():
-            if not _ENV_NAME.match(k) or not isinstance(v, str):
-                problems.append("[sandbox.env] %s must be an UPPER_CASE name with a string value" % k[:40])
     if problems:
         raise ConfigError("%s: invalid agent config:\n  %s" % (p, "\n  ".join(problems)))
     base = p.resolve().parent
@@ -158,8 +176,7 @@ def load_agent_config(path: str | os.PathLike | None = None) -> AgentConfig:
                       labels=list(a.get("labels", [])), mode=mode, network=bool(s.get("network", True)),
                       ro_binds=[Path(x) for x in s.get("ro_binds", [])], path_prepend=list(s.get("path", [])),
                       site_env=dict(env))
-    for k in ("poll_seconds", "heartbeat_seconds", "max_budget_s", "max_log_bytes", "max_upload_bytes",
-              "max_file_bytes", "keep_work"):
+    for k in _POSITIVE + ("keep_work",):
         if k in a:
             setattr(cfg, k, a[k])
     return cfg

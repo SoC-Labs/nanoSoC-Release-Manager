@@ -14,12 +14,12 @@ job runner (`nanosoc_rm.jobs`, kind `matrix-cell`), never run inside a web reque
 latest stored result, its age, the job queued or running for it, whether the result is for the column's current
 commit (`stale` when the mirror moved since), and its gate-by-gate comparison with the same night's pinned run (D9).
 
-A view may add tier t1 (`tiers=["t1"]`, CR-WD-matrix-t1): every shown cell gets a t1 cell beside it, a separate
+A view may add tier t1 (`tiers=["t1"]`): every shown cell gets a t1 cell beside it, a separate
 stored cell of the same (component, column) whose run adds the registry's t1 command (`cells`, `tiers`). The
 view runs the tier's preflight for this host: no command is NOT-RUN, a missing tool INFRA "tool not on this host",
 and neither is queued by Run.
 
-Building and using this locally is allowed now (CR-15). ENABLING the nightly matrix is not: it is automation and
+Building and using this locally is allowed now. ENABLING the nightly matrix is not: it is automation and
 waits for the Phase 2 entry gate (docs/phase-gates.yaml). `NIGHTLY.enabled` is False and the schedule module does
 not list it; `nightly_plan` only says what it would queue.
 """
@@ -132,6 +132,36 @@ def _preflight_view(cv: dict, ready: "TI.Ready") -> dict:
     return cv
 
 
+_PINNED_TARGET = {"column": C.PINNED, "commit": None, "ref": None, "why": None, "range": None}
+
+
+class _Viewer:
+    """The cells of one row: T0 (no tier, no preflight), or one tier's (its stored cells and its preflight)."""
+
+    def __init__(self, latest: dict, by_job: dict, now, stored, active, ready=None):
+        self.latest, self.by_job, self.now, self.stored, self.active, self.ready = (
+            latest, by_job, now, stored, active, ready)
+
+    def row_cells(self, r, cols: Sequence[str], pinned: dict, tier: str | None, sources: list | None) -> dict:
+        out = {}
+        for c in cols:
+            if c == C.PINNED:
+                out[c] = dict(pinned, target=dict(_PINNED_TARGET))
+                continue
+            doc = self.latest.get((r.component, c))
+            cv = _cell_view(doc, self.by_job.get((r.component, c, tier)), r.targets[c], r, self.now, self.stored,
+                            set(self.active))
+            if tier is not None:
+                cv["reason"] = (doc or {}).get("fact", {}).get("reason")
+            if cv["same_as_pinned"] and cv["status"] in ("not-run", "no-target"):
+                cv.update(status="same-as-pinned", verdict=pinned["verdict"], subject=pinned["subject"],
+                          finished_at=pinned["finished_at"], age_s=pinned["age_s"])
+            out[c] = _preflight_view(cv, self.ready) if self.ready is not None else cv
+            if sources is not None:
+                sources += r.targets[c].sources
+        return out
+
+
 def matrix(configuration: str, *, columns: Sequence[str] | None = None, components: Sequence[str] | None = None,
            config=None, now: dt.datetime | None = None, tiers: Sequence[str] | None = None) -> dict:
     """One matrix_view observation (module docstring). Reads stored data only: the latest walk, the mirrors,
@@ -158,41 +188,17 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
                         None, now, stored, set(active))
         pv["reason"] = (latest_t[t].get((None, C.PINNED)) or {}).get("fact", {}).get("reason")
         pinned_t[t] = _preflight_view(pv, readies[t])
+    view = _Viewer(latest, by_job, now, stored, active)
     rows_out, sources = [], []
     for r in rws:
-        cells_out = {}
-        for c in cols:
-            if c == C.PINNED:
-                cells_out[c] = dict(pinned, target={"column": C.PINNED, "commit": None, "ref": None, "why": None,
-                                                    "range": None})
-                continue
-            cv = _cell_view(latest.get((r.component, c)), by_job.get((r.component, c, None)), r.targets[c], r, now,
-                            stored, set(active))
-            if cv["same_as_pinned"] and cv["status"] in ("not-run", "no-target"):
-                cv.update(status="same-as-pinned", verdict=pinned["verdict"], subject=pinned["subject"],
-                          finished_at=pinned["finished_at"], age_s=pinned["age_s"])
-            cells_out[c] = cv
-            sources += r.targets[c].sources
         row_out = {"component": r.component, "split": r.split, "catalogued": r.catalogued,
-                   "pins": C.pinned_commits(r), "mirror_synced_at": r.mirror_at, "cells": cells_out}
+                   "pins": C.pinned_commits(r), "mirror_synced_at": r.mirror_at,
+                   "cells": view.row_cells(r, cols, pinned, None, sources)}
         if tier_list:
             row_out["tier_cells"] = {}
             for t in tier_list:
-                tc = {}
-                for c in cols:
-                    p_t = pinned_t[t]
-                    if c == C.PINNED:
-                        tc[c] = dict(p_t, target={"column": C.PINNED, "commit": None, "ref": None, "why": None,
-                                                  "range": None})
-                        continue
-                    doc = latest_t[t].get((r.component, c))
-                    cv = _cell_view(doc, by_job.get((r.component, c, t)), r.targets[c], r, now, stored, set(active))
-                    cv["reason"] = (doc or {}).get("fact", {}).get("reason")
-                    if cv["same_as_pinned"] and cv["status"] in ("not-run", "no-target"):
-                        cv.update(status="same-as-pinned", verdict=p_t["verdict"], subject=p_t["subject"],
-                                  finished_at=p_t["finished_at"], age_s=p_t["age_s"])
-                    tc[c] = _preflight_view(cv, readies[t])
-                row_out["tier_cells"][t] = tc
+                tv = _Viewer(latest_t[t], by_job, now, stored, active, readies[t])
+                row_out["tier_cells"][t] = tv.row_cells(r, cols, pinned_t[t], t, None)
         rows_out.append(row_out)
     shown_subjects = {cv["subject"] for row in rows_out for cv in row["cells"].values()} | {
         cv["subject"] for row in rows_out for tc in (row.get("tier_cells") or {}).values() for cv in tc.values()}

@@ -9,12 +9,12 @@ that needs a key asks for it with `Config.require(...)`, which raises ConfigErro
 file, a TOML syntax error, a wrong type or an unknown section is a ConfigError, and the CLI turns every
 ConfigError into exit 3 (interfaces.md section 0.2).
 
-`[hosts.<host>] private_read` (CR-PR1, optional) names a read-only method for private mirrors.
+`[hosts.<host>] private_read` (optional) names a read-only method for private mirrors.
 
-`[executor]` (CR-WG-executor, interfaces.md section 27.5) turns the remote tier executor's API on: `lease_seconds`,
+`[executor]` (interfaces.md section 27.5) turns the remote tier executor's API on: `lease_seconds`,
 `max_attempts` and `[[executor.agents]]` (name, token_sha256, labels, revoked). Only token digests live here.
 
-`[auth]` (CR-16) selects the sign-in: `mode = "github"` (default) or `"local"` with `[[auth.users]]` (login,
+`[auth]` selects the sign-in: `mode = "github"` (default) or `"local"` with `[[auth.users]]` (login,
 scrypt `hash`, optional `roles`).
 
 Defaults filled in (section 1): `hosts.<key>.git` = `hosts.<key>.web`; `paths.quarantine` =
@@ -50,15 +50,15 @@ _SECTIONS: dict[str, dict[str, str]] = {
     "session": {"secret_file": _STR},
     "schedule": {"poll_minutes": _INT, "nightly_utc": _STR, "fetch_minutes": _INT},
     "paths": {"quarantine": _STR},
-    "quality": {"api_key_file": _STR, "model": _STR, "paths": _TABLE},   # CR-14: rewrite key/model; local targets
+    "quality": {"api_key_file": _STR, "model": _STR, "paths": _TABLE},   # Rewrite key/model; local targets
     "regen": {"work_dir": _STR, "read_only_roots": _STRS, "nice": _INT},  # section 20: sandbox, refusals, priority
 }
 _HOST = {"web": _STR, "api": _STR, "ssh": _STR, "git": _STR, "org": _STR, "group": _STR}
 _CREDENTIAL = {"token_file": _STR, "scope": _STRS, "expires": _STR, "project": _STR, "client_id": _STR}
-# [stores.artifactory] (Wave E): url and repo since gate 2; token_file and token_expires (the CR-PR1 pattern: a 0600
+# [stores.artifactory]: url and repo since gate 2; token_file and token_expires (as private_read: a 0600
 # file, never logged; NOT a fifth [credentials] entry, AT-A2); repos (what the store index reads; section 22);
 # release_repo, publishers (logins), shared_logins, signing_key, allowed_signers, signer_identity, ssh_keygen and
-# projects (component -> store project) for the publish unit (CR-ART-publish), which the index also reads.
+# projects (component -> store project) for the publish unit, which the index also reads.
 _STORES = {"disk": {"path": _STR},
            "artifactory": {"url": _STR, "repo": _STR, "token_file": _STR, "token_expires": _STR,
                            "release_repo": _STR, "publishers": _STRS, "shared_logins": _STRS, "signing_key": _STR,
@@ -66,11 +66,11 @@ _STORES = {"disk": {"path": _STR},
                            "projects": _TABLE, "repos": _STRS}}
 _ART_PATHS = ("token_file", "signing_key", "allowed_signers", "ssh_keygen")
 _KNOWN = set(_SECTIONS) | {"hosts", "credentials", "stores", "roles", "auth", "executor", "api"}
-# [api] (integration review 2026-10-16, section 26.7): `[[api.readers]]` (name, token_sha256, revoked), the bearer
+# [api] (section 26.7): `[[api.readers]]` (name, token_sha256, revoked), the bearer
 # tokens a repository's CI uses for GET /api/v1/bump-check and nothing else. Digests only, as for executor agents.
 _API = {"readers": "list[table]"}
 _API_READER = {"name": _STR, "token_sha256": _STR, "revoked": _BOOL}
-# [executor] (CR-WG-executor, section 27.5): the pull agents allowed to claim tier tasks. A token is never stored,
+# [executor] (section 27.5): the pull agents allowed to claim tier tasks. A token is never stored,
 # only its sha256 (`nanosoc-rm executor token new`); `revoked = true` (or deleting the entry) refuses it at once.
 # `host` and `local_fallback` are read by the capabilities unit (section 26: the site-data host id, and the local
 # worker running tier jobs itself); the rest by the executor (section 27). One table, both sets (section 27.1).
@@ -80,7 +80,7 @@ _EXECUTOR_AGENT = {"name": _STR, "token_sha256": _STR, "labels": _STRS, "revoked
 _LABEL = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}\Z")
 _GRANT = re.compile(r"^(jobs:)?[a-z0-9][a-z0-9_.-]{0,63}\Z")       # a label, or `jobs:<kind>` (one job kind)
 _SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
-AUTH_MODES = ("github", "local")                      # CR-16: [auth] mode; github is the default
+AUTH_MODES = ("github", "local")                      # [auth] mode; github is the default
 _AUTH = {"mode": _STR, "users": "list[table]"}
 _AUTH_USER = {"login": _STR, "hash": _STR, "roles": _STRS}
 _LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
@@ -213,7 +213,7 @@ _PRIVATE_READ = {"method": _STR, "identity_file": _STR, "token_file": _STR, "use
 
 
 def _check_private_read(host: str, spec: Any, problems: list[str]) -> None:
-    """CR-PR1: `[hosts.<host>] private_read` = "ssh", or a table {method = "ssh", identity_file?} or
+    """`[hosts.<host>] private_read` = "ssh", or a table {method = "ssh", identity_file?} or
     {method = "token", token_file, username?}. Optional; absent means anonymous only."""
     where = "hosts.%s" % host
     if isinstance(spec, str):
@@ -234,7 +234,7 @@ def _check_private_read(host: str, spec: Any, problems: list[str]) -> None:
 
 
 def _check_auth(auth: Any, problems: list[str]) -> None:
-    """CR-16: `[auth] mode = "local"` with `[[auth.users]]` login, scrypt hash (`nanosoc-rm user add`), optional
+    """`[auth] mode = "local"` with `[[auth.users]]` login, scrypt hash (`nanosoc-rm user add`), optional
     roles. Only the shape is checked here; a hash that does not parse refuses that user's sign-in."""
     if auth is None:
         return
@@ -269,7 +269,7 @@ def _check_auth(auth: Any, problems: list[str]) -> None:
 
 
 def _check_executor(ex: Any, problems: list[str]) -> None:
-    """CR-WG-executor: `[executor]` lease_seconds (>= 10), max_attempts (>= 1), `[[executor.agents]]` with a unique
+    """`[executor]` lease_seconds (>= 10), max_attempts (>= 1), `[[executor.agents]]` with a unique
     label-shaped name, a 64-hex token_sha256 (unique too), labels, optional revoked."""
     if ex is None:
         return
@@ -374,7 +374,7 @@ class Config(dict):
 
     @property
     def auth_mode(self) -> str:
-        """CR-16: "github" (sign-in with GitHub, the default) or "local" (named users in [[auth.users]])."""
+        """"github" (sign-in with GitHub, the default) or "local" (named users in [[auth.users]])."""
         return (self.get("auth") or {}).get("mode", "github")
 
     @property

@@ -1,4 +1,4 @@
-"""The catalogue `vendor_allowlist` (CR-6a; D2, D11; David's U1 decision, 2026-10-10).
+"""The catalogue `vendor_allowlist` (D2, D11).
 
 The registry owner records, per scanner rule, the findings that have been judged:
 
@@ -16,7 +16,7 @@ entry covers them: clean, recorded in the item's `why`). An `allow` entry wins o
 finding. The verdict follows: `finding` > `warn` > `clean`; `unverified` is never changed by the allowlist, since
 an unarmed rule or an empty corpus proves nothing whatever the registry says.
 
-CR-6 (the vendor gate split) adds `foundry_rules`, the severity of a foundry-family rule (nanosoc_rm.scan.families):
+The vendor gates' split adds `foundry_rules`, the severity of a foundry-family rule (nanosoc_rm.scan.families):
 
     foundry_rules:
       - rule: path                                               # a rule id as the scanner reports it
@@ -46,7 +46,7 @@ __all__ = ["VendorAllow", "vendor_allowlist", "load_vendor_allowlist", "apply_al
            "FoundryRule", "foundry_rules", "load_foundry_rules", "RULE_SEVERITIES", "DEFAULT_FOUNDRY_SEVERITY"]
 
 SEVERITIES = ("allow", "warn")
-RULE_SEVERITIES = ("fail", "warn")         # catalogue foundry_rules[].severity (CR-6)
+RULE_SEVERITIES = ("fail", "warn")         # catalogue foundry_rules[].severity
 DEFAULT_FOUNDRY_SEVERITY = "warn"          # a foundry-family rule the catalogue does not name
 
 
@@ -168,7 +168,7 @@ def apply_allowlist(res, entries: Sequence[VendorAllow], component: str | None, 
     """A new ScanResult with `res.findings` sorted into findings (uncovered), warnings and allowed, each covered
     one carrying the entry that covers it (`by`: its description). `shas` maps a finding's file to its blob id
     (scan_tree collects them); without it, `file_sha` entries never match. `uncovered(rule) -> (severity, by)`
-    (CR-6, the foundry gate): the severity of a finding no entry covers; `warn` moves it to `warnings` with that
+    (the foundry gate): the severity of a finding no entry covers; `warn` moves it to `warnings` with that
     `by`, `fail` keeps it a finding. Default: every uncovered finding is a finding. Pure: `res` is not changed."""
     shas = shas or {}
     keep, warn, allow = [], [], []

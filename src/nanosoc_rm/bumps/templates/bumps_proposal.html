@@ -27,6 +27,7 @@
       {% else %}<br><code>nanosoc-rm compat {{ f.configuration }}{% for p in f.matrix.pins %} --pin {{ p }}{% endfor %} --tier {{ t }}</code>{% endif %}
     {% endfor %}<br><span class="note">E3 needs PASS from a t1 and a t2 what-if of the walked tree (each runs <span title="T0">resolve check</span> first); a <span title="T0">resolve check</span>-only what-if is never the cell.</span>{% endif %}</td></tr>
   <tr><th>Waits for</th><td>{% for w in f.waits_for %}<a href="/bumps/p/{{ w }}">{{ w }}</a> {% else %}nothing{% endfor %}</td></tr>
+  {% if f.test_bump %}<tr><th>Test this bump</th><td data-bumps="test-bump">{% if f.test_bump.verdict %}{{ pill(f.test_bump.verdict, VERDICT_CLASS) }}{% if f.test_bump.href %} <a href="{{ f.test_bump.href }}">job {{ f.test_bump.job }}</a>{% endif %}{% else %}<span class="note">no test-bump of exactly this move</span>{% endif %}{% if f.test_bump.note %}<br><span class="note">{{ f.test_bump.note }}</span>{% endif %}</td></tr>{% endif %}
   <tr><th>The bot would</th><td>{{ f.decision.would }} <span class="pill state-grey">auto-merge OFF</span> goes to a {{ f.decision.goes_to }}</td></tr>
   <tr><th>Ledger</th><td>{% if entry %}{{ pill(entry.outcome, OUTCOME_CLASS) }} {{ entry.note }} <span class="note">(computed {{ ledger_at }})</span>{% else %}<span class="note">not in the kept ledger yet (the next scan or ledger job computes it)</span>{% endif %}</td></tr>
 </table>

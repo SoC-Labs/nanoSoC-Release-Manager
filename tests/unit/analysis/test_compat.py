@@ -289,6 +289,15 @@ def test_keep_work_keeps_the_isolated_home(scene, tmp_path):
         scene.run("top-main", keep_work=keep)                # not empty any more
 
 
+def test_keep_work_survives_an_unjudged_move(scene, tmp_path):
+    """The unjudged-move branch once reused the name of the keep-work flag for its list of judged failures, so an
+    empty list deleted a work directory the person asked to keep (and a non-empty one leaked a temporary one)."""
+    keep = tmp_path / "work"
+    f = scene.run("frozen-nowaiver", {"s": scene.a2}, keep_work=keep)["fact"]
+    assert f["unjudged_overrides"] == ["s"]
+    assert f["work_dir"] == str(keep) and (keep / "run").is_dir()
+
+
 def _cli(scene, *args):
     """The CLI in-process, with compat() given the test's url_map (the seam the CLI never exposes)."""
     real = C.compat

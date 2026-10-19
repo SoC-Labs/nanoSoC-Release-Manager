@@ -24,8 +24,9 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - Tier jobs (`compat --tier`, a matrix tier cell, `test-bump`) queued from the pages no longer run on the service
   host: they wait for an executor, a sandboxed agent on the EDA host. `matrix --run --wait` runs only the cells it
   queued. (CR-WG-capabilities, CR-WG-executor, CR-WG-integration)
-- A bump proposal reads `would: hold` until a passing `test-bump` of exactly that move exists, so every current
-  proposal holds at first. (CR-WG-capabilities)
+- A bump proposal reads `would: hold` until a `test-bump` of exactly that move passes, or is WARN because every
+  red gate was already red before the bump (the proposal then says "already red before the bump"), so every
+  current proposal holds at first. (CR-WG-capabilities, CR-WH-already-red)
 - A what-if whose moved pin was walked but never fetched (an ssh or private URL) reads UNVERIFIED (exit 2), not
   FAIL, unless the gates judged a FAIL elsewhere. (CR-1016-quickfix, CR-WG-integration)
 - Opening a Quality page never starts an analysis: a page with nothing stored offers an **Analyse** button.

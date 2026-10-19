@@ -1,4 +1,4 @@
-"""Local T1/T2 tier runs inside `nanosoc-rm compat --tier` (CR-12, MVP S3; interfaces.md section 9a "Tiers").
+"""Local T1/T2 tier runs inside `nanosoc-rm compat --tier` (interfaces.md section 9a "Tiers").
 
     check_spec(spec, tier, environ) -> None             TierUsage (exit 3) for a command the tool refuses to run
     materialise(git, root, dest, pins=None) -> Layout   the resolved (overridden) tree as a working checkout
@@ -193,7 +193,7 @@ def worktree_changes(repo: Path) -> dict[str, str | None] | None:
 
 
 def _record_layout(work: Path, tree: Path, layout: Layout) -> None:
-    """D4 (matrix, CR-WD-matrix-t1): which tree paths were laid out, and their tracked changes just before the
+    """D4 (matrix): which tree paths were laid out, and their tracked changes just before the
     command (after the declared output files were removed), so a re-read after the command can tell a repo the
     command removed (not 'not laid out') and a tracked file it changed (not one the layout left changed)."""
     before = {}
@@ -366,7 +366,7 @@ def pidns_wrap(argv: list[str], environ: Mapping[str, str] | None = None) -> tup
     """(argv, problem). When the executor agent asks for it ($NANOSOC_RM_TIER_PIDNS = the bwrap binary, set for a
     job run in its bwrap sandbox), the tier command runs in its OWN pid namespace under a nested bwrap: it cannot
     see the `nanosoc-rm` process that launched it, so it cannot write that process's stdout through
-    /proc/<pid>/fd/1 and forge the job's result documents (integration review 2026-10-16). The file system is the
+    /proc/<pid>/fd/1 and forge the job's result documents. The file system is the
     outer sandbox's, unchanged (`--dev-bind / /`). A requested namespace that cannot be made is a problem (the
     run is INFRA), never a silent run without it."""
     env = os.environ if environ is None else environ

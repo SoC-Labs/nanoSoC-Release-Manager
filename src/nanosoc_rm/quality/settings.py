@@ -1,7 +1,7 @@
 """Quality settings: thresholds from the registry's `quality.yaml` merged over the defaults (Q1), and the
 service config's optional `[quality]` table (Q4 rewrite: `api_key_file`, `model`).
 
-`quality.yaml` is optional and additive (eligibility.schema.json `$defs/quality_file`, CR-14). Without a
+`quality.yaml` is optional and additive (eligibility.schema.json `$defs/quality_file`). Without a
 registry or the file, the defaults in `languages.DEFAULTS` apply and the report says so.
 """
 from __future__ import annotations

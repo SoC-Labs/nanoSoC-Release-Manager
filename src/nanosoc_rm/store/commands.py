@@ -1,4 +1,4 @@
-"""`nanosoc-rm store ...`: the artefact store index (Wave E; interfaces.md section 22).
+"""`nanosoc-rm store ...`: the artefact store index (interfaces.md section 22).
 
     store index [--store] [--no-cache] [--json]   read the store (GET, HEAD, AQL) and print the store_index fact
     store show [--json]                           the stored index: probes, counts, sections

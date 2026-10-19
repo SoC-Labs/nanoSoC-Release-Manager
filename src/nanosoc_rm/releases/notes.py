@@ -3,7 +3,7 @@
     entries(config, component, repo, old, new) -> (entries, source)   classed changes between two commits
     render(...) -> str                                                 RELEASE_NOTES.md
 
-The versioning module (Wave B, C2) owns changelog classes. This module codes against one small interface and
+The versioning module (C2) owns changelog classes. This module codes against one small interface and
 uses it when that module is installed:
 
     nanosoc_rm.versioning.changelog_entries(component, old, new, *, config) -> [{class, summary, commit}]

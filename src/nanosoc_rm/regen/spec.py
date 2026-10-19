@@ -4,7 +4,7 @@
     settings(config) -> Settings                     the service config's optional [regen] table
     check(spec, configuration, settings) -> dict     the refusals, before any work starts
 
-The spec is a `tier_command` (CR-12) plus `output`, the tree-relative directory the command writes (build_soc), and
+The spec is a `tier_command` plus `output`, the tree-relative directory the command writes (build_soc), and
 optional `include`/`exclude` globs over that directory. It runs exactly as a T1/T2 command does (clean
 environment, PATH=/usr/bin:/bin, HOME and TMPDIR in the sandbox, nothing inherited), with these additions:
 

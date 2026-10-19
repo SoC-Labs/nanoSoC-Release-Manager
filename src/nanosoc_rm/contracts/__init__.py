@@ -53,7 +53,7 @@ def schemas_dir() -> Path:
 def ecma_anchors(pattern: str) -> str:
     """`pattern` with every `$` anchor (outside a character class, unescaped) written as `\\Z`. JSON Schema
     patterns are ECMA-262, where `$` matches only at the end of the string; Python's `$` also matches before a
-    final newline, so `^[0-9]+$` would accept "1\\n" (ROB-coverage-5)."""
+    final newline, so `^[0-9]+$` would accept "1\\n"."""
     out, i, in_class = [], 0, False
     while i < len(pattern):
         c = pattern[i]
@@ -214,7 +214,7 @@ def _no_dup_mapping(loader, node, deep=False):
         key = loader.construct_object(key_node, deep=deep)
         try:
             hash(key)
-        except TypeError:                                   # a list or mapping key: YAMLError (ROB-property-11)
+        except TypeError:                                   # a list or mapping key: YAMLError
             raise yaml.constructor.ConstructorError(None, None, "a mapping key must be a scalar, not %s"
                                                     % type(key).__name__, key_node.start_mark) from None
         if key in seen:
@@ -249,25 +249,22 @@ def docs_in(path: str | Path) -> Iterator[tuple[str, Any]]:
 # WRITE_CALLS (interfaces.md section 17.5; A2, A6). Every call site a static census of this package could
 # mistake for an outbound write must be covered by one entry: same file (path as the census prints it,
 # relative to the directory holding the package), kind and method. AT-A2 and AT-A6 hold the package to it.
-#
 #   write       exactly one: POST projects/:id/trigger/pipeline, guarded to the configured CI project
-#   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (CR-14, Q4 rewrite);
-#               the artefact store's AQL search api/search/aql (Wave E, section 22)
+#   read-post   the OAuth code exchange login/oauth/access_token; the Messages API v1/messages (Q4 rewrite);
+#               the artefact store's AQL search api/search/aql (section 22)
 #   local       a call the census mistakes for HTTP, only in a file that imports no HTTP library (none yet)
 #   git-runner  at most one: nanosoc_rm.gitrun, which refuses push, send-pack and receive-pack at run time
-#   publish     CR-ART-publish (David 2026-10-14): the release store's PUT and POST, only in
+#   publish     the release store's PUT and POST, only in
 #               nanosoc_rm/publish/client.py, allow-listed there before any I/O (new files under
 #               <release_repo>/<project>/<version>/, a build-info record, a status-only promotion), refused in the
 #               web process, run only by a person's confirmed publish; never scheduled (A7: soc_release)
-#   executor    CR-WG-executor (David 2026-10-16): the pull agent's POSTs to the release manager's OWN executor API
+#   executor    the pull agent's POSTs to the release manager's OWN executor API
 #               (claim, heartbeat, log, result), only in nanosoc_rm/executor/client.py, whose check_path allows the
 #               four /executor/v1/ paths of the configured server before any I/O; it writes only the service's own
 #               executor queue, never a git host, CI or store
-#
-# `sites` (optional, default 1; evaluation 2026-10-16): how many call sites the census cannot pin to one target
+# `sites` (optional, default 1): how many call sites the census cannot pin to one target
 # (target `?`, or method `?`) the entry covers. One more unresolved call in that file is refused, so a second
 # `POST ?` cannot hide behind the first one's entry.
-#
 # `file` names where the contract layout (interfaces.md sections 0.5, 10, 14) puts the call. A builder who
 # puts the call in a different file moves the entry with it, in the same commit.
 # ---------------------------------------------------------------------------------------------------------

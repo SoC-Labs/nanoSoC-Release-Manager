@@ -1,4 +1,4 @@
-"""The catalogue characterisation model (interfaces.md section 23.1; CR-WF-catalogue).
+"""The catalogue characterisation model (interfaces.md section 23.1).
 
     characterise(component) -> Characterisation             one catalogue component, defaults derived from class
     characterise_all(components) -> {id: Characterisation}  every component, with `wrapped_by` filled in
@@ -9,7 +9,7 @@
 
 Pure: no I/O, no registry import (the loader's rule 15 imports this module).
 
-A catalogue written before CR-WF-catalogue has no `group`, `type`, `role`, `wraps`, `guessed` or `question`.
+An older catalogue has no `group`, `type`, `role`, `wraps`, `guessed` or `question`.
 Such an entry still loads: its group comes from `class` (DEFAULT_GROUP), its role from `class` where the class
 says one (DEFAULT_ROLE), its type stays None, and every field filled this way is listed in `derived`, so a page
 shows it as a default to confirm, never as a decision. `unconfirmed` is `guessed` plus `derived`.
@@ -157,7 +157,7 @@ def characterise_all(components: Iterable[dict]) -> dict[str, Characterisation]:
 
 
 def socs_without_forkable_project(chars: dict[str, Characterisation]) -> list[str]:
-    """Group-soc entries that no project with role `forkable` wraps (David 2026-10-14: the gap filter and badge).
+    """Group-soc entries that no project with role `forkable` wraps.
     Wrapped by an implementation or an example only, or by nothing, is a gap."""
     return [cid for cid, ch in chars.items()
             if ch.group == "soc"
@@ -166,7 +166,7 @@ def socs_without_forkable_project(chars: dict[str, Characterisation]) -> list[st
 
 
 def gap_unverified(chars: dict[str, Characterisation]) -> list[str]:
-    """soc_ref entries whose group is derived, not stated (review F2). A soc_ref with no `group` defaults to
+    """soc_ref entries whose group is derived, not stated. A soc_ref with no `group` defaults to
     project, so a SoC the catalogue has not characterised is invisible to socs_without_forkable_project; while
     this list is non-empty an empty gap list measured nothing and is reported UNVERIFIED, never as "no gaps"."""
     return [cid for cid, ch in chars.items() if ch.cls == "soc_ref" and "group" in ch.derived]

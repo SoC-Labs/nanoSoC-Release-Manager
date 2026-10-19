@@ -23,7 +23,7 @@ For T0 nothing can move a submodule (there is no checkout and no setup script): 
 content-addressed, so on a T0 run the capture can only confirm a pin or fail to read it (`NOTE_T0`). The moved
 rule is for a later tier run, whose setup scripts can move one.
 
-**Capture of a tier's checkout (T1, CR-WD-matrix-t1).** A matrix cell run with a tier lays the tree out as a
+**Capture of a tier's checkout (T1).** A matrix cell run with a tier lays the tree out as a
 working checkout (`analysis.tierrun.materialise`: one repo per pin at its tree path) and runs the tier's command in
 it; a setup script there can move a submodule. After the command, `capture_checkout` re-reads, per requested tree
 path, the commit checked out there (`git rev-parse HEAD` of the repo at that path) and the gitlink its parent's

@@ -177,7 +177,7 @@ class Reader:
     the file as the commit holds it, so a capability is always the one that ships with the code under test. A
     working tree is never read.
 
-    `fetch=False` (every GET page; integration review 2026-10-16): the mirrors are partial clones, so reading a blob
+    `fetch=False` (every GET page): the mirrors are partial clones, so reading a blob
     they lack makes git fetch it from the host, with the read credential when one is configured. A page must never
     reach the network: it reads anonymously with lazy fetching off (`NO_FETCH_ENV`), and a blob the mirror lacks
     reads `unreadable` ("not fetched yet") until a command or a job reads it with `fetch=True`."""

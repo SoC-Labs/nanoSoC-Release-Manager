@@ -1,4 +1,4 @@
-"""Submodule compatibility check (CR-11, MVP S2; interfaces.md section 9a).
+"""Submodule compatibility check (interfaces.md section 9a).
 
     compat(configuration, overrides={tree path: sha}, ...) -> dict     one compat_result observation
 
@@ -17,7 +17,7 @@
    (README section 6). An override the gates' own walk did not reach (below a tree no anonymous fetch can read)
    makes the run UNVERIFIED: the what-if was not judged.
 
-4. **Tier** (CR-12, `tier="t1"|"t2"`): after the T0 roll-up, the registry's tiers.yaml command for the
+4. **Tier** (`tier="t1"|"t2"`): after the T0 roll-up, the registry's tiers.yaml command for the
    configuration runs in a sandbox checkout of the same walked tree (`analysis.tierrun`). A T0 FAIL skips it
    (NOT-RUN) unless `force_tier` (a person's override; the result is UNVERIFIED for release). `run_verdict` is the
    ladder over the T0 verdict and the tier's; the exit code follows it.
@@ -54,7 +54,7 @@ _LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")
 
 
 def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], list[str]]:
-    """The overrides the gates did not judge, and why (evaluation 2026-10-16, report action 3). A moved pin is
+    """The overrides the gates did not judge, and why. A moved pin is
     judged when the gates' walk reached it as an override AND either fetched its commit anonymously and scanned
     it (fetchable `pass`, and the vendor scan reached it), or proved the commit absent from its host (reachable
     `fail`: the move is a real FAIL). A moved pin that was walked but not fetched (an ssh or private URL) is never
@@ -79,7 +79,7 @@ def _unjudged(overrides: dict, judged: dict, items: dict) -> tuple[list[str], li
 
 
 def judged_failures(gates: list[dict], items: dict, unjudged: list[str]) -> list[str]:
-    """The FAILs the gates judged OUTSIDE the unjudged moves (integration review 2026-10-16): a FAIL gate with a
+    """The FAILs the gates judged OUTSIDE the unjudged moves: a FAIL gate with a
     failing item at a tree path that is not an unjudged move or below one, or with a failing item that names no
     tree path (a registry item), or with no failing item at all (the gate itself failed). Each is "<gate> at
     <path>". Empty when every FAIL comes from the moves nobody looked at: only then may UNVERIFIED replace FAIL."""
@@ -158,30 +158,8 @@ def _pinned_state(fact: dict) -> str | None:
     return pinned["state"] if pinned else None
 
 
-def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, config=None, store: bool = False,
-           keep_work: str | Path | None = None, url_map: Mapping[str, str] | None = None,
-           nonce: str | None = None, argv: str | None = None, tier: str | None = None, force_tier: bool = False,
-           environ: Mapping[str, str] | None = None, lock_dir: str | Path | None = None,
-           on_tree=None) -> dict:
-    """One compat_result observation (module docstring). Raises walker.UnknownConfiguration or OverrideError
-    (exit 3), CompatUsage (3), walker.WalkError, ci.trigger.TriggerError or ci.configs.RegistryUnreadable (2).
-    `url_map` is the test-only seam of `Context.for_local`.
-
-    `on_tree(git, root, work, t0_verdict)` (Wave G, `test-bump`): called once after the T0 roll-up, inside the work
-    directory's lifetime, with the gates' git, the walked root Pin (None when the walk did not start) and the T0
-    verdict, so a caller can lay the same tree out (`tierrun.materialise`) and run its own capabilities on it. It
-    is called whatever T0 says: the caller reports T0 as hygiene, beside its functional result."""
-    from nanosoc_rm import db
-    from nanosoc_rm.ci import configs
-    from nanosoc_rm.ci.trigger import build_request, canonical_urls_from
-    from nanosoc_rm.config import load_config
-    from nanosoc_rm.t0 import gates as G
-    from nanosoc_rm.t0.gitwork import iter_pins
-    from nanosoc_rm.t0.local import run_local
-    from nanosoc_rm.t0.tiers import check_budget
-    from nanosoc_rm.walker import walk
-    from nanosoc_rm.analysis import tierrun
-
+def _checked_request(overrides: Mapping[str, str] | None, store: bool, tier: str | None,
+                     force_tier: bool) -> dict[str, str]:
     overrides = dict(overrides or {})
     for path, sha in overrides.items():
         if not _SHA.match(sha):
@@ -190,76 +168,54 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
         raise CompatUsage("--store records real runs only: a run with --pin is a what-if, never stored")
     if force_tier and not tier:
         raise CompatUsage("--force-tier needs --tier")
-    config = config if config is not None else load_config()
-    spec = tierrun.check_spec(configs.tiers(configuration, config).get(tier), tier, configuration, environ) \
-        if tier else None
-    started_at = clock.iso()
+    return overrides
 
-    # 1. the tree, overrides applied (UnknownConfiguration, OverrideError, WalkError propagate)
-    replaced: dict[str, str] = {}
-    docs = walk(configuration, config=config, store=store, overrides=overrides or None, alerts=store,
-                replaced=replaced)
 
-    # 2. the gates, locally, on the request the trigger would send plus the overrides
-    nonce = nonce or secrets.token_hex(16)
-    req, req_sources = build_request(configuration, nonce, config)
+def _local_request(req: dict, canonical_urls: dict, overrides: dict[str, str]) -> dict:
+    """The request the trigger would send, without schema and nonce, plus the walked tree's canonical URLs and
+    the overrides."""
     request = {k: v for k, v in req.items() if k not in ("schema", "nonce")}
-    request["canonical_urls"] = dict(request.get("canonical_urls") or {}, **canonical_urls_from(config, docs))
+    request["canonical_urls"] = dict(request.get("canonical_urls") or {}, **canonical_urls)
     if overrides:
         request["pin_overrides"] = dict(overrides)
-    extra = {"t0.clone.upgrade-path": UPGRADE_NOT_RUN} if overrides and request.get("upgrade_from") else {}
-    work, kept = _workdir(keep_work)
-    try:
-        ctx = G.Context.for_local(nonce=nonce, workdir=work / "run", request=request,
-                                  registry_dir=Path(config.require("registry", "path")),
-                                  host_bases=_host_bases(config), url_map=url_map)
-        rows, items = run_local(ctx, "configuration", extra)
-        root = ctx.walk()
-        judged = {p.tree_path: p for p in iter_pins(root)} if root is not None else {}
+    return request
 
-        # 3. the roll-up (README section 6), waivers from the registry
-        rolled = G.rollup(rows, "configuration", mode="local")
-        waivers = configs.waivers(configuration, config)
-        gates, unused = G.apply_waivers(rolled, items, waivers)
-        verdict, not_run = G.run_verdict(gates)
-        gates_verdict = verdict                   # the tier decision reads the gates, not the what-if verdict
-        unjudged, why_not = _unjudged(overrides, judged, items)
-        reason = None
-        if unjudged:
-            kept = judged_failures(gates, items, unjudged) if verdict == "FAIL" else []
-            if kept:
-                # a FAIL the gates judged elsewhere stays a FAIL: the unjudged move cannot make it less red
-                reason = ("FAIL judged outside the moved commit(s) (%s); the gates also did not judge: %s"
-                          % ("; ".join(kept[:5]), "; ".join(why_not)))
-            else:
-                verdict = "UNVERIFIED"
-                reason = ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
+
+def _what_if_verdict(verdict: str, gates: list[dict], items: dict, unjudged: list[str],
+                     why_not: list[str]) -> tuple[str, str | None]:
+    """(verdict, reason) of the what-if: the gates' verdict, unless they did not judge a moved commit. Then it is
+    UNVERIFIED, except that a FAIL the gates judged elsewhere stays a FAIL (the unjudged move cannot make it less
+    red)."""
+    if not unjudged:
+        return verdict, None
+    elsewhere = judged_failures(gates, items, unjudged) if verdict == "FAIL" else []
+    if elsewhere:
+        return verdict, ("FAIL judged outside the moved commit(s) (%s); the gates also did not judge: %s"
+                         % ("; ".join(elsewhere[:5]), "; ".join(why_not)))
+    return "UNVERIFIED", ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
                           % "; ".join(why_not))
-        t0_finished_at = clock.iso()
 
-        # 4. the tier (CR-12), in a sandbox checkout of the same tree
-        tier_doc = None
-        if spec is not None:
-            if gates_verdict == "FAIL" and not force_tier:
-                tier_doc = tierrun.skipped(spec, tier, "T0 is FAIL: the %s tier was skipped (--force-tier runs it "
-                                                       "anyway, UNVERIFIED for release)" % tier)
-            elif root is None:
-                tier_doc = tierrun._doc(spec, tier, reason="no tree to check out: the T0 walk did not start")
-            else:
-                layout = tierrun.materialise(ctx.git, root, work / "tree", spec.get("pins"))
-                tier_doc = tierrun.run_tier(spec, tier, work / "tree", work, nonce, layout=layout,
-                                            lock_dir=lock_dir)
-            if force_tier and gates_verdict == "FAIL":
-                tier_doc["forced"] = True
-                tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
-        if on_tree is not None:
-            on_tree(ctx.git, root, work, verdict)
-    finally:
-        if not kept:
-            shutil.rmtree(work, ignore_errors=True)
-    finished_at = clock.iso()
 
-    # per pin: walker facts + each gate's item at the pin's tree path
+def _tier_run(spec: dict, tier: str, gates_verdict: str, force_tier: bool, git, root, work: Path, nonce: str,
+              lock_dir) -> dict:
+    """The tier document: skipped after a T0 FAIL unless forced (then marked forced), none without a tree."""
+    from nanosoc_rm.analysis import tierrun
+    if gates_verdict == "FAIL" and not force_tier:
+        tier_doc = tierrun.skipped(spec, tier, "T0 is FAIL: the %s tier was skipped (--force-tier runs it "
+                                               "anyway, UNVERIFIED for release)" % tier)
+    elif root is None:
+        tier_doc = tierrun._doc(spec, tier, reason="no tree to check out: the T0 walk did not start")
+    else:
+        layout = tierrun.materialise(git, root, work / "tree", spec.get("pins"))
+        tier_doc = tierrun.run_tier(spec, tier, work / "tree", work, nonce, layout=layout, lock_dir=lock_dir)
+    if force_tier and gates_verdict == "FAIL":
+        tier_doc["forced"] = True
+        tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
+    return tier_doc
+
+
+def _pins(docs: list[dict], items: dict, overrides: dict[str, str], replaced: dict[str, str]) -> list[dict]:
+    """Per pin: the walker's facts and each gate's item at the pin's tree path."""
     by_gate = {gid: {i["tree_path"]: i["result"] for i in its if i.get("tree_path")} for gid, its in items.items()}
     pins = []
     for d in docs:
@@ -276,6 +232,79 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
                      "replaces": replaced.get(over) if over is not None else None,
                      "url_kind": f["url_kind"], "state": _pinned_state(f), "split": bool(f["split"]),
                      "items": results})
+    return pins
+
+
+def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, config=None, store: bool = False,
+           keep_work: str | Path | None = None, url_map: Mapping[str, str] | None = None,
+           nonce: str | None = None, argv: str | None = None, tier: str | None = None, force_tier: bool = False,
+           environ: Mapping[str, str] | None = None, lock_dir: str | Path | None = None,
+           on_tree=None) -> dict:
+    """One compat_result observation (module docstring). Raises walker.UnknownConfiguration or OverrideError
+    (exit 3), CompatUsage (3), walker.WalkError, ci.trigger.TriggerError or ci.configs.RegistryUnreadable (2).
+    `url_map` is the test-only seam of `Context.for_local`.
+
+    `on_tree(git, root, work, t0_verdict)` (`test-bump`): called once after the T0 roll-up, inside the work
+    directory's lifetime, with the gates' git, the walked root Pin (None when the walk did not start) and the T0
+    verdict, so a caller can lay the same tree out (`tierrun.materialise`) and run its own capabilities on it. It
+    is called whatever T0 says: the caller reports T0 as hygiene, beside its functional result."""
+    from nanosoc_rm import db
+    from nanosoc_rm.ci import configs
+    from nanosoc_rm.ci.trigger import build_request, canonical_urls_from
+    from nanosoc_rm.config import load_config
+    from nanosoc_rm.t0 import gates as G
+    from nanosoc_rm.t0.gitwork import iter_pins
+    from nanosoc_rm.t0.local import run_local
+    from nanosoc_rm.t0.tiers import check_budget
+    from nanosoc_rm.walker import walk
+    from nanosoc_rm.analysis import tierrun
+
+    overrides = _checked_request(overrides, store, tier, force_tier)
+    config = config if config is not None else load_config()
+    spec = tierrun.check_spec(configs.tiers(configuration, config).get(tier), tier, configuration, environ) \
+        if tier else None
+    started_at = clock.iso()
+
+    # 1. the tree, overrides applied (UnknownConfiguration, OverrideError, WalkError propagate)
+    replaced: dict[str, str] = {}
+    docs = walk(configuration, config=config, store=store, overrides=overrides or None, alerts=store,
+                replaced=replaced)
+
+    # 2. the gates, locally, on the request the trigger would send plus the overrides
+    nonce = nonce or secrets.token_hex(16)
+    req, req_sources = build_request(configuration, nonce, config)
+    request = _local_request(req, canonical_urls_from(config, docs), overrides)
+    extra = {"t0.clone.upgrade-path": UPGRADE_NOT_RUN} if overrides and request.get("upgrade_from") else {}
+    work, kept = _workdir(keep_work)
+    try:
+        ctx = G.Context.for_local(nonce=nonce, workdir=work / "run", request=request,
+                                  registry_dir=Path(config.require("registry", "path")),
+                                  host_bases=_host_bases(config), url_map=url_map)
+        rows, items = run_local(ctx, "configuration", extra)
+        root = ctx.walk()
+        judged = {p.tree_path: p for p in iter_pins(root)} if root is not None else {}
+
+        # 3. the roll-up (README section 6), waivers from the registry
+        rolled = G.rollup(rows, "configuration", mode="local")
+        waivers = configs.waivers(configuration, config)
+        gates, unused = G.apply_waivers(rolled, items, waivers)
+        gates_verdict, not_run = G.run_verdict(gates)
+        unjudged, why_not = _unjudged(overrides, judged, items)
+        verdict, reason = _what_if_verdict(gates_verdict, gates, items, unjudged, why_not)
+        t0_finished_at = clock.iso()
+
+        # 4. the tier, in a sandbox checkout of the same tree; it reads the gates, not the what-if verdict
+        tier_doc = None
+        if spec is not None:
+            tier_doc = _tier_run(spec, tier, gates_verdict, force_tier, ctx.git, root, work, nonce, lock_dir)
+        if on_tree is not None:
+            on_tree(ctx.git, root, work, verdict)
+    finally:
+        if not kept:
+            shutil.rmtree(work, ignore_errors=True)
+    finished_at = clock.iso()
+
+    pins = _pins(docs, items, overrides, replaced)
     splits: dict[str, list[dict]] = {}
     for p in pins:
         if p["split"] and p["component"]:

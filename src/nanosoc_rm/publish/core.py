@@ -80,7 +80,7 @@ def settings(config: Config) -> Settings:
 
 
 def token(config: Config) -> str:
-    """The store token (CR-PR1 pattern). Errors name the key, never the content."""
+    """The store token (a 0600 file, as private_read). Errors name the key, never the content."""
     s = settings(config)
     if not s.token_file:
         raise PublishError("no store token: [stores.artifactory] token_file is not set")

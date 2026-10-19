@@ -192,6 +192,11 @@ def register(main: click.Group) -> None:
                                % (f["configuration"], " ".join("--pin " + p for p in m["pins"]), t))
         if m.get("note"):
             click.echo("           %s" % m["note"])
+        tb = f.get("test_bump")
+        if tb is not None:
+            click.echo("test-bump  %s%s%s" % (tb.get("verdict") or "none of exactly this move",
+                                             " (job %s)" % tb["job"] if tb.get("job") else "",
+                                             ": " + tb["note"] if tb.get("note") else ""))
         click.echo("waits for  %s" % (", ".join(f["waits_for"]) or "-"))
         click.echo("would      %s (auto-merge never in shadow mode); blockers:" % f["decision"]["would"])
         for b in f["decision"]["blockers"]:

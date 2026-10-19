@@ -15,13 +15,13 @@ What `put` enforces beyond the schema (README section 4):
 
 Snapshots (set kinds). The current value of a scope is its latest COMPLETE snapshot, so a fact that is no
 longer produced disappears. "Latest" is the one that completed last, in commit order, never by the wall clock
-(table `current_snapshots`, kept by triggers; CR-ROB-store). A producer writes a whole run with `put_snapshot(scope, docs)`: one transaction,
+(table `current_snapshots`, kept by triggers). A producer writes a whole run with `put_snapshot(scope, docs)`: one transaction,
 marked complete only at the end, so a run that fails midway never becomes current. `put(doc)` of a single
 set-kind document adds it to the snapshot it names and marks that snapshot complete: it is for documents that
 are complete on their own (fixtures, a one-row scope such as `runner_settings:<id>`). Producers of
 multi-row scopes use put_snapshot.
 
-Keep-on-change (CR-1015-retention). When a put_snapshot run has the same content as the scope's current
+Keep-on-change. When a put_snapshot run has the same content as the scope's current
 snapshot, its rows are not stored again: the current snapshot records the confirmation instead (`confirmed_id`,
 `confirmed_at`, `confirmed_vals`, `confirmations`, and its place among the stored rows; overwritten by each later
 confirmation). "The same content"
@@ -34,7 +34,7 @@ last check, as before. `history` shows each
 stored state followed by its last confirmation. `compact` collapses runs of identical snapshots stored before
 this rule (`nanosoc-rm store-maint compact`).
 
-Event kinds (rewrite_alert, t0_result, alert, compat_result, and the CR-14 quality kinds): the latest observation per subject (newest observed_at; on a
+Event kinds (rewrite_alert, t0_result, alert, compat_result, and the quality kinds): the latest observation per subject (newest observed_at; on a
 tie, the one stored last).
 
 Alerts: putting a kind-`alert` observation also raises its row in `alerts`; `clear_alert` clears it there and
@@ -65,27 +65,26 @@ __all__ = ["SET_KINDS", "EVENT_KINDS", "ACTIONS", "ObservationRefused", "as_doc"
 
 SET_KINDS = ("pin_state", "host_compare", "containment", "silicon_protection", "mirror_status", "repo_inventory",
              "runner_settings", "credential_status", "registry_record", "branch_state",
-             "repo_seen",                                                             # section 23.2 (CR-WF-catalogue)
-             "freshness")                                                            # section 24 (CR-WF-fresh)
+             "repo_seen",                                                             # section 23.2
+             "freshness")                                                            # section 24
 EVENT_KINDS = ("rewrite_alert", "t0_result", "alert", "compat_result",
-               "quality_density", "quality_finding", "readme_check", "doc_score",      # CR-14 (Q5)
+               "quality_density", "quality_finding", "readme_check", "doc_score",      # section 14a
                "matrix_cell", "matrix_quarantine",                                    # D3, D8 (section 18)
-               "changelog_lint", "version_plan", "tag_check", "manifest_proposal",     # CR-VER (Wave B versioning)
+               "changelog_lint", "version_plan", "tag_check", "manifest_proposal",     # section 14b
                "tool_release_draft", "yank_proposal", "defect_trailers",
-               "release_draft", "release_verify", "fork_status",                      # CR-R1
+               "release_draft", "release_verify", "fork_status",                      # section 14c
                "regen_class",                                                         # C3, C7 (section 20)
                "store_index",                                                         # B10, G8 (section 22)
-               "release_publication")                                                 # G8 (CR-ART-publish)
-# interfaces.md section 14 Logging: the v1 write actions, plus the person-confirmed publishes (CR-ART-publish)
+               "release_publication")                                                 # G8
+# interfaces.md section 14 Logging: the v1 write actions, plus the person-confirmed publishes
 ACTIONS = ("run_t0", "clear_alert", "publish_release", "register_tapeout")
 RUN_STATES_FINAL = ("accepted", "rejected", "refused", "no-bundle")
 
 SCHEMA_VERSION = 3
-# The schema, statement by statement (run once per store by `ensure_schema`, never on every connect: ROB-load-3).
+# The schema, statement by statement (run once per store by `ensure_schema`, never on every connect).
 # Version 2 adds `current_snapshots`: the current (last completed) snapshot of each scope, kept by triggers so
-# every writer, including a direct INSERT, keeps it right (ROB-load-1). "Last" means last completed in commit order,
-# never the wall clock (ROB-faults-4). Version 3 adds the confirmation columns of keep-on-change
-# (CR-1015-retention; see the module docstring).
+# every writer, including a direct INSERT, keeps it right. "Last" means last completed in commit order,
+# never the wall clock. Version 3 adds the confirmation columns of keep-on-change (see the module docstring).
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS observations (
     kind TEXT NOT NULL, subject TEXT NOT NULL, observed_at TEXT NOT NULL, snapshot_id TEXT, doc TEXT NOT NULL)""",
@@ -123,7 +122,7 @@ _SCHEMA = (
     # the last one of a scope replaces the earlier ones).
     """INSERT OR REPLACE INTO current_snapshots (scope, kind, snapshot_id)
     SELECT scope, kind, id FROM snapshots WHERE completed_at IS NOT NULL ORDER BY rowid""",
-    # version 3 (CR-1015-retention). ensure_schema runs these once per store, so ADD COLUMN never repeats.
+    # Version 3. ensure_schema runs these once per store, so ADD COLUMN never repeats.
     "ALTER TABLE snapshots ADD COLUMN confirmed_id TEXT",
     "ALTER TABLE snapshots ADD COLUMN confirmed_at TEXT",
     "ALTER TABLE snapshots ADD COLUMN confirmed_vals BLOB",
@@ -183,25 +182,25 @@ _SUBJECT = {
     "compat_result": lambda f: "%s:%s" % (f["configuration"], f["nonce"]),
     "matrix_cell": lambda f: "%s:%s:%s:%s" % (f["configuration"], f["component"] or "-", f["column"], f["nonce"]),
     "matrix_quarantine": lambda f: "%s:%s" % (f["configuration"], f["test"]),
-    # CR-R1 (Wave B releases): event kinds, one per draft and per fork
+    # Event kinds, one per draft and per fork
     "release_draft": lambda f: "%s:%s" % (f["configuration"], f["version"]),
     "release_verify": lambda f: "%s:%s" % (f["configuration"], f["version"]),
     "fork_status": lambda f: "%s:%s:%s" % (f["component"], f["fork"]["host"], f["fork"]["path"]),
-    # Wave D regenerator (section 20): one move of one component in one consumer configuration
-    # CR-ART-publish (G8): one published manifest or tapeout record
+    # One published manifest or tapeout record (G8)
     "release_publication": lambda f: "%s:%s:%s" % (f["project"], f["version"], f["name"]),
+    # One move of one component in one consumer configuration (section 20)
     "regen_class": lambda f: "%s:%s:%s:%s" % (f["component"], f["from"]["commit"], f["to"]["commit"], f["configuration"]),
-    # Wave E store index (section 22): one per store
+    # One per store (section 22)
     "store_index": lambda f: f["store"],
     **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
                                   "+worktree" if f["worktree"] and f["commit"] else ""))
        for k in ("quality_density", "quality_finding", "readme_check", "doc_score")},
-    # CR-VER (Wave B versioning): the quality key for per-commit kinds; per component, or per component and version
+    # The quality key for per-commit kinds; per component, or per component and version
     **{k: (lambda f: "%s:%s%s" % (f["target"], f["commit"] or "worktree",
                                   "+worktree" if f["worktree"] and f["commit"] else ""))
        for k in ("changelog_lint", "version_plan", "manifest_proposal", "defect_trailers")},
     "tag_check": lambda f: f["target"],
-    "tool_release_draft": lambda f: "%s:%s" % (f["target"], f["version"]),   # renamed at integration (CR-R1's release_draft)
+    "tool_release_draft": lambda f: "%s:%s" % (f["target"], f["version"]),
     "yank_proposal": lambda f: "%s:%s" % (f["target"], f["version"]),
 }
 
@@ -276,7 +275,7 @@ def ensure_schema(con: sqlite3.Connection, statements: Iterable[str], version: i
     """Put the store on WAL and `statements` (idempotent DDL) at `version`, only when it is not there yet.
 
     The common case is two reads (`PRAGMA journal_mode`, `PRAGMA user_version`) and no write, so a reader never
-    queues for the write lock behind a poll or a quality run (ROB-load-3). Otherwise, under BEGIN IMMEDIATE: check
+    queues for the write lock behind a poll or a quality run. Otherwise, under BEGIN IMMEDIATE: check
     again, run the statements, set user_version. A store at a newer version is left as it is."""
     if con.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
         con.execute("PRAGMA journal_mode=WAL")
@@ -349,8 +348,8 @@ def _raise_row(con: sqlite3.Connection, doc: dict) -> None:
     elif (clock.parse(f["raised_at"]) > clock.parse(row["raised_at"])
           or (row["cleared_at"] and not f["cleared_at"] and f["raised_at"] != row["raised_at"])):
         # Raised again: open again (with whatever clearing the new document carries). A new uncleared raise of a
-        # cleared alert reopens it whatever its time, so a raise after the wall clock stepped back is not lost
-        # (ROB-faults-5); only the very raise that was cleared (same raised_at) leaves it cleared.
+        # cleared alert reopens it whatever its time, so a raise after the wall clock stepped back is not lost;
+        # only the very raise that was cleared (same raised_at) leaves it cleared.
         con.execute("UPDATE alerts SET raised_at = ?, cleared_at = ?, cleared_by = ? WHERE subject = ?",
                     (f["raised_at"], f["cleared_at"], f["cleared_by"], doc["subject"]))
     elif f["cleared_at"] and not row["cleared_at"]:
@@ -359,7 +358,7 @@ def _raise_row(con: sqlite3.Connection, doc: dict) -> None:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Keep-on-change (CR-1015-retention; module docstring)
+# Keep-on-change (module docstring)
 # ---------------------------------------------------------------------------------------------------------
 # A volatile token: a UTC timestamp (a check time), with the `#<8 hex>` of a snapshot id when one follows it.
 _VOLATILE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})(?:#[0-9a-f]{8})?")
@@ -534,7 +533,7 @@ def put_snapshot(scope: str, docs: Iterable[Any], *, config: Config | str | Path
     new. An empty run is a complete, empty snapshot (the scope now has no current facts); its id is a fresh
     `new_snapshot_id(scope)`, so two empty runs of one scope in the same second are both stored.
 
-    Keep-on-change (CR-1015-retention): a run with the content of the scope's current snapshot stores no rows; it
+    Keep-on-change: a run with the content of the scope's current snapshot stores no rows; it
     is recorded as that snapshot's confirmation, and `latest` returns the run's documents just the same."""
     docs = [as_doc(d) for d in docs]
     kind = scope.split(":", 1)[0]
@@ -594,7 +593,7 @@ def _prefix_range(subject_prefix: str) -> tuple[str, str]:
 
 def _newest_rows(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[sqlite3.Row]:
     """An event kind's newest row per subject (newest observed_at; on a tie, the one stored last), in stored
-    order, read without the documents: only the rows chosen are decoded (ROB-load-2)."""
+    order, read without the documents: only the rows chosen are decoded."""
     where, args = _prefix_range(subject_prefix)
     best: dict[str, Any] = {}
     for r in con.execute("SELECT o.rowid AS rid, o.subject, o.observed_at FROM observations o "
@@ -619,8 +618,8 @@ def _docs(con: sqlite3.Connection, rids: list[int]) -> list[dict]:
 def _latest(con: sqlite3.Connection, kind: str, subject_prefix: str) -> list[dict]:
     if kind in SET_KINDS:
         # The current snapshot of each scope comes from current_snapshots (kept by triggers), so the cost is the
-        # current rows, whatever the history (ROB-load-1), and "current" is the last completed run, whatever the
-        # wall clock said when it completed (ROB-faults-4).
+        # current rows, whatever the history, and "current" is the last completed run, whatever the
+        # wall clock said when it completed.
         where, args = _prefix_range(subject_prefix)
         rows = con.execute(
             # CROSS JOIN and INDEXED BY pin the plan: the current snapshots first, then their rows by snapshot id.
@@ -655,7 +654,7 @@ def newest_per(kind: str, group: Callable[[str], str], subject_prefix: str = "",
                config: Config | str | Path | None = None) -> list[dict]:
     """For an event kind: the newest observation (newest observed_at; on a tie, the one stored last) in each group
     of subjects, where `group(subject)` names the group; in stored order. Only the chosen documents are read, so a
-    caller that wants one per target does not decode every commit's document (ROB-load-2)."""
+    caller that wants one per target does not decode every commit's document."""
     if kind not in EVENT_KINDS:
         raise ValueError("newest_per reads event kinds, not %r" % kind)
     with connect(config) as con:
@@ -696,7 +695,7 @@ def history(subject: str, *, config: Config | str | Path | None = None) -> list[
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Store maintenance (CR-1015-retention): `nanosoc-rm store-maint compact`
+# Store maintenance: `nanosoc-rm store-maint compact`
 # ---------------------------------------------------------------------------------------------------------
 def compact(*, apply: bool = False, config: Config | str | Path | None = None) -> list[dict]:
     """Collapse each run of consecutive complete snapshots of one scope with the same content (stored before

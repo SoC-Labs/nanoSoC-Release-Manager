@@ -1,4 +1,4 @@
-"""The freshness rule, as pure functions over stored facts (interfaces.md section 24.2; David 2026-10-14).
+"""The freshness rule, as pure functions over stored facts (interfaces.md section 24.2).
 
 Nothing here reads git, the store or the clock: every function takes the measured facts and `today` (a UTC
 date), so a page can re-judge stored facts on the day it is drawn and a test can pin the day.
@@ -15,8 +15,8 @@ Per pin, first match wins (the reviewer's rule, board R):
     behind        1 to 9 behind and bumped within 90 days (or the bump date is unknown)
 
 Per tree: the verdict is the worst DIRECT pin (depth 1) by SEVERITY, except that a tree whose worst direct pin is
-`not_measured` while at least one direct pin is `current` reads `current_except` ("Current except N not measured",
-David 2026-10-15: a tree with a pin that cannot be measured is not Current). Worse states (unpushed, outdated,
+`not_measured` while at least one direct pin is `current` reads `current_except` ("Current except N not measured":
+a tree with a pin that cannot be measured is not Current). Worse states (unpushed, outdated,
 behind) still win; a tree none of whose direct pins was measured (or with none) reads `not_measured`; a frozen
 configuration stays `frozen`. "Updated" is the days since the newest bump anywhere in the tree, worded Fresh under
 30, Aging 30 to 89, Stale 90 or more.
@@ -33,7 +33,7 @@ __all__ = ["STATES", "LIVE_STATES", "TREE_STATES", "CURRENT_EXCEPT", "WORDS", "t
 
 STATES = ("frozen", "unpushed", "not_measured", "current", "outdated", "behind")   # a pin's states
 LIVE_STATES = STATES[1:]
-# A tree's verdict is one of STATES or `current_except` (CR-1015-unmeasured): every measured direct pin is current
+# A tree's verdict is one of STATES or `current_except`: every measured direct pin is current
 # but N direct pins could not be measured. It is a tree verdict only; no pin, node rollup or grid cell has it.
 CURRENT_EXCEPT = "current_except"
 TREE_STATES = STATES + (CURRENT_EXCEPT,)
@@ -161,42 +161,60 @@ def judge_tree(frozen: bool, pins: list[dict], today: dt.date) -> dict:
     lag_direct = [(p, j) for p, j in direct if j["live"] in LAGGING]
     bumped = [(p, j) for p, j in judged if j["days_since_bump"] is not None]
     bumped_direct = [(p, j) for p, j in bumped if p.get("depth") == 1]
+    stalest_fact, worst_fact = _lagging_facts(lag_all)
+    nb = _newest(bumped)
 
-    def newest(rows):
-        if not rows:
-            return None
-        p, j = min(rows, key=lambda r: (r[1]["days_since_bump"], r[0]["tree_path"]))
-        return dict(_pick(p, j), date=p["bump"]["date"], days=j["days_since_bump"])
+    def shown(live, frozen_value):
+        """(shown, would_be): a frozen configuration shows `frozen_value` and keeps the live value aside."""
+        return (frozen_value, live) if frozen else (live, None)
 
-    stalest = max(((p, j) for p, j in lag_all if j["days_since_bump"] is not None),
-                  key=lambda r: (r[1]["days_since_bump"], r[0].get("behind") or 0), default=None)
-    worst_lag = max(lag_all, key=lambda r: (SEVERITY[r[1]["live"]], r[0].get("behind") or 0), default=None)
-    nb = newest(bumped)
-    stalest_fact = dict(_pick(*stalest, "behind"), days=stalest[1]["days_since_bump"],
-                        state=stalest[1]["live"]) if stalest else None
-    worst_fact = dict(_pick(*worst_lag, "behind", "lower_bound"), state=worst_lag[1]["live"]) if worst_lag else None
+    state, would_be = shown(live_verdict, "frozen")
+    shown_counts, would_be_counts = shown(counts, {k: 0 for k in counts})
+    lagging, would_be_lagging = shown(len(lag_all), 0)
+    direct_lagging, would_be_direct_lagging = shown(len(lag_direct), 0)
+    stalest, would_be_stalest = shown(stalest_fact, None)
+    worst, would_be_worst = shown(worst_fact, None)
     return {
-        "state": "frozen" if frozen else live_verdict,
-        "would_be": live_verdict if frozen else None,
+        "state": state,
+        "would_be": would_be,
         "counted": not frozen,
         "pins": len(pins),
         "direct": len(direct),
         "direct_not_measured": sum(1 for _, j in direct if j["live"] == "not_measured"),
-        "counts": {k: 0 for k in counts} if frozen else counts,
-        "would_be_counts": counts if frozen else None,
-        "lagging": 0 if frozen else len(lag_all),
-        "direct_lagging": 0 if frozen else len(lag_direct),
-        "would_be_lagging": len(lag_all) if frozen else None,
-        "would_be_direct_lagging": len(lag_direct) if frozen else None,
+        "counts": shown_counts,
+        "would_be_counts": would_be_counts,
+        "lagging": lagging,
+        "direct_lagging": direct_lagging,
+        "would_be_lagging": would_be_lagging,
+        "would_be_direct_lagging": would_be_direct_lagging,
         "total_behind": sum(p.get("behind") or 0 for p, _ in judged),
         "any_lower_bound": any(p.get("lower_bound") for p in pins),
         "newest_bump": nb,
-        "newest_direct_bump": newest(bumped_direct),
+        "newest_direct_bump": _newest(bumped_direct),
         "updated_days": nb["days"] if nb else None,
         "age": None if frozen else age_word(nb["days"] if nb else None),
-        "stalest_lagging": None if frozen else stalest_fact,
-        "worst_lagging": None if frozen else worst_fact,
-        "would_be_stalest_lagging": stalest_fact if frozen else None,
-        "would_be_worst_lagging": worst_fact if frozen else None,
+        "stalest_lagging": stalest,
+        "worst_lagging": worst,
+        "would_be_stalest_lagging": would_be_stalest,
+        "would_be_worst_lagging": would_be_worst,
     }
+
+
+def _newest(rows: list[tuple[dict, dict]]) -> dict | None:
+    """The most recently bumped pin of `rows`, with its bump date and age in days."""
+    if not rows:
+        return None
+    p, j = min(rows, key=lambda r: (r[1]["days_since_bump"], r[0]["tree_path"]))
+    return dict(_pick(p, j), date=p["bump"]["date"], days=j["days_since_bump"])
+
+
+def _lagging_facts(lag_all: list[tuple[dict, dict]]) -> tuple[dict | None, dict | None]:
+    """(the lagging pin waiting longest, the lagging pin most behind)."""
+    stalest = max(((p, j) for p, j in lag_all if j["days_since_bump"] is not None),
+                  key=lambda r: (r[1]["days_since_bump"], r[0].get("behind") or 0), default=None)
+    worst_lag = max(lag_all, key=lambda r: (SEVERITY[r[1]["live"]], r[0].get("behind") or 0), default=None)
+    stalest_fact = dict(_pick(*stalest, "behind"), days=stalest[1]["days_since_bump"],
+                        state=stalest[1]["live"]) if stalest else None
+    worst_fact = dict(_pick(*worst_lag, "behind", "lower_bound"), state=worst_lag[1]["live"]) if worst_lag else None
+    return stalest_fact, worst_fact
 

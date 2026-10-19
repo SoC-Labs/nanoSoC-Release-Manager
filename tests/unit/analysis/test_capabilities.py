@@ -433,6 +433,86 @@ def test_bump_gate_needs_a_passing_test_bump_of_exactly_this_move(scene, monkeyp
         assert GATE.blocker(ev, "top-main", "a", to) is not None
 
 
+def _doc_of_change(scene, now, after, to, paths=("a",)):
+    """A test_bump document whose one block row went from `now` to `after` (None: did not run), with the
+    verdict the real comparison gives it."""
+    doc = _fake_doc(scene, "PASS", to=to, paths=paths)
+    f = doc["fact"]
+    row = f["rows"][0]
+    row["now"] = now and dict(row["now"], verdict=now)
+    row["after"] = dict(row["after"], verdict=after)
+    row["change"] = RUN.compare(row["now"], row["after"])
+    f["verdict"], f["reason"] = RUN.functional_verdict(f["rows"])
+    assert contracts.validate(RUN.SCHEMA, doc) == []
+    return doc
+
+
+@pytest.mark.requirement("E3")
+@pytest.mark.requirement("PR6")
+@pytest.mark.parametrize("now,after,verdict,lands", [
+    ("PASS", "FAIL", "FAIL", False),          # a new red holds
+    ("FAIL", "PASS", "PASS", True),           # red before, green after: lands
+    ("FAIL", "FAIL", "WARN", True),           # red before, still red after: lands, with the note
+    (None, "FAIL", "UNVERIFIED", False),      # unknown before: never "already red"; holds
+    ("INFRA", "FAIL", "UNVERIFIED", False),   # a Now that did not run is unknown too
+])
+def test_bump_gate_lets_an_already_red_gate_through_with_a_note(scene, monkeypatch, now, after, verdict, lands):
+    """D12 (David 2026-10-19): a capability red before the bump and still red after it does not hold the bump;
+    the proposal says it was already red. A new red, or a red with no known Now, still holds."""
+    monkeypatch.delenv("NANOSOC_RM_LOCAL_TIERS", raising=False)
+    cfg = scene.config()
+    to = scene.b1                                         # a commit no other gate test moves to
+    with scene.env.active():
+        j = jobs.submit(cfg, "test-bump", {"configuration": "top-main", "path": "a", "to": to}, by="m")
+        jobs.claim_for_executor(cfg, "eda-agent")
+        jobs.finish_for_executor(cfg, j["id"], "eda-agent", 0 if verdict in ("PASS", "WARN") else 1,
+                                 json.dumps(_doc_of_change(scene, now, after, to)) + "\n")
+        ev = GATE.evidence(cfg, "top-main", ["a"], to, scene.top)
+    assert ev["job"] == j["id"] and ev["verdict"] == verdict
+    assert GATE.lands(ev) is lands
+    assert (GATE.blocker(ev, "top-main", "a", to) is None) is lands
+    if verdict == "WARN":
+        assert ev["note"].startswith("already red before the bump: a:lint is still red after it")
+        assert "already red before the bump" in GATE.already_red(ev)
+    else:
+        assert GATE.already_red(ev) is None
+
+
+@pytest.mark.requirement("E3")
+@pytest.mark.requirement("PR6")
+def test_a_warn_whose_command_exited_non_zero_holds(scene, monkeypatch):
+    monkeypatch.delenv("NANOSOC_RM_LOCAL_TIERS", raising=False)
+    cfg = scene.config()
+    to = scene.b1
+    with scene.env.active():
+        j = jobs.submit(cfg, "test-bump", {"configuration": "top-main", "path": "a", "to": to}, by="m")
+        jobs.claim_for_executor(cfg, "eda-agent")
+        jobs.finish_for_executor(cfg, j["id"], "eda-agent", 2,
+                                 json.dumps(_doc_of_change(scene, "FAIL", "FAIL", to)) + "\n")
+        ev = GATE.evidence(cfg, "top-main", ["a"], to, scene.top)
+    assert ev["job"] == j["id"] and ev["verdict"] == "UNVERIFIED" and "exited 2" in ev["note"]
+    assert not GATE.lands(ev) and GATE.blocker(ev, "top-main", "a", to) is not None
+
+
+@pytest.mark.requirement("E3")
+@pytest.mark.requirement("PR6")
+@pytest.mark.parametrize("other,verdict,lands", [
+    (("PASS", "FAIL", "block"), "FAIL", False),         # an already-red gate never hides a new red beside it
+    ((None, "FAIL", "block"), "UNVERIFIED", False),     # nor a red with no known Now
+    (("PASS", "INFRA", "block"), "UNVERIFIED", False),  # nor a gate that did not run
+    (("PASS", "PASS", "block"), "WARN", True),          # only the already-red gate is red: lands
+    (("PASS", "FAIL", "report"), "WARN", True),         # a report gate never decides
+])
+def test_an_already_red_gate_beside_another_row(other, verdict, lands):
+    """D12 with two block rows: the already-red one lands only when nothing else on the move is red or unknown."""
+    def row(key, now, after, gate):
+        n = None if now is None else {"verdict": now}
+        return {"key": key, "gate": gate, "change": RUN.compare(n, {"verdict": after})}
+    got, _ = RUN.functional_verdict([row("a:lint", "FAIL", "FAIL", "block"), row("b:sim", *other)])
+    assert got == verdict
+    assert GATE.lands({"verdict": got}) is lands
+
+
 def test_jobs_store_gains_the_executor_column_once(tmp_path):
     import sqlite3
     from nanosoc_rm.config import load_config
@@ -466,6 +546,11 @@ def site(scene, tmp_path_factory):
     with scene.env.active():
         from nanosoc_rm.freshness.scan import scan as fscan
         fscan(["top-main"], config=scene.config(), store=True)
+        # The pages never fetch (Reader(fetch=False)): read each pinned file once here, as a test-bump would,
+        # so this fixture does not depend on which tests ran before it on this worker.
+        reader = MF.Reader(scene.config())
+        for component, commit in (("top", scene.top), ("alpha", scene.a1), ("beta", scene.b1)):
+            reader.at(component, commit)
     pw = "correct horse battery"
     cfg = tmp_path_factory.mktemp("capsweb") / "rm.toml"
     cfg.write_text(scene.env.config.read_text() + '\n[auth]\nmode = "local"\n[[auth.users]]\nlogin = "alice"\n'
@@ -603,6 +688,14 @@ def test_bump_check_answers_from_the_gate_evidence_of_exactly_this_move(scene, m
         assert a["verdict"] == "PASS" and a["url"] == "/capabilities/top-main/bump?job=%d" % j["id"]
         assert BC.answer(base, dict(q, root="f" * 40))["verdict"] is None      # another base: no evidence
         assert BC.answer(base, dict(q, path="a"))["verdict"] is None           # a neighbouring move: none
+        # D12: a WARN (already red before the bump) lets the move land; the note says why
+        warn_path = "zz/warn"
+        j = jobs.submit(base, "test-bump", {"configuration": "top-main", "path": warn_path, "to": to}, by="m")
+        jobs.claim_for_executor(base, "eda-agent")
+        jobs.finish_for_executor(base, j["id"], "eda-agent", 0, json.dumps(
+            _doc_of_change(scene, "FAIL", "FAIL", to, paths=(warn_path,))) + "\n")
+        a = BC.answer(base, dict(q, path=warn_path))
+        assert a["verdict"] == "WARN" and a["command"] is None and "already red before the bump" in a["note"]
         # over HTTP: a reader token opens it; an executor token, no token and a revoked one do not
         reader, agent = tokens.new_token(), tokens.new_token()
         p = tmp_path / "svc.toml"

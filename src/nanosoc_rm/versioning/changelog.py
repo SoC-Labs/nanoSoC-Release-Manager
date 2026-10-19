@@ -233,8 +233,31 @@ def lint(text: str | None, *, tags: dict[str, dict] | None = None, grandfathered
     if text is None:
         return [_finding("CL1", "error", None, "no CHANGELOG.md at the repository root",
                          "add one: `nanosoc-rm changelog lint` documents the format (docs/versioning.md)")]
-    out: list[dict] = []
     cl = parse(text)
+    out = _shape_findings(cl)
+    seen: dict[str, int] = {}
+    prev: Section | None = None
+    for s in cl.sections:
+        released = not s.unreleased
+        if released:
+            out += _release_heading_findings(s, prev, seen)
+        out += _subsection_findings(s)
+        out += _entry_findings(s)
+        if released and s.version is not None and not s.entries:
+            out.append(_finding("CL9", "warning", s.line, "release %s lists no entries" % s.version_text))
+        if released and s.version is not None:
+            older = next((t for t in cl.releases if t.version is not None and t.line > s.line), None)
+            out += _bump_findings(s, older)
+            prev = s
+    out += _link_findings(cl, base_url)
+    if tags is not None:
+        out += _tag_findings(cl, tags, grandfathered)
+    return sorted(out, key=lambda f: (f["line"] or 0, f["rule"]))
+
+
+def _shape_findings(cl: Changelog) -> list[dict]:
+    """CL2 (the title), CL3 (one `[Unreleased]` section, first) and CL8 (entries outside any section)."""
+    out = []
     if cl.title is None or cl.title.strip().lower() != "changelog":
         out.append(_finding("CL2", "error", cl.title_line or 1, "the first heading is %r, not `# Changelog`"
                             % (cl.title,) if cl.title else "no `# Changelog` heading", "# Changelog"))
@@ -248,58 +271,60 @@ def lint(text: str | None, *, tags: dict[str, dict] | None = None, grandfathered
         out.append(_finding("CL3", "error", unrel[0].line, "`## [Unreleased]` comes after a release; it must be first"))
     for e in cl.loose:
         out.append(_finding("CL8", "error", e.line, "an entry outside any version section: %r" % e.text[:80]))
-    seen: dict[str, int] = {}
-    prev: Section | None = None
-    for s in cl.sections:
-        if s.unreleased:
-            pass
-        elif s.version is None or s.version.build is not None:
-            out.append(_finding("CL4", "error", s.line, "release heading %r is not `[X.Y.Z] - YYYY-MM-DD`" % s.heading,
-                                "## [0.1.0] - %s" % dt.date.today().isoformat()))
-        else:
-            if not s.date or not _DATE.match(s.date) or not _real_date(s.date):
-                out.append(_finding("CL4", "error", s.line, "release %s has no valid date (YYYY-MM-DD)" % s.version_text))
-            if s.version_text in seen:
-                out.append(_finding("CL6", "error", s.line, "version %s also at line %d" % (s.version_text, seen[s.version_text])))
-            seen.setdefault(s.version_text, s.line)
-            if prev is not None and prev.version is not None:
-                if not s.version < prev.version:
-                    out.append(_finding("CL5", "error", s.line, "%s comes after %s: releases must be newest first"
-                                        % (s.version_text, prev.version_text)))
-                elif prev.date and s.date and _DATE.match(prev.date) and _DATE.match(s.date) and s.date > prev.date:
-                    out.append(_finding("CL5", "warning", s.line, "%s (%s) is dated after the newer %s (%s)"
-                                        % (s.version_text, s.date, prev.version_text, prev.date)))
-        for name, line, count in s.subsections:
-            if name.lower() not in semver.CLASS_RANK:
-                hint = _NEAR.get(name.lower())
-                out.append(_finding("CL7", "error", line, "subsection %r is not a change class" % name,
-                                    "### %s" % hint if hint and " " not in hint else
-                                    "one of ### breaking, ### feature, ### fix, ### none" + (" (%s?)" % hint if hint else "")))
-            elif count == 0:
-                out.append(_finding("CL9", "warning", line, "subsection %r has no entries" % name))
-        for e in s.entries:
-            if e.kind == "text":
-                out.append(_finding("CL8", "error", e.line, "text that is not a list item, so it has no class: %r"
-                                    % e.text[:80], "make it a `- ` entry under ### breaking, ### feature, ### fix "
-                                    "or ### none, or move prose above the first version section"))
-            elif e.cls is None and e.sub is None:                  # under a non-class heading: CL7 reports it
-                out.append(_finding("CL8", "error", e.line, "entry without a class: %r" % e.text[:80],
-                                    "move it under ### breaking, ### feature, ### fix or ### none"))
-            elif e.cls in ("feature", "fix", "none") and C5_RX.search(e.text):
-                out.append(_finding("CL13", "error", e.line, "entry reads as a new failing check or a warning turned "
-                                    "into a failure, but its class is %s: %r" % (e.cls, e.text[:80]),
-                                    "### breaking (C5)"))
-        if not s.unreleased and s.version is not None and not s.entries:
-            out.append(_finding("CL9", "warning", s.line, "release %s lists no entries" % s.version_text))
-        if not s.unreleased and s.version is not None:
-            older = next((t for t in cl.releases if t.version is not None and t.line > s.line), None)
-            out += _bump_findings(s, older)
-        if not s.unreleased and s.version is not None:
-            prev = s
-    out += _link_findings(cl, base_url)
-    if tags is not None:
-        out += _tag_findings(cl, tags, grandfathered)
-    return sorted(out, key=lambda f: (f["line"] or 0, f["rule"]))
+    return out
+
+
+def _release_heading_findings(s: Section, prev: Section | None, seen: dict[str, int]) -> list[dict]:
+    """CL4 (heading and date), CL6 (a version listed twice) and CL5 (newest first) of one release section."""
+    if s.version is None or s.version.build is not None:
+        return [_finding("CL4", "error", s.line, "release heading %r is not `[X.Y.Z] - YYYY-MM-DD`" % s.heading,
+                         "## [0.1.0] - %s" % dt.date.today().isoformat())]
+    out = []
+    if not s.date or not _DATE.match(s.date) or not _real_date(s.date):
+        out.append(_finding("CL4", "error", s.line, "release %s has no valid date (YYYY-MM-DD)" % s.version_text))
+    if s.version_text in seen:
+        out.append(_finding("CL6", "error", s.line, "version %s also at line %d" % (s.version_text, seen[s.version_text])))
+    seen.setdefault(s.version_text, s.line)
+    if prev is not None and prev.version is not None:
+        if not s.version < prev.version:
+            out.append(_finding("CL5", "error", s.line, "%s comes after %s: releases must be newest first"
+                                % (s.version_text, prev.version_text)))
+        elif prev.date and s.date and _DATE.match(prev.date) and _DATE.match(s.date) and s.date > prev.date:
+            out.append(_finding("CL5", "warning", s.line, "%s (%s) is dated after the newer %s (%s)"
+                                % (s.version_text, s.date, prev.version_text, prev.date)))
+    return out
+
+
+def _subsection_findings(s: Section) -> list[dict]:
+    """CL7 (a subsection that is not a change class) and CL9 (an empty one)."""
+    out = []
+    for name, line, count in s.subsections:
+        if name.lower() not in semver.CLASS_RANK:
+            hint = _NEAR.get(name.lower())
+            out.append(_finding("CL7", "error", line, "subsection %r is not a change class" % name,
+                                "### %s" % hint if hint and " " not in hint else
+                                "one of ### breaking, ### feature, ### fix, ### none" + (" (%s?)" % hint if hint else "")))
+        elif count == 0:
+            out.append(_finding("CL9", "warning", line, "subsection %r has no entries" % name))
+    return out
+
+
+def _entry_findings(s: Section) -> list[dict]:
+    """CL8 (prose or an entry without a class) and CL13 (a C5 change not classed breaking)."""
+    out = []
+    for e in s.entries:
+        if e.kind == "text":
+            out.append(_finding("CL8", "error", e.line, "text that is not a list item, so it has no class: %r"
+                                % e.text[:80], "make it a `- ` entry under ### breaking, ### feature, ### fix "
+                                "or ### none, or move prose above the first version section"))
+        elif e.cls is None and e.sub is None:                  # under a non-class heading: CL7 reports it
+            out.append(_finding("CL8", "error", e.line, "entry without a class: %r" % e.text[:80],
+                                "move it under ### breaking, ### feature, ### fix or ### none"))
+        elif e.cls in ("feature", "fix", "none") and C5_RX.search(e.text):
+            out.append(_finding("CL13", "error", e.line, "entry reads as a new failing check or a warning turned "
+                                "into a failure, but its class is %s: %r" % (e.cls, e.text[:80]),
+                                "### breaking (C5)"))
+    return out
 
 
 def _real_date(s: str) -> bool:
@@ -363,7 +388,7 @@ def _tag_findings(cl: Changelog, tags: dict[str, dict], grandfathered) -> list[d
 
 
 # Markdown's line endings (CommonMark 2.1): \n, \r\n or \r. Not str.splitlines(), which also breaks at \x0b,
-# \x0c, \x1c-\x1e, \x85, U+2028 and U+2029, characters an entry may hold (ROB-property-7).
+# \x0c, \x1c-\x1e, \x85, U+2028 and U+2029, characters an entry may hold.
 _EOL = re.compile(r"\r\n|\r|\n")
 
 

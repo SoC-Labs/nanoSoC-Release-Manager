@@ -4,7 +4,7 @@ The worker runs `nanosoc-rm matrix cell CONFIG --column COL [--component C] [--t
 --json` as a child process
 (the cell reads its job id from NANOSOC_RM_JOB, which the worker sets, and the login from that job's record), so
 the cell and its D8 re-run (in the same job: alone, since the worker runs one job at a time) never run inside the
-service. The job's verdict is the cell's. A tier cell (param `tier`, CR-WD-matrix-t1) gets a longer ceiling: two
+service. The job's verdict is the cell's. A tier cell (param `tier`) gets a longer ceiling: two
 T0 runs plus two tier runs at the tier's kill limit (budget x 1.5).
 """
 from __future__ import annotations
@@ -89,4 +89,4 @@ def limit_s(config, job: dict) -> float:
 
 
 register_kind("matrix-cell", params, cli_args, outcome=outcome, limit_s=limit_s, action=ACTION,
-              executor=lambda p: bool(p.get("tier")))       # Wave G: a tier cell runs only on an executor
+              executor=lambda p: bool(p.get("tier")))       # a tier cell runs only on an executor

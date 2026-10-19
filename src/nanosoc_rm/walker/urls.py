@@ -58,7 +58,7 @@ def join_relative(parent_url: str, rel: str) -> str:
     relative_url and chop_last_dir, git 2.43): only leading `./` and `../` are read; each `../` drops the URL's
     last `/` component, or, with no `/` left, its last `:` component (the rest is then joined with `:`). A `..`
     that climbs past the path climbs into the host part exactly as git does, so `https://h/a/b.git` with
-    `../../../x/y` is `https://x/y` (another host), never a path on `h` (ROB-coverage-7). ValueError when git
+    `../../../x/y` is `https://x/y` (another host), never a path on `h`. ValueError when git
     would refuse ("cannot strip one component off url")."""
     remote = parent_url.rstrip("/")
     is_relative = _local_not_ssh(remote) and not remote.startswith("/")

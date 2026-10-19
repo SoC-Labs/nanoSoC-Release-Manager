@@ -41,6 +41,7 @@ def test_cli_scan_queue_show_patch_mark_ledger_schedule(tmp_path, monkeypatch):
     assert code == 0 and len(ids) == 2
     code, out = cli("bumps", "show", ids[0])
     assert code == 0 and "blockers" in out and "nanosoc-rm bumps patch" in out
+    assert "test-bump  PASS: test fixture: a passing test-bump of this move" in out
     patch = tmp_path / "p.diff"
     code, _ = cli("bumps", "patch", ids[0], "--out", str(patch))
     assert code == 0 and patch.read_text().startswith("nanosoc-rm bump proposal %s" % ids[0])
@@ -138,6 +139,7 @@ def test_pages_in_the_shared_shell_with_text_labelled_colours(tmp_path, monkeypa
     assert p.status_code == 200 and "Why it cannot auto-merge" in p.text and "git apply --index" in p.text
     assert 'data-source-for="bump_proposal:eth-main:%s"' % gen["id"] in p.text
     assert 'action="/compat/jobs"' in p.text, "Run queues the matching compat what-if"
+    assert 'data-bumps="test-bump"' in p.text and "a passing test-bump of this move" in p.text
     d = c.get("/bumps/p/%s/patch.diff" % gen["id"])
     assert d.status_code == 200 and d.headers["content-type"].startswith("text/x-diff")
     assert d.text.endswith("+Subproject commit %s\n" % gen["to"]["commit"])

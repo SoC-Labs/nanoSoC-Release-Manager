@@ -7,7 +7,7 @@
     overview(config) -> [stored version_plan per catalogue component]                        the /versions page
 
 Every observation is validated by nanosoc_rm.contracts before it is returned (`observe`); `store=True` puts it
-in the store as an event (README section 4 rows added by CR-VER).
+in the store as an event (README section 4).
 """
 from __future__ import annotations
 
@@ -391,7 +391,7 @@ def stored(kind: str, target: str, *, config=None) -> list[dict]:
 
 def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
     """{target: stored(kind, target)} for every target with a stored observation of `kind`, in ONE store read
-    (ROB-load-7: an overview must not read the store once per component and kind). Same documents and order as
+    (an overview must not read the store once per component and kind). Same documents and order as
     stored(): a subject `kind:target` or `kind:target:...`."""
     from nanosoc_rm import db
     out: dict[str, list[dict]] = {}
@@ -405,7 +405,7 @@ def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
 
 def overview(config) -> list[dict]:
     """One row per catalogue component: its latest stored version_plan, changelog_lint and tag_check (or None).
-    Each kind is read once for all components (ROB-load-7)."""
+    Each kind is read once for all components."""
     from nanosoc_rm.analysis import _inputs as inp
     reg = inp.registry(config)
     by_kind = {k: stored_by_target(k, config=config) for k in ("version_plan", "changelog_lint", "tag_check")}

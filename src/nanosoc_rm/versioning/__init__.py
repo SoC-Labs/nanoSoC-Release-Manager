@@ -1,6 +1,6 @@
 """Versions and change classes (C1-C12), fixed-in from trailers (F6), tool releases (G1, G5, G6).
 
-Phase 3 capabilities, BUILT and usable locally under CR-15; nothing here is scheduled or writes to a repository,
+Phase 3 capabilities, BUILT and usable locally; nothing here is scheduled or writes to a repository,
 a host or the registry. Every write a person makes is handed over as a file, a patch or a command.
 
     changelog_lint(target, ...)  -> changelog_lint observation            `nanosoc-rm changelog lint`   (C2, C5)
@@ -11,9 +11,9 @@ a host or the registry. Every write a person makes is handed over as a file, a p
     approve(draft_dir, step, login)                                       `nanosoc-rm version approve`  (G5)
     yank(target, version, ...)   -> (yank_proposal observation, patch)    `nanosoc-rm version yank`     (G6)
     defect_trailers(target, ...) -> (defect_trailers observation, patch)  `nanosoc-rm version fixed-in` (F6)
-    is_yanked / allowed          the interface the bump engine (Wave B bumps, E1) codes against (G6)
+    is_yanked / allowed          the interface the bump engine (E1) codes against (G6)
     Regenerator / NoGenerator    the pluggable regeneration step of the C3 classifier (classify.py)
-    changelog_entries            the classed entries between two commits, for release notes (releases, CR-R1)
+    changelog_entries            the classed entries between two commits, for release notes (releases)
     classify_bump                the C3 class of one pin move, for the bump engine (interfaces.md section 19.6)
 
 Contract: docs/contracts/interfaces.md section 14b; schemas/tool-release.schema.json.

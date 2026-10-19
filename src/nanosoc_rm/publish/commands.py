@@ -1,4 +1,4 @@
-"""CLI: `nanosoc-rm publish-release` and `nanosoc-rm register-tapeout` (CR-ART-publish; G8, D12).
+"""CLI: `nanosoc-rm publish-release` and `nanosoc-rm register-tapeout` (G8, D12).
 
 Two steps, always: `--dry-run` builds the record, reads the store (GET/HEAD only) and prints the preview with the
 record's sha256; `--confirm SHA256` publishes exactly that record (refused when anything changed since). Exit codes

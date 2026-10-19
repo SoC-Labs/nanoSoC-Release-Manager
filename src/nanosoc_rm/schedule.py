@@ -2,8 +2,8 @@
 
     tick(now) -> [job names]   runs every job that is due at `now`, in a fixed order, and returns their names
 
-`serve` calls `tick(utcnow())` every 30 s; tests call it with an injected time, so no schedule test waits on the
-wall clock. Jobs, in the order they run within one tick:
+`serve` calls `tick(now)` with the current UTC time every 30 s; tests call it with an injected time, so no
+schedule test waits on the wall clock. Jobs, in the order they run within one tick:
 
     poll         every schedule.poll_minutes (15): sync every catalogue component's mirror, then walk every
                  configuration, compare hosts and refresh the silicon-protection list (sections 3 to 7)
@@ -22,13 +22,13 @@ wall clock. Jobs, in the order they run within one tick:
     org_scan     once per UTC day, at or after schedule.nightly_utc, when a GitHub org or GitLab group is configured:
                  queue one `org-scan` local job (section 23.2; read-only, anonymous listing: GET with no credential),
                  unless one is queued or running already, so the Catalogue page's new-repo queue is at most a day
-                 old (David 2026-10-15, CR-1015-orgscan; its Scan now button queues the same job). The worker runs
+                 old (its Scan now button queues the same job). The worker runs
                  it as a child process, never this process.
 
-With no `[ci] project` configured (a local deployment, CR-17), the CI jobs (nightly_t0, fetch, runner) are left
+With no `[ci] project` configured (a local deployment), the CI jobs (nightly_t0, fetch, runner) are left
 out: there is nothing to trigger or fetch, and Run executes locally instead (nanosoc_rm.jobs).
 
-A job registered with `enabled=False` (CR-15: built, not enabled; `gate` names the phase) is never run.
+A job registered with `enabled=False` (built, not enabled; `gate` names the phase) is never run.
 
 When a job last ran is kept in `<data_dir>/schedule.json` (written atomically), so a restart neither repeats a
 night nor forgets one. A last-run time that does not parse, or that lies in the future (the clock stepped back),
@@ -62,7 +62,7 @@ class Job:
     name: str
     every: str              # "poll" | "fetch" (a period from [schedule]) or "nightly" (once per UTC day)
     run: Callable[[Config], object]
-    # CR-15: the phase whose capability the job automates, and whether it is switched on. A later phase's
+    # The phase whose capability the job automates, and whether it is switched on. A later phase's
     # automation may be registered BUILT but disabled (enabled=False, `gate` naming the phase whose entry gate
     # must be met first); tick() never runs a disabled job, and the phase-gate check (rule 5) judges only enabled
     # ones, by declared phase, by name and by what their code reaches.
@@ -184,7 +184,7 @@ JOBS: tuple[Job, ...] = (
     Job("store_index", "nightly", _store_index),
     Job("org_scan", "nightly", _org_scan),
 )
-CI_JOBS = ("nightly_t0", "fetch", "runner")          # need a CI project; skipped without one (CR-17)
+CI_JOBS = ("nightly_t0", "fetch", "runner")          # need a CI project; skipped without one
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -215,8 +215,8 @@ def _save_state(config: Config, state: dict[str, str]) -> None:
 def _last_run(job: Job, now: dt.datetime, last: str | None) -> dt.datetime | None:
     """When `job` last ran, as a time `due` can trust; None means "treat as never run".
 
-    A time that does not parse (a hand edit, a torn write; ROB-faults-8) and a time after `now` (the wall clock
-    stepped back, or ran fast once; ROB-faults-6) are both distrusted: the job runs now rather than stall until the
+    A time that does not parse (a hand edit, a torn write) and a time after `now` (the wall clock
+    stepped back, or ran fast once) are both distrusted: the job runs now rather than stall until the
     clock catches up, and the reason goes to stderr. A job may then run twice; a stalled schedule is worse."""
     if last is None:
         return None

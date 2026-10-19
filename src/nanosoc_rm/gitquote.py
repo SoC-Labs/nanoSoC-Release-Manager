@@ -1,6 +1,6 @@
 """git's C-style path quoting (quote.c quote_c_style, with core.quotePath on, git's default), for the paths
 written into diff headers. git quotes a path holding a control character, `"`, `\\` or a byte above 0x7f, and
-`git apply` refuses an unquoted header holding a tab or a newline (ROB-property-13)."""
+`git apply` refuses an unquoted header holding a tab or a newline."""
 from __future__ import annotations
 
 __all__ = ["quote_path"]

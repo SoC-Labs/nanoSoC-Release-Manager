@@ -5,10 +5,10 @@
                                                                    never walked; 3 no / several commits
     nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]  1 any row uncovered; else 2 any pin not judged
     nanosoc-rm detect DEFECT DETECTOR --input PATH [--json]        0 clean; 1 fired; 2 could not run
-    nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]   (CR8)
+    nanosoc-rm branches TARGET [--all] [--delete-list] [--stale-days N] [--sync] [--json]
                                                                    0 no deletable branch; 1 some; 2 no mirror
     nanosoc-rm compat CONFIG [--pin TREE_PATH=SHA]... [--tier t1|t2 [--force-tier]] [--keep-work DIR] [--store] [--json]
-                                                                                  (CR-11; --tier: CR-12)
+
                                                                    0 PASS/WAIVED/WARN; 1 FAIL; 2 UNVERIFIED/INFRA
 
 Every command: 3 for a usage problem (unknown component, configuration, defect or detector), 2 when the data
@@ -164,7 +164,7 @@ def register(main: click.Group) -> None:
     @json_option
     def branches_cmd(target: str, all_repos: bool, delete_list: bool, stale_days: int | None, sync: bool,
                      as_json: bool) -> int:
-        """CR8: every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the
+        """Every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the
         default branch, merged, tags on the tip, registered pins and registry citations reaching into it, and a
         verdict MERGED | PROTECTED | PINNED | STALE | ACTIVE. Exit 0 when nothing is deletable, 1 when
         something is, 2 when there is no mirror (use --sync) or a repo could not be judged."""
@@ -198,7 +198,7 @@ def register(main: click.Group) -> None:
                        "be new or empty. Default: a temporary directory, deleted afterwards.")
     @click.option("--store", is_flag=True, help="Store the walk and the compat_result (real runs only: not with --pin).")
     @click.option("--tier", type=click.Choice(["t1", "t2"]), default=None,
-                  help="CR-12: after T0, run the registry tiers.yaml command of this tier in a sandbox checkout of "
+                  help="After T0, run the registry tiers.yaml command of this tier in a sandbox checkout of "
                        "the resolved tree (budget enforced, killed at 1.5 x). Skipped when T0 is FAIL.")
     @click.option("--force-tier", is_flag=True,
                   help="Run --tier even when T0 is FAIL: a person's override, recorded; the result is UNVERIFIED "
@@ -206,9 +206,9 @@ def register(main: click.Group) -> None:
     @json_option
     def compat_cmd(configuration: str, pins: tuple[str, ...], keep_work: Path | None, store: bool,
                    tier: str | None, force_tier: bool, as_json: bool) -> int:
-        """CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the
+        """Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the
         configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened NOT-RUN) and
-        roll up with the configuration's T0 waivers. One line per pin and the run verdict. With --tier (CR-12) the
+        roll up with the configuration's T0 waivers. One line per pin and the run verdict. With --tier the
         tier command then runs in a sandbox checkout and joins the run verdict. Exit 0 PASS, WAIVED or WARN; 1 FAIL;
         2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad --pin, no pin at a tree path, no tier command,
         a tier that regenerates without NANOSOC_GEN_OK=1)."""

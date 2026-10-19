@@ -15,7 +15,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 |---|---|
 | [`nanosoc-rm alerts`](#nanosoc-rm-alerts) | Open alerts (dashboard banners): rewrite, unknown_url, token_expiry, runner_drift, tag_moved, mirror_failed, waiver_unused. |
 | &nbsp;&nbsp;[`nanosoc-rm alerts clear`](#nanosoc-rm-alerts-clear) | Clear the alert SUBJECT (alert:<kind>:<about>). |
-| [`nanosoc-rm branches`](#nanosoc-rm-branches) | Every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the default branch, merged, tags on the tip, registered pins and registry citations reaching into it,... (CR8) |
+| [`nanosoc-rm branches`](#nanosoc-rm-branches) | Every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the default branch, merged, tags on the tip, registered pins and registry citations reaching into it, and a... |
 | [`nanosoc-rm bumps`](#nanosoc-rm-bumps) | Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps ledger`](#nanosoc-rm-bumps-ledger) | What the bot would have done against what people did, read from the mirrors. (E2) |
 | &nbsp;&nbsp;[`nanosoc-rm bumps mark`](#nanosoc-rm-bumps-mark) | Record a person's word: they applied the proposal (done) or will not (declined). |
@@ -24,7 +24,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm bumps scan`](#nanosoc-rm-bumps-scan) | Scan one configuration (or all) for releases newer than their pins (the default subcommand). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps schedule`](#nanosoc-rm-bumps-schedule) | The bump schedule as shipped: disabled, naming the Phase 4 entry gate. |
 | &nbsp;&nbsp;[`nanosoc-rm bumps show`](#nanosoc-rm-bumps-show) | One kept proposal: the move, changelog, defects, matrix, blockers. |
-| [`nanosoc-rm capabilities`](#nanosoc-rm-capabilities) | Wave G: what each tree can test (.nanosoc/capabilities.yaml). |
+| [`nanosoc-rm capabilities`](#nanosoc-rm-capabilities) | What each tree can test (.nanosoc/capabilities.yaml). |
 | &nbsp;&nbsp;[`nanosoc-rm capabilities show`](#nanosoc-rm-capabilities-show) | Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned commit, each capability, the hosts that can run it, and its last test-bump result. |
 | &nbsp;&nbsp;[`nanosoc-rm capabilities validate`](#nanosoc-rm-capabilities-validate) | Check a capabilities file while you write it (exit 1 with every problem). |
 | [`nanosoc-rm catalogue`](#nanosoc-rm-catalogue) | Catalogue characterisation: groups and types, new repos, change previews. |
@@ -33,7 +33,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm catalogue show`](#nanosoc-rm-catalogue-show) | Every component as the front page groups it (section 23.1). |
 | [`nanosoc-rm changelog`](#nanosoc-rm-changelog) | The classed changelog (C2): lint it. |
 | &nbsp;&nbsp;[`nanosoc-rm changelog lint`](#nanosoc-rm-changelog-lint) | Lint CHANGELOG.md (format, classes, Unreleased, links, tags; C5 rule). (C2) |
-| [`nanosoc-rm compat`](#nanosoc-rm-compat) | Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened... (CR-11) |
+| [`nanosoc-rm compat`](#nanosoc-rm-compat) | Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened NOT-RUN)... |
 | [`nanosoc-rm contains`](#nanosoc-rm-contains) | Which configurations contain commit SHA, per host. (B4) |
 | [`nanosoc-rm credentials`](#nanosoc-rm-credentials) | The service's credentials and their scopes (H3). |
 | &nbsp;&nbsp;[`nanosoc-rm credentials check`](#nanosoc-rm-credentials-check) | Check every credential's scope against its record and, where the host can say, the host (H3). |
@@ -96,7 +96,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | &nbsp;&nbsp;[`nanosoc-rm store index`](#nanosoc-rm-store-index) | Read the store with GET, HEAD and AQL only, probe each feature it relies on, print the index. |
 | &nbsp;&nbsp;[`nanosoc-rm store search`](#nanosoc-rm-store-search) | Stored rows matching an artefact path, a name, a run tag, a commit or an md5 prefix. |
 | &nbsp;&nbsp;[`nanosoc-rm store show`](#nanosoc-rm-store-show) | The stored index (no store call). |
-| [`nanosoc-rm store-maint`](#nanosoc-rm-store-maint) | Store maintenance for the operator (CR-1015-retention). |
+| [`nanosoc-rm store-maint`](#nanosoc-rm-store-maint) | Store maintenance for the operator. |
 | &nbsp;&nbsp;[`nanosoc-rm store-maint compact`](#nanosoc-rm-store-maint-compact) | Collapse each run of identical set-kind snapshots of one scope into its first snapshot, which keeps the run's last check (first and last observed times). |
 | [`nanosoc-rm t0`](#nanosoc-rm-t0) | T0, the resolve tier: run (CI only), and the service's trigger and results. |
 | &nbsp;&nbsp;[`nanosoc-rm t0 coverage`](#nanosoc-rm-t0-coverage) | Configurations (and @registry) with no accepted scheduled T0 that night (D2). |
@@ -137,12 +137,12 @@ Options:
 
 Commands:
   alerts              Open alerts (dashboard banners): rewrite, unknown_url, token_expiry,...
-  branches            CR8: every branch of a repo (a component id, or host:path) from its local...
+  branches            Every branch of a repo (a component id, or host:path) from its local...
   bumps               Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15).
-  capabilities        Wave G: what each tree can test (.nanosoc/capabilities.yaml).
+  capabilities        What each tree can test (.nanosoc/capabilities.yaml).
   catalogue           Catalogue characterisation: groups and types, new repos, change previews.
   changelog           The classed changelog (C2): lint it.
-  compat              CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each...
+  compat              Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin...
   contains            B4: which configurations contain commit SHA, per host.
   credentials         The service's credentials and their scopes (H3).
   detect              F2: run DETECTOR of DEFECT on built output and print the run for the...
@@ -167,7 +167,7 @@ Commands:
   serve               Serve the web pages and JSON API, run the schedules (poll, nightly T0,...
   silicon-protection  B5: commits of frozen or silicon trees that their default branch cannot...
   store               The artefact store index: what Artifactory holds (read-only).
-  store-maint         Store maintenance for the operator (CR-1015-retention).
+  store-maint         Store maintenance for the operator.
   t0                  T0, the resolve tier: run (CI only), and the service's trigger and results.
   test-bump           Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or...
   tiers               Test tiers with their budgets and, for CONFIGURATION, their commands (D1).
@@ -218,7 +218,7 @@ Options:
 ```
 Usage: nanosoc-rm branches [OPTIONS] TARGET
 
-  CR8: every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the
+  Every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the
   default branch, merged, tags on the tip, registered pins and registry citations reaching into it,
   and a verdict MERGED | PROTECTED | PINNED | STALE | ACTIVE. Exit 0 when nothing is deletable, 1
   when something is, 2 when there is no mirror (use --sync) or a repo could not be judged.
@@ -370,7 +370,7 @@ Options:
 ```
 Usage: nanosoc-rm capabilities [OPTIONS] COMMAND [ARGS]...
 
-  Wave G: what each tree can test (.nanosoc/capabilities.yaml).
+  What each tree can test (.nanosoc/capabilities.yaml).
 
 Options:
   -h, --help  Show this message and exit.
@@ -519,12 +519,12 @@ Options:
 ```
 Usage: nanosoc-rm compat [OPTIONS] CONFIGURATION
 
-  CR-11: are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then
-  run the configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened
-  NOT-RUN) and roll up with the configuration's T0 waivers. One line per pin and the run verdict.
-  With --tier (CR-12) the tier command then runs in a sandbox checkout and joins the run verdict.
-  Exit 0 PASS, WAIVED or WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad
-  --pin, no pin at a tree path, no tier command, a tier that regenerates without NANOSOC_GEN_OK=1).
+  Are these pins compatible? Resolve CONFIGURATION's tree (with each --pin override), then run the
+  configuration T0 gates LOCALLY with their negative controls (anonymous; t0.runner.hardened NOT-
+  RUN) and roll up with the configuration's T0 waivers. One line per pin and the run verdict. With
+  --tier the tier command then runs in a sandbox checkout and joins the run verdict. Exit 0 PASS,
+  WAIVED or WARN; 1 FAIL; 2 UNVERIFIED or INFRA; 3 usage (unknown configuration, bad --pin, no pin
+  at a tree path, no tier command, a tier that regenerates without NANOSOC_GEN_OK=1).
 
 Options:
   --pin TREE_PATH=SHA  Replace the gitlink at TREE_PATH with SHA (full 40 hex); the tree below it is
@@ -533,9 +533,9 @@ Options:
                        here; it must be new or empty. Default: a temporary directory, deleted
                        afterwards.
   --store              Store the walk and the compat_result (real runs only: not with --pin).
-  --tier [t1|t2]       CR-12: after T0, run the registry tiers.yaml command of this tier in a
-                       sandbox checkout of the resolved tree (budget enforced, killed at 1.5 x).
-                       Skipped when T0 is FAIL.
+  --tier [t1|t2]       After T0, run the registry tiers.yaml command of this tier in a sandbox
+                       checkout of the resolved tree (budget enforced, killed at 1.5 x). Skipped
+                       when T0 is FAIL.
   --force-tier         Run --tier even when T0 is FAIL: a person's override, recorded; the result is
                        UNVERIFIED for release.
   --json               Print one JSON document per line.
@@ -1620,8 +1620,7 @@ Options:
 ```
 Usage: nanosoc-rm store-maint [OPTIONS] COMMAND [ARGS]...
 
-  Store maintenance for the operator (CR-1015-retention). Stop the service and back up rm.sqlite
-  first.
+  Store maintenance for the operator. Stop the service and back up rm.sqlite first.
 
 Options:
   -h, --help  Show this message and exit.

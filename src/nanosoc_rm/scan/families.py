@@ -1,4 +1,4 @@
-"""Rule families: which T0 gate judges a scanner finding (CR-6; D2, D11; interfaces.md sections 9 and 11).
+"""Rule families: which T0 gate judges a scanner finding (D2, D11; interfaces.md sections 9 and 11).
 
 The scanner's two engines report one list of `{rule, file, line}` findings. Two configuration gates read it:
 
@@ -10,7 +10,7 @@ The scanner's two engines report one list of `{rule, file, line}` findings. Two 
 - `t0.vendor.no-foundry-data` judges the **foundry** family: every other rule, which in practice is the toolkit's
   foundry and site-inventory rules (foundry file types, transcribed layer values, site paths, licence servers,
   big files), the toolkit's `ident` (revision-coded release and bundle names and product numbers in flists, tcl
-  and CI files; CR-19, David 2026-10-14: it is not Arm source, so amber, not red) and any private rule not named
+  and CI files: it is not Arm source, so amber, not red) and any private rule not named
   `arm.*`. Its findings are WARN by
   default (amber: listed, never FAIL); a rule the catalogue's `foundry_rules` marks `severity: fail` FAILs when
   uncovered.
@@ -30,7 +30,7 @@ ARM = "arm"
 FOUNDRY = "foundry"
 FAMILIES = (ARM, FOUNDRY)
 # Rule ids of the arm family besides the `arm.` prefix: the toolkit's content-hash rule and this package's
-# could-not-read finding (nanosoc_rm.scan.scan.UNSCANNABLE). CR-19: the toolkit's `ident` is foundry-family.
+# could-not-read finding (nanosoc_rm.scan.scan.UNSCANNABLE). The toolkit's `ident` is foundry-family.
 ARM_RULES = frozenset({"arm.banner", "file.sha", "scan.unscannable"})
 
 

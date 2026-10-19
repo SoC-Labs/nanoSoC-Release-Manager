@@ -8,7 +8,7 @@ A render:
 
 1. **Request.** The configuration's commit is resolved once (`ci.trigger.build_request`: a frozen configuration's
    recorded commit, else its ref in the mirror); every tree path where the stored walk pins the component (a B7
-   split moves together) is overridden to `commit` (`pin_overrides`, CR-11). Two renders of one measurement share
+   split moves together) is overridden to `commit` (`pin_overrides`). Two renders of one measurement share
    the request's root commit, so only the component differs between them.
 2. **Tree.** The overridden tree is walked anonymously in a fresh work directory (`t0.gates.Context.for_local`:
    empty HOME, no credential, no user git config) and the spec's `pins` are checked out (`tierrun.materialise`),
@@ -257,11 +257,7 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
     from nanosoc_rm.t0.gitwork import iter_pins
 
     st = S.settings(config)
-    for what, v in (("configuration", configuration), ("component", component)):
-        if not isinstance(v, str) or not _ID.match(v):
-            raise S.RegenUsage("%r is not a %s id" % (str(v)[:60], what))
-    if keep_work is not None and st.under_read_only(Path(keep_work).absolute()) is not None:
-        raise S.RegenUsage("the sandbox %s is under a read-only root" % keep_work)       # before any mkdir
+    _check_ids_and_sandbox(st, configuration, component, keep_work)
     spec = S.check(S.spec_for(configuration, config), configuration, st)
     paths = sorted(paths) if paths else tree_paths(configuration, component, config)
     if not paths:
@@ -309,36 +305,8 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
         if out_dir.exists() and not layout.missing:
             shutil.rmtree(out_dir)              # a committed or stale output is never read as this run's
         doc = tierrun.run_tier(spec, "regen", tree, work, nonce, layout=layout)
-        base.seconds = doc.get("seconds")
-        base.exit_code = doc.get("exit_code")
-        base.log_tail = [normalise(x, tree, work) for x in doc.get("log_tail") or []]
-        try:
-            log = (work / "tier-regen.log").read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            log = ""
-        base.coverage = sorted({normalise(" ".join(x.split()), tree, work)[:200]
-                                for x in log.splitlines() if _COVERAGE.search(x)})[:40]
-        if doc.get("seconds") is None:          # not run: a pin not laid out, a tool not on this host, no cwd
-            base.reason = doc.get("reason") or "the generator did not run"
-            return base
-        if doc.get("killed"):
-            # a kill at budget x 1.5 says the host was slow or loaded (nice 15), not that the generator rejects
-            # this consumer: no measurement (never C5 breaking)
-            base.reason = "the generator was killed at %s, not measured here: %s" % (commit[:12],
-                                                                                      doc.get("reason") or "")
-            return base
-        env_said = next((x for x in base.log_tail if _HOST_ENV.search(x)), None)
-        if doc["verdict"] != "PASS" and (env_said or doc.get("exit_code") in (126, 127)):
-            base.reason = ("the generator failed at %s on this host's environment (a module or tool missing "
-                           "here), not measured: %s%s" % (commit[:12], doc.get("reason") or "",
-                                                          "; %s" % env_said[:300] if env_said else ""))
-            return base
-        if doc["verdict"] != "PASS":
-            base.status, base.verdict = "failed", "FAIL"
-            said = next((x for x in base.log_tail if _ERROR.search(x) and not x.startswith("make")), None) or \
-                next((x for x in reversed(base.log_tail) if _ERROR.search(x)), None)
-            base.reason = "the generator failed at %s: %s%s" % (commit[:12], doc.get("reason") or "",
-                                                                "; %s" % said[:300] if said else "")
+        _record_run(base, doc, tree, work)
+        if not _generator_passed(base, doc, commit):
             return base
         if not out_dir.is_dir():
             base.status, base.verdict = "failed", "FAIL"
@@ -354,6 +322,54 @@ def render(configuration: str, component: str, commit: str, *, config, request: 
     finally:
         if keep_work is None:
             shutil.rmtree(work, ignore_errors=True)
+
+
+def _check_ids_and_sandbox(st, configuration: str, component: str, keep_work: Path | None) -> None:
+    for what, v in (("configuration", configuration), ("component", component)):
+        if not isinstance(v, str) or not _ID.match(v):
+            raise S.RegenUsage("%r is not a %s id" % (str(v)[:60], what))
+    if keep_work is not None and st.under_read_only(Path(keep_work).absolute()) is not None:
+        raise S.RegenUsage("the sandbox %s is under a read-only root" % keep_work)       # before any mkdir
+
+
+def _record_run(base: Render, doc: dict, tree: Path, work: Path) -> None:
+    """The run's seconds, exit code, log tail and coverage lines, with sandbox paths normalised."""
+    base.seconds = doc.get("seconds")
+    base.exit_code = doc.get("exit_code")
+    base.log_tail = [normalise(x, tree, work) for x in doc.get("log_tail") or []]
+    try:
+        log = (work / "tier-regen.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        log = ""
+    base.coverage = sorted({normalise(" ".join(x.split()), tree, work)[:200]
+                            for x in log.splitlines() if _COVERAGE.search(x)})[:40]
+
+
+def _generator_passed(base: Render, doc: dict, commit: str) -> bool:
+    """True when the generator ran and passed. Otherwise sets why: not run, killed or failed on the host's
+    environment (INFRA, no measurement), or a real failure (FAIL)."""
+    if doc.get("seconds") is None:          # not run: a pin not laid out, a tool not on this host, no cwd
+        base.reason = doc.get("reason") or "the generator did not run"
+        return False
+    if doc.get("killed"):
+        # A kill at budget x 1.5 says the host was slow or loaded (nice 15), not that the generator rejects this
+        # consumer: no measurement, never C5 breaking.
+        base.reason = "the generator was killed at %s, not measured here: %s" % (commit[:12], doc.get("reason") or "")
+        return False
+    env_said = next((x for x in base.log_tail if _HOST_ENV.search(x)), None)
+    if doc["verdict"] != "PASS" and (env_said or doc.get("exit_code") in (126, 127)):
+        base.reason = ("the generator failed at %s on this host's environment (a module or tool missing "
+                       "here), not measured: %s%s" % (commit[:12], doc.get("reason") or "",
+                                                      "; %s" % env_said[:300] if env_said else ""))
+        return False
+    if doc["verdict"] != "PASS":
+        base.status, base.verdict = "failed", "FAIL"
+        said = next((x for x in base.log_tail if _ERROR.search(x) and not x.startswith("make")), None) or \
+            next((x for x in reversed(base.log_tail) if _ERROR.search(x)), None)
+        base.reason = "the generator failed at %s: %s%s" % (commit[:12], doc.get("reason") or "",
+                                                            "; %s" % said[:300] if said else "")
+        return False
+    return True
 
 
 class SandboxRegenerator:

@@ -1,4 +1,4 @@
-"""Real text for a comment finding, read only from what this host already holds (Wave C spec 4.5 and build-first 5).
+"""Real text for a comment finding, read only from what this host already holds.
 
 The component mirrors are blob-less partial clones (`fetch --filter=blob:none`): asking git for a blob it does not
 hold (`cat-file -e`, `cat-file --batch`, `ls-tree -l`) makes git fetch it from the promisor remote, which a page
@@ -16,10 +16,10 @@ request must never do. So this module reads a blob only after proving it is loca
     SEVERITY, severity(finding), rank(findings)    derived severity (the finding has no severity field)
     caution(finding, lines=None) -> str | None     why a person should check before accepting
 
-An optional `context: {start, lines}` in a finding (CR-W4, written at analysis time) is used first; then no git
+An optional `context: {start, lines}` in a finding (written at analysis time) is used first; then no git
 call is made at all.
 
-Severity (CR-WD-Q2): one level per finding kind, written into each finding at analysis time (`severity`,
+Severity: one level per finding kind, written into each finding at analysis time (`severity`,
 quality.findings.SEVERITY_BY_KIND); a finding stored before that field existed gets the same level from its kind.
 
     High    stale_todo
@@ -27,7 +27,7 @@ quality.findings.SEVERITY_BY_KIND); a finding stored before that field existed g
     Check   unknown_identifier (a close name is a guess); any other README row
     Low     restates_code, banner, boilerplate
 
-Order (CR-WD-Q3): findings that have a suggested edit first (a person can accept those in one step), then
+Order: findings that have a suggested edit first (a person can accept those in one step), then
 High, Medium, Check, Low, then path and line.
 """
 from __future__ import annotations
@@ -170,7 +170,7 @@ def _lines_of(source: Source, path: str) -> list[str] | None:
 def excerpt(source: Source | None, path: str, start: int, end: int, around: int = 3,
             finding: dict | None = None) -> dict | None:
     """Lines start-around .. end+around of `path`, each (number, text, flagged). The finding's stored `context`
-    (CR-W4) first; else the local blob; None when neither is here (the caller says NOT_LOCAL)."""
+    first; else the local blob; None when neither is here (the caller says NOT_LOCAL)."""
     ctx = (finding or {}).get("context")
     if isinstance(ctx, dict) and isinstance(ctx.get("lines"), list) and isinstance(ctx.get("start"), int):
         first = ctx["start"]
@@ -202,7 +202,7 @@ def edit_lines(lines: list[str] | None, finding: dict) -> list[tuple[str, str]]:
 
 
 def edit_lines_for(source: Source | None, finding: dict) -> tuple[list[tuple[str, str]], bool]:
-    """(edit_lines, True when the original text was read). Context lines (CR-W4) count as read."""
+    """(edit_lines, True when the original text was read). Context lines count as read."""
     ed = finding.get("edit") or None
     if not ed:
         return [], False

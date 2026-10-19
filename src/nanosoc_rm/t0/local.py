@@ -1,4 +1,4 @@
-"""The T0 gates run LOCALLY (CR-11, `nanosoc-rm compat`; interfaces.md section 9a).
+"""The T0 gates run LOCALLY (`nanosoc-rm compat`; interfaces.md section 9a).
 
 The same gate table, checks and negative controls as the compat-ci job (`t0.gates`), in run mode `local`:
 

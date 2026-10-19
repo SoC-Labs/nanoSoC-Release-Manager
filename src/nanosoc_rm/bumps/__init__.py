@@ -1,4 +1,4 @@
-"""Bump proposals, SHADOW MODE ONLY (Phase 4: E1-E7; built per CR-15, enabled only by the Phase 4 gate).
+"""Bump proposals, SHADOW MODE ONLY (Phase 4: E1-E7; built, and enabled only by the Phase 4 gate).
 
 interfaces.md section 19. Every function returns contract documents (observations validated by
 nanosoc_rm.contracts); the CLI (`nanosoc-rm bumps`) and the `/bumps` pages are front ends over them.

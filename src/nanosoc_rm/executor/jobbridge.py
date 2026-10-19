@@ -1,6 +1,6 @@
 """The executor API's second queue: tier JOBS of the local job queue (interfaces.md section 27.6).
 
-The capabilities unit (Wave G, section 26) makes a tier job (`compat --tier`, `matrix cell --tier`, `test-bump`) an
+The capabilities unit (section 26) makes a tier job (`compat --tier`, `matrix cell --tier`, `test-bump`) an
 executor kind: the service's local worker leaves it queued, and an executor claims it with
 `jobs.claim_for_executor(config, executor, accepts)` and reports it with
 `jobs.finish_for_executor(config, job_id, executor, rc, stdout, log)`. This module is the only caller of those two on
@@ -55,7 +55,7 @@ def _expired(config: Config, t: float) -> list[tuple[int, str]]:
 
 
 def _orphans(config: Config, t: float) -> list[tuple[int, str]]:
-    """Running executor jobs with NO lease row, started more than a lease ago (integration review 2026-10-16).
+    """Running executor jobs with NO lease row, started more than a lease ago.
     A claim marks the job running in jobs.sqlite, then writes its lease to executor.sqlite in a second
     transaction; a service that dies between the two (or a finish that dropped the lease, then failed) leaves a
     job `running` on an executor that holds no lease, which recover() rightly skips and no heartbeat can end."""

@@ -2,7 +2,7 @@
 the parent commit, `git cat-file -p <commit>:.gitmodules`, without writing anything) and the T0 gates.
 
 A character-level port of git's own config reader (config.c: parse_file, get_base_var, get_extended_base_var,
-get_value, parse_value), so the tool reads the url and path `git submodule` would act on (ROB-property-1..4):
+get_value, parse_value), so the tool reads the url and path `git submodule` would act on:
 
 - only `\\n` ends a line (`\\r\\n` reads as `\\n`); other line separators are ordinary characters;
 - `[submodule "name"]` keeps the name's case; the legacy `[submodule.Name]` is lower-cased, as git does;

@@ -9,7 +9,7 @@ The registry is a directory (a checkout of the registry repo's main) laid out as
     defects/SL-DEF-NNNN.yaml               optional   defect
     errata/<configuration>/ERR-NNN.yaml    optional   erratum
     imports.yaml                           optional   import-ledger (F5)
-    tiers.yaml                             optional   eligibility#/$defs/tiers_file (CR-12 T1/T2 commands; Wave G host site data)
+    tiers.yaml                             optional   eligibility#/$defs/tiers_file (T1/T2 commands; host site data)
 
 Every file is read with the strict YAML reader (timestamps stay strings, a duplicate key is refused: rule 8),
 must carry a `schema` version this reader knows (README section 2 rule 2), and is validated against its
@@ -206,7 +206,7 @@ class Registry:
         return copy.deepcopy(c) if c is not None else None
 
     def characterisations(self) -> dict:
-        """CR-WF-catalogue (interfaces.md section 23.1): {component id: Characterisation} in catalogue order, the
+        """{component id: Characterisation} in catalogue order, the
         front page's group, type, role, wraps and wrapped_by of every component, defaults derived from class."""
         from nanosoc_rm.catalogue.model import characterise_all
         return characterise_all(self._components.values())
@@ -243,12 +243,12 @@ class Registry:
         return copy.deepcopy(doc) if doc is not None else None
 
     def tiers(self, configuration_id: str) -> dict:
-        """CR-12: {tier: command spec} from tiers.yaml for one configuration ({} when none is declared)."""
+        """{tier: command spec} from tiers.yaml for one configuration ({} when none is declared)."""
         doc = self._files.get("tiers.yaml") or {}
         return copy.deepcopy((doc.get("configurations") or {}).get(configuration_id) or {})
 
     def sites(self) -> dict:
-        """Wave G: {host id: site data} from tiers.yaml `hosts` (tool installs and versions, licences, site env
+        """{host id: site data} from tiers.yaml `hosts` (tool installs and versions, licences, site env
         values); {} when none is declared. What a tree can test is in the tree (.nanosoc/capabilities.yaml)."""
         doc = self._files.get("tiers.yaml") or {}
         return copy.deepcopy(doc.get("hosts") or {})
