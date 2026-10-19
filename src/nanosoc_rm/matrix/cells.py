@@ -327,8 +327,6 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
              url_map, tier: str | None = None, force_tier: bool = False, spec: Mapping | None = None) -> dict:
     """One compat run with its D4 capture. Never raises for the host's failures: they become INFRA (D7).
     With `tier`, the run adds that tier and the capture also re-reads the tier's checkout (module docstring)."""
-    from nanosoc_rm.analysis.compat import CompatUsage
-    from nanosoc_rm.walker import OverrideError, UnknownConfiguration
     nonce = secrets.token_hex(16)
     started = clock.iso()
     load_start = P.host_load()
@@ -344,41 +342,12 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
         att.update(tier=None, checkout=None, ip={"hash": None, "note": "the %s command did not run: no IP hash" % tier,
                                                  "files": 0})
     try:
-        try:
-            res = compat_fn(configuration, overrides or None, config=cfg, keep_work=keep, nonce=nonce,
-                            url_map=url_map, **tier_kw)
-        except (UnknownConfiguration, OverrideError, CompatUsage, _tier_usage()) as e:
-            att["reason"] = "the cell's request is not a tree: %s" % e
-            return att
-        except _INFRA_EXC as e:
-            att.update(verdict="INFRA", reason="INFRA (D7): %s: %s" % (type(e).__name__, e))
-            return att
-        except OSError as e:
-            att.update(verdict="INFRA", reason="INFRA (D7): the host failed the run: %s" % e)
-            return att
-        except Exception as e:                                    # noqa: BLE001 - could not answer, said why
-            att["reason"] = "the run could not answer: %s: %s" % (type(e).__name__, str(e)[:300])
+        res = _run_compat(att, compat_fn, configuration, overrides, cfg, keep, nonce, url_map, tier_kw)
+        if res is None:
             return att
         f = res["fact"]
-        att.update(verdict=f["verdict"], reason=f.get("reason"), compat_subject=res["subject"],
-                   gates=[{"id": g["id"], "verdict": g["verdict"], "detail": (g.get("detail") or "")[:300]}
-                          for g in f["gates"]],
-                   not_run=f["not_run"], over_budget=f["over_budget"], unjudged_overrides=f["unjudged_overrides"])
-        requested = [{"tree_path": tp, "commit": p["commit"]} for p in f["pins"] for tp in p["tree_paths"]]
-        att["requested"] = {"superproject_commit": f["commit"],
-                            "pins": sorted(requested, key=lambda r: r["tree_path"])}
+        requested = _record_compat(att, res, tier, keep, spec)
         td = f.get("tier") if tier else None
-        if td is not None:
-            att["tier"] = _tier_part(td)
-            att["gates"] += [{"id": r["gate"], "verdict": _TIER_STATUS.get(r["status"], r["status"]),
-                              "detail": (r.get("detail") or "")[:300]} for r in td.get("rows") or []]
-            att["verdict"] = f.get("run_verdict") or f["verdict"]
-            if td["verdict"] != "PASS":
-                att["reason"] = "; ".join(x for x in (f.get("reason"), "tier %s %s: %s" % (
-                    tier, td["verdict"], td.get("reason") or "")) if x)[:600]
-            if td.get("seconds") is not None:
-                h, note, n = P.ip_hash(keep / "tree", (spec or {}).get("ip_files"))
-                att["ip"] = {"hash": h, "note": note, "files": n}
         try:
             cap = capture_fn(keep / "run", f["commit"], requested, overrides, work)
         except Exception as e:                                    # noqa: BLE001 - an unreadable capture
@@ -388,39 +357,9 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
         att["captured"] = cap
         co_moved: list[dict] = []
         if tier and (keep / "tree").is_dir():
-            from nanosoc_rm.analysis.tierrun import read_layout_record
-            record = read_layout_record(keep)
-            declared = [x for x in ((spec or {}).get("verdicts"), (spec or {}).get("ip_files")) if x]
-            try:
-                co = P.capture_checkout(keep / "tree", f["commit"], requested, record=record, exclude=declared)
-            except Exception as e:                                # noqa: BLE001 - an unreadable checkout
-                co = None
-                if att["verdict"] != "INFRA":
-                    att["verdict"] = "UNVERIFIED"
-                att["reason"] = "D4: the tier's checkout could not be re-read after the run: %s" % e
-            att["checkout"] = co
-            if co is not None:
-                co_moved = P.moved(requested, co)
-                if co["superproject_commit"] not in (None, f["commit"]):
-                    co_moved.insert(0, {"tree_path": "", "requested": f["commit"],
-                                        "captured": co["superproject_commit"]})
-                ran = td is not None and td.get("seconds") is not None
-                why = _checkout_unread(co, tier, ran)
-                if why and att["verdict"] != "INFRA":
-                    att["verdict"] = "UNVERIFIED"
-                    att["reason"] = why
+            co_moved = _tier_checkout(att, keep, f["commit"], requested, tier, td, spec)
         if cap is not None or co_moved:
-            mv = P.moved(requested, cap) if cap is not None else []
-            if cap is not None and cap["superproject_commit"] not in (None, f["commit"]):
-                mv.insert(0, {"tree_path": "", "requested": f["commit"], "captured": cap["superproject_commit"]})
-            mv = _merge_moved(mv, co_moved)
-            att["moved"] = mv
-            if mv and att["verdict"] != "INFRA":
-                att["verdict"] = "UNVERIFIED"
-                att["reason"] = "D4: the run read %d pin(s) at commits other than requested%s: %s" % (
-                    len(mv), " (the %s checkout, re-read after its command)" % tier if co_moved else "",
-                    ", ".join("%s %s != %s" % (m["tree_path"] or "(superproject)", m["captured"][:7],
-                                               m["requested"][:7]) for m in mv[:5]))
+            _moved(att, cap, co_moved, f["commit"], requested, tier)
         # D7 over the T0 gates as compat reported them; a tier cell also over its tier rows
         judged = {"fact": {"verdict": att["verdict"], "gates": list(f["gates"]) + att["gates"][len(f["gates"]):]}} \
             if tier else res
@@ -433,6 +372,157 @@ def _attempt(configuration: str, overrides: dict, cfg, compat_fn: Callable, capt
         att["host"]["load_end"] = P.host_load()["load"]
         att["host"]["overloaded"] = P.overloaded(att["host"])
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _run_compat(att: dict, compat_fn: Callable, configuration: str, overrides: dict, cfg, keep: Path, nonce: str,
+                url_map, tier_kw: dict) -> dict | None:
+    """The compat document, or None with the attempt's verdict and reason set: a request that is not a tree is
+    UNVERIFIED, the host's failures are INFRA (D7)."""
+    from nanosoc_rm.analysis.compat import CompatUsage
+    from nanosoc_rm.walker import OverrideError, UnknownConfiguration
+    try:
+        return compat_fn(configuration, overrides or None, config=cfg, keep_work=keep, nonce=nonce,
+                         url_map=url_map, **tier_kw)
+    except (UnknownConfiguration, OverrideError, CompatUsage, _tier_usage()) as e:
+        att["reason"] = "the cell's request is not a tree: %s" % e
+    except _INFRA_EXC as e:
+        att.update(verdict="INFRA", reason="INFRA (D7): %s: %s" % (type(e).__name__, e))
+    except OSError as e:
+        att.update(verdict="INFRA", reason="INFRA (D7): the host failed the run: %s" % e)
+    except Exception as e:                                        # noqa: BLE001 - could not answer, said why
+        att["reason"] = "the run could not answer: %s: %s" % (type(e).__name__, str(e)[:300])
+    return None
+
+
+def _record_compat(att: dict, res: dict, tier: str | None, keep: Path, spec: Mapping | None) -> list[dict]:
+    """Copy the compat result (and its tier part) into the attempt. Returns the requested pins."""
+    f = res["fact"]
+    att.update(verdict=f["verdict"], reason=f.get("reason"), compat_subject=res["subject"],
+               gates=[{"id": g["id"], "verdict": g["verdict"], "detail": (g.get("detail") or "")[:300]}
+                      for g in f["gates"]],
+               not_run=f["not_run"], over_budget=f["over_budget"], unjudged_overrides=f["unjudged_overrides"])
+    requested = [{"tree_path": tp, "commit": p["commit"]} for p in f["pins"] for tp in p["tree_paths"]]
+    att["requested"] = {"superproject_commit": f["commit"], "pins": sorted(requested, key=lambda r: r["tree_path"])}
+    td = f.get("tier") if tier else None
+    if td is not None:
+        att["tier"] = _tier_part(td)
+        att["gates"] += [{"id": r["gate"], "verdict": _TIER_STATUS.get(r["status"], r["status"]),
+                          "detail": (r.get("detail") or "")[:300]} for r in td.get("rows") or []]
+        att["verdict"] = f.get("run_verdict") or f["verdict"]
+        if td["verdict"] != "PASS":
+            att["reason"] = "; ".join(x for x in (f.get("reason"), "tier %s %s: %s" % (
+                tier, td["verdict"], td.get("reason") or "")) if x)[:600]
+        if td.get("seconds") is not None:
+            h, note, n = P.ip_hash(keep / "tree", (spec or {}).get("ip_files"))
+            att["ip"] = {"hash": h, "note": note, "files": n}
+    return requested
+
+
+def _tier_checkout(att: dict, keep: Path, commit: str, requested: list[dict], tier: str, td: dict | None,
+                   spec: Mapping | None) -> list[dict]:
+    """Re-read the tier's checkout after its command (D4). Returns the pins it holds at other commits."""
+    from nanosoc_rm.analysis.tierrun import read_layout_record
+    record = read_layout_record(keep)
+    declared = [x for x in ((spec or {}).get("verdicts"), (spec or {}).get("ip_files")) if x]
+    try:
+        co = P.capture_checkout(keep / "tree", commit, requested, record=record, exclude=declared)
+    except Exception as e:                                        # noqa: BLE001 - an unreadable checkout
+        co = None
+        if att["verdict"] != "INFRA":
+            att["verdict"] = "UNVERIFIED"
+        att["reason"] = "D4: the tier's checkout could not be re-read after the run: %s" % e
+    att["checkout"] = co
+    if co is None:
+        return []
+    co_moved = P.moved(requested, co)
+    if co["superproject_commit"] not in (None, commit):
+        co_moved.insert(0, {"tree_path": "", "requested": commit, "captured": co["superproject_commit"]})
+    ran = td is not None and td.get("seconds") is not None
+    why = _checkout_unread(co, tier, ran)
+    if why and att["verdict"] != "INFRA":
+        att["verdict"] = "UNVERIFIED"
+        att["reason"] = why
+    return co_moved
+
+
+def _moved(att: dict, cap: dict | None, co_moved: list[dict], commit: str, requested: list[dict],
+           tier: str | None) -> None:
+    """D4: a run that read any pin at a commit other than requested is UNVERIFIED (INFRA stays INFRA)."""
+    mv = P.moved(requested, cap) if cap is not None else []
+    if cap is not None and cap["superproject_commit"] not in (None, commit):
+        mv.insert(0, {"tree_path": "", "requested": commit, "captured": cap["superproject_commit"]})
+    mv = _merge_moved(mv, co_moved)
+    att["moved"] = mv
+    if mv and att["verdict"] != "INFRA":
+        att["verdict"] = "UNVERIFIED"
+        att["reason"] = "D4: the run read %d pin(s) at commits other than requested%s: %s" % (
+            len(mv), " (the %s checkout, re-read after its command)" % tier if co_moved else "",
+            ", ".join("%s %s != %s" % (m["tree_path"] or "(superproject)", m["captured"][:7],
+                                       m["requested"][:7]) for m in mv[:5]))
+
+
+def _cell_request(column: str, component: str | None, tier: str | None, force_tier: bool, tiers) -> None:
+    if column not in C.COLUMNS:
+        raise CellUsage("unknown column %r (columns: %s)" % (column, ", ".join(C.COLUMNS)))
+    if (column == C.PINNED) != (component is None):
+        raise CellUsage("the pinned column takes no --component; every other column needs one")
+    if tier is not None and tier not in tiers:
+        raise CellUsage("unknown tier %r (a matrix cell may add: %s)" % (tier, ", ".join(tiers)))
+    if force_tier and not tier:
+        raise CellUsage("--force-tier needs --tier")
+
+
+def _target_verdict(row, target) -> tuple[str | None, str | None, dict[str, str]]:
+    """(NOT-RUN and why, or None and None, the overrides) of a cell's target: nothing to run when the column has
+    no commit or names the commit the tree already pins."""
+    if row is None:
+        return None, None, {}
+    if target.commit is None:
+        return "NOT-RUN", target.why, {}
+    if C.same_as_pinned(row, target.commit):
+        return "NOT-RUN", "same as pinned: %s is the commit the tree already pins" % target.commit[:12], {}
+    return None, None, C.overrides_for(row, target.commit)
+
+
+def _tier_ready(TI, configuration: str, tier: str, cfg, environ, attempts: list[dict]) -> tuple:
+    """(verdict, reason, spec) after the tier's preflight: NOT-RUN, INFRA with a no-tool attempt (D7), or ready."""
+    ready = TI.preflight(configuration, tier, config=cfg, environ=environ)
+    if ready.verdict == "NOT-RUN":
+        return "NOT-RUN", ready.reason, None
+    if ready.verdict == "INFRA":
+        attempts.append(_no_tool_attempt(ready.reason))
+        return "INFRA", attempts[0]["reason"], None
+    return None, None, TI.spec_of(configuration, tier, cfg)
+
+
+def _provenance(tier: str | None, last: dict | None) -> dict:
+    return {"tools": P.tools(), "harness": P.HARNESS, "ip_hash": None,
+            "ip_hash_note": "T0 reads no IP file list, so there is no IP hash to record",
+            **_tier_provenance(tier, last),
+            "requested": last["requested"] if last else None,
+            "captured": last["captured"] if last else None,
+            "moved": last["moved"] if last else [],
+            "host": last["host"] if last else None}
+
+
+def _rerun_verdict(attempts: list[dict]) -> tuple[str, str]:
+    """D8 and D7: the cell's verdict after a red first attempt and its re-run alone."""
+    first, second = attempts
+    hot = [i + 1 for i, a in enumerate(attempts) if a["host"].get("overloaded")]
+    if second["verdict"] == "FAIL":
+        reason = "red twice (the re-run, alone, failed again)"
+        if hot:                                                   # red twice is the tree's, whatever the load
+            reason += "; attempt %s ran on an overloaded host (D7), noted" % " and ".join(map(str, hot))
+        return "FAIL", reason
+    if second["verdict"] in GREEN and first["host"].get("overloaded"):
+        # D7: overload, not the tree; not FLAKY
+        return "INFRA", ("INFRA, not FLAKY (D7): red on an overloaded host (load %s/%s on %s CPUs, above %.1f per "
+                         "CPU), then %s on the re-run alone" % (
+                             first["host"]["load_start"], first["host"]["load_end"], first["host"]["cpus"],
+                             P.OVERLOAD_PER_CPU, second["verdict"]))
+    if second["verdict"] in GREEN:
+        return "FLAKY", "red, then %s on the re-run alone (D8): blocks auto-merge" % second["verdict"]
+    return "UNVERIFIED", "red, then %s on the re-run: %s" % (second["verdict"], second["reason"] or "")
 
 
 def run_cell(configuration: str, column: str, component: str | None = None, *, config=None, store: bool = False,
@@ -449,14 +539,7 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
     from nanosoc_rm.analysis.compat import compat as default_compat
     from nanosoc_rm.config import load_config
     cfg = config if config is not None else load_config()
-    if column not in C.COLUMNS:
-        raise CellUsage("unknown column %r (columns: %s)" % (column, ", ".join(C.COLUMNS)))
-    if (column == C.PINNED) != (component is None):
-        raise CellUsage("the pinned column takes no --component; every other column needs one")
-    if tier is not None and tier not in TI.TIERS:
-        raise CellUsage("unknown tier %r (a matrix cell may add: %s)" % (tier, ", ".join(TI.TIERS)))
-    if force_tier and not tier:
-        raise CellUsage("--force-tier needs --tier")
+    _cell_request(column, component, tier, force_tier, TI.TIERS)
     compat_fn = compat_fn or default_compat
     capture_fn = capture_fn or P.capture
     reg = I.registry(cfg)
@@ -464,51 +547,20 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
     rws, tree = C.rows(configuration, cfg, [component] if component else [], **({"policy": policy} if policy else {}))
     row = rws[0] if component else None
     target = row.targets[column] if row else C.Target(C.PINNED, None)
-    overrides: dict[str, str] = {}
     started = clock.iso()
-    reason, verdict, attempts = None, None, []
-    if row is not None:
-        if target.commit is None:
-            verdict, reason = "NOT-RUN", target.why
-        elif C.same_as_pinned(row, target.commit):
-            verdict, reason = "NOT-RUN", "same as pinned: %s is the commit the tree already pins" % target.commit[:12]
-        else:
-            overrides = C.overrides_for(row, target.commit)
+    verdict, reason, overrides = _target_verdict(row, target)
+    attempts: list[dict] = []
     spec = None
     if verdict is None and tier:
-        ready = TI.preflight(configuration, tier, config=cfg, environ=environ)
-        if ready.verdict == "NOT-RUN":
-            verdict, reason = "NOT-RUN", ready.reason
-        elif ready.verdict == "INFRA":
-            attempts.append(_no_tool_attempt(ready.reason))
-            verdict, reason = "INFRA", attempts[0]["reason"]
-        else:
-            spec = TI.spec_of(configuration, tier, cfg)
+        verdict, reason, spec = _tier_ready(TI, configuration, tier, cfg, environ, attempts)
     run_kw = {"tier": tier, "force_tier": force_tier, "spec": spec} if tier else {}
     if verdict is None:
         first = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map, **run_kw)
         attempts.append(first)
         verdict, reason = first["verdict"], first["reason"]
         if verdict == "FAIL":                                     # D8: once more, alone
-            second = _attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map, **run_kw)
-            attempts.append(second)
-            hot = [i + 1 for i, a in enumerate(attempts) if a["host"].get("overloaded")]
-            if second["verdict"] == "FAIL":
-                verdict, reason = "FAIL", "red twice (the re-run, alone, failed again)"
-                if hot:                                           # red twice is the tree's, whatever the load
-                    reason += "; attempt %s ran on an overloaded host (D7), noted" % " and ".join(map(str, hot))
-            elif second["verdict"] in GREEN and first["host"].get("overloaded"):
-                verdict = "INFRA"                                 # D7: overload, not the tree; not FLAKY
-                reason = ("INFRA, not FLAKY (D7): red on an overloaded host (load %s/%s on %s CPUs, above %.1f per "
-                          "CPU), then %s on the re-run alone" % (
-                              first["host"]["load_start"], first["host"]["load_end"], first["host"]["cpus"],
-                              P.OVERLOAD_PER_CPU, second["verdict"]))
-            elif second["verdict"] in GREEN:
-                verdict = "FLAKY"
-                reason = "red, then %s on the re-run alone (D8): blocks auto-merge" % second["verdict"]
-            else:
-                verdict, reason = "UNVERIFIED", "red, then %s on the re-run: %s" % (second["verdict"],
-                                                                                  second["reason"] or "")
+            attempts.append(_attempt(configuration, overrides, cfg, compat_fn, capture_fn, url_map, **run_kw))
+            verdict, reason = _rerun_verdict(attempts)
     flaky = []
     if verdict == "FLAKY":
         g1 = {g["id"] for g in attempts[0]["gates"] if g["verdict"] == "FAIL"}
@@ -531,13 +583,7 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
         "overrides": [{"tree_path": t, "commit": s} for t, s in sorted(overrides.items())],
         "attempts": attempts, "verdict": verdict, "reason": reason, "flaky_gates": flaky,
         "blocks_auto_merge": verdict in ("FLAKY", "FAIL", "UNVERIFIED", "INFRA"),
-        "provenance": {"tools": P.tools(), "harness": P.HARNESS, "ip_hash": None,
-                       "ip_hash_note": "T0 reads no IP file list, so there is no IP hash to record",
-                       **_tier_provenance(tier, last),
-                       "requested": last["requested"] if last else None,
-                       "captured": last["captured"] if last else None,
-                       "moved": last["moved"] if last else [],
-                       "host": last["host"] if last else None},
+        "provenance": _provenance(tier, last),
         "by": by, "job": job, "started_at": started, "finished_at": clock.iso(),
         "baseline": None, "comparison": None,
     }

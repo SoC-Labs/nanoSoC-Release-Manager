@@ -327,6 +327,22 @@ def parse_manifest(path: str, name: str, body: bytes, hosts: dict | None = None)
     if declared and declared not in _KIND_ALIASES:
         out["problems"].append("kind %r is neither a release manifest nor a tapeout record" % declared)
     src = doc.get("source") if isinstance(doc.get("source"), dict) else {}
+    _identity(out, doc, src, hosts)
+    _pins(out, doc.get("pins") if "pins" in doc else src.get("pins"))
+    _tapeout(out, doc)
+    _listed(out, doc)
+    for key in ("tag", "commit", "repo"):
+        if not out.get(key):
+            out["problems"].append("no %s recorded" % key)
+    if out["kind"] == "tapeout":
+        for key in ("gds_raw_md5", "foundry", "date"):
+            if not out.get(key):
+                out["problems"].append("no %s recorded" % key.replace("_", " "))
+    return out
+
+
+def _identity(out: dict, doc: dict, src: dict, hosts: dict | None) -> None:
+    """schema, project, configuration, component, version, tag(s), commit and repo, in that key order."""
     out["schema"] = _first(doc, "schema")
     out["project"] = _first(doc, "project")
     out["configuration"] = _first(doc, "configuration")
@@ -338,16 +354,23 @@ def parse_manifest(path: str, name: str, body: bytes, hosts: dict | None = None)
     commit = _first(doc, "commit") or src.get("commit")
     out["commit"] = str(commit).lower() if isinstance(commit, str) and _SHA.match(commit.lower()) else None
     out["repo"] = _repo_field(_first(doc, "repo") or src.get("repo"), hosts)
-    pins = doc.get("pins") if "pins" in doc else src.get("pins")
+
+
+def _pins(out: dict, pins: Any) -> None:
+    """A tapeout record's {tree path: commit}, or a release manifest's [{tree_path, component, commit}]."""
     out["pins"], out["pin_components"] = {}, {}
-    if isinstance(pins, dict):                                    # tapeout record: tree path -> commit
+    if isinstance(pins, dict):
         out["pins"] = {str(k): str(v) for k, v in pins.items()}
-    elif isinstance(pins, list):                                  # release manifest: [{tree_path, component, commit}]
+    elif isinstance(pins, list):
         for p in pins:
             if isinstance(p, dict) and p.get("commit") and (p.get("tree_path") or p.get("component")):
                 out["pins"][str(p.get("tree_path") or p.get("component"))] = str(p["commit"])
                 if p.get("component"):
                     out["pin_components"][str(p["component"])] = str(p["commit"])
+
+
+def _tapeout(out: dict, doc: dict) -> None:
+    """tapeout_id, foundry, shuttle, date, status, foundry_verdict and the GDS's raw md5 and store path."""
     out["tapeout_id"] = _first(doc, "tapeout_id")
     fdry = doc.get("foundry")
     out["foundry"] = (fdry.get("foundry") if isinstance(fdry, dict) else fdry) or None
@@ -361,6 +384,10 @@ def parse_manifest(path: str, name: str, body: bytes, hosts: dict | None = None)
     raw = str(gds.get("raw_md5") or gds.get("md5") or "").lower()
     out["gds_raw_md5"] = raw if _MD5.match(raw) else None
     out["gds_store_path"] = gds.get("store_path") or None
+
+
+def _listed(out: dict, doc: dict) -> None:
+    """documents (first 50) and artefacts (first 200)."""
     docs = doc.get("documents")
     out["documents"] = [{"kind": str(d.get("kind") or ""), "name": str(d.get("name") or d.get("path") or "")}
                         for d in (docs if isinstance(docs, list) else []) if isinstance(d, dict)][:50]
@@ -369,14 +396,6 @@ def parse_manifest(path: str, name: str, body: bytes, hosts: dict | None = None)
                          "md5": (str(a.get("raw_md5")).lower() if a.get("raw_md5") else None),
                          "stored_md5": (str(a.get("stored_md5")).lower() if a.get("stored_md5") else None)}
                         for a in (arts if isinstance(arts, list) else []) if isinstance(a, dict)][:200]
-    for key in ("tag", "commit", "repo"):
-        if not out.get(key):
-            out["problems"].append("no %s recorded" % key)
-    if out["kind"] == "tapeout":
-        for key in ("gds_raw_md5", "foundry", "date"):
-            if not out.get(key):
-                out["problems"].append("no %s recorded" % key.replace("_", " "))
-    return out
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -412,44 +431,8 @@ def _builds(client: StoreClient, probes: list, hosts: dict | None) -> tuple[dict
     out, failed = [], []
     for b in top.get("builds") or []:
         name = str(b.get("uri") or "").strip("/")
-        if not name:
-            continue
-        try:
-            nums = client.get_json("api/build/%s" % quote(name, safe=""))
-        except StoreError as e:
-            failed.append(str(e))
-            continue
-        entries = nums.get("buildsNumbers") or []
-        seen: dict[str, int] = {}
-        for n in entries:
-            num = str(n.get("uri") or "").strip("/")
-            seen[num] = seen.get(num, 0) + 1
-        for n in entries:
-            num, started = str(n.get("uri") or "").strip("/"), n.get("started")
-            if not num:
-                continue
-            params = {"started": started} if seen.get(num, 0) > 1 and started else None
-            try:
-                bi = (client.get_json("api/build/%s/%s" % (quote(name, safe=""), quote(num, safe="")), params)
-                      or {}).get("buildInfo") or {}
-            except StoreError as e:
-                failed.append(str(e))
-                continue
-            p = bi.get("properties") or {}
-            vcs = [dict(repo_of_url(v.get("url"), hosts) or {"host": "other", "path": ""},
-                        revision=(str(v.get("revision") or "").lower() or None), branch=v.get("branch"))
-                   for v in bi.get("vcs") or [] if isinstance(v, dict)]
-            mods = bi.get("modules") or []
-            md5s = sorted({str(a.get("md5")) for m in mods for a in (m.get("artifacts") or []) if a.get("md5")})
-            dirty = str(p.get("vcs.worktree_dirty") or "").lower()
-            out.append({"name": name, "number": num, "started": utc(bi.get("started") or started),
-                        "agent": (bi.get("agent") or {}).get("name"), "vcs": vcs,
-                        "dirty": True if dirty in ("yes", "true", "1") else False if dirty in ("no", "false", "0")
-                        else None,
-                        "raw_md5": next((str(p[k]).lower() for k in ("rm.raw_md5", "submitted.raw_md5", "pnr.raw_md5")
-                                         if _MD5.match(str(p.get(k) or "").lower())), None),
-                        "stream_path": p.get("store.stream_path") or None, "artefact_md5": md5s[:50],
-                        "filed": seen.get(num, 1)})
+        if name:
+            out += _build_numbers(client, name, failed, hosts)
     if failed:
         _probe(probes, "build.info", "FAIL", "%d record(s) unreadable: %s" % (len(failed), failed[0]))
     elif out:
@@ -459,6 +442,54 @@ def _builds(client: StoreClient, probes: list, hosts: dict | None) -> tuple[dict
     sec = {"verdict": "PASS" if not failed else "INFRA",
            "reason": None if not failed else "%d build record(s) could not be read" % len(failed)}
     return sec, out
+
+
+def _build_numbers(client: StoreClient, name: str, failed: list[str], hosts: dict | None) -> list[dict]:
+    """Every build record filed under one build name; a record that cannot be read goes to `failed`."""
+    try:
+        nums = client.get_json("api/build/%s" % quote(name, safe=""))
+    except StoreError as e:
+        failed.append(str(e))
+        return []
+    entries = nums.get("buildsNumbers") or []
+    seen: dict[str, int] = {}
+    for n in entries:
+        num = str(n.get("uri") or "").strip("/")
+        seen[num] = seen.get(num, 0) + 1
+    out = []
+    for n in entries:
+        num, started = str(n.get("uri") or "").strip("/"), n.get("started")
+        if not num:
+            continue
+        # A number filed twice is told apart by its start time.
+        params = {"started": started} if seen.get(num, 0) > 1 and started else None
+        try:
+            bi = (client.get_json("api/build/%s/%s" % (quote(name, safe=""), quote(num, safe="")), params)
+                  or {}).get("buildInfo") or {}
+        except StoreError as e:
+            failed.append(str(e))
+            continue
+        out.append(_build_record(name, num, started, bi, seen.get(num, 1), hosts))
+    return out
+
+
+def _tristate(text: str) -> bool | None:
+    return True if text in ("yes", "true", "1") else False if text in ("no", "false", "0") else None
+
+
+def _build_record(name: str, num: str, started: Any, bi: dict, filed: int, hosts: dict | None) -> dict:
+    p = bi.get("properties") or {}
+    vcs = [dict(repo_of_url(v.get("url"), hosts) or {"host": "other", "path": ""},
+                revision=(str(v.get("revision") or "").lower() or None), branch=v.get("branch"))
+           for v in bi.get("vcs") or [] if isinstance(v, dict)]
+    mods = bi.get("modules") or []
+    md5s = sorted({str(a.get("md5")) for m in mods for a in (m.get("artifacts") or []) if a.get("md5")})
+    return {"name": name, "number": num, "started": utc(bi.get("started") or started),
+            "agent": (bi.get("agent") or {}).get("name"), "vcs": vcs,
+            "dirty": _tristate(str(p.get("vcs.worktree_dirty") or "").lower()),
+            "raw_md5": next((str(p[k]).lower() for k in ("rm.raw_md5", "submitted.raw_md5", "pnr.raw_md5")
+                             if _MD5.match(str(p.get(k) or "").lower())), None),
+            "stream_path": p.get("store.stream_path") or None, "artefact_md5": md5s[:50], "filed": filed}
 
 
 SIG_MAX = 64 << 10                           # bytes read of one signature

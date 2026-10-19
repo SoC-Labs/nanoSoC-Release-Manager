@@ -238,80 +238,105 @@ def check(register: dict | None, phase_of: dict[str, str], commits: Iterable[dic
     phases = {g.get("phase"): g for g in (register or {}).get("phases", []) if isinstance(g, dict)}
     ids = sorted(phase_of, key=len, reverse=True)
     # A requirement id stands alone: `E1`, `(E1)`, `E1,`. A review label such as `CI-E1` or `MW-R1` contains an id
-    # after a hyphen and names a review finding, not the requirement (found at integration: build/ci's message).
+    # after a hyphen and names a review finding, not the requirement.
     ids_rx = re.compile(r"(?<![\w-])(%s)(?![\w-])" % "|".join(map(re.escape, ids))) if ids else None
     out = []
     for ph in LATER_PHASES:
-        problems: list[str] = []
         g = phases.get(ph)
-        met, checked_at = False, None
-        if not g:
-            problems.append("%s: no entry gate written down" % ph)
-        else:
-            crit = g.get("entry_gate") or []
-            if not crit:
-                problems.append("%s: the entry gate has no criteria" % ph)
-            for c in crit:
-                if not isinstance(c, dict) or not c.get("criterion") or not c.get("check"):
-                    problems.append("%s: criterion %r has no check" % (ph, (c or {}).get("criterion")))
-            met = g.get("status") in MET
-            checked = g.get("checked") or {}
-            checked_at = checked.get("at")
-            if met and not (checked_at and checked.get("by")):
-                problems.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
+        met, checked_at, problems = _gate_entry(ph, g)
         ph_ids = {i for i, p in phase_of.items() if p == ph}
         built: list[str] = []
         building = ph in buildable and not met
         if ids_rx is not None and ph_ids:
-            named = lambda c: set(ids_rx.findall(trailer_text(c["message"]))) - exempt.get(c["sha"], set())
+            def named(c, _rx=ids_rx):
+                return set(_rx.findall(trailer_text(c["message"]))) - exempt.get(c["sha"], set())
             naming = [c for c in commits if named(c) & ph_ids]
             if building:
                 late = [c for c in naming if _parse_time(c["at"]) >= _parse_time(built_from)]
                 built += ["commit %s names %s" % (c["sha"][:7], sorted(named(c) & ph_ids)) for c in late]
                 naming = [c for c in naming if c not in late]
-            if naming:
-                first = min(naming, key=lambda c: _parse_time(c["at"]))
-                try:
-                    early = not met or not checked_at or _parse_time(first["at"]) < _parse_time(str(checked_at))
-                except ValueError:
-                    early = True
-                if early:
-                    problems.append("%s: implementation commit %s (%s) names %s before the entry gate was checked"
-                                    % (ph, first["sha"][:7], first["at"],
-                                       sorted(named(first) & ph_ids)))
+            problems += _early_commit(ph, naming, met, checked_at, lambda c: named(c) & ph_ids)
         if not met:
-            surfaces = []
-            for r in LATER_SURFACES[ph]["routes"]:
-                if any(x == r or x.startswith(r + "/") for x in routes):
-                    surfaces.append("route %s" % r)
-            claimed = {sc for p2, subs in LATER_SUBCOMMANDS.items() if p2 != ph for sc in subs}
-            for c in LATER_SURFACES[ph]["cli"] + LATER_SUBCOMMANDS.get(ph, ()):
-                if c not in commands:
-                    continue
-                subs = [x for x in commands if x.startswith(c + " ")]
-                if " " not in c and subs and all(x in claimed for x in subs):
-                    continue                          # the group holds only another phase's subcommands
-                surfaces.append("command `%s`" % c)
+            surfaces = _surfaces(ph, routes, commands)
             if building:
                 built += ["%s built (CR-15)" % s for s in surfaces]
             else:
                 problems += ["%s: %s exists before its entry gate" % (ph, s) for s in surfaces]
-            # rule 5: enabling stays gated whether or not the phase may be built
-            governed = (g or {}).get("automation")
-            governed = governed if isinstance(governed, list) else GOVERNED_AUTOMATION[ph]
-            for name, declared, why in enabled:
-                if declared == ph or (declared is None and name in governed):
-                    problems.append("%s: automation `%s` is enabled before its entry gate (CR-15: build, do not "
-                                    "enable)%s" % (ph, name, ": %s" % why if why else ""))
-            for j in scheduled:
-                if ph in automation_phase(j):
-                    problems.append("%s: scheduled job %s enables automation before its entry gate" % (ph, j))
-            if ph in ("Phase 4", "Phase 5") and bot_writes:
-                problems.append("%s: outbound write(s) %s enable bot automation before its entry gate" % (
-                    ph, ", ".join("%s %s" % (w.get("method"), w.get("target")) for w in bot_writes)))
+            problems += _enabled_early(ph, g, enabled, scheduled, bot_writes)
         out.append({"phase": ph, "status": (g or {}).get("status"), "met": met, "checked_at": checked_at,
                     "built": built, "problems": problems})
     return out
+
+
+def _gate_entry(ph: str, g: dict | None) -> tuple[bool, Any, list[str]]:
+    """(met, checked_at, problems) of one phase's written entry gate: criteria with checks, and a met gate
+    records who checked it and when."""
+    if not g:
+        return False, None, ["%s: no entry gate written down" % ph]
+    problems = []
+    crit = g.get("entry_gate") or []
+    if not crit:
+        problems.append("%s: the entry gate has no criteria" % ph)
+    for c in crit:
+        if not isinstance(c, dict) or not c.get("criterion") or not c.get("check"):
+            problems.append("%s: criterion %r has no check" % (ph, (c or {}).get("criterion")))
+    met = g.get("status") in MET
+    checked = g.get("checked") or {}
+    checked_at = checked.get("at")
+    if met and not (checked_at and checked.get("by")):
+        problems.append("%s: marked %s without checked.at and checked.by" % (ph, g.get("status")))
+    return met, checked_at, problems
+
+
+def _early_commit(ph: str, naming: list[dict], met: bool, checked_at: Any, ids_of) -> list[str]:
+    """The problem when the first implementation commit naming this phase's ids came before its gate was checked."""
+    if not naming:
+        return []
+    first = min(naming, key=lambda c: _parse_time(c["at"]))
+    try:
+        early = not met or not checked_at or _parse_time(first["at"]) < _parse_time(str(checked_at))
+    except ValueError:
+        early = True
+    if not early:
+        return []
+    return ["%s: implementation commit %s (%s) names %s before the entry gate was checked"
+            % (ph, first["sha"][:7], first["at"], sorted(ids_of(first)))]
+
+
+def _surfaces(ph: str, routes: Sequence[str], commands: Sequence[str]) -> list[str]:
+    """The routes and commands of a later phase that exist."""
+    surfaces = []
+    for r in LATER_SURFACES[ph]["routes"]:
+        if any(x == r or x.startswith(r + "/") for x in routes):
+            surfaces.append("route %s" % r)
+    claimed = {sc for p2, subs in LATER_SUBCOMMANDS.items() if p2 != ph for sc in subs}
+    for c in LATER_SURFACES[ph]["cli"] + LATER_SUBCOMMANDS.get(ph, ()):
+        if c not in commands:
+            continue
+        subs = [x for x in commands if x.startswith(c + " ")]
+        if " " not in c and subs and all(x in claimed for x in subs):
+            continue                          # the group holds only another phase's subcommands
+        surfaces.append("command `%s`" % c)
+    return surfaces
+
+
+def _enabled_early(ph: str, g: dict | None, enabled: list, scheduled: Sequence[str],
+                   bot_writes: list[dict]) -> list[str]:
+    """Rule 5: enabling automation stays gated whether or not the phase may be built."""
+    problems = []
+    governed = (g or {}).get("automation")
+    governed = governed if isinstance(governed, list) else GOVERNED_AUTOMATION[ph]
+    for name, declared, why in enabled:
+        if declared == ph or (declared is None and name in governed):
+            problems.append("%s: automation `%s` is enabled before its entry gate (CR-15: build, do not "
+                            "enable)%s" % (ph, name, ": %s" % why if why else ""))
+    for j in scheduled:
+        if ph in automation_phase(j):
+            problems.append("%s: scheduled job %s enables automation before its entry gate" % (ph, j))
+    if ph in ("Phase 4", "Phase 5") and bot_writes:
+        problems.append("%s: outbound write(s) %s enable bot automation before its entry gate" % (
+            ph, ", ".join("%s %s" % (w.get("method"), w.get("target")) for w in bot_writes)))
+    return problems
 
 
 def app_routes() -> list[str]:

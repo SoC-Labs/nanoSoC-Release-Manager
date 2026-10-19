@@ -45,6 +45,8 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
 from nanosoc_rm import clock, contracts
 from nanosoc_rm.analysis import _inputs as inp
 from nanosoc_rm.bumps import changelog as clog
@@ -537,6 +539,162 @@ def _row(fact: dict, status: str, note: str, consumer: str | None = None, tag: s
             "consumer": consumer, "status": status, "tag": tag, "proposal": proposal, "note": note}
 
 
+class _Skip(Exception):
+    """A pin the scan does not propose: its row's status and note."""
+
+    def __init__(self, status: str, note: str, **kw):
+        super().__init__(note)
+        self.status, self.note, self.kw = status, note, kw
+
+
+@dataclass
+class _ScanCtx:
+    configuration: str
+    cfg: Config
+    reg: object
+    conf: dict
+    mirrors: "_Mirrors"
+    git: "_Git"
+    visibility: dict
+
+
+def _catalogued_dependency(ctx: _ScanCtx, f: dict) -> str:
+    """The pinned component, or _Skip for a pin E1 does not cover."""
+    child = f.get("child") or {}
+    dep = child.get("component")
+    if f.get("state") in ("LOCAL_URL", "NO_GITLINK") or not child.get("commit"):
+        raise _Skip("no-gitlink", "not a gitlink pin (%s)" % f.get("state"))
+    if child.get("catalogued_as") == "external":
+        raise _Skip("external", "a third-party project: not proposed (E1 covers catalogue components)")
+    if child.get("catalogued_as") != "component" or not dep or ctx.reg.component(dep) is None:
+        raise _Skip("not-catalogued", "the pinned URL names no catalogue component")
+    return dep
+
+
+def _consumer_branch(ctx: _ScanCtx, f: dict) -> tuple[str, str | None, str, str]:
+    """(branch, default branch, tip, pinned commit at the tip) of the consumer the bump goes to: the
+    configuration's own branch for a root pin, else the consumer's default branch."""
+    parent = f["parent"]
+    consumer = parent["component"]
+    if consumer == ctx.conf["component"] and f["depth"] == 1:
+        branch = (ctx.conf.get("ref") or {}).get("branch")
+        if not branch:
+            raise _Skip("consumer-not-a-branch", "the configuration follows a tag (%s): no branch to bump"
+                        % (ctx.conf.get("ref") or {}).get("tag"))
+        default, _ = inp.default_branch(ctx.cfg, ctx.mirrors.mirror(consumer), parent["repo"])
+    else:
+        branch, _ = inp.default_branch(ctx.cfg, ctx.mirrors.mirror(consumer), parent["repo"])
+        default = branch
+        if not branch:
+            raise _Skip("consumer-not-mirrored", "the default branch of %s:%s is not known (sync its mirror)"
+                        % (parent["repo"]["host"], parent["repo"]["path"]))
+    if branch.startswith("release/"):
+        raise _Skip("release-branch", "%s is a release branch: never bumped automatically (E5)" % branch)
+    tip = ctx.mirrors.tip(consumer, parent["repo"], branch)
+    if tip is None:
+        raise _Skip("consumer-not-mirrored", "%s:%s branch %s is not in the mirror (sync it)"
+                    % (parent["repo"]["host"], parent["repo"]["path"], branch))
+    frm = ctx.mirrors.gitlink(consumer, tip, f["path"])
+    if frm is None:
+        raise _Skip("consumer-path-gone", "%s at %s (tip of %s) has no gitlink at %s"
+                    % (consumer, tip[:12], branch, f["path"]))
+    return branch, default, tip, frm
+
+
+def _newer_releases(ctx: _ScanCtx, dep: str, frm: str) -> tuple[Any, list]:
+    """(the pin's release tag or None, release tags past the pin, newest first)."""
+    tags = ctx.mirrors.tags(dep)
+    if not tags:
+        raise _Skip("no-release-tag", "%s has no release tag (vX.Y.Z) in its mirror (C1, C10)" % dep)
+    if not ctx.mirrors.has_commit(dep, frm):
+        raise _Skip("pin-not-in-mirror", "%s is not in the %s mirror: cannot judge (sync it)" % (frm[:12], dep))
+    frm_tag = _version_of(tags, ctx.mirrors, dep, frm)
+    newer = [t for t in tags if t.commit != frm and not ctx.mirrors.is_ancestor(dep, t.commit, frm)
+             and (frm_tag is None or t.version.key() > frm_tag.version.key())]
+    if not newer:
+        raise _Skip("up-to-date", "no release past %s" % (frm_tag.name if frm_tag else frm[:12]),
+                    tag=frm_tag.name if frm_tag else None)
+    return frm_tag, newer
+
+
+def _in_range(ctx: _ScanCtx, f: dict, consumer: str, tip: str, dep: str, frm_tag, newer: list) -> tuple[list, dict]:
+    """(releases the consumer's declared range allows, the proposal's `range` block); _Skip when none is allowed."""
+    rng, rng_src, rng_problem = ctx.mirrors.manifest_range(consumer, tip, f["path"], dep)
+    allowed, range_allows, assumed = newer, None, None
+    if rng is None and frm_tag is not None:
+        # No declared range allows nothing in particular, so the engine assumes the pin's major version (0.x
+        # stays below 1.0.0) and holds a declared-breaking change.
+        assumed = "same major as %s (%d.x): no range declared (C11)" % (frm_tag.name, frm_tag.version.major)
+        allowed = [t for t in newer if t.version.major == frm_tag.version.major]
+        if not allowed:
+            rng_problem = ("no range declared (C11), and %s crosses a major version from %s: a person declares "
+                           "a range in %s's manifest to allow it" % (newer[0].name, frm_tag.name, consumer))
+    elif rng is not None:
+        try:
+            allowed = [t for t in newer if allows(rng, t.version)]
+            range_allows = bool(allowed)
+        except RangeError as e:
+            rng_problem, allowed = "range %r does not parse: %s" % (rng, e), []
+    if not allowed:
+        raise _Skip("held-by-range", "%s is newer, but %s" % (
+            newer[0].name, rng_problem or "%s declares %s for %s" % (consumer, rng, f["path"])), tag=newer[0].name)
+    return allowed, {"declared": rng, "source": rng_src, "allows": range_allows, "problem": rng_problem,
+                     "assumed": assumed}
+
+
+def _proposal(ctx: _ScanCtx, f: dict, rows: list[dict], props: dict, seen: dict) -> None:
+    """Judge one pin (module docstring steps 1 to 6): add its proposal to `props` and its row to `rows`, or
+    raise _Skip with the row it gets instead."""
+    child, parent = f.get("child") or {}, f["parent"]
+    consumer = parent["component"]
+    dep = _catalogued_dependency(ctx, f)
+    branch, default, tip, frm = _consumer_branch(ctx, f)
+    okey = (parent["repo"]["host"], parent["repo"]["path"].lower(), branch, f["path"])
+    if okey in seen:
+        first_path, first = seen[okey]
+        if first in props:
+            props[first]["tree_paths"].append(f["tree_paths"][0])
+        raise _Skip("duplicate", "the same gitlink in the same consumer branch as %s: one move" % first_path,
+                    proposal=first if first in props else None)
+    seen[okey] = (f["tree_paths"][0], None)
+    frm_tag, newer = _newer_releases(ctx, dep, frm)
+    allowed, rng = _in_range(ctx, f, consumer, tip, dep, frm_tag, newer)
+    to = allowed[0]
+    change, extra = _class(dep, frm, to, frm_tag, ctx.mirrors, ctx.cfg)
+    defects = _defects(ctx.reg, dep, frm, to.commit, ctx.mirrors)
+    state, reason = "proposed", None
+    if not ctx.mirrors.on_repo(dep, to.commit, child["repo"]):
+        state, reason = "blocked", ("%s (%s) is not on %s:%s, the repo %s's .gitmodules names: a person moves "
+                                    "the URL or pushes the tag there first" % (to.name, to.commit[:12],
+                                    child["repo"]["host"], child["repo"]["path"], consumer))
+    elif rng["declared"] is None and change["class"] == "breaking":
+        state, reason = "blocked", ("%s declares a breaking change and %s declares no range for %s (C11): a "
+                                    "person decides" % (to.name, consumer, f["path"]))
+    pid = proposal_id(parent["repo"], branch, f["path"], frm, to.commit)
+    seen[okey] = (f["tree_paths"][0], pid)
+    props[pid] = {
+        "id": pid, "configuration": ctx.configuration, "tree_paths": [f["tree_paths"][0]], "depth": f["depth"],
+        "order": 0,
+        "consumer": {"component": consumer, "repo": parent["repo"], "branch": branch, "base": tip,
+                     "configured": parent["commit"], "at_configured": tip == parent["commit"]},
+        "path": f["path"], "dependency": {"component": dep, "repo": child["repo"]},
+        "from": _tagref(frm_tag, frm),
+        "to": _tagref(to, to.commit, repo=True),
+        "newest": _tagref(newer[0], newer[0].commit, repo=True) if newer[0] is not to else None,
+        "range": rng,
+        "change": change, "defects": defects, "matrix": None, "patch": None, "decision": None,
+        "waits_for": [], "state": state, "reason": reason,
+        "_frm_tag": frm_tag, "_sources": ctx.git.take() + extra,
+        "_ctx": {"default": default, "split": bool(f.get("split")),
+                 "visibility": ctx.visibility.get((parent["repo"]["host"], parent["repo"]["path"].lower())),
+                 "workarounds": _retiring(ctx.mirrors, consumer, tip, dep, frm, to.commit), "waited_on_by": []},
+    }
+    rows.append(_row(f, "proposal" if state == "proposed" else "blocked",
+                     "%s -> %s%s" % (frm_tag.name if frm_tag else frm[:12], to.name,
+                                     "" if state == "proposed" else ": " + reason), consumer, tag=to.name,
+                     proposal=pid))
+
+
 def scan(configuration: str, *, config: Config | str | Path | None = None, store_result: bool = False,
          now: str | None = None) -> tuple[dict, list[dict]]:
     """(bump_scan observation, bump_proposal observations, deepest first) for one configuration."""
@@ -566,136 +724,16 @@ def scan(configuration: str, *, config: Config | str | Path | None = None, store
     walk_src = {"kind": "derived", "command": "nanosoc-rm walk %s (stored snapshot %s)" % (configuration, snap)}
     git = _Git(cfg)
     mirrors = _Mirrors(cfg, reg, git)
-    root_comp = conf["component"]
     root_commit = next((d["fact"]["parent"]["commit"] for d in tree if d["fact"]["depth"] == 1), None)
-    visibility = _visibility(cfg)
+    ctx = _ScanCtx(configuration, cfg, reg, conf, mirrors, git, _visibility(cfg))
     rows, props, seen = [], {}, {}
     for doc in sorted(tree, key=lambda d: (-d["fact"]["depth"], d["fact"]["tree_paths"][0])):
         f = doc["fact"]
-        child, parent = f.get("child") or {}, f["parent"]
-        dep, consumer = child.get("component"), parent["component"]
-        if f.get("state") in ("LOCAL_URL", "NO_GITLINK") or not child.get("commit"):
-            rows.append(_row(f, "no-gitlink", "not a gitlink pin (%s)" % f.get("state"), consumer))
-            continue
-        if child.get("catalogued_as") == "external":
-            rows.append(_row(f, "external", "a third-party project: not proposed (E1 covers catalogue components)",
-                             consumer))
-            continue
-        if child.get("catalogued_as") != "component" or not dep or reg.component(dep) is None:
-            rows.append(_row(f, "not-catalogued", "the pinned URL names no catalogue component", consumer))
-            continue
-        # 1. the consumer branch
-        if consumer == root_comp and f["depth"] == 1:
-            branch = (conf.get("ref") or {}).get("branch")
-            if not branch:
-                rows.append(_row(f, "consumer-not-a-branch", "the configuration follows a tag (%s): no branch to bump"
-                                 % (conf.get("ref") or {}).get("tag"), consumer))
-                continue
-            default, _ = inp.default_branch(cfg, mirrors.mirror(consumer), parent["repo"])
-        else:
-            branch, _ = inp.default_branch(cfg, mirrors.mirror(consumer), parent["repo"])
-            default = branch
-            if not branch:
-                rows.append(_row(f, "consumer-not-mirrored", "the default branch of %s:%s is not known (sync its mirror)"
-                                 % (parent["repo"]["host"], parent["repo"]["path"]), consumer))
-                continue
-        if branch.startswith("release/"):
-            rows.append(_row(f, "release-branch", "%s is a release branch: never bumped automatically (E5)" % branch,
-                             consumer))
-            continue
-        tip = mirrors.tip(consumer, parent["repo"], branch)
-        if tip is None:
-            rows.append(_row(f, "consumer-not-mirrored", "%s:%s branch %s is not in the mirror (sync it)"
-                             % (parent["repo"]["host"], parent["repo"]["path"], branch), consumer))
-            continue
-        frm = mirrors.gitlink(consumer, tip, f["path"])
-        if frm is None:
-            rows.append(_row(f, "consumer-path-gone", "%s at %s (tip of %s) has no gitlink at %s"
-                             % (consumer, tip[:12], branch, f["path"]), consumer))
-            continue
-        okey = (parent["repo"]["host"], parent["repo"]["path"].lower(), branch, f["path"])
-        if okey in seen:
-            first_path, first = seen[okey]
-            if first in props:
-                props[first]["tree_paths"].append(f["tree_paths"][0])
-            rows.append(_row(f, "duplicate", "the same gitlink in the same consumer branch as %s: one move"
-                             % first_path, consumer, proposal=first if first in props else None))
-            continue
-        seen[okey] = (f["tree_paths"][0], None)
-        # 2. release tags past the pin
-        tags = mirrors.tags(dep)
-        if not tags:
-            rows.append(_row(f, "no-release-tag", "%s has no release tag (vX.Y.Z) in its mirror (C1, C10)" % dep, consumer))
-            continue
-        if not mirrors.has_commit(dep, frm):
-            rows.append(_row(f, "pin-not-in-mirror", "%s is not in the %s mirror: cannot judge (sync it)"
-                             % (frm[:12], dep), consumer))
-            continue
-        frm_tag = _version_of(tags, mirrors, dep, frm)
-        newer = [t for t in tags if t.commit != frm and not mirrors.is_ancestor(dep, t.commit, frm)
-                 and (frm_tag is None or t.version.key() > frm_tag.version.key())]
-        if not newer:
-            rows.append(_row(f, "up-to-date", "no release past %s" % (frm_tag.name if frm_tag else frm[:12]), consumer,
-                             tag=frm_tag.name if frm_tag else None))
-            continue
-        # 3. the declared range
-        rng, rng_src, rng_problem = mirrors.manifest_range(consumer, tip, f["path"], dep)
-        allowed, range_allows, assumed = newer, None, None
-        if rng is None and frm_tag is not None:
-            # BUMPS-R4: no declared range allows nothing in particular, so the engine assumes the pin's major
-            # version (0.x stays below 1.0.0) and holds a declared-breaking change (below)
-            assumed = "same major as %s (%d.x): no range declared (C11)" % (frm_tag.name, frm_tag.version.major)
-            allowed = [t for t in newer if t.version.major == frm_tag.version.major]
-            if not allowed:
-                rng_problem = ("no range declared (C11), and %s crosses a major version from %s: a person declares "
-                               "a range in %s's manifest to allow it" % (newer[0].name, frm_tag.name, consumer))
-        elif rng is not None:
-            try:
-                allowed = [t for t in newer if allows(rng, t.version)]
-                range_allows = bool(allowed)
-            except RangeError as e:
-                rng_problem, allowed = "range %r does not parse: %s" % (rng, e), []
-        if not allowed:
-            rows.append(_row(f, "held-by-range", "%s is newer, but %s" % (
-                newer[0].name, rng_problem or "%s declares %s for %s" % (consumer, rng, f["path"])), consumer,
-                tag=newer[0].name))
-            continue
-        to = allowed[0]
-        # 4.-6.
-        change, extra = _class(dep, frm, to, frm_tag, mirrors, cfg)
-        defects = _defects(reg, dep, frm, to.commit, mirrors)
-        state, reason = "proposed", None
-        if not mirrors.on_repo(dep, to.commit, child["repo"]):
-            state, reason = "blocked", ("%s (%s) is not on %s:%s, the repo %s's .gitmodules names: a person moves "
-                                        "the URL or pushes the tag there first" % (to.name, to.commit[:12],
-                                        child["repo"]["host"], child["repo"]["path"], consumer))
-        elif rng is None and change["class"] == "breaking":
-            state, reason = "blocked", ("%s declares a breaking change and %s declares no range for %s (C11): a "
-                                        "person decides" % (to.name, consumer, f["path"]))
-        pid = proposal_id(parent["repo"], branch, f["path"], frm, to.commit)
-        seen[okey] = (f["tree_paths"][0], pid)
-        props[pid] = {
-            "id": pid, "configuration": configuration, "tree_paths": [f["tree_paths"][0]], "depth": f["depth"],
-            "order": 0,
-            "consumer": {"component": consumer, "repo": parent["repo"], "branch": branch, "base": tip,
-                         "configured": parent["commit"], "at_configured": tip == parent["commit"]},
-            "path": f["path"], "dependency": {"component": dep, "repo": child["repo"]},
-            "from": _tagref(frm_tag, frm),
-            "to": _tagref(to, to.commit, repo=True),
-            "newest": _tagref(newer[0], newer[0].commit, repo=True) if newer[0] is not to else None,
-            "range": {"declared": rng, "source": rng_src, "allows": range_allows, "problem": rng_problem,
-                      "assumed": assumed},
-            "change": change, "defects": defects, "matrix": None, "patch": None, "decision": None,
-            "waits_for": [], "state": state, "reason": reason,
-            "_frm_tag": frm_tag, "_sources": git.take() + extra,
-            "_ctx": {"default": default, "split": bool(f.get("split")),
-                     "visibility": visibility.get((parent["repo"]["host"], parent["repo"]["path"].lower())),
-                     "workarounds": _retiring(mirrors, consumer, tip, dep, frm, to.commit), "waited_on_by": []},
-        }
-        rows.append(_row(f, "proposal" if state == "proposed" else "blocked",
-                         "%s -> %s%s" % (frm_tag.name if frm_tag else frm[:12], to.name,
-                                         "" if state == "proposed" else ": " + reason), consumer, tag=to.name,
-                         proposal=pid))
+        consumer = f["parent"]["component"]
+        try:
+            _proposal(ctx, f, rows, props, seen)
+        except _Skip as e:
+            rows.append(_row(f, e.status, e.note, consumer, **e.kw))
 
     docs = _finish(configuration, props, rows, cfg, auto_merge, walk_at, [walk_src, reg_src], root_commit)
     obs = _scan_doc(configuration, True, None, {"snapshot": snap, "observed_at": walk_at, "pins": len(tree)}, rows,
