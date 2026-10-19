@@ -136,15 +136,16 @@ def test_an_infra_gate_without_a_tier_is_infra_and_named():
             verdict="INFRA")
     dec = V.deciding(d)
     assert dec.infra is True and dec.kind == "infra" and dec.gate == "t0.infra.probe"
-    assert dec.infra_text == "This host cannot run t0.infra.probe. Nothing to fix in the design. no git here"
+    assert dec.infra_text == "This host could not run the t0.infra.probe check: no git here. Nothing to fix in the design."
 
 
-def test_an_infra_tier_names_the_tier_upper_case_and_its_reason():
+def test_an_infra_tier_names_the_tier_in_words_and_its_reason():
     t = {"tier": "t1", "verdict": "INFRA", "reason": "no tool"}
     d = doc("x", [gate("t0.pins.fetchable", "PASS"), gate("t0.infra.probe", "INFRA")], [pin("a")],
             verdict="PASS", tier=t)
     dec = V.deciding(d)
-    assert dec.gate == "tier.t1" and dec.infra_text == "This host cannot run T1. Nothing to fix in the design. no tool"
+    assert dec.gate == "tier.t1" and dec.infra_text == ("This host cannot run the static and unit tests (t1): no tool. "
+                                                        "Nothing to fix in the design.")
 
 
 def test_subject_per_kind():

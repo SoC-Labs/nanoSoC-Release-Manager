@@ -82,7 +82,7 @@ def test_eth_main_is_one_ssh_pin_cause_covering_fetchable_and_no_ssh():
     assert d.same_cause_gates == ("t0.pins.fetchable", "t0.urls.no-ssh-public") and d.gate == "t0.pins.fetchable"
     assert d.not_reached == 5
     assert set(d.separate_gates) == {"t0.clone.upgrade-path", "t0.vendor.no-arm-ip"}
-    assert d.infra is True and d.infra_text.startswith("This host cannot run T1. Nothing to fix in the design.")
+    assert d.infra is True and d.infra_text.startswith("This host cannot run the static and unit tests (t1)")
     labels = [c.label for c in V.causes(eth_main())]
     assert labels[0] == "tidelink pinned by ssh URL"
     assert "upgrade path from ab73e40 does not clone anonymously" in labels

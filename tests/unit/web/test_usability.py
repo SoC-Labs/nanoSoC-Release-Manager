@@ -274,3 +274,44 @@ def test_every_list_page_with_nothing_stored_says_what_to_do_next(empty_site):
     # the pages this pass gave an empty state mark it, so a later change cannot drop it unnoticed
     for url in ("/branches", "/contains", "/silicon-protection", "/releases/", "/bumps/ledger"):
         assert "data-empty" in empty_site.get(url).text, url
+
+
+# ----- a tier this host could not run ---------------------------------------------------------------------------
+def _result(tier: str, verdict: str, reason: str, at: str) -> dict:
+    return {"fact": {"finished_at": at, "tier": {"tier": tier, "verdict": verdict, "reason": reason}}}
+
+
+def test_the_newest_run_of_each_tier_decides_whether_the_form_warns(fp, monkeypatch):
+    from nanosoc_rm.ci import configs as cimod
+    from nanosoc_rm.web import views
+    newest_first = [_result("t1", "INFRA", "tool not on this host: VERILATOR=/opt/v does not exist; the tier was not "
+                            "run", "2026-10-18T10:00:00Z"),
+                    _result("t2", "PASS", "", "2026-10-18T09:00:00Z"),
+                    _result("t2", "INFRA", "the vcs-seat lock is held", "2026-10-17T09:00:00Z")]
+    assert views.tiers_this_host_could_not_run(newest_first) == {
+        "t1": "tool not on this host: VERILATOR=/opt/v does not exist"}         # t2 ran since: no warning
+    blocked = views.tiers_this_host_could_not_run(newest_first)
+    monkeypatch.setattr(views, "tiers_this_host_could_not_run", lambda results: blocked)
+    spec = {"command": "make lint", "budget_s": 600}
+    monkeypatch.setattr(cimod, "tiers", lambda cid, config=None: {"t1": spec, "t2": dict(spec, command="make sim")})
+    text = fp["client"].get("/configurations/eth-rc4/whatif?component=tidelink&target=" + "a" * 40).text
+    assert re.search(r'<option value="t1"><span title="T1">static and unit tests</span> \(budget 600 s\), could not '
+                     r'run here last time</option>', text), text[text.find("wi-tier"):][:900]
+    assert not re.search(r'<option value="t2">.{0,80}could not run', text)
+    note = re.search(r'<p class="note" data-tier-blocked="t1">(.*?)</p>', text, re.S).group(1)
+    assert "could not run the" in note and "VERILATOR=/opt/v does not exist. Pick it again once that is fixed." in note
+
+
+def test_the_infra_sentence_is_one_short_sentence():
+    from nanosoc_rm.web import verdict as V
+    long = "tool not on this host: " + "X=/a/very/long/path " * 20 + "; the tier was not run"
+    ok, text = V._infra({"tier": {"tier": "t2", "verdict": "INFRA", "reason": long}})
+    assert ok and text.startswith("This host cannot run the smoke simulation (t2): tool not on this host: X=")
+    assert text.endswith("…. Nothing to fix in the design.") and len(text) < 260
+    assert "the tier was not run" not in text
+
+
+def test_a_what_if_for_a_component_the_tree_lacks_says_so(fp):
+    text = fp["client"].get("/configurations/eth-rc4/whatif?component=nope").text
+    assert "eth-rc4 has no component nope in its stored tree: pick one from the list below" in text
+    assert "has no component" not in fp["client"].get("/configurations/eth-rc4/whatif?component=tidelink").text

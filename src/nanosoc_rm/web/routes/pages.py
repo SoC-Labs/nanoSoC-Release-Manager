@@ -155,10 +155,11 @@ def compat_page(request: Request) -> Response:
             tiers = cimod.tiers(cid, config)
         except Exception as e:                       # noqa: BLE001 - the form still works without tiers
             problems = problems + ["tiers.yaml could not be read for %s: %s" % (cid, str(e)[:200])]
+    results = views.compat_results(config, cid)[:10] if cid else views.compat_results(config)
     return page(request, "compat.html", "Compatibility check", problems=problems, configs=configs, cid=cid,
-                pins=pins, refs=refs, tiers=tiers, job=job, job_html=job_html(request, job),
-                recent=views.safe_jobs(config, limit=25, kind="compat"),
-                results=views.compat_results(config, cid)[:10] if cid else views.compat_results(config))
+                pins=pins, refs=refs, tiers=tiers, tier_blocked=views.tiers_this_host_could_not_run(results) if cid
+                else {}, job=job, job_html=job_html(request, job),
+                recent=views.safe_jobs(config, limit=25, kind="compat"), results=results)
 
 
 def branches_page(request: Request) -> Response:

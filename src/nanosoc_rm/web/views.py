@@ -377,6 +377,22 @@ def compat_results(config: Config, cid: str | None = None) -> list[dict]:
     return sorted(docs, key=lambda d: d["fact"]["finished_at"], reverse=True)
 
 
+def tiers_this_host_could_not_run(results: list[dict]) -> dict[str, str]:
+    """{tier: why} for each tier whose newest stored run (in `results`, newest first) was INFRA: this host could
+    not run it (a tool missing, a seat busy). The Run form says so beside the tier instead of offering it blind."""
+    out: dict[str, str] = {}
+    seen: set[str] = set()
+    for d in results:
+        t = (d.get("fact") or {}).get("tier") or {}
+        name = t.get("tier")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if t.get("verdict") == "INFRA":
+            out[name] = str(t.get("reason") or "no reason was recorded").replace("; the tier was not run", "")
+    return out
+
+
 def run_verdict(doc: dict | None) -> str | None:
     """A compat_result's verdict as Run shows it: T0 plus the tier when one ran."""
     if not doc:

@@ -835,6 +835,10 @@ def whatif_page(request: Request, id: str) -> Response:
     comp = q.get("component") or (ctx.decision.component if ctx.decision.kind == "ssh-pin" else None) \
         or ((job or {}).get("params", {}).get("pins") and _comp_of_override(ctx, job)) or None
     if comp not in tree_comps:
+        asked = q.get("component")
+        if asked:
+            problems = problems + ["%s has no component %s in its stored tree: pick one from the list below"
+                                   % (ctx.cid, asked[:80])]
         comp = None
     fl = shell.component_flags(config)
     flt = (q.get("q") or "").strip().lower()
@@ -871,6 +875,7 @@ def whatif_page(request: Request, id: str) -> Response:
                  change_tone=CHANGE_TONE, comp=comp, comp_rows=comp_rows, flt=q.get("q") or "", targets=tg,
                  target=target, target_label=target_label, refs=refs_by_kind, n_refs=len(refs), paths=paths,
                  chosen=chosen, tiers=tiers, steps=steps, code=(act or {}).get("code"),
+                 tier_blocked=views.tiers_this_host_could_not_run(views.compat_results(config, ctx.cid)[:10]),
                  pin_values=["%s=%s" % (p, target) for p in chosen] if target else [],
                  cli="nanosoc-rm compat %s%s" % (ctx.cid, "".join(" --pin %s=%s" % (p, target) for p in chosen)
                                                  if target else " --pin TREE_PATH=SHA"),

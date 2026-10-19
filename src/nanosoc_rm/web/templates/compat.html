@@ -56,9 +56,10 @@
     <label>Tier
       <select name="tier">
         <option value="">resolve check only</option>
-        {% for t in ('t1', 't2') %}{% if tiers.get(t) %}<option value="{{ t }}">{{ t|upper }}: {{ (tiers[t].command if tiers[t].command is string else tiers[t].command|join(' '))|truncate(70) }} (budget {{ tiers[t].budget_s }} s)</option>{% endif %}{% endfor %}
+        {% for t in ('t1', 't2') %}{% if tiers.get(t) %}<option value="{{ t }}">{{ t|upper|plain }}: {{ (tiers[t].command if tiers[t].command is string else tiers[t].command|join(' '))|truncate(70) }} (budget {{ tiers[t].budget_s }} s){% if t in tier_blocked %}, could not run here last time{% endif %}</option>{% endif %}{% endfor %}
       </select>
     </label>
+    {% for t, why in tier_blocked|dictsort if tiers.get(t) %}<p class="note" data-tier-blocked="{{ t }}">This host could not run the {{ t|upper|plain }} last time: {{ why }}. Pick it again once that is fixed.</p>{% endfor %}
     <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if <span title="T0">resolve check</span> fails (UNVERIFIED for release)</label>
     <button type="submit" class="primary">Run</button>
   </div>

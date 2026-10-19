@@ -235,14 +235,26 @@ def causes(doc: dict | None, record: dict | None = None) -> list[Cause]:
     return out
 
 
+def _why(detail: str, limit: int = 160) -> str:
+    """The first clause of an INFRA detail, short enough for one sentence (the full detail stays on the result)."""
+    d = " ".join(str(detail or "").split()).replace("; the tier was not run", "").rstrip(" .")
+    return d if len(d) <= limit else d[:limit - 1].rsplit(" ", 1)[0] + "…"
+
+
 def _infra(f: dict) -> tuple[bool, str | None]:
+    """(INFRA?, one plain sentence: what this host could not run, why, and that the design is not at fault)."""
+    from nanosoc_rm.web.terms import TIER_WORDS
     tier = _tier_row(f)
     if tier and tier["verdict"] == "INFRA":
-        return True, "This host cannot run %s. Nothing to fix in the design. %s" % (
-            tier["id"].split(".", 1)[1].upper(), tier["detail"])
+        code = tier["id"].split(".", 1)[1].upper()
+        why = _why(tier["detail"])
+        return True, "This host cannot run the %s (%s)%s. Nothing to fix in the design." % (
+            TIER_WORDS.get(code, code), code.lower(), (": " + why) if why else "")
     g = next((g for g in f.get("gates") or [] if g.get("verdict") == "INFRA"), None)
     if g is not None:
-        return True, "This host cannot run %s. Nothing to fix in the design. %s" % (g["id"], g.get("detail") or "")
+        why = _why(g.get("detail") or "")
+        return True, "This host could not run the %s check%s. Nothing to fix in the design." % (
+            g["id"], (": " + why) if why else "")
     return False, None
 
 
