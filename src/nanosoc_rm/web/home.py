@@ -302,29 +302,61 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
     tl_on = (st["tl"] or prefs.get("timeline") or "off") == "on"
 
     # ---- filters -------------------------------------------------------------------------------------
-    def fresh_pass(p: dict) -> bool:
-        f = st["fresh"]
-        if not f:
-            return True
-        if f == "not_measured":                  # no stored scan, or a scanned live tree that reads Not measured
-            return not p["measured"] or any(_cfg_state(c) == "not_measured" for c in p["measured"])
-        if f == "frozen":
-            return any(c["frozen"] or c["tree"]["frozen"] for c in p["measured"])
-        return any(_cfg_state(c) == f for c in p["measured"] if not (c["frozen"] or c["tree"]["frozen"]))
+    pills = _pills(st, data)
+    facets = [_facet(st, data, "lv", "Type", _LEVELS, lambda p: p["level"]),
+              _facet(st, data, "ty", "Builds a", _TARGETS, lambda p: p["type"]),
+              _facet(st, data, "ro", "Role", _ROLES, lambda p: p["role"])]
+    n_active = len(st["lv"]) + len(st["ty"]) + len(st["ro"]) + (1 if st["gap"] else 0)
 
-    def passes(p: dict, skip: str | None = None) -> bool:
-        if skip != "lv" and st["lv"] and p["level"] not in st["lv"]:
-            return False
-        if skip != "ty" and st["ty"] and p["type"] not in st["ty"]:
-            return False
-        if skip != "ro" and st["ro"] and p["role"] not in st["ro"]:
-            return False
-        if skip != "gap" and st["gap"] and not p["gap"]:
-            return False
-        if skip != "fresh" and not fresh_pass(p):
-            return False
+    # ---- the tree ------------------------------------------------------------------------------------
+    open_ = _open_default(st, data)
+    tl = _Timeline(data, today) if tl_on else None
+    rows = _TreeRows(st, data, open_, tl).build()
+    detail = _detail(st["sel"], data, today, local)
+    return {"pills": pills, "facets": facets, "n_active": n_active, "show_filters": st["filters"] or n_active > 0,
+            "filters_href": _url(st, filters=not (st["filters"] or n_active > 0), open=open_),
+            "clear_href": _url(st, fresh=None, lv=set(), ty=set(), ro=set(), gap=False, open=open_),
+            "gap": {"on": st["gap"], "n": sum(1 for p in data.projects if p["gap"] and _passes(st, p, "gap")),
+                    "href": _url(st, gap=not st["gap"], filters=True, open=open_),
+                    "unverified": data.gap_unverified},
+            "timeline": _timeline_ctx(st, tl, tl_on, prefs, local, open_),
+            "rows": rows, "detail": detail, "state": st, "today": today.isoformat(),
+            "scanned": bool(data.trees), "n_projects": len(data.projects),
+            "needs": needs.items(config, data.chars)}
+
+
+def _timeline_ctx(st: dict, tl: "_Timeline | None", tl_on: bool, prefs: dict, local: bool, open_: set[str]) -> dict:
+    return {"on": tl_on, "saved": prefs.get("timeline"), "local": local,
+            "href": _url(st, tl="off" if tl_on else "on", open=open_), "axis": tl.axis() if tl else [],
+            "today": tl.x(0) if tl else None, "marks": tl.marks() if tl else [],
+            "span": tl.span_text() if tl else "",
+            "return_to": _url(st, open=open_, tl=None)}
+
+
+def _fresh_pass(st: dict, p: dict) -> bool:
+    """The freshness pill's filter on one project."""
+    f = st["fresh"]
+    if not f:
         return True
+    if f == "not_measured":                  # no stored scan, or a scanned live tree that reads Not measured
+        return not p["measured"] or any(_cfg_state(c) == "not_measured" for c in p["measured"])
+    if f == "frozen":
+        return any(c["frozen"] or c["tree"]["frozen"] for c in p["measured"])
+    return any(_cfg_state(c) == f for c in p["measured"] if not (c["frozen"] or c["tree"]["frozen"]))
 
+
+def _passes(st: dict, p: dict, skip: str | None = None) -> bool:
+    """Whether a project passes every filter but `skip` (a facet counts its options without itself)."""
+    for dim, field in (("lv", "level"), ("ty", "type"), ("ro", "role")):
+        if skip != dim and st[dim] and p[field] not in st[dim]:
+            return False
+    if skip != "gap" and st["gap"] and not p["gap"]:
+        return False
+    return skip == "fresh" or _fresh_pass(st, p)
+
+
+def _pills(st: dict, data: _Data) -> list[dict]:
+    """The freshness pills, each with its count of trees (and of projects with no scan, for Not measured)."""
     counts = {k: 0 for k in WORD}
     for p in data.projects:
         for c in p["measured"]:
@@ -338,147 +370,147 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
         on = st["fresh"] == k
         pills.append({"key": k, "css": STATE_KEY[k], "word": WORD[k], "n": counts[k], "on": on, "rule": RULE[k],
                       "href": _url(st, fresh=None if on else k, sel=st["sel"], open=_open_default(st, data))})
+    return pills
 
-    def facet(dim: str, label: str, options: Iterable[tuple[str, str]], key_of) -> dict:
-        opts = []
-        for k, text in options:
-            on = k in st[dim]
-            n = sum(1 for p in data.projects if passes(p, dim) and key_of(p) == k)
-            nxt = set(st[dim]) - {k} if on else set(st[dim]) | {k}
-            opts.append({"label": text, "n": n, "on": on,
-                         "href": _url(st, **{dim: nxt}, filters=True, open=_open_default(st, data))})
-        return {"label": label, "opts": opts}
-    facets = [facet("lv", "Type", _LEVELS, lambda p: p["level"]),
-              facet("ty", "Builds a", _TARGETS, lambda p: p["type"]),
-              facet("ro", "Role", _ROLES, lambda p: p["role"])]
-    n_active = len(st["lv"]) + len(st["ty"]) + len(st["ro"]) + (1 if st["gap"] else 0)
 
-    # ---- the tree ------------------------------------------------------------------------------------
-    open_ = _open_default(st, data)
-    sel = st["sel"]
-    shown = [p for p in data.projects if passes(p)]
-    order = {p["id"]: i for i, p in enumerate(data.projects)}
-    measured = sorted((p for p in shown if p["measured"]), key=lambda p: (
-        _ORDER.get(_proj_roll(p)["state"], 9), -(_proj_roll(p)["behind"] or 0), order[p["id"]]))
-    unmeasured = [p for p in shown if not p["measured"]]
-    tl = _Timeline(data, today) if tl_on else None
-    rows: list[dict] = []
+def _facet(st: dict, data: _Data, dim: str, label: str, options: Iterable[tuple[str, str]], key_of) -> dict:
+    opts = []
+    for k, text in options:
+        on = k in st[dim]
+        n = sum(1 for p in data.projects if _passes(st, p, dim) and key_of(p) == k)
+        nxt = set(st[dim]) - {k} if on else set(st[dim]) | {k}
+        opts.append({"label": text, "n": n, "on": on,
+                     "href": _url(st, **{dim: nxt}, filters=True, open=_open_default(st, data))})
+    return {"label": label, "opts": opts}
 
-    def link(key: str, branch: bool) -> str:
-        o = set(open_)
-        if branch and (key not in o or key == sel):
+
+class _TreeRows:
+    """The tree's rows: measured projects worst first, then the unmeasured groups; open rows show their
+    configurations and, below those, their pins."""
+
+    def __init__(self, st: dict, data: _Data, open_: set[str], tl: "_Timeline | None") -> None:
+        self.st, self.data, self.open_, self.tl, self.sel = st, data, open_, tl, st["sel"]
+        self.rows: list[dict] = []
+
+    def build(self) -> list[dict]:
+        data = self.data
+        shown = [p for p in data.projects if _passes(self.st, p)]
+        order = {p["id"]: i for i, p in enumerate(data.projects)}
+        measured = sorted((p for p in shown if p["measured"]), key=lambda p: (
+            _ORDER.get(_proj_roll(p)["state"], 9), -(_proj_roll(p)["behind"] or 0), order[p["id"]]))
+        unmeasured = [p for p in shown if not p["measured"]]
+        for p in measured:
+            self.proj_row(p, 0)
+        # Not measured, by why: a registered configuration with no stored scan yet, or no configuration registered
+        # at all
+        for gkey, members, label, ago in (
+                ("grp:unk", [p for p in unmeasured if p["configs"]], "Registered, not scanned yet", "not scanned"),
+                ("grp:none", [p for p in unmeasured if not p["configs"]], "No configuration registered",
+                 "no configuration")):
+            if not members:
+                continue
+            g = self.add(gkey, 0, True, "not_measured", "%s (%d)" % (label, len(members)), "group", ago,
+                         "%s: %d %s" % (label, len(members), "project" if len(members) == 1 else "projects"))
+            if g["open"]:
+                for p in members:
+                    self.proj_row(p, 1)
+        return self.rows
+
+    def link(self, key: str, branch: bool) -> str:
+        o = set(self.open_)
+        if branch and (key not in o or key == self.sel):
             o ^= {key}
-        return _url(st, open=o, sel=key) + "#" + _row_id(key)
+        return _url(self.st, open=o, sel=key) + "#" + _row_id(key)
 
-    def add(key: str, level: int, branch: bool, state: str, name: str, kind: str, ago: str, aria: str,
+    def add(self, key: str, level: int, branch: bool, state: str, name: str, kind: str, ago: str, aria: str,
             chip: str | None = None, bar: dict | None = None, fact: dict | None = None,
             word: str | None = None, glyph: str | None = None, alias: str = "", again: str | None = None) -> dict:
         # glyph: the row's kind shape (lines.KINDS, an icon; aria-hidden, the words beside it carry the meaning); alias:
         # a muted suffix (a line's configuration id, a pin's component when it differs from its path)
         r = {"key": key, "id": _row_id(key), "level": level, "indent": level * 20, "branch": branch,
-             "open": branch and key in open_, "sel": key == sel, "state": state, "css": STATE_KEY[state],
+             "open": branch and key in self.open_, "sel": key == self.sel, "state": state, "css": STATE_KEY[state],
              "word": word or WORD[state], "name": name, "kind": kind, "ago": ago, "aria": aria, "chip": chip,
-             "href": link(key, branch), "bar": bar, "fact": fact, "glyph": glyph, "alias": alias, "again": again}
-        rows.append(r)
+             "href": self.link(key, branch), "bar": bar, "fact": fact, "glyph": glyph, "alias": alias, "again": again}
+        self.rows.append(r)
         return r
 
-    def pin_rows(cid: str, frozen: bool, node: dict, nodes: dict, level: int, again: dict) -> None:
+    def pin_rows(self, cid: str, frozen: bool, node: dict, nodes: dict, level: int, again: dict) -> None:
+        tl = self.tl
         key = "n:%s:%s" % (cid, node["tree_path"])
-        kids = _sorted_children(node, nodes, data)
+        kids = _sorted_children(node, nodes, self.data)
         state = "frozen" if frozen else (node["rollup"] or node["live"])
         days = node["days_since_bump"]
         # a pin is named by its path and commit (two gitlinks of one repo are two rows that read differently);
         # its component only when that differs from the path's last segment
         pn = lines.pin(node["tree_path"], node["parent_path"], node["pinned"], node["component"])
         n_again = again.get(node["component"] or "")
-        r = add(key, level, bool(kids), state, pn["text"], "pin", _ago(days),
-                "Submodule pin %s%s, %s%s%s, %s" % (
-                    pn["text"].replace(" @ ", " at "), (" (%s)" % pn["alias"]) if pn["alias"] else "", WORD[state],
-                    ", frozen silicon, not counted" if frozen else "",
-                    (", %s pinned at %d commits in this tree" % (node["component"], n_again)) if n_again else "",
-                    "bumped %d days ago" % days if days is not None else "bump date unknown"),
-                bar=tl.bar(days, tl.frozen_end(cid) if frozen else 0, frozen) if tl else None, fact=node,
-                glyph=pn["glyph"], alias=pn["alias"], again=lines.again_text(n_again) if n_again else None)
+        r = self.add(key, level, bool(kids), state, pn["text"], "pin", _ago(days),
+                     _pin_aria(pn, state, frozen, node, n_again, days),
+                     bar=tl.bar(days, tl.frozen_end(cid) if frozen else 0, frozen) if tl else None, fact=node,
+                     glyph=pn["glyph"], alias=pn["alias"], again=lines.again_text(n_again) if n_again else None)
         if r["open"]:
             for k in kids:
-                pin_rows(cid, frozen, nodes[k], nodes, level + 1, again)
+                self.pin_rows(cid, frozen, nodes[k], nodes, level + 1, again)
 
-    def cfg_rows(c: dict, level: int) -> None:
+    def cfg_rows(self, c: dict, level: int) -> None:
+        tl = self.tl
         key = "c:" + c["id"]
         t = c["tree"]
         frozen = c["frozen"] or t["frozen"]
         state = _cfg_state(c)
         days = t["root"]["days"] if frozen else t["updated_days"]
-        tr = data.tree(c["id"])
+        tr = self.data.tree(c["id"])
         nodes = {n["tree_path"]: n for n in (tr["nodes"] if tr else [])}
-        tops = _sorted_children(None, nodes, data)
+        tops = _sorted_children(None, nodes, self.data)
         word = _cfg_word(c)
         # a configuration is a line of its repository: "branch main @ 8e6d043", its id beside it
         ln = lines.line(c["record"], t["root"].get("commit"))
-        r = add(key, level, True, state, ln["text"], "cfg", ("frozen %s" % _ago(days)) if frozen else _ago(days),
-                "Line %s of %s, configuration %s, %s%s, %s" % (
-                    ln["text"].replace(" @ ", " at "), c["record"].get("component") or "?", c["id"], word,
-                    ", frozen silicon, not counted" if frozen else "", _ago(days)),
-                chip="not counted" if frozen else None,
-                bar=(tl.bar(days, days, True) if frozen else tl.bar(days, 0, False)) if tl else None, fact=t,
-                word=word, glyph=ln["glyph"], alias=c["id"])
+        r = self.add(key, level, True, state, ln["text"], "cfg",
+                     ("frozen %s" % _ago(days)) if frozen else _ago(days),
+                     "Line %s of %s, configuration %s, %s%s, %s" % (
+                         ln["text"].replace(" @ ", " at "), c["record"].get("component") or "?", c["id"], word,
+                         ", frozen silicon, not counted" if frozen else "", _ago(days)),
+                     chip="not counted" if frozen else None,
+                     bar=(tl.bar(days, days, True) if frozen else tl.bar(days, 0, False)) if tl else None, fact=t,
+                     word=word, glyph=ln["glyph"], alias=c["id"])
         if r["open"]:
             again = lines.pinned_again(nodes.values())
             for k in tops:
-                pin_rows(c["id"], frozen, nodes[k], nodes, level + 1, again)
+                self.pin_rows(c["id"], frozen, nodes[k], nodes, level + 1, again)
 
-    def proj_row(p: dict, level: int) -> None:
+    def proj_row(self, p: dict, level: int) -> None:
         key = "p:" + p["id"]
         roll = _proj_roll(p)
         guessed = "type" in p["guessed"] and p["level"] == "project"
         chip = (_TYPE_WORD.get(p["type"] or "", "Project") if p["level"] == "project" else
                 _TYPE_WORD.get(p["level"], "")) + (" ?" if guessed else "")
-        frz = next((c for c in p["measured"] if c["frozen"] or c["tree"]["frozen"]), None)
-        if roll["upd"] is not None:
-            ago, bar = _ago(roll["upd"]), (tl.bar(roll["upd"], 0, False) if tl else None)
-        elif frz is not None:
-            d = frz["tree"]["root"]["days"]
-            ago, bar = "frozen " + _ago(d), (tl.bar(d, d, True) if tl else None)
-        else:
-            ago, bar = ("not scanned" if p["configs"] else "no configuration"), None
+        ago, bar = self._proj_age(p, roll)
         word = _roll_word(roll)
-        r = add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
-                "Repository %s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word,
-                glyph="repo")
+        r = self.add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
+                     "Repository %s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word,
+                     glyph="repo")
         if r["open"]:
             for c in p["measured"]:
-                cfg_rows(c, level + 1)
+                self.cfg_rows(c, level + 1)
 
-    for p in measured:
-        proj_row(p, 0)
-    # Not measured, by why: a registered configuration with no stored scan yet, or no configuration registered at all
-    for gkey, members, label, ago in (
-            ("grp:unk", [p for p in unmeasured if p["configs"]], "Registered, not scanned yet", "not scanned"),
-            ("grp:none", [p for p in unmeasured if not p["configs"]], "No configuration registered",
-             "no configuration")):
-        if not members:
-            continue
-        g = add(gkey, 0, True, "not_measured", "%s (%d)" % (label, len(members)), "group", ago,
-                "%s: %d %s" % (label, len(members), "project" if len(members) == 1 else "projects"))
-        if g["open"]:
-            for p in members:
-                proj_row(p, 1)
+    def _proj_age(self, p: dict, roll: dict) -> tuple[str, dict | None]:
+        """A project row's age words and timeline bar: its newest live update, else its frozen tag's age."""
+        tl = self.tl
+        frz = next((c for c in p["measured"] if c["frozen"] or c["tree"]["frozen"]), None)
+        if roll["upd"] is not None:
+            return _ago(roll["upd"]), (tl.bar(roll["upd"], 0, False) if tl else None)
+        if frz is not None:
+            d = frz["tree"]["root"]["days"]
+            return "frozen " + _ago(d), (tl.bar(d, d, True) if tl else None)
+        return ("not scanned" if p["configs"] else "no configuration"), None
 
-    detail = _detail(sel, data, today, local)
-    return {"pills": pills, "facets": facets, "n_active": n_active, "show_filters": st["filters"] or n_active > 0,
-            "filters_href": _url(st, filters=not (st["filters"] or n_active > 0), open=open_),
-            "clear_href": _url(st, fresh=None, lv=set(), ty=set(), ro=set(), gap=False, open=open_),
-            "gap": {"on": st["gap"], "n": sum(1 for p in data.projects if p["gap"] and passes(p, "gap")),
-                    "href": _url(st, gap=not st["gap"], filters=True, open=open_),
-                    "unverified": data.gap_unverified},
-            "timeline": {"on": tl_on, "saved": prefs.get("timeline"), "local": local,
-                         "href": _url(st, tl="off" if tl_on else "on", open=open_), "axis": tl.axis() if tl else [],
-                         "today": tl.x(0) if tl else None, "marks": tl.marks() if tl else [],
-                         "span": tl.span_text() if tl else "",
-                         "return_to": _url(st, open=open_, tl=None)},
-            "rows": rows, "detail": detail, "state": st, "today": today.isoformat(),
-            "scanned": bool(data.trees), "n_projects": len(data.projects),
-            "needs": needs.items(config, data.chars)}
+
+def _pin_aria(pn: dict, state: str, frozen: bool, node: dict, n_again: int | None, days: int | None) -> str:
+    return "Submodule pin %s%s, %s%s%s, %s" % (
+        pn["text"].replace(" @ ", " at "), (" (%s)" % pn["alias"]) if pn["alias"] else "", WORD[state],
+        ", frozen silicon, not counted" if frozen else "",
+        (", %s pinned at %d commits in this tree" % (node["component"], n_again)) if n_again else "",
+        "bumped %d days ago" % days if days is not None else "bump date unknown")
 
 
 def _open_default(st: dict, data: _Data) -> set[str]:
@@ -587,7 +619,6 @@ def _detail(sel: str | None, data: _Data, today: dt.date, local: bool) -> dict |
 
 
 def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> dict | None:
-    from nanosoc_rm.catalogue.model import GROUP_LABELS
     _, rest = sel.split(":", 1)
     cid, _, path = rest.partition(":")
     tr = data.tree(cid)
@@ -599,30 +630,45 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
     pin = data._fview.pin(cid, path, today=today, config=data._config) or dict(n, same_pin_lags_in=[])
     frozen = n["frozen"]
     state = "frozen" if frozen else n["live"]
-    if frozen:
-        sub = "would be %s if live; not counted" % WORD[n["live"]].lower()
-    elif n["rollup"] and n["rollup"] != n["live"]:
-        sub = "its own pin; worst beneath it: %s" % WORD[n["rollup"]].lower()
-    else:
-        sub = ""
+    again = lines.pinned_again(tr["nodes"]).get(n["component"] or "")
+    up = n["upstream"] or {}
+    comp = n["component"]
+    links = _pin_links(cid, comp)
+    caps, forms = _capabilities_section(data, cid, n["tree_path"], None if frozen else up.get("default_branch"),
+                                        local)
+    links += caps["links"]
+    pn = lines.pin(n["tree_path"], None, n["pinned"], comp)
+    rec = next((c["record"] for p in data.projects for c in p["configs"] if c["id"] == cid), None)
+    ln = lines.line(rec, ((data.trees.get(cid) or {}).get("root") or {}).get("commit"))
+    return {"kind": "Submodule pin in %s (%s)" % (cid, ln["ref_text"]), "kind_glyph": "pin",
+            "title": pn["text"], "title_cls": "t-mono", "state": state,
+            "css": STATE_KEY[state], "word": WORD[state], "sub": _pin_sub(n), "chips": _pin_chips(data, n, again),
+            "blurb": None, "facts": _pin_facts(data, cid, path, tr, n, pin, again, today),
+            "note": _pin_note(data, cid, n, today), "links": links, "obs": n, "forms": forms, "caps": caps}
+
+
+def _pin_sub(n: dict) -> str:
+    """The pin's subtitle: what a frozen pin would be, or the worst state beneath a live one."""
+    if n["frozen"]:
+        return "would be %s if live; not counted" % WORD[n["live"]].lower()
+    if n["rollup"] and n["rollup"] != n["live"]:
+        return "its own pin; worst beneath it: %s" % WORD[n["rollup"]].lower()
+    return ""
+
+
+def _pin_chips(data: _Data, n: dict, again: int | None) -> list[str]:
+    from nanosoc_rm.catalogue.model import GROUP_LABELS
     group = data.group_of(n["component"])
     chips = [GROUP_LABELS.get(group, "External") if n["catalogued_as"] != "external" or group else "External"]
-    again = lines.pinned_again(tr["nodes"]).get(n["component"] or "")
     if again:
         chips.append(lines.again_text(again))
-    up = n["upstream"] or {}
-    branch = lines.qualified(n["component"], up.get("default_branch"))      # "tidelink:main", never a bare "main"
-    facts = []
-    if n["behind"] is None:
-        facts.append(_fact("Commits behind", "not measured: %s" % (n["not_measured"] or "no count")))
-    else:
-        facts.append(_fact("Commits behind", "%s behind %s%s" % (_behind(n["behind"], n["lower_bound"]), branch,
-                                                                " (a lower bound)" if n["lower_bound"] else "")))
-    b = n["bump"] or {}
-    if b:
-        facts.append(_fact("Last bump", "%s by %s · %s · %s" % (_fmt_date(b.get("date"), today), b.get("author")
-                                                               or "[author]", _ago(n["days_since_bump"]),
-                                                               _age_word(n["days_since_bump"]))))
+    return chips
+
+
+def _pin_facts(data: _Data, cid: str, path: str, tr: dict, n: dict, pin: dict, again: int | None,
+               today: dt.date) -> list[dict]:
+    """The pin's facts: behind, last bump, commit, path, tracked branch, twins, branches, the same pin elsewhere."""
+    facts = _pin_lag_facts(n, today)
     facts.append(_fact("Pinned commit", (n["pinned"] or "")[:7], mono=True))
     facts.append(_fact("Path", n["tree_path"], mono=True))
     tracks = _tracks(data, cid, path)
@@ -636,36 +682,48 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
     if n["branches"]:
         facts.append(_fact("On branches", ", ".join(n["branches"]) + (" and %d more" % n["branches_more"]
                                                                       if n["branches_more"] else "")))
-    if not frozen and (n["behind"] or 0) > 0:
+    if not n["frozen"] and (n["behind"] or 0) > 0:
         also = pin.get("same_pin_lags_in") or []
         facts.append(_fact("Same pin also lags in", ", ".join(also) if also else "no other live tree",
                            strong=bool(also)))
-    note = None
-    if frozen:
+    return facts
+
+
+def _pin_lag_facts(n: dict, today: dt.date) -> list[dict]:
+    """Commits behind the upstream default branch, and the last bump."""
+    branch = lines.qualified(n["component"], (n["upstream"] or {}).get("default_branch"))  # "tidelink:main"
+    facts = []
+    if n["behind"] is None:
+        facts.append(_fact("Commits behind", "not measured: %s" % (n["not_measured"] or "no count")))
+    else:
+        facts.append(_fact("Commits behind", "%s behind %s%s" % (_behind(n["behind"], n["lower_bound"]), branch,
+                                                                " (a lower bound)" if n["lower_bound"] else "")))
+    b = n["bump"] or {}
+    if b:
+        facts.append(_fact("Last bump", "%s by %s · %s · %s" % (_fmt_date(b.get("date"), today), b.get("author")
+                                                               or "[author]", _ago(n["days_since_bump"]),
+                                                               _age_word(n["days_since_bump"]))))
+    return facts
+
+
+def _pin_note(data: _Data, cid: str, n: dict, today: dt.date) -> str | None:
+    if n["frozen"]:
         t = data.trees.get(cid) or {}
-        note = ("%s is a silicon tag, frozen %s. This pin is old on purpose; changing it means cutting a new "
+        return ("%s is a silicon tag, frozen %s. This pin is old on purpose; changing it means cutting a new "
                 "release candidate." % (cid, _fmt_date((t.get("root") or {}).get("date"), today)))
-    elif n["unpushed"]:
-        note = "No branch or tag on any host holds the pinned commit: push it before anyone else clones this tree."
-    elif n["caveat"]:
-        note = n["caveat"]
-    comp = n["component"]
+    if n["unpushed"]:
+        return "No branch or tag on any host holds the pinned commit: push it before anyone else clones this tree."
+    return n["caveat"] or None
+
+
+def _pin_links(cid: str, comp: str | None) -> list[tuple[str, str]]:
     links = []
     if comp:
         links += [("See %s across all trees in the matrix" % comp, "/matrix/?comp=%s#m-%s" % (
             urllib.parse.quote(comp, safe=""), urllib.parse.quote(comp, safe=""))),
                   ("Component %s" % comp, "/components/%s" % urllib.parse.quote(comp, safe=""))]
     links.append(("Submodule tree of %s" % cid, "/configurations/%s/tree" % urllib.parse.quote(cid, safe="")))
-    caps, forms = _capabilities_section(data, cid, n["tree_path"], None if frozen else up.get("default_branch"),
-                                        local)
-    links += caps["links"]
-    pn = lines.pin(n["tree_path"], None, n["pinned"], comp)
-    rec = next((c["record"] for p in data.projects for c in p["configs"] if c["id"] == cid), None)
-    ln = lines.line(rec, ((data.trees.get(cid) or {}).get("root") or {}).get("commit"))
-    return {"kind": "Submodule pin in %s (%s)" % (cid, ln["ref_text"]), "kind_glyph": "pin",
-            "title": pn["text"], "title_cls": "t-mono", "state": state,
-            "css": STATE_KEY[state], "word": WORD[state], "sub": sub, "chips": chips, "blurb": None,
-            "facts": facts, "note": note, "links": links, "obs": n, "forms": forms, "caps": caps}
+    return links
 
 
 def _capabilities_section(data: _Data, cid: str, tree_path: str | None, to: str | None, local: bool
