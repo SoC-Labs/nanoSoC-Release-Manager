@@ -65,7 +65,7 @@ RULE = {
 # Sort order of the tree rows (worst first) and of projects.
 _ORDER = {"unpushed": 0, "outdated": 1, "behind": 2, "current_except": 3, "not_measured": 4, "current": 5,
           "frozen": 6}
-# Sibling order under a configuration or a pin (David: SoC, custom peripherals, subsystems/components, arch tech,
+# Sibling order under a configuration or a pin (SoC, custom peripherals, subsystems/components, arch tech,
 # generator, libraries, toolkits/flows). A direct component (or subsystem, or anything uncatalogued) of a
 # project is one of its custom peripherals.
 KRANK = {"soc": 0, "custom": 1, "subsystem": 2, "component": 2, "arch": 3, "generator": 4, "lib": 5, "infra": 5,

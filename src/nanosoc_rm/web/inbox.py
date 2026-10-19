@@ -36,6 +36,7 @@ import re
 import urllib.parse
 from typing import Any, Callable
 
+from markupsafe import Markup
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
@@ -677,7 +678,8 @@ def _errata(ctx: _Ctx) -> list[Card]:
         out.append(Card(
             id="errata_exposure:%s" % defect, kind="errata_exposure", chip=(worst, shell.tone(worst)),
             title="Defect %s is %s in %s." % (defect, worst, ", ".join(cids)),
-            why="%s. It is %s." % (titles.get(defect) or defect, ", ".join(
+            # the defect title is a person's words: kept as written, never read as codes by `plain`
+            why=Markup("%s. It is %s.") % (titles.get(defect) or defect, ", ".join(
                 "%s %s" % (e["fact"]["id"], e["fact"]["record"].get("status")) for e in es)),
             weight=weight, fact_at=min((e["observed_at"] for e in es), key=clock.parse), frozen=frozen, facts=es,
             meta="registry errata",

@@ -181,7 +181,7 @@ def register(main: click.Group) -> None:
     grp = main.commands.get("matrix")
     if grp is None:
         grp = _MatrixGroup(name="matrix", help="Compatibility matrix (D3): `matrix CONFIG` shows it; "
-                                                "`matrix cell|quarantine|nightly` (Phase 2, built per CR-15).")
+                                                "`matrix cell|quarantine|nightly` (Phase 2).")
         main.add_command(grp)
 
     @grp.command("show")

@@ -1,15 +1,15 @@
-"""`nanosoc-rm serve` and `nanosoc-rm user add` (interfaces.md sections 0.5, 13a, 14; CR-16, CR-17).
+"""`nanosoc-rm serve` and `nanosoc-rm user add` (interfaces.md sections 0.5, 13a, 14).
 
 `serve` is the one long-running process. It serves the web app (sections 13, 14), runs the schedules by calling
-`nanosoc_rm.schedule.tick(now)` every 30 s (section 12a), and runs the local job worker (CR-17, `nanosoc_rm.jobs`):
+`nanosoc_rm.schedule.tick(now)` every 30 s (section 12a), and runs the local job worker (`nanosoc_rm.jobs`):
 Run, Sync and Walk on the pages queue jobs it runs one at a time. The config is `$NANOSOC_RM_CONFIG`, read per
-request and per tick. Bind to localhost: behind the lab's reverse proxy (GitHub sign-in) or, in local auth mode
-(CR-16), reached through an SSH tunnel. In local mode `serve` refuses a non-loopback address unless
-`--i-know-this-is-exposed` is given, and (CR-20) unless it serves TLS itself (`--tls-cert` and `--tls-key`, both
+request and per tick. Bind to localhost: behind the lab's reverse proxy (GitHub sign-in) or, in local auth mode,
+reached through an SSH tunnel. In local mode `serve` refuses a non-loopback address unless
+`--i-know-this-is-exposed` is given, and unless it serves TLS itself (`--tls-cert` and `--tls-key`, both
 readable) or `--allow-plain-http` is given. The app sets its session cookie `Secure` when it serves TLS or the
 request arrives over https.
 
-`user add LOGIN` (CR-16) prompts for a password (or generates one with `--generate`) and prints the
+`user add LOGIN` prompts for a password (or generates one with `--generate`) and prints the
 `[[auth.users]]` stanza for the private config. It writes no file.
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ def is_loopback(host: str) -> bool:
 
 
 def bind_refusal(auth_mode: str, host: str, exposed: bool, tls: bool, allow_plain_http: bool) -> str | None:
-    """Why `serve` must not bind `host`, or None (CR-16, CR-20). Only local auth mode is judged: a GitHub
+    """Why `serve` must not bind `host`, or None. Only local auth mode is judged: a GitHub
     deployment sits behind the reverse proxy, which owns sign-in and TLS."""
     if auth_mode != "local" or is_loopback(host):
         return None
@@ -83,7 +83,7 @@ def register(main: click.Group) -> None:
     @click.option("--i-know-this-is-exposed", "exposed", is_flag=True,
                   help="Local auth mode only: allow a non-loopback --host. Without it, serve refuses to bind one.")
     @click.option("--tls-cert", type=str, default=None, metavar="PATH",
-                  help="Serve HTTPS with this PEM certificate (CR-20). Needs --tls-key.")
+                  help="Serve HTTPS with this PEM certificate. Needs --tls-key.")
     @click.option("--tls-key", type=str, default=None, metavar="PATH",
                   help="The private key for --tls-cert (PEM).")
     @click.option("--allow-plain-http", is_flag=True,
@@ -91,7 +91,7 @@ def register(main: click.Group) -> None:
     def serve_cmd(host: str, port: int, no_schedule: bool, no_worker: bool, exposed: bool, tls_cert: str | None,
                   tls_key: str | None, allow_plain_http: bool) -> int:
         """Serve the web pages and JSON API, run the schedules (poll, nightly T0, result fetch) and the local job
-        worker (CR-17). Exit 3 for a config error, unusable TLS files or a refused --host."""
+        worker. Exit 3 for a config error, unusable TLS files or a refused --host."""
         import uvicorn
 
         from nanosoc_rm.config import load_config
@@ -104,7 +104,7 @@ def register(main: click.Group) -> None:
         if why:
             click.echo("nanosoc-rm serve: " + why, err=True)
             return EXIT_USAGE
-        # CR-ART-publish: this process only queues publish jobs; a store write here is refused (the job is a child).
+        # This process only queues publish jobs; a store write here is refused (the job is a child).
         from nanosoc_rm.publish.client import refuse_writes_here
         refuse_writes_here("the web process")
         stop = threading.Event()
@@ -131,7 +131,7 @@ def register(main: click.Group) -> None:
                 worker.stop()
         return EXIT_OK
 
-    user = subgroup(main, "user", help="Local sign-in users (CR-16): print config stanzas; never writes a file.")
+    user = subgroup(main, "user", help="Local sign-in users: print config stanzas; never writes a file.")
 
     @user.command("add")
     @click.argument("login")

@@ -95,7 +95,7 @@ def _print_scan(s: dict, props: list[dict]) -> None:
 
 def register(main: click.Group) -> None:
     @main.group("bumps", cls=_BumpsGroup, invoke_without_command=False,
-                help="Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15). `bumps [CONFIG]` scans now. "
+                help="Bump proposals in SHADOW MODE (Phase 4, E1-E7). `bumps [CONFIG]` scans now. "
                      "Never pushes, never writes a branch, never opens a pull request: patches and commands for a "
                      "person.")
     def grp() -> None:

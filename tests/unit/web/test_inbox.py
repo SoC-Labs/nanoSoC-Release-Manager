@@ -310,6 +310,27 @@ def test_10_errata_exposure_by_defect(site):
     assert "ETH-R0P0-ERR-001 permanent" in c.why
 
 
+def test_10_a_defect_title_reads_as_written_never_as_requirement_words(site):
+    """A person's defect title keeps its own ids: "E2" or "DEF-E3" in it is never turned into requirement words
+    (the registry numbers a defect's items E1 to E5)."""
+    from nanosoc_rm.web import terms
+    from webfix import _git
+    p = site["registry"] / "defects" / "SL-DEF-0001.yaml"
+    doc = json.loads(p.read_text())
+    doc["title"] = "erratum E2 applies; see DEF-E3"
+    p.write_text(json.dumps(doc, indent=1) + "\n")
+    _git("commit", "-qam", "retitle", cwd=site["registry"])
+    site["client"].get("/")                                   # reads the new registry commit into the store
+    c = of(inbox.cards(site["config"]), "errata_exposure")[0]
+    assert c.why.startswith("erratum E2 applies; see DEF-E3."), c.why
+    page = site["client"].get("/inbox").text
+    assert "erratum E2 applies; see DEF-E3." in page and "shadow mode" not in page and "auto-merge rules" not in page
+    # the tool's own text still reads in words; an id that only contains a code is left alone
+    assert 'title="E3"' in str(terms.plain("E3 needs every control to fire"))
+    for own in ("DEF-E2", "E2-a", "E2.1", "x_E2", "SL-DEF-0001"):
+        assert str(terms.plain(own)) == own, own
+
+
 def test_11_matrix_flaky_and_quarantine(site):
     assert not of(inbox.cards(site["config"]), "matrix_flaky")
     put_examples(site["cfg"], "observation.matrix.example.jsonl")

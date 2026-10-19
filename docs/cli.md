@@ -16,7 +16,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | [`nanosoc-rm alerts`](#nanosoc-rm-alerts) | Open alerts (dashboard banners): rewrite, unknown_url, token_expiry, runner_drift, tag_moved, mirror_failed, waiver_unused. |
 | &nbsp;&nbsp;[`nanosoc-rm alerts clear`](#nanosoc-rm-alerts-clear) | Clear the alert SUBJECT (alert:<kind>:<about>). |
 | [`nanosoc-rm branches`](#nanosoc-rm-branches) | Every branch of a repo (a component id, or host:path) from its local mirror: ahead/behind the default branch, merged, tags on the tip, registered pins and registry citations reaching into it, and a... |
-| [`nanosoc-rm bumps`](#nanosoc-rm-bumps) | Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15). |
+| [`nanosoc-rm bumps`](#nanosoc-rm-bumps) | Bump proposals in SHADOW MODE (Phase 4, E1-E7). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps ledger`](#nanosoc-rm-bumps-ledger) | What the bot would have done against what people did, read from the mirrors. (E2) |
 | &nbsp;&nbsp;[`nanosoc-rm bumps mark`](#nanosoc-rm-bumps-mark) | Record a person's word: they applied the proposal (done) or will not (declined). |
 | &nbsp;&nbsp;[`nanosoc-rm bumps patch`](#nanosoc-rm-bumps-patch) | The patch for one kept proposal (gitlink move only; generated RTL is not regenerated). |
@@ -55,7 +55,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | [`nanosoc-rm inventory`](#nanosoc-rm-inventory) | Every repo in the GitHub org and the GitLab group (with subgroups), classified by the catalogue. |
 | [`nanosoc-rm manifest`](#nanosoc-rm-manifest) | The component manifest nanosoc-component.yaml (C11). |
 | &nbsp;&nbsp;[`nanosoc-rm manifest init`](#nanosoc-rm-manifest-init) | Propose nanosoc-component.yaml from the catalogue and the tree, as a patch for a person. (C11) |
-| [`nanosoc-rm matrix`](#nanosoc-rm-matrix) | Compatibility matrix (D3): `matrix CONFIG` shows it; `matrix cell\|quarantine\|nightly` (Phase 2, built per CR-15). |
+| [`nanosoc-rm matrix`](#nanosoc-rm-matrix) | Compatibility matrix (D3): `matrix CONFIG` shows it; `matrix cell\|quarantine\|nightly` (Phase 2). |
 | &nbsp;&nbsp;[`nanosoc-rm matrix cell`](#nanosoc-rm-matrix-cell) | Run one cell now, in the foreground: compat T0 (and a tier) with the component moved, D8 re-run on FAIL. |
 | &nbsp;&nbsp;[`nanosoc-rm matrix nightly`](#nanosoc-rm-matrix-nightly) | What the nightly matrix WOULD queue tonight. |
 | &nbsp;&nbsp;[`nanosoc-rm matrix quarantine`](#nanosoc-rm-matrix-quarantine) | Tests quarantined after two FLAKY results in 14 days (30-day expiry), active and expired. (D8) |
@@ -89,7 +89,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | [`nanosoc-rm runner`](#nanosoc-rm-runner) | The hardened runner's settings against ci.runner_expected (D10). |
 | [`nanosoc-rm scan`](#nanosoc-rm-scan) | Vendor-content scanner (D11): bundles before they are stored. |
 | &nbsp;&nbsp;[`nanosoc-rm scan bundle`](#nanosoc-rm-scan-bundle) | Scan a bundle directory: exit 0 clean, 1 finding, 2 unverified. |
-| [`nanosoc-rm serve`](#nanosoc-rm-serve) | Serve the web pages and JSON API, run the schedules (poll, nightly T0, result fetch) and the local job worker (CR-17). |
+| [`nanosoc-rm serve`](#nanosoc-rm-serve) | Serve the web pages and JSON API, run the schedules (poll, nightly T0, result fetch) and the local job worker. |
 | [`nanosoc-rm silicon-protection`](#nanosoc-rm-silicon-protection) | Commits of frozen or silicon trees that their default branch cannot reach, on the pinned host and the canonical host, and whether a tag there covers each. (B5) |
 | [`nanosoc-rm store`](#nanosoc-rm-store) | The artefact store index: what Artifactory holds (read-only). |
 | &nbsp;&nbsp;[`nanosoc-rm store findings`](#nanosoc-rm-store-findings) | What the inbox shows from the store: mismatches, releases not archived, unregistered tapeouts. |
@@ -109,7 +109,7 @@ config is named by `$NANOSOC_RM_CONFIG`. Words such as tier, configuration and f
 | [`nanosoc-rm test-bump`](#nanosoc-rm-test-bump) | Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or commit of that component), Now against After, with the capabilities the trees declare in .nanosoc/capabilities.yaml. |
 | [`nanosoc-rm tiers`](#nanosoc-rm-tiers) | Test tiers with their budgets and, for CONFIGURATION, their commands (D1). |
 | [`nanosoc-rm trace`](#nanosoc-rm-trace) | Requirement -> tests -> commits (PR7), from test markers and `Requirements:` trailers. |
-| [`nanosoc-rm user`](#nanosoc-rm-user) | Local sign-in users (CR-16): print config stanzas; never writes a file. |
+| [`nanosoc-rm user`](#nanosoc-rm-user) | Local sign-in users: print config stanzas; never writes a file. |
 | &nbsp;&nbsp;[`nanosoc-rm user add`](#nanosoc-rm-user-add) | Print the [[auth.users]] stanza for LOGIN with a scrypt hash of its password. |
 | [`nanosoc-rm version`](#nanosoc-rm-version) | Versions and change classes (C1-C12), tool releases (G1, G5, G6), F6. |
 | &nbsp;&nbsp;[`nanosoc-rm version approve`](#nanosoc-rm-version-approve) | Record a person's approval of one step in the draft's release.json (roles enforced). (G5) |
@@ -138,7 +138,7 @@ Options:
 Commands:
   alerts              Open alerts (dashboard banners): rewrite, unknown_url, token_expiry,...
   branches            Every branch of a repo (a component id, or host:path) from its local...
-  bumps               Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15).
+  bumps               Bump proposals in SHADOW MODE (Phase 4, E1-E7).
   capabilities        What each tree can test (.nanosoc/capabilities.yaml).
   catalogue           Catalogue characterisation: groups and types, new repos, change previews.
   changelog           The classed changelog (C2): lint it.
@@ -172,7 +172,7 @@ Commands:
   test-bump           Test moving the pin at PATH of CONFIGURATION to TO (a tag, branch or...
   tiers               Test tiers with their budgets and, for CONFIGURATION, their commands (D1).
   trace               Requirement -> tests -> commits (PR7), from test markers and...
-  user                Local sign-in users (CR-16): print config stanzas; never writes a file.
+  user                Local sign-in users: print config stanzas; never writes a file.
   version             Versions and change classes (C1-C12), tool releases (G1, G5, G6), F6.
   walk                Resolve CONFIGURATION's whole submodule tree from its own .gitmodules and...
 ```
@@ -243,8 +243,8 @@ Options:
 ```
 Usage: nanosoc-rm bumps [OPTIONS] COMMAND [ARGS]...
 
-  Bump proposals in SHADOW MODE (Phase 4, E1-E7; built per CR-15). `bumps [CONFIG]` scans now. Never
-  pushes, never writes a branch, never opens a pull request: patches and commands for a person.
+  Bump proposals in SHADOW MODE (Phase 4, E1-E7). `bumps [CONFIG]` scans now. Never pushes, never
+  writes a branch, never opens a pull request: patches and commands for a person.
 
 Options:
   -h, --help  Show this message and exit.
@@ -888,8 +888,7 @@ Options:
 ```
 Usage: nanosoc-rm matrix [OPTIONS] COMMAND [ARGS]...
 
-  Compatibility matrix (D3): `matrix CONFIG` shows it; `matrix cell|quarantine|nightly` (Phase 2,
-  built per CR-15).
+  Compatibility matrix (D3): `matrix CONFIG` shows it; `matrix cell|quarantine|nightly` (Phase 2).
 
 Options:
   -h, --help  Show this message and exit.
@@ -1504,7 +1503,7 @@ Options:
 Usage: nanosoc-rm serve [OPTIONS]
 
   Serve the web pages and JSON API, run the schedules (poll, nightly T0, result fetch) and the local
-  job worker (CR-17). Exit 3 for a config error, unusable TLS files or a refused --host.
+  job worker. Exit 3 for a config error, unusable TLS files or a refused --host.
 
 Options:
   --host TEXT               Address to bind.  [default: 127.0.0.1]
@@ -1513,7 +1512,7 @@ Options:
   --no-worker               Do not run local jobs (Run, Sync and Walk stay queued).
   --i-know-this-is-exposed  Local auth mode only: allow a non-loopback --host. Without it, serve
                             refuses to bind one.
-  --tls-cert PATH           Serve HTTPS with this PEM certificate (CR-20). Needs --tls-key.
+  --tls-cert PATH           Serve HTTPS with this PEM certificate. Needs --tls-key.
   --tls-key PATH            The private key for --tls-cert (PEM).
   --allow-plain-http        Local auth mode, non-loopback --host: serve without TLS (passwords in
                             clear).
@@ -1837,7 +1836,7 @@ Options:
 ```
 Usage: nanosoc-rm user [OPTIONS] COMMAND [ARGS]...
 
-  Local sign-in users (CR-16): print config stanzas; never writes a file.
+  Local sign-in users: print config stanzas; never writes a file.
 
 Options:
   -h, --help  Show this message and exit.

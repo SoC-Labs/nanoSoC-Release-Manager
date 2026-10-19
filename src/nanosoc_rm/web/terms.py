@@ -56,7 +56,8 @@ _TIER_RE = re.compile(r"\b(T[0-6])\b")
 # dropped into the tooltip
 _ID = r"(?:[A-HQ]\d{1,2}|PR\d{1,2}|CR-[0-9A-Za-z]+(?:-[0-9A-Za-z]+)*)"
 _PAREN_RE = re.compile(r"\s*\((%s(?:\s*,\s*%s)*)\)" % (_ID, _ID))
-_REQ_RE = re.compile(r"\b(%s)\b(?!-)" % "|".join(sorted(_REQ_WORDS, key=len, reverse=True)))
+# A bare requirement id is a word of its own: "DEF-E2", "E2.1" or "x_E2" is part of someone's id, not a code.
+_REQ_RE = re.compile(r"(?<![-\w.])(%s)(?![-\w]|\.\w)" % "|".join(sorted(_REQ_WORDS, key=len, reverse=True)))
 # "Phase 4 entry gate", "Phase 4 gate", "Phase 4"
 _PHASE_RE = re.compile(r"\b(Phase [2-5])(?:( entry)? gate\b)?")
 

@@ -107,6 +107,8 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - A page never fetches from a git host to read a capabilities file; a failed claim can no longer leave a tier job
   running for ever; an agent granted one job kind claims only that kind; a tier command in an executor job cannot
   reach the job's own output. (CR-WG-integration)
+- A defect title on the card view reads as its author wrote it: an item id such as E2 in it, or an id such as
+  DEF-E3, is no longer replaced by requirement words. (CR-WH-integration)
 
 ### none
 - New documentation: a day-one guide (`docs/getting-started.md`), a task-led user guide (`docs/user-guide.md`,
