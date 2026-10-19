@@ -24,9 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+
+from nanosoc_rm.web.plugins import config_of, is_local, local_routes, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "CELL_CLASS"]
 
@@ -42,12 +44,7 @@ COLUMN_LABEL = {"pinned": "pinned", "in-range": "latest tag in range", "latest-t
 
 
 def _env() -> Environment:
-    web = HERE.parent / "web" / "templates"                  # _fp.html and _fmatrix.html (CR-WF-gui)
-    env = Environment(loader=ChoiceLoader([FileSystemLoader(str(HERE / "templates"))]
-                                          + ([FileSystemLoader(str(web))] if web.is_dir() else [])),
-                      autoescape=select_autoescape(["html"]), trim_blocks=True, lstrip_blocks=True)
-    env.globals.update(CELL_CLASS=CELL_CLASS, COLUMN_LABEL=COLUMN_LABEL, murl=_murl, quote=urllib.parse.quote)
-    return env
+    return template_env(HERE, CELL_CLASS=CELL_CLASS, COLUMN_LABEL=COLUMN_LABEL, murl=_murl, quote=urllib.parse.quote)
 
 
 def _murl(configuration: str, page: str = "", **params: Any) -> str:
@@ -58,24 +55,6 @@ def _murl(configuration: str, page: str = "", **params: Any) -> str:
             if x not in (None, "", False):
                 items.append((k, x))
     return path + ("?" + urllib.parse.urlencode(items) if items else "")
-
-
-def _config(request: Request):
-    cfg = getattr(request.state, "config", None)
-    if cfg is None:
-        from nanosoc_rm.config import load_config
-        cfg = load_config()
-    return cfg
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, **ctx)
-
-
-def _local(request: Request) -> bool:
-    rm = getattr(request.app.state, "rm", None)
-    return bool(getattr(rm, "local_routes", False))
 
 
 def _error(request: Request, e: Exception) -> HTMLResponse:
@@ -97,7 +76,6 @@ def router(app: Any = None) -> APIRouter:
     """The plug-in's routes. Its POST routes are registered only in a local deployment (`app.state.rm.local_routes`,
     interfaces.md section 13a), so a GitHub + CI deployment keeps section 13's two Run routes as its only writes
     (D5). Each POST still re-checks at request time."""
-    from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     from nanosoc_rm import matrix as M
     from nanosoc_rm.matrix import cells as K
@@ -105,7 +83,7 @@ def router(app: Any = None) -> APIRouter:
 
     def index(request: Request) -> HTMLResponse:
         from nanosoc_rm.analysis import _inputs as I
-        config = _config(request)
+        config = config_of(request)
         try:
             confs = I.registry(config).configurations()
         except Exception as e:                                   # noqa: BLE001 - shown, never a bare 500
@@ -117,7 +95,7 @@ def router(app: Any = None) -> APIRouter:
                      problems=fm["problems"], bare=True, crumbs=[], no_rail=True)
 
     def grid(request: Request, configuration: str) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         comps, cols = _filters(request)
         tiers_q = _tiers_q(request)
         try:
@@ -134,14 +112,14 @@ def router(app: Any = None) -> APIRouter:
         queued = request.query_params.get("queued")
         return _page(request, "matrix.html", "Matrix %s" % configuration, v=view["fact"], view=view, docs=docs,
                      all_components=all_components, components=comps, columns_q=cols, queued=queued,
-                     local=_local(request), tiers_q=tiers_q, TIERS=M.TIERS,
+                     local=is_local(request), tiers_q=tiers_q, TIERS=M.TIERS,
                      cli="nanosoc-rm matrix %s%s%s%s" % (configuration, "".join(" --component %s" % c for c in comps),
                                                          " --columns %s" % cols if cols else "",
                                                          " --tiers %s" % tiers_q if tiers_q else ""))
 
     def cell(request: Request, configuration: str) -> HTMLResponse:
         from nanosoc_rm import jobs
-        config = _config(request)
+        config = config_of(request)
         q = request.query_params
         component, column = q.get("component") or None, q.get("column") or ""
         tier = q.get("tier") or None
@@ -180,11 +158,11 @@ def router(app: Any = None) -> APIRouter:
                      configuration=configuration, component=component, column=column, cv=cv, row=row, tier=tier,
                      tier_info=(f.get("tiers") or [None])[0],
                      runs=list(reversed(runs)), latest=latest, comparison=comparison, job=job,
-                     local=_local(request), q_active=q_active)
+                     local=is_local(request), q_active=q_active)
 
     async def run(request: Request, configuration: str) -> Response:
         from starlette.concurrency import run_in_threadpool
-        if not _local(request):
+        if not is_local(request):
             return PlainTextResponse("404 Not Found: this service has no local job worker; run `nanosoc-rm matrix "
                                      "%s --run` on a login server" % configuration, 404)
         form = await request.form()
@@ -195,7 +173,7 @@ def router(app: Any = None) -> APIRouter:
         back_cols = str(form.get("filter_columns") or "") or None
         back_tiers = str(form.get("filter_tiers") or "") or None
         tier = str(form.get("tier") or "") or None
-        config = _config(request)
+        config = config_of(request)
         ident = getattr(request.state, "identity", None)
         login = getattr(ident, "login", None) or "web"
         try:
@@ -244,3 +222,4 @@ def router(app: Any = None) -> APIRouter:
 
 
 ENV = _env()
+_page = renderer(ENV)

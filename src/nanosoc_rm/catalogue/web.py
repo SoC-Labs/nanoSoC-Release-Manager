@@ -23,12 +23,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm.catalogue import model
+from nanosoc_rm.web.plugins import config_of, is_local, local_routes, render_page, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "QUICK", "catalogue_view", "choices_from_form", "scan_status"]
 
@@ -44,27 +44,8 @@ GROUP_TONE = {"project": "#123A8C", "soc": "#0A5566", "subsystem": "#3D414B", "c
               "infra": "#6A4E00", "legacy": "#4A4E58"}
 
 
-def _env() -> Environment:
-    web = HERE.parent / "web" / "templates"
-    loaders = [FileSystemLoader(str(HERE / "templates"))] + ([FileSystemLoader(str(web))] if web.is_dir() else [])
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    env.globals.update(GROUPS=model.GROUPS, GROUP_LABELS=model.GROUP_LABELS, TYPE_LABELS=model.TYPE_LABELS,
-                       ROLE_LABELS=model.ROLE_LABELS, QUICK=QUICK, GROUP_TONE=GROUP_TONE)
-    return env
-
-
-ENV = _env()
-
-
-def _config(request: Request):
-    from nanosoc_rm.config import load_config
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
-
-
-def _local(request: Request) -> bool:
-    return bool(getattr(getattr(getattr(request.app, "state", None), "rm", None), "local_routes", False))
+ENV = template_env(HERE, GROUPS=model.GROUPS, GROUP_LABELS=model.GROUP_LABELS, TYPE_LABELS=model.TYPE_LABELS,
+                   ROLE_LABELS=model.ROLE_LABELS, QUICK=QUICK, GROUP_TONE=GROUP_TONE)
 
 
 def _registry(config):
@@ -214,28 +195,26 @@ def scan_status(config, job_id: int | None = None) -> dict:
 
 
 def _page(request: Request, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    config = _config(request)
+    config = config_of(request)
     jq = request.query_params.get("job") or ""
     ctx.setdefault("scan", scan_status(config, int(jq) if jq.isdigit() and len(jq) < 12 else None))
-    return plugins.render_page(request, "catalogue.html", title, status=status, environment=ENV, local=_local(request),
-                               no_rail=True, bare=True, crumbs=[], **ctx)
+    return render_page(request, "catalogue.html", title, status=status, environment=ENV, local=is_local(request),
+                       no_rail=True, bare=True, crumbs=[], **ctx)
 
 
 def router(app: Any = None) -> APIRouter:
     """GET /catalogue/ always; POST /catalogue/patch and POST /catalogue/scan only in a local deployment (13a)."""
-    from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
     def index(request: Request) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         v = catalogue_view(config)
         return _page(request, "Catalogue", c=v, preview=None, problems=v["problems"])
 
     async def post_patch(request: Request) -> Response:
         from nanosoc_rm.catalogue.preview import PreviewUsage, preview
-        config = _config(request)
+        config = config_of(request)
         form = await request.form()
         fields = {k: str(v) for k, v in form.items() if k != "csrf_token"}
         v = await run_in_threadpool(catalogue_view, config, form=fields)
@@ -259,7 +238,7 @@ def router(app: Any = None) -> APIRouter:
     async def post_scan(request: Request) -> Response:
         from nanosoc_rm import jobs
         from nanosoc_rm.catalogue.orgscan import scanned_hosts
-        config = _config(request)
+        config = config_of(request)
         if not scanned_hosts(config):
             return PlainTextResponse("400 Bad Request: no [hosts.github] org or [hosts.gitlab] group is configured, "
                                      "so there is nothing to scan\n", 400)

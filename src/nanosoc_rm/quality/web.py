@@ -32,13 +32,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
+from jinja2 import Environment
 from markupsafe import Markup
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import quality as q
-from nanosoc_rm.config import load_config
+from nanosoc_rm.web import plugins
+from nanosoc_rm.web.plugins import WEB_TEMPLATES, config_of, local_routes, login_of, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page", "selected_findings",
            "comments_view", "my_components", "overview_model"]
@@ -47,31 +48,19 @@ PREFIX = "/quality"
 NAV_LABEL = "Quality"                                         # web/plugins.py: the top-navigation entry
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
-_WEB_TEMPLATES = HERE.parent / "web" / "templates"
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
 
 def _env() -> Environment:
-    loaders = [FileSystemLoader(str(HERE / "templates"))]
-    if _WEB_TEMPLATES.is_dir():
-        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    try:
-        from nanosoc_rm.web.page import env as web_env
-        env.globals.update(web_env.globals)
-    except ImportError:                                       # pragma: no cover - the web package is optional
-        pass
-    env.globals.update(sparkline=sparkline, qurl=_qurl, pct=lambda x: "%.1f%%" % (100 * (x or 0)))
-    return env
-
+    return template_env(HERE, app_globals=True, sparkline=sparkline, qurl=_qurl,
+                        pct=lambda x: "%.1f%%" % (100 * (x or 0)))
 
 
 def _base_template() -> str:
     """The GUI's base template when it has one (base.html, else layout.html), else this package's own."""
     for name in ("base.html", "layout.html"):
-        if (_WEB_TEMPLATES / name).is_file():
+        if (WEB_TEMPLATES / name).is_file():
             return name
     return "quality_base.html"
 
@@ -118,11 +107,6 @@ def _qurl(target: str, page: str = "", **params: Any) -> str:
     path = "%s/%s%s" % (PREFIX, urllib.parse.quote(target, safe=""), ("/" + page) if page else "")
     params = {k: v for k, v in params.items() if v not in (None, "", False)}
     return path + ("?" + urllib.parse.urlencode(params) if params else "")
-
-
-def _config(request: Request):
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
 
 
 def _lock(key: str) -> threading.Lock:
@@ -256,7 +240,6 @@ def _overview_rows(config) -> list[dict]:
 def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
     """In the GUI's shell (navigation, sign-out form, CSRF token) when mounted by the web app; else stand-alone."""
     if getattr(getattr(request.app, "state", None), "rm", None) is not None:
-        from nanosoc_rm.web import plugins
         return plugins.render_page(request, template, title, status=status, environment=ENV, **ctx)
     html = render_page(template, title=title, identity=getattr(request.state, "identity", None), **ctx)
     return HTMLResponse(html, status_code=status)
@@ -267,23 +250,12 @@ def _error(request: Request, e: Exception) -> HTMLResponse:
     return _page(request, "quality_message.html", "Quality", status=status, message=str(e))
 
 
-def _login(request: Request) -> str:
-    return getattr(getattr(request.state, "identity", None), "login", "") or ""
-
-
 def _pending(request: Request, target: str, ref: str | None, job: dict) -> HTMLResponse:
     """202: the analysis runs as a job; the page shows its live card and asks for a refresh."""
-    config = _config(request)
+    config = config_of(request)
     html = ""
     if getattr(getattr(request.app, "state", None), "rm", None) is not None:
-        from nanosoc_rm import jobs
-        from nanosoc_rm.web.page import Page
-        p = Page()
-        ident = getattr(request.state, "identity", None)
-        html = ENV.get_template("_job.html").render(
-            job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]),
-            csrf=request.app.state.rm.csrf_for(ident, config) if ident is not None else "", fact=p.fact, page=p,
-            stored=None)
+        html = plugins.job_card(ENV, request, config, job)
     return _page(request, "quality_pending.html", "Quality: %s" % target, status=202, target=target, ref=ref,
                  job=job, job_html=Markup(html), refresh_url=str(request.url.remove_query_params("analyse")))
 
@@ -295,7 +267,6 @@ def _not_analysed(request: Request, target: str, ref: str | None) -> HTMLRespons
 
 
 def router(app: Any = None) -> APIRouter:
-    from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
@@ -307,21 +278,21 @@ def router(app: Any = None) -> APIRouter:
         back = str(form.get("next") or "")
         if not back.startswith(PREFIX + "/") or "//" in back or "\\" in back:
             back = _qurl(target, ref=ref) if ref else _qurl(target)
-        config = _config(request)
+        config = config_of(request)
         try:
             await run_in_threadpool(q.open_source, target, ref=ref, config=config)
-            await run_in_threadpool(_queue, config, target, ref, _login(request))
+            await run_in_threadpool(_queue, config, target, ref, login_of(request))
         except (q.UsageError, q.QualityError, q.SourceError) as e:
             return _error(request, e)
         return RedirectResponse(back, 303)
 
     def overview(request: Request) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         return _page(request, "quality_overview.html", "Code and doc quality",
                      **overview_model(config, request.query_params.get("scope")))
 
     def summary(request: Request, target: str) -> Response:
-        config = _config(request)
+        config = config_of(request)
         ref = request.query_params.get("ref") or None
         try:
             res = {k: _result(config, k, target, ref)[0] for k in q.KINDS}
@@ -337,7 +308,7 @@ def router(app: Any = None) -> APIRouter:
 
     def kind_page(kind: str, template: str, title: str):
         def handler(request: Request, target: str) -> Response:
-            config = _config(request)
+            config = config_of(request)
             ref = request.query_params.get("ref") or None
             try:
                 obs, _ = _result(config, kind, target, ref)
@@ -354,7 +325,7 @@ def router(app: Any = None) -> APIRouter:
         return handler
 
     def comments_diff(request: Request, target: str) -> Response:
-        config = _config(request)
+        config = config_of(request)
         ref = request.query_params.get("ref") or None
         sel = request.query_params.get("kind") or ""
         try:
@@ -377,7 +348,7 @@ def router(app: Any = None) -> APIRouter:
                                                              "-with-banners" if banners and not sel else ""))
 
     def readme_diff(request: Request, target: str) -> Response:
-        config = _config(request)
+        config = config_of(request)
         ref = request.query_params.get("ref") or None
         from nanosoc_rm.quality.readmes import layout_patch
         try:
@@ -392,7 +363,7 @@ def router(app: Any = None) -> APIRouter:
         return _diff_response(text, "%s-readme-layout.diff" % target)
 
     def trend_page(request: Request, target: str) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         by_key: dict[str, dict] = {}
         for k in q.KINDS:
             for d in q.stored(k, target, config=config):

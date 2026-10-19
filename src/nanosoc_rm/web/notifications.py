@@ -32,6 +32,7 @@ from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock, db
 from nanosoc_rm.web import uistate, views
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["Item", "KINDS", "items", "unread_count", "view", "page", "router", "NEW_REPOS_ID"]
 
@@ -190,15 +191,11 @@ def view(config, login: str | None, show: str = "unread", now: dt.datetime | Non
 # ---------------------------------------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------------------------------------
-def _login(request: Request) -> str:
-    return str(getattr(request.state.identity, "login", "") or "")
-
-
 def page(request: Request) -> Response:
     """GET /notifications[?show=all]."""
     config = request.state.config
     show = "all" if request.query_params.get("show") == "all" else "unread"
-    v = view(config, _login(request), show)
+    v = view(config, login_of(request), show)
     return request.app.state.rm.page(request, "notifications.html", "Notifications", no_rail=True, bare=True,
                                      crumbs=[("Projects", "/"), ("Notifications", None)], n=v)
 
@@ -216,9 +213,9 @@ async def post_read(request: Request) -> Response:
     if not _CARD_ID.match(item) or not _FP.match(fp):
         return PlainTextResponse("400 Bad Request: item and fp are needed", 400)
     if str(form.get("read") or "1") == "0":
-        uistate.undo_card(config, _login(request), item)
+        uistate.undo_card(config, login_of(request), item)
     else:
-        uistate.set_card(config, _login(request), item, "done", fp)
+        uistate.set_card(config, login_of(request), item, "done", fp)
     return _back(form)
 
 
@@ -234,7 +231,7 @@ async def post_read_all(request: Request) -> Response:
     if not all(_CARD_ID.match(i) and _FP.match(f) for i, f in pairs):
         return PlainTextResponse("400 Bad Request: not an item", 400)
     for i, f in pairs[:500]:
-        uistate.set_card(config, _login(request), i, "done", f)
+        uistate.set_card(config, login_of(request), i, "done", f)
     return _back(form)
 
 
@@ -251,7 +248,7 @@ async def post_prefs(request: Request) -> Response:
         names.append(name)
     if name_kind_unknown(names):
         return PlainTextResponse("400 Bad Request: unknown notification kind", 400)
-    login = _login(request)
+    login = login_of(request)
     for name in names:
         uistate.set_pref(config, login, name, None if name in ticked else "off")
     return _back(form)

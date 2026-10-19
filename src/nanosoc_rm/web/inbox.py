@@ -43,6 +43,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse, RedirectRespons
 from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.quality.findings import is_bulk
 from nanosoc_rm.web import alertgroups, routers, shell, uistate, verdict as V, views
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["Card", "CARD_KINDS", "CATS", "WEIGHTS", "STALE_AFTER", "STALE_FACTOR", "cards", "open_count", "board",
            "dashboard", "alerts", "router", "headline", "inbox_view", "SNOOZE_DAYS"]
@@ -960,10 +961,6 @@ def _ctx(request: Request) -> tuple[Any, Any]:
     return request.state.config, request.state.identity
 
 
-def _login(request: Request) -> str:
-    return str(getattr(request.state.identity, "login", "") or "")
-
-
 def _cat(value: Any) -> str:
     v = str(value or "all")
     return v if v in CAT_LABEL else "all"
@@ -975,7 +972,7 @@ def dashboard(request: Request) -> Response:
     config, _ = _ctx(request)
     problems = list(registry_facts.refresh(config))
     cat = _cat(request.query_params.get("cat"))
-    view = inbox_view(config, _login(request), cat, problems=problems)
+    view = inbox_view(config, login_of(request), cat, problems=problems)
     trail = [("Projects", "/"), ("Notifications", "/notifications")]
     crumbs = trail + ([("Cards", None)] if cat == "all" else [("Cards", "/inbox"), (CAT_LABEL[cat], None)])
     return request.app.state.rm.page(request, "inbox.html", "Notification cards", problems=problems, crumbs=crumbs,
@@ -997,7 +994,7 @@ def _inbox_fragment(request: Request, cat: str) -> HTMLResponse:
     config, ident = _ctx(request)
     state = request.app.state.rm
     p = Page()
-    view = inbox_view(config, _login(request), cat)
+    view = inbox_view(config, login_of(request), cat)
     html = env.get_template("_inbox.html").render(page=p, fact=p.fact, csrf=state.csrf_for(ident, config),
                                                   identity=ident, actions=state.local_routes, inbox=view)
     return HTMLResponse(html)
@@ -1020,7 +1017,7 @@ async def post_done(request: Request) -> Response:
     card, fp = _card_field(form), str(form.get("fp") or "")
     if card is None or not _FP.match(fp):
         return PlainTextResponse("400 Bad Request: card and fp are needed", 400)
-    uistate.set_card(config, _login(request), card, "done", fp)
+    uistate.set_card(config, login_of(request), card, "done", fp)
     return _back(request, _cat(form.get("cat")))
 
 
@@ -1032,7 +1029,7 @@ async def post_snooze(request: Request) -> Response:
     if card is None or not days.isdigit() or int(days) not in SNOOZE_DAYS:
         return PlainTextResponse("400 Bad Request: card and days (1, 7 or 30) are needed", 400)
     until = clock.now() + dt.timedelta(days=int(days))
-    uistate.set_card(config, _login(request), card, "snoozed", str(form.get("fp") or "")[:64], until=until)
+    uistate.set_card(config, login_of(request), card, "snoozed", str(form.get("fp") or "")[:64], until=until)
     return _back(request, _cat(form.get("cat")))
 
 
@@ -1042,7 +1039,7 @@ async def post_undo(request: Request) -> Response:
     card = _card_field(form)
     if card is None:
         return PlainTextResponse("400 Bad Request: card is needed", 400)
-    uistate.undo_card(config, _login(request), card)
+    uistate.undo_card(config, login_of(request), card)
     return _back(request, _cat(form.get("cat")))
 
 
@@ -1061,7 +1058,7 @@ async def post_clear_group(request: Request) -> Response:
     if g["fp"] != seen:                                          # I-R3: clear only what the person saw
         return PlainTextResponse("409 Conflict: the group %s changed since the page was drawn (%d open now); "
                                  "reload and check it again" % (key[:60], g["count"]), 409)
-    login = _login(request)
+    login = login_of(request)
 
     def clear() -> None:
         for s in g["subjects"]:

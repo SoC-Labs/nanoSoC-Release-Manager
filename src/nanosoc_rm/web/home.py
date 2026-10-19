@@ -35,6 +35,7 @@ from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock
 from nanosoc_rm.web import lines, registry_facts, uistate, views
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["home_view", "dashboard", "router", "STATE_KEY", "WORD", "RULE", "PILLS", "KRANK", "sibling_rank",
            "parse_state"]
@@ -839,10 +840,6 @@ def _pinned_in(pid: str, data: _Data) -> str | None:
 # ---------------------------------------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------------------------------------
-def _login(request: Request) -> str:
-    return str(getattr(request.state.identity, "login", "") or "")
-
-
 def dashboard(request: Request) -> Response:
     """GET /: the projects home, with the section 13 configuration board closed under the tree."""
     from nanosoc_rm import jobs
@@ -850,7 +847,7 @@ def dashboard(request: Request) -> Response:
     config = request.state.config
     state = request.app.state.rm
     problems = list(registry_facts.refresh(config))
-    view = home_view(config, _login(request), request.query_params, local=state.local_routes, problems=problems)
+    view = home_view(config, login_of(request), request.query_params, local=state.local_routes, problems=problems)
     return state.page(request, "home.html", "Projects", problems=problems, crumbs=[], no_rail=True, bare=True, home=view,
                       board=inbox.board(config, local_ci=jobs.is_local_ci(config)))
 
@@ -862,7 +859,7 @@ async def post_timeline(request: Request) -> Response:
     value = str(form.get("timeline") or "")
     if value not in ("on", "off"):
         return PlainTextResponse("400 Bad Request: timeline must be on or off", 400)
-    uistate.set_pref(config, _login(request), "timeline", value)
+    uistate.set_pref(config, login_of(request), "timeline", value)
     back = str(form.get("return") or "/")
     if not back.startswith("/?") and back != "/":
         back = "/"
