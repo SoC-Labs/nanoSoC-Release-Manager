@@ -1,8 +1,32 @@
-# Deploying the GUI on one host
+# Admin guide: install and operate the service
 
-A single-user or small-team install: local sign-in (CR-16), local jobs (CR-17), served on loopback and reached
-through an SSH tunnel, or (CR-20) served over HTTPS to the team (Team access over HTTPS, below). What the pages
-do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free port, `<login>` your user name.
+For whoever runs the service on one host: install, sign-in, HTTPS for a team, backups, upgrades, and the optional
+parts (remote tier executor, private repos, artefact store, regenerator). People who only use the pages start at
+[getting-started.md](getting-started.md); the pages are described in [user-guide.md](user-guide.md#10-the-pages).
+Placeholders: `<host>` is the server, `<port>` a free port, `<login>` a user name.
+
+The install is local sign-in (CR-16) and a local job worker (CR-17), served on loopback behind an SSH tunnel, or
+over HTTPS to the team (CR-20). A deployment with GitHub sign-in and a CI project is in the contracts
+([interfaces.md](contracts/interfaces.md) sections 10, 13, 14) and is not installed anywhere yet.
+
+Contents: [Try it from a checkout](#try-it-from-a-checkout-10-minutes) ·
+[Install](#install-about-15-minutes) · [Open it](#open-it) · [Team access over HTTPS](#team-access-over-https-cr-20) ·
+[Operate](#operate) · [Remote tier executor](#remote-tier-executor-optional-cr-wg-executor-interfacesmd-section-27) ·
+[Private repos](#private-repos-optional-off-by-default-cr-pr1) ·
+[Artefact store](#artefact-store-index-optional-interfacesmd-section-22) ·
+[Publishing](#publishing-to-the-release-store-optional-cr-art-publish) ·
+[Regenerator](#regenerator-optional-interfacesmd-section-20) · [Troubleshooting](#troubleshooting)
+
+## Try it from a checkout (10 minutes)
+
+To look at the pages before installing a service, from a clone of this repository:
+
+1. `scripts/dev-env.sh && export PATH=$PWD/.venv/bin:$PATH`
+2. `nanosoc-rm user add <login> --generate` prints a config stanza and the password; it writes nothing.
+3. Write the config from install step 5 below (any `data_dir` you own) and point `NANOSOC_RM_CONFIG` at it.
+4. `nanosoc-rm serve --host 127.0.0.1 --port 8000` (add `--no-schedule` to skip the 15-minute poll, which syncs
+   every mirror and walks every configuration).
+5. From your laptop: `ssh -N -L 8000:127.0.0.1:8000 <host>`, open http://127.0.0.1:8000/ and sign in.
 
 ## Layout on the host
 
@@ -37,9 +61,31 @@ do: `docs/GUI.md`. Placeholders: `<host>` is the server, `<port>` a free port, `
    ~/nanosoc-rm/venv/bin/nanosoc-rm user add <login> --generate > stanza.toml 2> pw.txt
    sed -n 's/^# password for .* (shown once): //p' pw.txt > ~/.config/nanosoc-rm/initial-password; rm pw.txt
    ```
-5. Write `~/.config/nanosoc-rm/config.toml` (chmod 600): `[service] data_dir`, `[registry] path`, `[hosts.github]`,
-   `[hosts.gitlab]`, `[auth] mode = "local"` and the stanza from step 4. The full template is in `docs/GUI.md`
-   step 3. Leave out `[ci]` so Run checks on this host. Optional `[quality] paths = { <name> = "<checkout>" }`.
+5. Write `~/.config/nanosoc-rm/config.toml` (chmod 600). Every key is in
+   [interfaces.md](contracts/interfaces.md) section 17.1; this is the minimum:
+   ```toml
+   [service]
+   data_dir = "/path/to/nanosoc-rm/data"          # ~/nanosoc-rm/data, written out in full
+   [registry]
+   path = "/path/to/nanosoc-rm/registry"          # the registry clone from step 3
+   [hosts.github]
+   web = "https://github.com"
+   api = "https://api.github.com"
+   ssh = "git@github.com:"
+   org = "SoC-Labs"
+   [hosts.gitlab]
+   web = "https://<gitlab-host>"
+   api = "https://<gitlab-host>/api/v4"
+   ssh = "git@<gitlab-host>:"
+   group = "soclabs"
+   [auth]
+   mode = "local"
+   [[auth.users]]                                 # the stanza from step 4
+   login = "<login>"
+   hash = "scrypt$..."
+   ```
+   Leave out `[ci]`, so **Run** checks on this host. No `[roles]` is needed: a local user is a `member`. Optional:
+   `[quality] paths = { <name> = "<checkout>" }`.
 6. Install the service (`systemctl --user`; run `loginctl enable-linger` once, or ask an admin, so it keeps
    running after you log out):
    ```ini
@@ -78,6 +124,14 @@ Then open http://127.0.0.1:<port>/ and sign in as `<login>` with the password in
 
 If your SSH config multiplexes connections (`ControlMaster`), the forward is added to the master connection and
 `ssh -N` returns at once; the tunnel stays up until `ssh -O cancel -L <port>:127.0.0.1:<port> <host>`.
+
+**What protects a loopback install.** Loopback keeps the service off the network, but every user with a login on
+the host can reach the port. The password and the session cookie are the boundary:
+- **Sign out** revokes the session, so a copy of the cookie stops working. Changing a user's hash in the config
+  ends that user's sessions on their next request.
+- After 5 wrong passwords for one login in 5 minutes, that login is refused for the rest of the 5 minutes, even
+  with the right password. Anyone who can reach the port can trigger this for a login they name. A restart clears
+  it (the counter is in memory). Use generated passwords (`--generate`): the limit is there for chosen ones.
 
 ## Team access over HTTPS (CR-20)
 
@@ -129,32 +183,20 @@ signed-in login, so with one shared team user the actions log shows the team use
 | Backup | `systemctl --user stop nanosoc-rm; b=~/nanosoc-rm-backup/$(date +%F); (umask 077; mkdir -p $b && cp -p ~/nanosoc-rm/data/{rm,jobs,sessions,bumps,gui}.sqlite ~/nanosoc-rm/data/session.secret $b/ && cp -rp ~/.config/nanosoc-rm $b/config); systemctl --user start nanosoc-rm`. All five stores: `gui.sqlite` (cards, reviews, notifications) and `bumps.sqlite` (proposals, marks, ledger) cannot be rebuilt from the mirrors. Mirrors can be re-synced |
 | Store modes | the tool creates each store 0600 and a new data dir 0700. Stores created before 2026-10-16 keep their mode: `chmod 600 ~/nanosoc-rm/data/*.sqlite*; chmod 700 ~/nanosoc-rm/data` once |
 
-### Store schema upgrade (CR-ROB-store)
+### Upgrades
 
-The first start after this update migrates `rm.sqlite` to schema version 2 (a new `current_snapshots` table, backfilled
-from the stored snapshots; measured 0.26 s for 100,000 snapshots) and stamps `jobs.sqlite` at version 1. It runs once,
-under a write lock; page reads continue meanwhile. Take the usual backup first. Do not run an older install of the CLI
-against the same data directory afterwards: it would stamp the store back to version 1, and every later connection
-of the new code would repeat the (harmless, but writing) backfill until the old install is gone.
+Back up first (the Backup row above). An update may migrate the stores on its first start: `rm.sqlite` is at
+schema version 3 and `jobs.sqlite` at 2 today; a migration runs once, under a write lock, while pages keep
+reading. Never run an older install of the CLI against a data directory a newer one has opened: it does not
+damage the store, but it stores every run again and shows stale check times. Changes that need an operator are
+under **breaking** in [CHANGELOG.md](../CHANGELOG.md).
 
 ### Store growth and retention (keep-on-change, CR-1015-retention)
 
-Before this change `rm.sqlite` grew by about 122 MB a day on the live host. Nearly all of it was set-kind history:
-every 15-minute poll stored a complete `pin_state` snapshot of each configuration, a `freshness` snapshot, a
-`mirror_status` snapshot of each component and so on, whether or not anything had changed (about 3.7 GB a month).
-
-Now a producer run whose content equals the scope's current snapshot is not stored again: the current snapshot
-records the check (`confirmed_at`, `confirmations`, and the run's check times and snapshot id). Content means the
-documents with their check times and snapshot ids taken out (interfaces.md section 12). Pages are unchanged: they
-read the last check's documents, so a data age still says "checked at" the last poll. A change stores a new
-snapshot as before. Measured on a synthetic store at the live cadence (`scripts/measure_store_growth.py`: 57
-scopes, 543 set-kind rows per poll, 96 polls): 164.7 MB a day before; 0.8 MB a day with no content changes,
-6.8 MB a day with 24 (one configuration's walk changing each hour), 25 MB a day with 96.
-
-The first start after this update migrates `rm.sqlite` to schema version 3 (six columns and two indexes on
-`snapshots`; `ADD COLUMN` does not rewrite the table). An older install run against the store afterwards would show
-stale check times for unchanged scopes (it does not read confirmations) and store every run again; it does not
-damage the store. Roll back by reinstalling the older version only if you accept that.
+A poll whose result equals the scope's current snapshot stores no new rows: the snapshot records the check
+(`confirmed_at`, `confirmations`) instead, and pages read the last check as before (interfaces.md section 12). A
+store at the live cadence grows by about 1 MB a day when nothing changes, and by about 7 MB a day with one
+configuration's walk changing every hour (`scripts/measure_store_growth.py`).
 
 **Compacting the existing history (one-off, operator).** The store still holds the copies written before this change.
 `nanosoc-rm store-maint compact` collapses each run of identical snapshots of a scope into its first snapshot, which
@@ -179,10 +221,10 @@ Event kinds (alerts, T0 results, quality, releases) and the `runs` and `actions`
 cannot be rebuilt. If the store still grows faster than expected, `store-maint compact --dry-run` shows which kinds
 change most often.
 
-## Matrix, bumps, versions and releases (built per CR-15; their automation stays off)
+## Matrix, bumps, versions and releases (built; their automation stays off)
 
-The service also serves Matrix (`/matrix/`), Bumps (`/bumps/`), Versions (`/versions/`) and Releases
-(`/releases/`) in the one navigation. Every long action on them (a matrix cell, a bump scan, a version refresh or
+The service also serves Matrix (`/matrix/`) and Releases (`/releases/`) in the header, and Bump proposals (`/bumps/`) and
+Versions (`/versions/`) under **More**. Every long action on them (a matrix cell, a bump scan, a version refresh or
 draft, a release draft or verify, a fork listing, a cold quality page) is a job in the local runner, never work
 inside a request. They write only on the host's own disk, under the data directory:
 
@@ -209,7 +251,7 @@ nanosoc-rm phase-gates --repo ~/nanosoc-rm/app           # exit 0: no later-phas
 ## Per-user state (`gui.sqlite`)
 
 The service serves the projects home at `/`, Notifications behind the bell (the full cards at `/inbox`), the
-configuration and component workspaces and the command bar (`docs/GUI.md`, Pages). Notifications, alert-group
+configuration and component workspaces and the command bar ([user-guide.md](user-guide.md#10-the-pages)). Notifications, alert-group
 clears, the review queue and the Home timeline keep per-user state (read and snoozed items, review decisions, the
 patch basket, display choices) in `<data_dir>/gui.sqlite`, created mode 0600. It is not a fact store
 and cannot be rebuilt from the mirrors: back it up with the other `.sqlite` files. Its POST routes exist only in a
@@ -322,49 +364,6 @@ private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-rea
   `/alerts`.
 - The credential is never logged, stored or shown: not in commands, observations, alerts or pages.
 
-## Publishing to the release store (optional; CR-ART-publish)
-
-Off until configured: the Publish page then says why. On the tool host the store is
-`http://localhost:8082/artifactory` (the TLS proxy is not reachable from elsewhere).
-
-1. Token: the tool's own Artifactory access token (one year, revocable), minted once by the admin. Put it in a 0600
-   file, never in the config:
-   `umask 077; cat > ~/.config/nanosoc-rm/artifactory.token` (paste, then Ctrl-D). The tool sends it as a Bearer
-   header only. Never use Basic auth against `/access/api`: each failure locks the admin out for seconds.
-2. Signing key (RSA: this host's OpenSSH 8.0 has no `ssh-keygen -Y`, so the tool signs RSA keys itself):
-   `ssh-keygen -t rsa -b 4096 -N '' -C nanosoc-rm -f ~/.config/nanosoc-rm/release-signing.key`. Keep a copy of the
-   `.pub` with the people who verify; `ssh-keygen -Y verify` (OpenSSH 8.1+) checks a `.sig` with an allowed_signers
-   line `nanosoc-rm namespaces="nanosoc-rm" ssh-rsa AAAA...`.
-3. Config:
-   ```toml
-   [stores.artifactory]
-   url = "http://localhost:8082/artifactory"
-   token_file = "~/.config/nanosoc-rm/artifactory.token"
-   token_expires = "YYYY-MM-DD"
-   signing_key = "~/.config/nanosoc-rm/release-signing.key"
-   publishers = ["<login>"]          # who may press Publish
-   shared_logins = ["<shared login>"] # never publishes, even if listed above (a config error)
-   projects = { <component> = "<store project>" }   # optional: the folder under asic-release/
-   ```
-4. Restart. `/publish/` lists drafts; Preview, then Publish. From the shell: `nanosoc-rm publish-release C/V --dry-run`.
-
-What it writes, only on a confirmed Publish: new files under `asic-release/<project>/<version>/` (the record, its
-`.sig`, the draft's documents), a build record `rm-release-<project>` or `rm-tapeout-<project>`, and a status
-promotion. It refuses when any of those paths already holds other bytes. Ledger: `rm.sqlite` (`release_publication`,
-`actions`) and `<data_dir>/publish/`.
-
-## Regenerator (optional; interfaces.md section 20)
-
-Optional. To class generator moves by regeneration on this host:
-
-1. Add `[regen] read_only_roots = ["<shared IP library root>"]` to the private config (any path under it is
-   refused); `work_dir` defaults to `<data_dir>/regen`, `nice` to 15.
-2. Add a `regen` entry for the configuration to the registry's `tiers.yaml` (example:
-   `schemas/examples/eligibility.tiers.example.yaml`; `PYTHON` must name an interpreter with the generator's
-   packages, else the render is INFRA "tool not on this host").
-3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
-   per render; renders are cached by digest.
-
 ## Artefact store index (optional; interfaces.md section 22)
 
 Optional. The tool reads Artifactory (GET, HEAD and one AQL search; it never writes there except the publish
@@ -394,3 +393,51 @@ verifies against `allowed_signers`. Without that key every manifest shows UNVERI
 
 Documents up to 16 MiB that carry no confidentiality marking are kept, verified by sha1, in
 `<data_dir>/store-cache/` so the pages can offer them for download; the token never reaches a page.
+
+## Publishing to the release store (optional; CR-ART-publish)
+
+Off until configured: the Publish page then says why. Set up the store index first (the section above): it
+holds the URL and the token. Publishing adds a signing key and the list of people who may publish.
+
+1. Token: the same `[stores.artifactory] token_file` as the index (one year, revocable, minted once by the store
+   admin; `umask 077; cat > ~/.config/nanosoc-rm/artifactory.token`, paste, Ctrl-D). Bearer header only: never Basic
+   auth against `/access/api`, where each failure locks the admin out for seconds.
+2. Signing key (RSA: this host's OpenSSH 8.0 has no `ssh-keygen -Y`, so the tool signs RSA keys itself):
+   `ssh-keygen -t rsa -b 4096 -N '' -C nanosoc-rm -f ~/.config/nanosoc-rm/release-signing.key`. Keep a copy of the
+   `.pub` with the people who verify; `ssh-keygen -Y verify` (OpenSSH 8.1+) checks a `.sig` with an allowed_signers
+   line `nanosoc-rm namespaces="nanosoc-rm" ssh-rsa AAAA...`.
+3. Add to the `[stores.artifactory]` table of the index:
+   ```toml
+   signing_key = "~/.config/nanosoc-rm/release-signing.key"
+   publishers = ["<login>"]          # who may press Publish
+   # shared_logins (index) never publishes, even if listed in publishers (a config error)
+   ```
+4. Restart. `/publish/` lists drafts; Preview, then Publish. From the shell: `nanosoc-rm publish-release C/V --dry-run`.
+
+What it writes, only on a confirmed Publish: new files under `asic-release/<project>/<version>/` (the record, its
+`.sig`, the draft's documents), a build record `rm-release-<project>` or `rm-tapeout-<project>`, and a status
+promotion. It refuses when any of those paths already holds other bytes. Ledger: `rm.sqlite` (`release_publication`,
+`actions`) and `<data_dir>/publish/`.
+
+## Regenerator (optional; interfaces.md section 20)
+
+Optional. To class generator moves by regeneration on this host:
+
+1. Add `[regen] read_only_roots = ["<shared IP library root>"]` to the private config (any path under it is
+   refused); `work_dir` defaults to `<data_dir>/regen`, `nice` to 15.
+2. Add a `regen` entry for the configuration to the registry's `tiers.yaml` (example:
+   `schemas/examples/eligibility.tiers.example.yaml`; `PYTHON` must name an interpreter with the generator's
+   packages, else the render is INFRA "tool not on this host").
+3. `nanosoc-rm walk <config>`, then `nanosoc-rm regen pending --run` (or queue a `regen-class` job). About 60 s
+   per render; renders are cached by digest.
+
+## Troubleshooting
+
+| You see | Cause | What to do |
+|---|---|---|
+| a page answers 500 | a bug | `journalctl --user -u nanosoc-rm -n 100`; the 500 page says a POST may have been partly applied |
+| a sign-in refused with the right password | 5 failed sign-ins of that login within 5 minutes | wait 5 minutes, or restart the service |
+| `serve` exits 3 at start | a config error, unreadable TLS files, or a non-loopback `--host` without TLS | the message names it; `--help` lists the flags |
+| tier jobs stay "waiting for an executor" | no agent is claiming work | [Remote tier executor](#remote-tier-executor-optional-cr-wg-executor-interfacesmd-section-27); `nanosoc-rm executor list` |
+| "private repos cannot be mirrored anonymously" | no `private_read` for that host | [Private repos](#private-repos-optional-off-by-default-cr-pr1) |
+| `rm.sqlite` grows fast | many scopes change every poll | `nanosoc-rm store-maint compact --dry-run` shows which kinds |

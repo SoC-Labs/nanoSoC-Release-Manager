@@ -115,6 +115,10 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - For plug-in authors: a plug-in page takes its template environment, page renderer, config, login, local-mode and
   job-card helpers from `nanosoc_rm.web.plugins` instead of copying them; the app's own routes moved out of
   `web/app.py` into `web/routes/`. Pages, URLs and behaviour are unchanged. (CR-WH-refactor-web)
+- Fewer, shorter documents: the README is an entry point to six guides; the page reference moved from
+  `docs/GUI.md` into the user guide (section 10) and the install steps into the admin guide (`docs/DEPLOY.md`);
+  finished plans and old upgrade notes moved to `docs/archive/history.md`; stale claims in the contracts fixed.
+  (CR-1019-docs)
 
 ## [0.1.0] - 2026-10-12
 

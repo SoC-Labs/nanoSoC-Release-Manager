@@ -5,7 +5,7 @@ docs. Other docs link here instead of repeating these definitions. Contract-leve
 applies) is in [contracts/README.md](contracts/README.md) and [contracts/interfaces.md](contracts/interfaces.md);
 where this page and a contract disagree, the contract is right and this page has a bug.
 
-Marked **(coming)**: agreed but not built yet. Everything else here is on master (Wave G merged 2026-10-16).
+Marked **(coming)**: agreed but not built yet. Everything else is on master.
 
 ## Things the tool knows about
 
@@ -37,7 +37,7 @@ Marked **(coming)**: agreed but not built yet. Everything else here is on master
 | **Pinned more than once** | One component pinned at two or more paths of the same tree (code `B7`, "split" in older text). The rows read **PINNED ×N** and the pin panel lists **Also pinned at**. Not to be confused with the branch verdict PINNED below. |
 | **Hosts differ** | The GitHub and GitLab copies of one repository disagree. Pages say **HOSTS DIFFER** and how far one is ahead (`github ahead 23`). |
 | **Frozen** | A configuration whose commit never changes (`frozen: true`), usually because it was taped out. Its old pins are old on purpose. |
-| **Silicon** | A frozen configuration that became a chip (`silicon:` names the chip and revision). Its commits must stay reachable for ever; the Silicon page lists any that are not protected by a tag. |
+| **Silicon** | A frozen configuration that became a chip (`silicon:` names the chip and revision). Its commits must stay reachable for ever; the Silicon protection page lists any that are not protected by a tag. |
 
 ## Freshness: how far behind is a pin?
 
@@ -67,7 +67,7 @@ example "Freshness: Outdated · Check: FAIL".
 |---|---|
 | **Gate** | One named check, such as `t0.pins.fetchable` (every pin can be fetched without credentials). |
 | **Negative control** | Every gate also runs on input built to fail, in the same run. A gate whose control did not fail is UNVERIFIED, never PASS: a check that cannot fail proves nothing. |
-| **Tier** | A level of testing, cheapest first. **T0** resolve and hygiene (pins, URLs, vendor content; git only, under 2 minutes); **T1** lint and unit tests; **T2** smoke simulation; **T3** regression; **T4** FPGA build; **T5** on hardware; **T6** ASIC flow. The tool runs T0 itself and T1/T2 from the command a configuration declares. |
+| **Tier** | A level of testing, cheapest first. **T0** resolve and hygiene (pins, URLs, vendor content; git only, under 2 minutes); **T1** lint and unit tests; **T2** smoke simulation; **T3** regression; **T4** FPGA build; **T5** on hardware; **T6** ASIC flow. The tool runs T0 itself; T1 and later run on an **executor** (below), from the commands each repository declares. |
 | **T0** | The resolve tier. Its gates: the hosts answer; every pin is fetchable and reachable from a branch or tag; no public repo pins a submodule by ssh URL; manifests validate; an old release upgrades by clone; no Arm source (red) and no foundry data (amber) leaks into a public tree. |
 | **Capability** | A test a repository declares it can run (lint, elab, sim, cdc, formal, synth, fpga, ...), in `.nanosoc/capabilities.yaml` at its root: the command, the tools and licences it needs, its time budget, which submodules affect it, and how its result is judged. The tool reads the file at the commit under test, so the declaration moves with the code. The registry's `tiers.yaml` keeps only per-host paths and licence data (`hosts`). Page: `/capabilities/<configuration>`. |
 | **Executor** | Where tier runs execute. The tool's own host has no EDA tools, so T1 and later run on a lab EDA server through a sandboxed, unprivileged pull agent (bubblewrap) that claims the job from the service and posts the result back; GitLab CI may take over later. Until an agent is installed, tier jobs wait ("waiting for an executor"). |

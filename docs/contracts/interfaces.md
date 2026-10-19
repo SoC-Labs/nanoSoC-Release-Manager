@@ -20,7 +20,9 @@ on is collected in section 17.
    | 2 | could not answer: missing data, unreadable host; the UNVERIFIED case |
    | 3 | usage or config error |
 3. **Facts (A3).** Anything shown is an observation ([observation.schema.json](../../schemas/observation.schema.json)). Its `sources[].command` holds the exact git argv or `METHOD path` API call. Credentials never appear in a command, a URL or a log.
-4. **Read-only (A2, A6, PR8).** v1 makes exactly one kind of write call to anything outside its own disk: the CI pipeline trigger (section 10).
+4. **Read-only (A2, A6, PR8).** Outside its own disk the tool writes in two places only: the CI pipeline trigger
+   (section 10) and a person's confirmed publish to the release store (section 21). The executor agent's POSTs go
+   to the service's own API (section 27.5).
    - The mirrors fetch; they never push.
    - No module has a code path that writes to a repo, a fork, a tag or a setting.
    - Every outbound call that a static census could mistake for a write is declared in `WRITE_CALLS` (section 17.5).
@@ -31,10 +33,12 @@ on is collected in section 17.
 
 ```
 src/nanosoc_rm/
-  cli.py   config.py   schedule.py   gitrun.py (the one git runner)   contracts/ (packaged schemas, validate(), WRITE_CALLS)
-  registry/ (loader, imports.py census)   mirror/   walker/   analysis/ (hosts.py, contains.py, protect.py, detect.py)
-  t0/ (gates.py and tiers.py shared; runner.py runs IN CI only)   ci/ (client.py, trigger.py, fetch.py, verify.py)
-  scan/ (rules.py, scan.py)   credentials.py   db/   web/   auth.py   releases/ (Phase 5, built under CR-15: 14b)
+  cli.py  cliutil.py  config.py  schedule.py (12a)  gitrun.py (the one git runner)  contracts/ (schemas, validate(), WRITE_CALLS)
+  registry/ (2, 2a)  mirror/ (3)  walker/ (4)  analysis/ (5, 6, 6a, 7, 7a, 9a: hosts, contains, detect, protect, branches, compat, tierrun)
+  t0/ (9: gates.py, tiers.py, local.py; runner.py runs IN CI only)  ci/ (10)  scan/ (11)  db/ (12)  credentials.py (17.3)
+  web/ (13, 13a, 25)  jobs.py (13a)  auth.py (14)  quality/ (14a)  versioning/ (14b)  releases/ (14c)  phasegates.py (17.6)
+  matrix/ (18)  bumps/ (19)  regen/ (20)  publish/ (21)  store/ (22)  catalogue/ (23)  freshness/ (24)
+  capabilities/ (26)  executor/ (27)  trace.py (17.3)
 ```
 
 **Data flow:**
@@ -46,6 +50,9 @@ web/ Run button, nightly schedule --> ci/trigger --(trigger token, compat-ci onl
 GitLab CI job `t0` (t0/runner, anonymous git only) --> artifacts rm-bundle/ (scanned by the job before upload)
 ci/fetch --(read token: job, variables, artifacts)--> ci/verify --> scan/ --> db/
 ```
+
+A local deployment (section 13a) has no CI legs: Run queues a local job, and tier jobs wait for an executor
+(sections 26.5, 27).
 
 ## 1. Service config (private; never in this repo)
 
@@ -65,11 +72,14 @@ Keys (sections 17.1 lists them with types):
 | `roles` | `default` (roles of every signed-in member), plus optional `"<login>" = [roles]` that add to it. v1 has one role, `member` (view + Run T0). An empty table refuses everyone. | H2 |
 | `schedule` | `poll_minutes` (15), `nightly_utc`, `fetch_minutes` (2) | H6, D2 |
 | `paths` | `quarantine` (defaults to `<data_dir>/quarantine`) | D11 |
+| `auth` | `mode` (`github` or `local`), `[[auth.users]]` (section 14) | H2 |
+| `quality`, `regen` | optional (sections 14a, 20) | Q1-Q6, C3, C7 |
+| `executor`, `[[executor.agents]]`, `[[api.readers]]` | optional (sections 26.5, 26.7, 27.5) | D1, A2 |
 
 v1 credentials, and nothing else (A2, H3):
 
 1. `github_read`: GitHub read-only fine-grained token (poller): contents, metadata and members read.
-2. `gitlab_read`: GitLab `read_api` + `read_repository` token (poller, CI fetch). Its owner is the service account; its role on compat-ci is question 10 in GATE2.md.
+2. `gitlab_read`: GitLab `read_api` + `read_repository` token (poller, CI fetch). Its owner is the service account: Maintainer on compat-ci only, with a `read_api` token (GATE2 Q10).
 3. `ci_trigger`: GitLab pipeline trigger token for the compat-ci project. It is owned by the same dedicated service account with the minimum role that may run pipelines on the protected ref, because a trigger-token pipeline runs with its owner's identity (the job's `CI_JOB_TOKEN` carries the owner's access).
 4. `github_oauth`: GitHub OAuth app (login), client id and secret.
 
@@ -108,11 +118,11 @@ returns dicts or models whose `model_dump(mode="json", by_alias=True)` is the do
   - a relative URL (`../x.git`) is resolved against `parent`'s pinned URL, as git does, and reported `relative`.
 
   A URL that resolves to no component or external entry gives `unknown`, and the walker raises an `unknown_url` alert.
-  K1 (option a, David 2026-10-10): that includes an `ignored` repo pinned in a registered tree. `ignored` keeps a repo
+  K1: that includes an `ignored` repo pinned in a registered tree. `ignored` keeps a repo
   out of the inventory's "unclassified" list and out of the mirrors; a registered tree that pins it makes it a
   dependency, so it is flagged to be classified, never hidden (README section 5 "Unknown URL").
 - **Errors:** never partial. A registry with any problem is not loaded; the service keeps serving the last good one and shows the problems.
-- **Facts (A3, H1):** each record the web shows is also a `registry_record` observation (source `git -C <registry> show <commit>:<file>`), so registry facts carry an age and a command like every other fact. K2 (option a, David 2026-10-10): the one producer, `registry.store_records`, stores the real checkout path in the command (the CLI, the JSON API and the store keep it); HTML pages show the literal placeholder `<registry>` in its place, so no page carries the service VM's filesystem layout.
+- **Facts (A3, H1):** each record the web shows is also a `registry_record` observation (source `git -C <registry> show <commit>:<file>`), so registry facts carry an age and a command like every other fact. K2: the one producer, `registry.store_records`, stores the real checkout path in the command (the CLI, the JSON API and the store keep it); HTML pages show the literal placeholder `<registry>` in its place, so no page carries the service VM's filesystem layout.
 
 ### 2a. F5 import census
 
@@ -195,7 +205,6 @@ def inventory() -> list[dict]                         # repo_inventory for every
   - `nanosoc-rm mirror status [--json]`: one mirror_status per repo; the table prints each repo's age (now − `last_success_at`), H6.
   - `nanosoc-rm inventory [--unclassified] [--json]`: exit 1 if any repo is unclassified, A1.
 - **Errors:** a failed fetch is a `mirror_status` with `ok: false`, the error text, and the previous `last_success_at`; the old refs stay, and a `mirror_failed` alert is raised. A mirror is never deleted or re-cloned automatically.
-- **Unknown:** total mirror disk size for about 158 repos. Blobless fetches of two small repos took 140 KB and 340 KB. Measure on the first full sync.
 
 ## 4. Pin walker
 
@@ -298,11 +307,11 @@ def silicon_protection(configuration: str | None = None) -> list[dict]   # kind 
 - **Rows:** for every pin of a `frozen` or `silicon` configuration, judged on **two hosts**: the host the pinned URL names (`pinned: true`, what a recursive clone uses) and the component's canonical host (`canonical: true`, where C10 protective tags belong). One row when they are the same host. A row exists when that host's default branch cannot reach the commit.
 - **Coverage:** `covering_tags` are the tags on that host containing the commit; `covered` = at least one. Coverage is judged by containment, never by tag name: `keep/eth-rc4/tidelink-phy` covers component tidelink-gpio-phy `8c560c5` (a split component needs one tag per commit, so C10's `keep/<config>/<component>` cannot name both; existing keep tags are grandfathered).
 - A configuration that is neither frozen nor silicon gives `[]`, not an error.
-- Which hosts B5 judges is question 9 in GATE2.md; this contract implements the recommendation (both).
+- B5 judges both hosts (GATE2 Q9).
 - **CLI:** `nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]`. Exit 1 if any row is uncovered.
 - **Golden (`observation.example.jsonl`; CR-2, re-derived 2026-10-10):** on the example catalogue eth-rc4 gives 13 rows. The 11 pinned-host rows are all covered by `keep/eth-rc4/*` (the B5 done-when). The 2 canonical-host rows are covered since David's 2026-10-01 GitHub tags: nanosoc_arch_tech `ecf76aa` by `keep/eth-rc4/nanosoc_arch_tech`, ahb_qspi `e908ac8` by `keep/eth-rc4/ahb_qspi`. On the live registry, DEC6 also makes ethernet-mac-ahb, hostio4 and socdebug_tech canonical on GitHub, which adds 3 rows (16 in all): `44ff8b7` and `50359ee` MISSING on GitHub, `51348de` BRANCH_ONLY there (decision R1). `--uncovered` exits 1 until those 3 are pushed and tagged; with only the example catalogue it exits 0.
 
-## 7a. Branch inventory (CR8, MVP S1)
+## 7a. Branch inventory (CR8)
 
 Requirement: CR8 (`docs/CHANGES.md`); reads only sections 3 and 4 data.
 
@@ -346,7 +355,8 @@ def detect_rewrite(mirror: Path, key: str, branch: str, old: str, new: str) -> d
 - **Fires when** the default branch keeps its NAME and `git merge-base --is-ancestor <old> <new>` is false. A change of which branch is the default is not a rewrite (the host_compare row shows it).
 - **`lost_commits`** = `git rev-list --count <old> --not --glob=refs/r/<key>/*`.
 - **`pinned_lost`** = pins, in the latest stored pin_state snapshot of every registered configuration, whose commit is among the lost ones.
-- **Output:** a `rewrite_alert` observation, stored, plus an `alerts` row that the dashboard shows as a banner until someone clears it.
+- **Output:** a `rewrite_alert` observation, stored, plus an `alerts` row. It shows until someone clears it: as a
+  banner on Home's configuration board, on `/alerts` (grouped by cause) and as an inbox card.
 
 ```python
 def alerts(open_only: bool = True) -> list[dict]        # module nanosoc_rm.db; kind alert
@@ -355,7 +365,7 @@ def clear_alert(subject: str, by: str) -> None          # logged in `actions` as
 
 - **CLI:** `nanosoc-rm alerts [--all] [--json]`; `nanosoc-rm alerts clear SUBJECT --by LOGIN`. Clearing is a local write to the service's own database, not a write to anything outside it.
 - **Alert kinds:** `rewrite`, `unknown_url`, `token_expiry`, `runner_drift`, `tag_moved`, `mirror_failed`, `waiver_unused` (section 10, README section 6).
-- Alerts are dashboard banners only in v1; a daily email digest comes in Phase 2 (GATE2 Q7, decided 2026-10-01).
+- No alert is sent by email (GATE2 Q7 left a digest for Phase 2).
 - **Test:** a local bare repo stands in for a host; force-push, sync, expect one alert. Done-when on live data needs a scratch repo that a person creates (PR8).
 
 ## 9. T0: definition and runner
@@ -418,7 +428,7 @@ upload step runs.
 - `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`;
 - `GIT_TERMINAL_PROMPT=0`;
 - ssh with `BatchMode=yes` and no agent;
-- **credentials scrubbed:** GitLab puts `CI_JOB_TOKEN` (and, depending on settings, `CI_REGISTRY_PASSWORD`, `CI_DEPENDENCY_PROXY_PASSWORD`, `CI_JOB_JWT*`) in every job. The runner removes every `CI_*TOKEN*`, `CI_*PASSWORD*` and `CI_JOB_JWT*` variable from its environment before its first git call. The one exception is the `@registry` job's single fetch of the private registry (question 3 in GATE2.md), which uses `CI_JOB_TOKEN` once and then drops it. `t0.runner.hardened` checks the scrub;
+- **credentials scrubbed:** GitLab puts `CI_JOB_TOKEN` (and, depending on settings, `CI_REGISTRY_PASSWORD`, `CI_DEPENDENCY_PROXY_PASSWORD`, `CI_JOB_JWT*`) in every job. The runner removes every `CI_*TOKEN*`, `CI_*PASSWORD*` and `CI_JOB_JWT*` variable from its environment before its first git call. The one exception is the `@registry` job's single fetch of the private registry (GATE2 Q3: the registry's job-token allowlist), which uses `CI_JOB_TOKEN` once and then drops it. `t0.runner.hardened` checks the scrub;
 - needs git and Python ≥ 3.11 only.
 
 **Output:** `rm-bundle/provenance.json`, `rm-bundle/verdicts.tsv` (5-column rows, every row stamped with the nonce), `rm-bundle/items/<gate>.jsonl` and `rm-bundle/logs/`.
@@ -477,25 +487,12 @@ The control's row is `<gate>.negctl`, PASS when it fired.
 | `t0.registry.schema` | no | the registry loads with no problem (section 2) | an invalid example from `schemas/examples/invalid/` | D2, PR3 |
 | `t0.registry.refs-resolve` | no | every structured citation (`commit_ref`, `cites`, bench, detector source, workaround, import-source commit, `exposure.run.detector_source`) is reachable from a branch or tag on its component's canonical host (anonymous fetch; `unverified` for a private canonical repo). Loader rule 9 guarantees that free-text commits are among them | a synthetic record citing a commit that does not exist | D2, F3 |
 
-The registry is private, so this job needs read access to it from compat-ci (question 3 in GATE2.md).
+The registry is private: compat-ci's job token reads it through the registry's job-token allowlist (GATE2 Q3).
 
-**Expected on real data today:**
-- eth-rc4's raw T0 (README section 6 table, before waivers) is FAIL on three gates and UNVERIFIED on one:
-  - `t0.pins.fetchable`: TideLink and ASIC-Toolkit use ssh URLs (and ASIC-Toolkit is private); the 5 pins below TideLink are `not-reached`;
-  - `t0.urls.no-ssh-public`: same two URLs;
-  - `t0.pins.reachable`: on the example catalogue only ASIC/asic-toolkit is `unverified` (private), so the gate is UNVERIFIED: ahb_qspi `e908ac8` is on GitHub since the 2026-10-01 keep tag (CR-2). On the live registry (DEC6) ethernet-mac-ahb `44ff8b7` and socdebug_tech `50359ee` fail until decision R1 is carried out;
-  - `t0.vendor.no-arm-ip`: UNVERIFIED, the 7 trees that were never fetched are `not-reached`;
-  - `t0.vendor.no-foundry-data` (CR-6): NOT-RUN where no foundry rule is configured (the local GUI host); with the
-    toolkit scanner, UNVERIFIED for the same 7 trees, and every foundry finding WARN unless `foundry_rules` says fail.
-- With the 7 `t0_waivers` of `eligibility.example.yaml` registered, every one of those items is covered, so the
-  four gates and the run roll up **WAIVED** (`observation.t0-result-waived.example.jsonl`). The eighth waiver, for
-  ahb_qspi `e908ac8`, covered nothing once that commit was on GitHub (`waiver_unused`) and was retired (CR-2).
-- `t0.manifest.valid` and `t0.clone.upgrade-path` are NOT-RUN on rc4 (no manifest; no `upgrade_from`). eth-main declares `upgrade_from: v1.0.0`, so its upgrade-path gate runs (and fails today on rc4's ssh pins).
-- The registry job is FAIL on `t0.registry.refs-resolve`: bench `6aafc94` is not pushed.
+`result-bundle.verdicts.example.tsv` shows rc4's rows; what they were on real data in October 2026 is in
+[the archive](../archive/history.md#t0-on-real-data-2026-10).
 
-`result-bundle.verdicts.example.tsv` shows the rc4 rows.
-
-## 9a. Compatibility check and the local run mode (CR-11, MVP S2)
+## 9a. Compatibility check and the local run mode (CR-11)
 
 Requirements: D1, D2, B2, B7, CR-11 (`docs/CHANGES.md`). Reuses sections 4 and 9 unchanged; adds a run mode.
 
@@ -524,7 +521,7 @@ def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict
    no anonymous fetch can read) is listed in `unjudged_overrides` and makes the run UNVERIFIED, unless the
    gates judged a FAIL elsewhere (a failing item at a tree path that is not an unjudged move or below one, a
    registry item, or a FAIL gate with no failing item: `compat.judged_failures`): that run stays FAIL, and its
-   `reason` names both (integration review 2026-10-16).
+   `reason` names both.
 3. **Local run mode.** `Context.for_local`: allowed off CI (no `CI_JOB_ID` needed); every git call isolated and
    anonymous: HOME, XDG_CONFIG_HOME and TMPDIR are empty directories inside the work directory (so `~/.netrc`,
    `~/.git-credentials` and the user's git config are never read; unit-tested against an http host that asks for
@@ -553,7 +550,7 @@ def run_local(ctx, scope="configuration", extra_not_run=None) -> tuple[list[dict
   Example `observation.compat-result.example.jsonl`; invalid `observation.compat-hardened-pass.yaml`.
 - **Work directory:** a temporary directory, deleted afterwards; `--keep-work DIR` (new or empty) keeps it.
 
-### Tiers: local T1/T2 runs (CR-12, MVP S3)
+### Tiers: local T1/T2 runs (CR-12)
 
 Requirements: D1, CR-12 (`docs/CHANGES.md`).
 
@@ -669,8 +666,8 @@ Every 2 minutes, for each pending run:
 - `GET projects/:id/pipelines/:pid/variables`
 - `GET projects/:id/jobs/:job_id/artifacts`: unzip `rm-bundle/` into `<paths.quarantine>/<nonce>/`.
 
-A run still unfinished after the timeout (2 h) is `no-bundle` / INFRA. The role the read token needs for the
-variables call is not yet known (question 10 in GATE2.md).
+A run still unfinished after the timeout (2 h) is `no-bundle` / INFRA. The service account is Maintainer on
+compat-ci (GATE2 Q10); that this role can make the variables call is confirmed when compat-ci is created.
 
 ### Verify (D5)
 
@@ -739,7 +736,7 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
   - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header. The toolkit scanner has no such rule. D11's done-when plants exactly this banner. Its specimen is invented; no vendor text is ever written into this repo.
 - **How it runs:** the toolkit scanner reads git trees. For a bundle directory, the tool builds a throwaway git repo over the extracted files and runs the scanner with `--rev HEAD`.
 
-  Where the rule set lives (a pinned private toolkit copy, or rules loaded from compat-ci) is question 4 in GATE2.md.
+  The rule set stays private: compat-ci carries a pinned copy and passes its path to the scanner (GATE2 Q4).
 
 ## 12. Store
 
@@ -776,7 +773,7 @@ def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str,
 - **Schema version** (CR-ROB-store): `rm.sqlite` is at `PRAGMA user_version = 3` (3: keep-on-change columns, CR-1015-retention) and `jobs.sqlite` at 1. A connection
   runs the DDL only when the store is below its version (once, under `BEGIN IMMEDIATE`); otherwise opening it
   writes nothing, so a read never waits for the write lock.
-- **Keep-on-change** (CR-1015-retention; David 2026-10-15). `put_snapshot` compares the run with the scope's
+- **Keep-on-change** (CR-1015-retention). `put_snapshot` compares the run with the scope's
   **current** snapshot (the last committed, as above, never the newest wall-clock one). Two runs have the same
   content when their documents, in order, are equal once the volatile tokens are taken out: the top-level
   `snapshot.id`, and every UTC timestamp inside any string (`YYYY-MM-DDTHH:MM:SS`, optional fraction, `Z` or
@@ -797,7 +794,7 @@ def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str,
   `runs` and `actions` tables are never compacted. Operator steps: DEPLOY.md.
 - **Other stores** (not facts, not rebuildable, apart from `rm.sqlite`): `<data_dir>/jobs.sqlite` (section 13a),
   `<data_dir>/bumps.sqlite` (section 19.4) and `<data_dir>/gui.sqlite` (CR-W2: `nanosoc_rm.web.uistate`, mode
-  0600, `PRAGMA user_version = 1`): per-user inbox state `inbox_state(login, card_id, state, fingerprint, until,
+  0600, `PRAGMA user_version = 2`; version 2 adds `pref`, section 25): per-user inbox state `inbox_state(login, card_id, state, fingerprint, until,
   at)` and the review basket `review_decision(login, component, commit_sha, key, decision, text, at)` and
   `basket_flag(login, component, commit_sha, name, value, at)`. Each row carries its login and time; none changes
   system state, so none is logged in `actions`.
@@ -824,7 +821,7 @@ Every route is behind auth (section 14). Every page prints its data age and link
 
 | Route | Shows | Function |
 |---|---|---|
-| `GET /` dashboard | per configuration: last T0 verdict, its age, over-budget warning and not-run count; red pins; open errata (status `open` or `permanent`); host drift; runner status; data age; **Run T0**; open alerts as banners | `latest()` over t0_result, pin_state, host_compare, runner_settings, registry_record; `alerts()` |
+| `GET /` | the projects home (section 25). Its configuration board, closed under the tree, is this section's dashboard: per configuration the last T0 verdict, its age, over-budget warning and not-run count; red pins; open errata (status `open` or `permanent`); host drift; runner status; data age; **Run T0**; open alerts as banners | `latest()` over t0_result, pin_state, host_compare, runner_settings, registry_record; `alerts()` |
 | `GET /configurations/{id}` | pin table (tree path, component, commit, state per host, lag, tags, split); T0 history; **Run T0** | sections 4, 10 |
 | `GET /components/{id}` | repo detail: tags per host, host comparison (with the default-branch mismatch), consumers and their lag, defects citing it | sections 3, 5 |
 | `GET /contains?sha=&component=` | containment per configuration and host, with proof commands | section 6 |
@@ -952,7 +949,7 @@ Requirements: A5, H2.
 - **Login:** a GitHub OAuth app with scope `read:org`. The OAuth code exchange (`POST login/oauth/access_token`) is a POST that writes nothing (declared `read-post` in `WRITE_CALLS`). On callback, `state` must match; then `GET /user/memberships/orgs/SoC-Labs` must say `state: active` (a `pending` invitee is refused). The user's token is then discarded: it is kept in neither the session nor the database.
 - **Session:** a signed cookie (itsdangerous, as in fpgahub), valid 8 h.
 - **Refused session:** a user who completed the callback but is not an active member, or has no role, gets a signed "refused" session and **403** on every route, including `/api`. An anonymous user (no session) gets a redirect to `/auth/login` for pages and 401 for `/api`.
-- **Re-check:** membership is re-checked at most hourly with the service's read token: `auth.is_member(config, login)` calls `GET /orgs/SoC-Labs/members/{login}`, which must return 204. K3 (option a, David 2026-10-10): when GitHub cannot answer, the session is kept and the re-check is retried 10 minutes later (not on every request, and not an hour later), so a revoked member is caught soon after GitHub is back. The session still ends 8 hours after sign-in.
+- **Re-check:** membership is re-checked at most hourly with the service's read token: `auth.is_member(config, login)` calls `GET /orgs/SoC-Labs/members/{login}`, which must return 204. K3: when GitHub cannot answer, the session is kept and the re-check is retried 10 minutes later (not on every request, and not an hour later), so a revoked member is caught soon after GitHub is back. The session still ends 8 hours after sign-in.
 - **Roles:** from the service config (H2): `roles.default` for every active member, plus per-login additions. v1's only role, `member`, allows viewing and Run T0. An empty table refuses everyone.
 - **CSRF:** every form carries `csrf_token`, bound to the session. Tokens are compared as bytes, so a non-ASCII
   token is a 403, never a 500 (CR-ROB-auth).
@@ -1030,8 +1027,8 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
 8. **Pages (Q6).** `GET /quality/` (every target: ratio, outliers, findings, README mismatches, doc score, trend
    sparklines), `/quality/{target}` (summary), `/{target}/density|comments|readme|docs|trend`,
    `/{target}/comments.diff`, `/{target}/readme.diff` (404 with a plain-text reason when there is nothing to
-   patch). Query `ref`. A page never analyses inside its request (CR-R2), and a GET never queues work
-   (integration review 2026-10-16: link prefetchers and previews started analyses; `analyse=1` is ignored): with
+   patch). Query `ref`. A page never analyses inside its request (CR-R2), and a GET never queues work (link
+   prefetchers and previews would start analyses; `analyse=1` is ignored): with
    no stored result for the ref it answers 200 "not analysed yet" (hook `data-not-analysed`) with an Analyse
    button, or, while a quality job for that target and ref is queued or running, 202 "analysing, refresh" with
    the job's card (`comments.diff`: 404 / 202 as text). The button (and "Analyse again" on an analysed page) is
@@ -1044,7 +1041,7 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
 - **CLI:** `nanosoc-rm quality density|comments|readme|docs|all [TARGET] [--ref R] [--path DIR] [--store] [--json]`,
   `comments --kind K --patch OUT`, `readme --docs --patch OUT`, `docs --rewrite --patch OUT`, `quality trend KIND
   TARGET`. Exit 0 clean, 1 findings, 2 could not answer, 3 usage or config error.
-9. **Precision (Wave D, CR-WD-Q1..Q5; additive).**
+9. **Precision (CR-WD-Q1..Q5; additive).**
    - *Decoration rule (Q1).* `banner` and `boilerplate` are one bulk rule per repository: each such finding
      carries `bulk: "decoration"` and the fact `bulk_rules: [{rule, kinds, count, files, edits, by_kind}]`. The
      review queue, the default comments table, `comments.diff` and the Inbox count leave the rule out;
@@ -1076,7 +1073,7 @@ trend(kind, target) -> [{commit, worktree, observed_at, value}]                 
      configuration) keeps targets that are a registered configuration's component or a child in a stored
      `pin_state` tree (`quality.web.my_components`); a chip row links each scope with its count.
 
-## 14b. Versions, change classes and tool releases (CR-VER; Wave B, build-vs-enable per CR-15)
+## 14b. Versions, change classes and tool releases (CR-VER; built per CR-15)
 
 Requirements: C1-C12, F6, G1, G5, G6 (Phase 3: built and used locally; nothing scheduled, nothing written to a
 repo, host or the registry). Package `nanosoc_rm.versioning`; user guide `docs/versioning.md`. Every function
@@ -1242,15 +1239,17 @@ ReleaseUsage (exit 3), ReleaseError (exit 2)
 
 ## 15. Formats fixed now for later phases
 
-| Phase | What | Contract |
-|---|---|---|
-| 2 | D4 capture | `captured.pins`, `host`, `ip_hash` in result-bundle; a moved pin makes the run UNVERIFIED |
-| 2 | D10 CPU budget | `cpu_seconds` in result-bundle |
-| 2 | Matrix and flaky handling (D3, D8) | FLAKY / XFAIL / XPASS gate verdicts |
-| 3 | Manifests | T0 validates component-manifest (C11) |
-| 4 | Bump bot (E3, E5) | `auto_merge` in eligibility; `workarounds` in manifests |
-| 5 | Lock writer (G3, G7) | `nanosoc-rm lock CONFIG --out release.lock.yaml` emits release-lock, built from section 4 plus a release spec (archive refs, output hashes) |
-| 5 | POL-1 (proposal section 3.4): T0 on a silicon ref fails on an uncovered commit | a gate `t0.pins.silicon-covered`, added with G2; until then B5's `--uncovered` exit 1 carries the signal |
+Contracts, schemas, docs and tests for later phases are gate-2 work: they may name later-phase ids (section 17.6).
+
+| Phase | What | Contract | Now |
+|---|---|---|---|
+| 2 | D4 capture | `captured.pins`, `host`, `ip_hash` in result-bundle; a moved pin makes the run UNVERIFIED | matrix cells capture it (section 18) |
+| 2 | D10 CPU budget | `cpu_seconds` in result-bundle | reserved |
+| 2 | Matrix and flaky handling (D3, D8) | FLAKY / XFAIL / XPASS gate verdicts | FLAKY built (section 18) |
+| 3 | Manifests | T0 validates component-manifest (C11) | built (`t0.manifest.valid`) |
+| 4 | Bump bot (E3, E5) | `auto_merge` in eligibility; `workarounds` in manifests | shadow mode built (section 19); `auto_merge` must stay empty |
+| 5 | Lock writer (G3, G7) | release-lock, built from section 4 plus a release spec (archive refs, output hashes) | built as `nanosoc-rm release draft` (section 14c) |
+| 5 | POL-1 (proposal section 3.4): T0 on a silicon ref fails on an uncovered commit | a gate `t0.pins.silicon-covered`, added with G2 | reserved; B5's `--uncovered` exit 1 carries the signal |
 
 ## 16. v1 Must requirements → interface → golden
 
@@ -1288,9 +1287,8 @@ For the coverage checker (PR5):
 
 ## 17. Names the acceptance tests rely on
 
-The three acceptance files (`tests/acceptance/test_{pins,ci_errata,scope_web}.py`) proposed about fifty names
-the earlier sections did not fix, and disagreed on some. This section is the one decision for all three. A
-builder who wants a different name changes it here, through a CR after gate 2, and in the tests' one helper.
+The one list of names the acceptance tests (`tests/acceptance/test_{pins,ci_errata,scope_web}.py`) rely on. A
+builder who wants a different name changes it here, through a CR, and in the tests' one helper.
 
 ### 17.1 Config keys (TOML)
 
@@ -1428,7 +1426,7 @@ The census resolves each file's imports, so an alias (`import subprocess as proc
 import Popen`, `from os import execvp`), a `getattr(obj, "delete")(...)` call and the `os.exec*`/`spawn*`/
 `posix_spawn*` family are censused like the plain forms; a `getattr` call with a computed name is an unresolved
 HTTP call (method `?`). `sites` (default 1) is how many call sites the census cannot pin to one target (target or
-method `?`) one entry covers: one more in that file fails A2 (evaluation 2026-10-16):
+method `?`) one entry covers: one more in that file fails A2:
 
 | effect | Meaning | Allowed |
 |---|---|---|
@@ -1463,7 +1461,7 @@ sha), and counts only while `docs/CHANGES.md` has a row whose CR column is `cr` 
 characters. The one entry today is build/ci `6946076` (D7, CR-5). History is not rewritten.
 **Trailer only (CR-R3):** a commit names an id only in its `Requirements:` trailer lines; the subject and body are
 never read (a review label `G1:` is not a claim).
-**Build and enable (CR-15; CR-15a, CR-15b and CR-R4, merged as CR-15c at the Wave B integration).** An optional
+**Build and enable (CR-15; CR-15a, CR-15b and CR-R4, merged as CR-15c).** An optional
 top-level `build_allowed: {cr, from, phases}` counts only while `docs/CHANGES.md` has a row whose CR column is
 `cr` (today CR-15, from 2026-10-12, Phase 2 to 5). For each listed phase (default all four) whose gate is not met,
 implementation commits made from `from` on (default any time) that name its ids, and its routes and commands, are
@@ -1481,54 +1479,10 @@ has a subcommand no other phase claims.
 
 ### 17.7 Gap index
 
-Where each gap the three acceptance files logged is resolved:
+The gate-2 index of where each acceptance-file gap was resolved is in
+[the archive](../archive/history.md#gap-index-gate-2). The gap tables in `docs/acceptance/` keep their own copy.
 
-| Gap | Resolved in |
-|---|---|
-| pins G1, ci_errata G4 (keys), scope_web G2 | 17.1 |
-| pins G2, ci_errata G14, scope_web G1 | 17.2 |
-| pins G3 | 1 (config read per call) |
-| pins G4 | 4 step 2, pin-state `fact.state` |
-| pins G5 | 5 (UNKNOWN, nullable heads) |
-| pins G6 | 4 step 4, README section 5 |
-| pins G7, scope_web G14 | 3 (namespace and key), examples fixed |
-| pins G8 | 4 step 3 |
-| pins G9 | 4 step 2, pin-state `branch_field` |
-| pins G10 | 6 step 4 |
-| pins G11 | 7 |
-| pins G12 | 8, 12 |
-| pins G13 | 4 step 1, eligibility `commit` |
-| pins G14, ci_errata G13, scope_web G18 | 17.4 |
-| pins G15 | 3 (git environment) |
-| pins G16 | 4 (storage) |
-| ci_errata G1 | 9 (tiers and budget) |
-| ci_errata G2, scope_web G8 | 10 Trigger step 5, `coverage` |
-| ci_errata G3 | 9 (`url_map`) |
-| ci_errata G4 | 10 (types, `CIClient`, `FakeCI`) |
-| ci_errata G5, scope_web G4, G5 | 13 (hooks, `/facts/{subject}`, `/api/v1/errata`), 14 |
-| ci_errata G6 | 9 (Gate API), observation `control: not-applicable`, example rows added |
-| ci_errata G7, scope_web G7 | 1 (`ci.*`), 10 verify check 1, observation `runner_settings`, 17.3 |
-| ci_errata G8 | 9 (`finalise_bundle`), 11, result-bundle `scan.findings` |
-| ci_errata G9 | data, not contract: questions 8 and DEC3 |
-| ci_errata G10 | 6a, erratum `exposure.run` |
-| ci_errata G11 | 9 (items files, `t0 items`), README section 6 ("T0 fails") |
-| ci_errata G12 | 2a, import-ledger `items_rule` |
-| ci_errata G15 | 9 (`t0.pins.reachable` walks canonical URLs) |
-| scope_web G3 | 14 |
-| scope_web G6, G20 | observation `registry_record` and `alert`; 13 JSON API |
-| scope_web G9 | 17.3 |
-| scope_web G10 | 17.5 |
-| scope_web G11 | 10 CLI, 14 Logging |
-| scope_web G12 | 17.6, `docs/phase-gates.yaml` |
-| scope_web G13 | 12a |
-| scope_web G15 | 3 (which repos) |
-| scope_web G16 | 12 (history) |
-| scope_web G17 | README section 3 rule 10; deletion: question 12 |
-| scope_web G19 | 3 (`--no-tags`) |
-| scope_web G21 | 17.4 |
-| scope_web G22 | 13 (host drift) |
-
-## 18. Compatibility matrix (Wave B, built per CR-15)
+## 18. Compatibility matrix (built per CR-15)
 
 Requirements: D3, D4, D7, D8, D9 (Phase 2), B7; CR-15 (build now, enable at the Phase 2 gate) and CR-18-matrix
 (`docs/CHANGES.md`). Package `nanosoc_rm.matrix`; front ends `nanosoc-rm matrix` and `/matrix/` over the same
@@ -1688,7 +1642,7 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
      `rows[].tier_cells`. `eligibility.schema.json` `tier_command.ip_files`. Examples
      `matrix.cell-t1.example.json`, invalid `matrix.cell-t1-checkout-moved-fails.yaml`.
 - **Not built here:** T2 cells (the matrix adds only t1), CI-run cells (needs gate 3).
-## 19. Bump proposals in shadow mode (Phase 4 E1-E7; Wave B, built per CR-15)
+## 19. Bump proposals in shadow mode (Phase 4 E1-E7; built per CR-15)
 
 Requirements: E1, E2, E3, E5, E7 (Phase 4), H3; CR-15 and CR-WB-bumps (`docs/CHANGES.md`). Built and usable by
 hand now; ENABLING it (a schedule, a bot that writes) stays behind the Phase 4 entry gate in
@@ -1740,13 +1694,13 @@ Inputs, all read: the configuration's latest stored walk (section 4; never re-wa
    20 subjects); `diverged` when the pin is not an ancestor of the tag.
 6. **Defects (registry).** `introduced`: an `origin` commit of the dependency that the tag contains and the pin
    does not; `fixed`: a `fixed_in` commit likewise, with its forms. A defect whose origin AND every form's fix
-   both arrive with the move is `within_range` (optional field, review item 7): the pin never had it and the tag
+   both arrive with the move is `within_range` (optional field): the pin never had it and the tag
    has the fix, so it is neither fixed nor introduced. A commit the mirror lacks is `unjudged`.
 7. **Matrix cell (T0-T2).** The matrix module's stored cell for exactly this move (18.6), else the finished local
    compat what-if jobs whose `--pin` list is exactly `<tree path>=<to sha>` for every tree path of the move AND
    whose result ran on the walked tree (`compat_result.fact.commit` is the walk's root commit; another tree, or
    no result, is stale and named in `matrix.note`). The newest such job per tier fills `matrix.tiers` (optional
-   field, review item 1: `t0` = no `--tier`, `t1`, `t2`). A `--tier` what-if runs T0 first and its verdict is the
+   field: `t0` = no `--tier`, `t1`, `t2`). A `--tier` what-if runs T0 first and its verdict is the
    ladder over both, so the cell is PASS only when a t1 and a t2 what-if both PASS; any non-PASS tier makes the
    cell that verdict; otherwise it is null (incomplete). A T0-only PASS is never the cell. The page offers one
    Run per missing tier (a POST that queues that compat job with `tier`).
@@ -1755,8 +1709,8 @@ Inputs, all read: the configuration's latest stored walk (section 4; never re-wa
 9. **Order (E1).** Deepest first: `order` 1 is applied first; `waits_for` lists proposals inside the dependency
    itself (they land and are tagged before this one).
 10. **Decision.** Always `mode: shadow`, `would: open-pull-request` (or `hold` when blocked), `auto_merge: false`,
-    `goes_to: person`, with `blockers`: shadow mode first, then every E3 condition the tool cannot show holds
-    (review item 2): no T0-T2 PASS cell; the configuration does not pin the consumer at the branch tip (not the
+    `goes_to: person`, with `blockers`: shadow mode first, then every E3 condition the tool cannot show holds:
+    no T0-T2 PASS cell; the configuration does not pin the consumer at the branch tip (not the
     exact commits); controls fired and no test green to red (not checked yet: always listed); class not fix or
     feature; the source not a release tag; the target not the consumer repo's default branch (or its default
     unknown); E5: a GitHub consumer whose repo_inventory visibility is not `public` (or no inventory); diverged;
@@ -1781,10 +1735,10 @@ changes nothing when the submodule is not checked out). It does not apply to a b
 
 Not rebuildable, not facts, so apart from `rm.sqlite` (as `jobs.sqlite` is): `proposals` (id, first and last time
 computed, the configurations, the latest bump_proposal observation), `proposal_docs` (the latest bump_proposal
-per proposal AND configuration, review item 6: one move proposed for two configurations keeps both documents, so
+per proposal AND configuration: one move proposed for two configurations keeps both documents, so
 each configuration's tree paths, order, waits_for and matrix pins stay its own), `marks` (proposal, at, login,
 decision `done` or `declined`, note: every mark is a write action logged with its login, H2), `scans` (the latest
-bump_scan per configuration) and `ledger` (the latest bump_ledger and when it was computed, review item 4). The bump kinds are not in `db.EVENT_KINDS`, so `/facts/<subject>` does not serve them;
+bump_scan per configuration) and `ledger` (the latest bump_ledger and when it was computed). The bump kinds are not in `db.EVENT_KINDS`, so `/facts/<subject>` does not serve them;
 `/bumps/facts/<subject>` does, with the same hooks.
 
 ### 19.5 The shadow ledger (E2)
@@ -1803,12 +1757,12 @@ disagreements. Switching it on is a registry change a person makes after the Pha
 is always false here and a non-empty `eligibility.yaml auto_merge` is a problem. `observed_at` is the oldest
 consumer mirror sync it read. The ledger reads the mirrors, so it is computed only by the CLI or a job (`bumps
 scan --store` keeps it after the scan, `bumps ledger --store` alone) and the pages show the kept one with the
-time it was computed: no git and no ledger computation inside a request (review item 4).
+time it was computed: no git and no ledger computation inside a request.
 
-### 19.6 Interfaces this module needs from other Wave B modules
+### 19.6 Interfaces this module needs from other modules
 
 Looked up at run time (`nanosoc_rm.bumps.interfaces`); a module not built here is not an error and the fallback
-is named in the fact (`class_source`, `matrix.source`). Both providers exist since the Wave B integration (CR-WB-int):
+is named in the fact (`class_source`, `matrix.source`). Both providers exist (CR-WB-int):
 `matrix.bump_cell` answers only the newest stored cell whose overrides are exactly the move (FLAKY reads as
 UNVERIFIED), and `versioning.classify_bump` returns None when no C3 signal gives a class:
 
@@ -1875,7 +1829,7 @@ Examples: `bump-proposal.example.yaml`, `observation.bumps.example.jsonl` (ILLUS
 commits, labelled); invalid: `bump-proposal.auto-merge-in-shadow-mode.yaml`, `.release-branch-target.yaml`,
 `.claims-regenerated-rtl.yaml`, `.blocked-but-would-open-a-pr.yaml`, `observation.bump-scan-frozen-with-proposal.yaml`.
 
-## 20. The regenerator: C3 consumer regeneration and C7 (Wave D, built per CR-15)
+## 20. The regenerator: C3 consumer regeneration and C7 (built per CR-15)
 
 Requirements: C3, C7 (Phase 3; built and used locally, nothing scheduled). Package `nanosoc_rm.regen`.
 
@@ -1948,11 +1902,11 @@ no baseline), INFRA (not run here), UNVERIFIED (override not reached). Exit 0, 1
 proposals that cite them. Phase 3 surfaces: the `regen` CLI group (`phasegates.LATER_SURFACES`); a scheduler job
 named with `regen` is Phase 3 automation (`LATER_AUTOMATION`).
 
-## 21. Publishing to the release store (CR-ART-publish; G8, D12, G3; David 2026-10-14)
+## 21. Publishing to the release store (CR-ART-publish; G8, D12, G3)
 
-David's decisions (2026-10-14, chat): phases 1 to 3 of the Artifactory design; the tool gets its own new
-Artifactory token (one year, revocable); release and tapeout manifests are published to `asic-release` by a GUI
-button. This relaxes "the web app is read-only" for exactly this one write path. Module `nanosoc_rm.publish`.
+The tool has its own Artifactory token (one year, revocable); a person publishes release and tapeout manifests to
+`asic-release` with a GUI button or the CLI. This relaxes "the web app is read-only" for exactly this one write
+path. Module `nanosoc_rm.publish`.
 
 ### 21.1 Records (schemas `release-manifest`, `tapeout-record`)
 
@@ -2038,7 +1992,7 @@ those names (never a producer's build), with a body of the allow-listed keys `st
 - Phase 5 surfaces (`phasegates.LATER_SURFACES`): `/publish`, `publish-release`, `register-tapeout`. A scheduler job
   that reaches `nanosoc_rm.publish` or queues its job kinds is the `soc_release` automation (`AUTOMATION_CODE`).
 
-## 22. The artefact store index (Wave E; B10, G8, D12; CR-WE-index)
+## 22. The artefact store index (CR-WE-index; B10, G8, D12)
 
 The tool reads what the artefact store (Artifactory, `[stores.artifactory]`) holds and stores it as one fact;
 pages show that fact. Read-only: the store client admits GET and HEAD on any path except the Access and
@@ -2125,7 +2079,7 @@ child process.
 
 ## 23. Catalogue characterisation (CR-WF-catalogue; A1, B1, H1)
 
-David 2026-10-14 (chat): front page approved. The front page groups the catalogue as a ladder: a **project** (the
+The front page groups the catalogue as a ladder: a **project** (the
 top-level repo that builds a chip or a chiplet: "the plate") wraps a **SoC** ("the meat"), which integrates
 **subsystems** and **components** ("the potatoes"), built from **arch** tech units and **generators**; **toolkits**,
 **flows**, technology **libs**, **infra** and **legacy** sit beside it. This section is the data model and the two
@@ -2239,7 +2193,6 @@ How far each pin of each registered configuration lags its upstream default bran
 it, and one verdict per tree, for the projects home page (Home), the freshness grid and the detail panel (David
 2026-10-14: "a very clear indication of whether a submodule tree is outdated or not and how long since it's been
 updated last"). v1 monitoring, no later-phase automation: the job and route names carry no LATER_AUTOMATION word.
-(Sections 21 and 22 belong to Wave E.)
 
 ### 24.1 The scan (`nanosoc_rm.freshness.scan`)
 
@@ -2281,8 +2234,8 @@ by its commits behind like any other (the view flags it `diverged`, or `unmerged
 
 Per tree (`judge_tree(frozen, pins, today)`): `state` = the worst DIRECT pin (depth 1) by `SEVERITY` = unpushed 4 >
 outdated 3 > behind 2 > not_measured 1 > current 0, so a tree is Current only when every direct pin was measured
-at its head; no pins = not_measured; a frozen tree is `frozen` with `would_be` = that verdict. CR-1015-unmeasured
-(David 2026-10-15, "Not Current"): when that worst is `not_measured` and at least one direct pin is `current`, the
+at its head; no pins = not_measured; a frozen tree is `frozen` with `would_be` = that verdict. CR-1015-unmeasured:
+when that worst is `not_measured` and at least one direct pin is `current`, the
 verdict is **`current_except`** ("Current except N not measured", `tree_word(state, direct_not_measured)`; amber, its
 own shape on the pages); worse states (unpushed, outdated, behind) still win; a tree none of whose direct pins was
 measured stays `not_measured`; a frozen tree stays `frozen` (its `would_be` may be `current_except`).
@@ -2372,7 +2325,7 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
 
 ## 25. The front pages: Projects, Matrix, Catalogue, Notifications (CR-WF-gui; H1, A3, A4, A5, PR4)
 
-Requirements: H1, A3, A4, A5, PR4. Agreed: David 2026-10-14 (chat): front page approved. This section REVERSES
+Requirements: H1, A3, A4, A5, PR4. This section REVERSES
 CR-W1's inbox at `/`: `/` is the projects home and the inbox is Notifications behind the bell. Section 13's `GET /`
 hooks (AT-H1: `data-configuration`, `data-item`, `data-verdict`, `data-run-t0`) stay on `/`, in the configuration
 board closed under the tree. Every page reads stored facts only: a GET never walks, scans, fetches, queues a job or
@@ -2384,7 +2337,7 @@ creates gui.sqlite. Every page keeps one data-age element; a state is always a w
 | `GET /matrix/` | tab **Freshness** (default): one row per repository, one column per stored tree; query `group` (`all`, project, toolkit, flow, component, generator, arch, lib, infra, legacy, ext), `rows=all` (also rows with no lag), `sort=behind\|age`, `comp` + `cfg` (the cell whose detail line is open). `?tab=compat`: the section 18 configuration list, unchanged; `/matrix/{configuration}` and every other matrix route are unchanged | `matrix.web`, `web.fmatrix` |
 | `GET /catalogue/` | the new-repo queue (current `repo_seen` snapshots), "needs your call" (entries with a `question`), every group, the ignored list, "What Save writes" | `catalogue.web` (plug-in) |
 | `GET /notifications` | one line per item (`?show=all`: read items too), "notify me about" | `web.notifications` |
-| `GET /inbox` | the inbox cards (Wave C section 2) with evidence, snooze and undo; `?cat=` as before | `web.inbox` |
+| `GET /inbox` | the inbox cards (`web.inbox`, CR-W1, CR-W3) with evidence, snooze and undo; `?cat=` filters by category | `web.inbox` |
 | `POST /home/timeline` | field `timeline` (`on`\|`off`), `return` (a `/` or `/?...` URL); saves the login's `timeline` preference; 303 back | `web.home` |
 | `POST /notifications/read` | fields `item`, `fp` (the item's fingerprint), `read` (`0` = mark unread); 303 to `/notifications` | `web.notifications` |
 | `POST /notifications/read-all` | repeated `item` + `fp` pairs: exactly the items the page showed (400 when none); a later item stays unread | `web.notifications` |
@@ -2611,10 +2564,10 @@ Guard answers a bearer request for this one path before its session check (`capa
 token opens no other route and an executor token does not open this one (the two digest lists are separate, and
 config load refuses a digest in both). Read-only: job records and the registry; nothing runs, queues or fetches.
 
-## 27. The remote tier executor (CR-WG-executor; D1, D4, A2, A6, PR6; David 2026-10-16 decisions 1 and 3)
+## 27. The remote tier executor (CR-WG-executor; D1, D4, A2, A6, PR6)
 
 Tier runs need the EDA tools that only the EDA login host has (VCS, Xcelium, Verilator, Genus); the service host has
-none (evaluation 2026-10-16, section 9.1). Decision 1: a **pull agent** on the EDA host claims work from the service,
+none. A **pull agent** on the EDA host claims work from the service,
 runs it **sandboxed and unprivileged**, and posts the result back; GitLab CI may take its place later. The service
 never connects to the agent, never runs a tier command, and never hands the agent a credential.
 
@@ -2756,7 +2709,7 @@ the Python prefix, the nanosoc-rm install, the rm_config directory and its regis
 (all under the exposure check). stdout (the JSON documents) and the log go back with the exit code, and
 `jobs.finish_for_executor` reads them as the local worker would. A job whose agent stops heartbeating is finished
 with no exit code (INFRA) by `jobbridge.expire`; so is a running executor job with NO lease row older than one lease
-(the claim's two transactions were cut by a service crash: integration review 2026-10-16). Cancel is the job's
+(the claim's two transactions were cut by a service crash). Cancel is the job's
 `cancel_by`. Grants: `jobs` claims every tier job kind; `jobs:<kind>` (`jobs:test-bump`, `jobs:compat`,
 `jobs:matrix-cell`) only that kind. The tools a job needs are checked on the agent host (`host_check`: a missing
 tool is INFRA, so the job reads UNVERIFIED, never PASS). In a bwrap job the agent sets
