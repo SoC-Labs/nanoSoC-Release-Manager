@@ -118,9 +118,7 @@ returns dicts or models whose `model_dump(mode="json", by_alias=True)` is the do
   - a relative URL (`../x.git`) is resolved against `parent`'s pinned URL, as git does, and reported `relative`.
 
   A URL that resolves to no component or external entry gives `unknown`, and the walker raises an `unknown_url` alert.
-  K1: that includes an `ignored` repo pinned in a registered tree. `ignored` keeps a repo
-  out of the inventory's "unclassified" list and out of the mirrors; a registered tree that pins it makes it a
-  dependency, so it is flagged to be classified, never hidden (README section 5 "Unknown URL").
+  K1: that includes an `ignored` repo pinned in a registered tree (README section 5 "Unknown URL") ([history](../archive/interfaces-history.md#section-2-registry-loader-and-validator)).
 - **Errors:** never partial. A registry with any problem is not loaded; the service keeps serving the last good one and shows the problems.
 - **Facts (A3, H1):** each record the web shows is also a `registry_record` observation (source `git -C <registry> show <commit>:<file>`), so registry facts carry an age and a command like every other fact. K2: the one producer, `registry.store_records`, stores the real checkout path in the command (the CLI, the JSON API and the store keep it); HTML pages show the literal placeholder `<registry>` in its place, so no page carries the service VM's filesystem layout.
 
@@ -149,7 +147,6 @@ every external, legacy included. Ignored and unclassified repos are listed by `i
   `refs/r/<host>/<quote(path, safe="")>/heads/*` and `.../tags/*`, where `quote` is Python's
   `urllib.parse.quote` (so `/` in the path is `%2F`). The namespace key used in function arguments is
   `<host>/<quote(path, safe="")>`.
-- Keeping both hosts in one object store is what makes B6 answerable. GitHub's compare API returns 404 for the other host's head (README section 7, fact 4).
 
 **Fetch** (every 15 minutes; explicit refspec, never `--mirror`, so no PR/MR refs):
 
@@ -158,7 +155,7 @@ git -C <id>.git fetch --no-tags --prune --filter=blob:none <https url> \
     +refs/heads/*:refs/r/<key>/heads/*  +refs/tags/*:refs/r/<key>/tags/*
 ```
 
-- `--no-tags` is required: without it git auto-follows tags and writes `refs/tags/*` outside the namespace, and in a store holding both hosts the first host fetched would own the bare tag names (reproduced with git 2.43, scope_web gap G19).
+- `--no-tags` is required: without it git auto-follows tags and writes `refs/tags/*` outside the namespace ([history](../archive/interfaces-history.md#section-3-mirror-and-poller)).
 - **Mirror config:** `core.logAllRefUpdates=always`, `gc.reflogExpire=never`, `gc.reflogExpireUnreachable=never`, `gc.pruneExpire=never`. Old heads and their objects stay inspectable (B3 REWRITTEN, B8).
 - **Private repos:** the read token goes in through a credential helper, never in the URL.
 - **Private repos, local deployment (CR-PR1, optional, off by default):** `[hosts.<host>] private_read` names one
@@ -199,7 +196,7 @@ def sync_component(component_id: str) -> list[dict]   # mirror_status per repo (
 def inventory() -> list[dict]                         # repo_inventory for every repo in org + group (A1); stored as one snapshot per host
 ```
 
-- **Inventory listing:** GitHub `GET orgs/<org>/repos?type=all&per_page=100` following `Link`; GitLab `GET groups/<group>/projects?include_subgroups=true&per_page=100` following `X-Next-Page`. Subgroups matter: 71 top-level GitLab projects against 101 with subgroups (2026-09-30).
+- **Inventory listing:** GitHub `GET orgs/<org>/repos?type=all&per_page=100` following `Link`; GitLab `GET groups/<group>/projects?include_subgroups=true&per_page=100` following `X-Next-Page`.
 - **CLI:**
   - `nanosoc-rm mirror sync [--component ID] [--host H]`
   - `nanosoc-rm mirror status [--json]`: one mirror_status per repo; the table prints each repo's age (now − `last_success_at`), H6.
@@ -309,7 +306,10 @@ def silicon_protection(configuration: str | None = None) -> list[dict]   # kind 
 - A configuration that is neither frozen nor silicon gives `[]`, not an error.
 - B5 judges both hosts (GATE2 Q9).
 - **CLI:** `nanosoc-rm silicon-protection [CONFIG] [--uncovered] [--json]`. Exit 1 if any row is uncovered.
-- **Golden (`observation.example.jsonl`; CR-2, re-derived 2026-10-10):** on the example catalogue eth-rc4 gives 13 rows. The 11 pinned-host rows are all covered by `keep/eth-rc4/*` (the B5 done-when). The 2 canonical-host rows are covered since David's 2026-10-01 GitHub tags: nanosoc_arch_tech `ecf76aa` by `keep/eth-rc4/nanosoc_arch_tech`, ahb_qspi `e908ac8` by `keep/eth-rc4/ahb_qspi`. On the live registry, DEC6 also makes ethernet-mac-ahb, hostio4 and socdebug_tech canonical on GitHub, which adds 3 rows (16 in all): `44ff8b7` and `50359ee` MISSING on GitHub, `51348de` BRANCH_ONLY there (decision R1). `--uncovered` exits 1 until those 3 are pushed and tagged; with only the example catalogue it exits 0.
+- **Golden (`observation.example.jsonl`):** on the example catalogue eth-rc4 gives 13 rows, all covered (11
+  pinned-host rows by `keep/eth-rc4/*`, the B5 done-when; 2 canonical-host rows). The live registry adds 3
+  canonical-host rows (16 in all), uncovered until decision R1 is carried out, so `--uncovered` exits 1 there and 0
+  on the example catalogue ([history](../archive/interfaces-history.md#section-7-silicon-protection-list)).
 
 ## 7a. Branch inventory (CR8)
 
@@ -370,7 +370,7 @@ def clear_alert(subject: str, by: str) -> None          # logged in `actions` as
 
 ## 9. T0: definition and runner
 
-Requirements: D1, D2, D6, D10, D11, C11, F3. (The `t0.infra.probe` gate serves D7, a Phase 2 requirement; CR-5 took D7 off this line so v1 commits do not name it.)
+Requirements: D1, D2, D6, D10, D11, C11, F3 ([history](../archive/interfaces-history.md#section-9-t0-definition-and-runner)).
 
 T0 runs **only** in the GitLab CI job `t0` of the compat-ci project (A4). The service never runs it. A developer
 may run the same gates on their own machine with `nanosoc-rm compat` (section 9a, CR-11, run mode `local`); a local
@@ -620,7 +620,7 @@ Registry.tiers(configuration) -> dict; configs.tiers(configuration, config=None)
 
 ## 10. CI trigger, fetch and verify
 
-Requirements: A2, A4, D2, D5, D10, H2. (CR-5: D7 removed.)
+Requirements: A2, A4, D2, D5, D10, H2.
 
 ```python
 class CIClient(Protocol):           # nanosoc_rm.ci.client; the real one uses httpx and the config's tokens
@@ -733,7 +733,7 @@ def specimen(rule_id: str) -> str               # nanosoc_rm.scan.rules: the inv
 - **Rules:**
   - the toolkit scanner's rule set: foundry file, value and inventory shapes, and Arm product codes (CR-6: its
     `file.sha` is arm-family; the rest, `ident` included (CR-19), are foundry-family);
-  - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header. The toolkit scanner has no such rule. D11's done-when plants exactly this banner. Its specimen is invented; no vendor text is ever written into this repo.
+  - one new rule, `arm.banner`, for the Arm confidential-and-proprietary file header ([history](../archive/interfaces-history.md#section-11-bundle-and-tree-scanner)). Its specimen is invented; no vendor text is ever written into this repo.
 - **How it runs:** the toolkit scanner reads git trees. For a bundle directory, the tool builds a throwaway git repo over the extracted files and runs the scanner with `--rev HEAD`.
 
   The rule set stays private: compat-ci carries a pinned copy and passes its path to the scanner (GATE2 Q4).
@@ -791,7 +791,8 @@ def alerts(open_only: bool = True) -> list[dict];  def clear_alert(subject: str,
   `nanosoc-rm store-maint compact --dry-run|--apply` (`db.compact`) collapses runs of identical snapshots stored
   before keep-on-change the same way (first snapshot kept, the last check as its confirmation); one transaction,
   safe to rerun; a scope whose current snapshot is not its last stored one is skipped. Event kinds and the
-  `runs` and `actions` tables are never compacted. Operator steps: DEPLOY.md.
+  `runs` and `actions` tables are never compacted. Exit 3 unless exactly one of `--dry-run` and `--apply` is given.
+  An operator command: the service stopped, the store backed up (DEPLOY.md).
 - **Other stores** (not facts, not rebuildable, apart from `rm.sqlite`): `<data_dir>/jobs.sqlite` (section 13a),
   `<data_dir>/bumps.sqlite` (section 19.4) and `<data_dir>/gui.sqlite` (CR-W2: `nanosoc_rm.web.uistate`, mode
   0600, `PRAGMA user_version = 2`; version 2 adds `pref`, section 25): per-user inbox state `inbox_state(login, card_id, state, fingerprint, until,
@@ -1122,8 +1123,7 @@ class Regenerator(Protocol): name; available(); consumers(component); regenerate
    deployment only (section 13a): `POST /versions/refresh`, `POST /versions/{component}/draft` (jobs; 404 for a
    component outside the catalogue), `POST /versions/{component}/drafts/{version}/approve` (G5, the signed-in
    login; CR-VER-a). Row hooks:
-   `data-component`, `data-verdict`, `data-signal`, `data-rule`, `data-tag`. A plug-in's `router` factory may
-   take the app (`plugins.load`, additive) so it registers POST routes only when `app.state.rm.local_routes`.
+   `data-component`, `data-verdict`, `data-signal`, `data-rule`, `data-tag`.
 - **CLI:** `nanosoc-rm changelog lint`, `version next|tags|refresh|draft|approve|yank|fixed-in`, `manifest init`
   (docs/versioning.md). Exit 0 PASS or WARN, 1 finding or FAIL, 2 could not answer, 3 usage.
 
@@ -1394,21 +1394,10 @@ login or a password under 8 characters. `nanosoc-rm serve [--no-worker] [--i-kno
 `nanosoc-rm trace [--json]` (PR7): requirement → tests → commits, from the `requirement` markers and the
 `Requirements:` commit trailers.
 
-`nanosoc-rm quality density|comments|readme|docs|all|trend` (CR-14, Q1-Q6): section 14a.
-
-`nanosoc-rm matrix CONFIG|cell|quarantine|nightly` (D3, D4, D7, D8, D9, B7; built per CR-15): section 18.
-`nanosoc-rm changelog lint`, `nanosoc-rm version next|tags|refresh|draft|approve|yank|fixed-in`, `nanosoc-rm manifest
-init` (CR-VER, C1-C12, F6, G1, G5, G6): section 14b.
-`nanosoc-rm bumps [CONFIG]|show|patch|mark|ledger` (E1-E7 shadow mode; built per CR-15): section 19.
-`nanosoc-rm release draft|verify|list` and `nanosoc-rm forks` (CR-R1; G2, G3, G4, G7, F4, I1, I2, built under
-CR-15): section 14c.
-`nanosoc-rm regen run|class|pending` (C3 3/3, C7; built per CR-15): section 20.
-`nanosoc-rm store index|show|search|findings` (B10, G8, D12; CR-WE-index): section 22.
-`nanosoc-rm freshness scan|show` (B2, B3, H1; CR-WF-fresh): section 24.
-`nanosoc-rm catalogue show|org-scan|preview` (A1, B1, H1; CR-WF-catalogue): section 23.
-`nanosoc-rm executor run|check|token new|enqueue|list|show|cancel` (CR-WG-executor): section 27.7.
-`nanosoc-rm store-maint compact --dry-run|--apply [--json]` (A3; CR-1015-retention): section 12; exit 3 unless exactly
-one of the two flags is given. An operator command: the service stopped, the store backed up (DEPLOY.md).
+Command groups contracted in their own sections: `quality` (14a), `changelog`, `version`, `manifest` (14b),
+`release`, `forks` (14c), `matrix` (18), `bumps` (19), `regen` (20), `publish-release`, `register-tapeout` (21),
+`store` (22), `catalogue` (23), `freshness` (24), `test-bump`, `capabilities` (26), `executor` (27.7) and
+`store-maint` (12) ([history](../archive/interfaces-history.md#section-173-cli-commands)).
 
 ### 17.4 Test infrastructure
 
@@ -1636,11 +1625,9 @@ def capture(run_dir, root_commit, requested, overrides, scratch) -> dict;  def m
      `data-tier-row="t1"` per component with cells `data-cell="<component or ->/<column>@t1"` `data-tier="t1"`
      and a `data-tier-preflight="t1"` banner (`data-ready`); `GET .../cell?...&tier=t1` (400 for another tier);
      `POST .../run` takes `tier` (scope cell) and `filter_tiers` (row, column, all).
-   - **Schema** (additive, `schema` stays 1): `matrix.schema.json` `$defs/tier`, `$defs/tier_run`, `$defs/ip_read`;
-     optional `attempt.tier|checkout|ip`, `matrix_cell.tier|force_tier`, `provenance.checkout`; `cell_view.status`
-     gains `no-tool`, `no-command` and optional `reason`; `matrix_view` optional `tiers`, `pinned_tiers`,
-     `rows[].tier_cells`. `eligibility.schema.json` `tier_command.ip_files`. Examples
-     `matrix.cell-t1.example.json`, invalid `matrix.cell-t1-checkout-moved-fails.yaml`.
+   - **Schema:** `matrix.schema.json` `$defs/tier`, `$defs/tier_run`, `$defs/ip_read`; `eligibility.schema.json`
+     `tier_command.ip_files`. Examples `matrix.cell-t1.example.json`, invalid
+     `matrix.cell-t1-checkout-moved-fails.yaml` ([history](../archive/interfaces-history.md#section-18-compatibility-matrix)).
 - **Not built here:** T2 cells (the matrix adds only t1), CI-run cells (needs gate 3).
 ## 19. Bump proposals in shadow mode (Phase 4 E1-E7; built per CR-15)
 
@@ -2079,11 +2066,10 @@ child process.
 
 ## 23. Catalogue characterisation (CR-WF-catalogue; A1, B1, H1)
 
-The front page groups the catalogue as a ladder: a **project** (the
-top-level repo that builds a chip or a chiplet: "the plate") wraps a **SoC** ("the meat"), which integrates
-**subsystems** and **components** ("the potatoes"), built from **arch** tech units and **generators**; **toolkits**,
-**flows**, technology **libs**, **infra** and **legacy** sit beside it. This section is the data model and the two
-read paths the GUI unit builds on. Nothing here writes the registry. Package `nanosoc_rm.catalogue`.
+The catalogue as a ladder: a **project** (the top-level repo that builds a chip or a chiplet) wraps a **SoC**, which
+integrates **subsystems** and **components**, built from **arch** tech units and **generators**; **toolkits**,
+**flows**, technology **libs**, **infra** and **legacy** sit beside it ([history](../archive/interfaces-history.md#section-23-catalogue-characterisation)). The data model and the two read paths
+the GUI builds on. Nothing here writes the registry. Package `nanosoc_rm.catalogue`.
 
 ### 23.1 The model (`catalogue.model`, `Registry.characterisations()`)
 
@@ -2154,8 +2140,8 @@ seen, 2 a host could not be listed; the last stderr line is the summary (`org-sc
 `could not list <host>` on a failure). Job kind `org-scan` (params `{host?}`; runs
 `catalogue org-scan [--host H] --store --json`; verdict PASS when every host was listed, UNVERIFIED otherwise;
 result `{new, repos}`). A page reads `db.latest("repo_seen")`; it queues the job only from a POST, never from a
-GET. The job name holds no word a later phase's gate governs (phasegates rule 5a). CR-1015-orgscan (David
-2026-10-15, "Nightly + Scan button"): the scheduler job `org_scan` (nightly, at or after `schedule.nightly_utc`;
+GET. The job name holds no word a later phase's gate governs (phasegates rule 5a). CR-1015-orgscan: the scheduler
+job `org_scan` (nightly, at or after `schedule.nightly_utc`;
 v1, enabled, not a CI job) queues one `org-scan` job with no params unless one is queued or running, and only when a
 GitHub org or GitLab group is configured (`orgscan.scanned_hosts`); the Catalogue page's **Scan now** is
 `POST /catalogue/scan` (section 25), which queues the same job.
@@ -2190,9 +2176,8 @@ refused, 3 a bad choice or an `--out` inside the registry.
 ## 24. Submodule-tree freshness (CR-WF-fresh; B2, B3, H1, A3)
 
 How far each pin of each registered configuration lags its upstream default branch, when its parent last moved
-it, and one verdict per tree, for the projects home page (Home), the freshness grid and the detail panel (David
-2026-10-14: "a very clear indication of whether a submodule tree is outdated or not and how long since it's been
-updated last"). v1 monitoring, no later-phase automation: the job and route names carry no LATER_AUTOMATION word.
+it, and one verdict per tree, for Home, the freshness grid and the detail panel ([history](../archive/interfaces-history.md#section-24-submodule-tree-freshness)). v1 monitoring, no
+later-phase automation: the job and route names carry no LATER_AUTOMATION word.
 
 ### 24.1 The scan (`nanosoc_rm.freshness.scan`)
 
@@ -2208,7 +2193,7 @@ def scan(configurations: list[str] | None = None, *, config=None, store: bool = 
   and tags), `rev-parse --verify` (the canonical default head), `rev-list --count A..B` both ways, `merge-base
   --is-ancestor`, and in the parent's mirror `log -1 --format=%H%x1f%cI%x1f%an%x1f%s <parent commit> -- <path>`
   and `rev-list --count <parent commit> -- <path>` (the bump). No network, no write outside the store. A pin
-  shared by several trees is measured once. Four eth/multicore/quickstart trees (140 pins): 4.1 s on the service host.
+  shared by several trees is measured once.
 - **Default branch:** the canonical repo's, as the mirror records it (`layout.default_branch`), else the stored
   walk's, else `main`/`master` if present.
 - **`lower_bound`:** the canonical repo's latest `mirror_status` is not ok but its refs are still in the mirror:
@@ -2310,8 +2295,8 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
   has no stored walk, 3 unknown configuration or bad date; an outdated tree is not exit 1: the scan measures, it
   does not gate). `nanosoc-rm freshness show [CONFIG] [--tree] [--today] [--json]` prints the stored facts
   re-judged (exit 2 when none is stored).
-- **Routes** (plug-in `nanosoc_rm.freshness.web`; no navigation entry, `NAV_LABEL = None`). CR-1015-retire (David
-  2026-10-15, "Retire it"): the `/freshness/` page duplicated Home and the Matrix's Freshness tab and is retired.
+- **Routes** (plug-in `nanosoc_rm.freshness.web`; no navigation entry, `NAV_LABEL = None`). CR-1015-retire: the
+  `/freshness/` page is retired.
   `GET /freshness` and `GET /freshness/` answer 301 to `/`; `GET /freshness/{rest:path}` likewise. When a registered
   configuration is named (`?configuration=ID`, or the first path segment: `/freshness/ID`) they answer 302 to its
   Home row (`/?v=1&o=p:<root>&o=c:ID&sel=c:ID#row-...`, `freshness.web.home_url`, from the stored registry records;
@@ -2325,8 +2310,8 @@ def same_pin_lags(component, commit, exclude, all_docs, today) -> [configuration
 
 ## 25. The front pages: Projects, Matrix, Catalogue, Notifications (CR-WF-gui; H1, A3, A4, A5, PR4)
 
-Requirements: H1, A3, A4, A5, PR4. This section REVERSES
-CR-W1's inbox at `/`: `/` is the projects home and the inbox is Notifications behind the bell. Section 13's `GET /`
+Requirements: H1, A3, A4, A5, PR4. `/` is the projects home and the inbox is Notifications behind the bell
+([history](../archive/interfaces-history.md#section-25-the-front-pages)). Section 13's `GET /`
 hooks (AT-H1: `data-configuration`, `data-item`, `data-verdict`, `data-run-t0`) stay on `/`, in the configuration
 board closed under the tree. Every page reads stored facts only: a GET never walks, scans, fetches, queues a job or
 creates gui.sqlite. Every page keeps one data-age element; a state is always a word beside a shape.
@@ -2431,11 +2416,10 @@ and its pages show no button for a missing route (the timeline toggle is then a 
 
 ## 26. Test capabilities per tree, test-bump, the bump gate and the executor queue (Wave G; D1, D3, E3, PR6)
 
-Requirements: D1, D3, E3, PR6. Agreed: David 2026-10-16 (interactive): evaluation fix wave, decisions 1 to 4:
-(1) tier runs execute on an EXECUTOR (a pull agent on the EDA host, sandboxed and unprivileged; GitLab CI later),
-never on the service host; (2) each tree declares its test capabilities IN THE REPO, read at the commit under test;
-the registry's `tiers.yaml` keeps only host site data; (3) hooks on a submodule pointer change WARN locally and
-BLOCK in CI and in the release manager's bump gate; (4) all four streams built now.
+Requirements: D1, D3, E3, PR6 ([history](../archive/interfaces-history.md#section-26-test-capabilities-per-tree)). Rules: (1) tier runs execute on an EXECUTOR (a pull agent on the EDA host,
+sandboxed and unprivileged; GitLab CI later), never on the service host; (2) each tree declares its test
+capabilities IN THE REPO, read at the commit under test; the registry's `tiers.yaml` keeps only host site data;
+(3) hooks on a submodule pointer change WARN locally and BLOCK in CI and in the release manager's bump gate.
 
 ### 26.1 `.nanosoc/capabilities.yaml` (schemas/capabilities.schema.json)
 
@@ -2450,7 +2434,7 @@ regex | regress-table | tidelink-sim-gate, `path`, `fail`}), `control`, `gate` b
 on_bump|nightly|release|manual, `manual`, `from`, `waiver`), `compose` (each: `path` a gitlink of this repo, `run` ids
 of THAT repo's own file, `when`). The wave-G spelling `tiers`/`command`/`workdir`/`composes` is accepted for
 `capabilities`/`run`/`cwd`/`compose`, one per document or entry. Examples: `capabilities.eth-chiplet.example.yaml`,
-`capabilities.tidelink.example.yaml` (the evaluation's drafts), `capabilities.wave-g-spelling.example.yaml`.
+`capabilities.tidelink.example.yaml`, `capabilities.wave-g-spelling.example.yaml`.
 
 `capabilities.manifest`: `parse(text)` checks the schema, then: ids unique, every named tool declared, `provides`
 never sets TREE/PATH/HOME/TMPDIR/NANOSOC_*, compose paths unique; any problem refuses the WHOLE file (no partial set).
@@ -2608,20 +2592,14 @@ Package `nanosoc_rm.executor`. Two queues, one transport:
 
 ### 27.2 The task and result contract (`schemas/executor.schema.json`, `executor.task`)
 
-- **task** (`$defs/task`): `subject {configuration|null, component, capability, side?, pair?}`, `mirror` (catalogue
-  entry id: `<mirror_root>/<id>.git` on the agent, the section 3 layout), `commit` (40 hex), `pins [{path, mirror,
-  commit}]` laid out inside the root, `run {tier t1..t6, command (shell string or argv), cwd?, env?, budget_s,
-  verdict {exit = 0, forbid [...], verdicts?}, control?}`, `labels` (every one must be granted to the claiming
-  agent), `requested_by`, `reason?`.
+- **task** (`$defs/task`): `mirror` and each pin's `mirror` are catalogue entry ids (`<mirror_root>/<id>.git` on the
+  agent, the section 3 layout); pins are laid out inside the root; every one of `labels` must be granted to the
+  claiming agent ([history](../archive/interfaces-history.md#section-27-the-remote-tier-executor)).
   `check_task` adds what a schema cannot say: no command or control sources a `set_env.sh`; `env` sets none of
   `TREE HOME PATH TMPDIR USER LOGNAME SSH_AUTH_SOCK GIT_SSH_COMMAND LD_PRELOAD LD_LIBRARY_PATH` nor any
   `NANOSOC_RM_*`; no tree path twice; no path with a `..` part. Both sides call it: the service before it queues, the
   agent before it runs (a task that should never have been queued is still not run: INFRA).
-- **claim** (`$defs/claim`, `type: task`): `{task_id, lease (32 hex), nonce (32 hex), lease_seconds, task}`.
-- **result** (`$defs/result`): `{schema, task_id, nonce, executor, sandbox bwrap|fallback|none, started_at,
-  finished_at, verdict PASS|FAIL|UNVERIFIED|INFRA|WARN, reason, exit_code, killed, seconds, over_budget, rows
-  [verdict_row], log {bytes, sha256, truncated, uploaded}, log_tail, checkout {laid_out, missing}}`.
-  `check_result(doc, nonce, task_id)`: every row carries the task's nonce; PASS only with a PASS row and no
+- **claim** (`$defs/claim`, `type: task`) and **result** (`$defs/result`). `check_result(doc, nonce, task_id)`: every row carries the task's nonce; PASS only with a PASS row and no
   FAIL/UNVERIFIED/INFRA row; finished_at not before started_at; the poster is the agent holding the lease.
 - **Verdict of one task** (`agent.judge`): `tier.<tier>` PASS iff the exit code is `verdict.exit` (default 0); a
   run killed (time limit, output limit, cancel, lost lease) is FAIL; each `forbid` string found in the output makes

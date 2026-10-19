@@ -4,6 +4,8 @@ What the project's documents used to say and no longer need to: plans that finis
 upgrade notes for versions nobody runs any more. Nothing here is a contract or an instruction; where it disagrees
 with [contracts/](../contracts/), [DEPLOY.md](../DEPLOY.md) or the code, they are right. Who agreed each change and
 when is in [CHANGES.md](../CHANGES.md); what changed for users is in [CHANGELOG.md](../../CHANGELOG.md).
+Rationale and decision records moved out of the module interfaces are in
+[interfaces-history.md](interfaces-history.md).
 
 Contents:
 [The MVP week plan (2026-10-10)](#the-mvp-week-plan-2026-10-10) ·

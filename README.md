@@ -20,7 +20,7 @@ change it gives a person the command or the patch.
 
 The project record: [requirements](docs/REQUIREMENTS.md) (v1.0, frozen 2026-09-30), [change requests](docs/CHANGES.md),
 [version policy](docs/versioning.md), [phase gates](docs/phase-gates.yaml), the [gate 2 review](docs/GATE2.md),
-[acceptance specs](docs/acceptance/) and [history](docs/archive/history.md) (finished plans, old upgrade notes).
+[acceptance specs](docs/acceptance/) and [history](docs/archive/history.md) (finished plans, old upgrade notes, [interface rationale](docs/archive/interfaces-history.md)).
 
 ## Quick start (command line)
 
