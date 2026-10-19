@@ -8,6 +8,10 @@ implementation (PR3). Builders code against these; reviewers and the coverage ch
 - **Formats:** JSON Schema draft 2020-12, in [`schemas/`](../../schemas/).
 - **Interfaces:** [`interfaces.md`](interfaces.md): modules, functions, CLI commands, HTTP endpoints, the T0 job,
   and (section 17) every name the acceptance tests rely on.
+  Sections 18 to 27 each have a file of their own: [18 matrix](18-matrix.md), [19 bumps](19-bumps.md),
+  [20 regenerator](20-regen.md), [21 publishing](21-publish.md), [22 store index](22-store-index.md),
+  [23 catalogue](23-catalogue.md), [24 freshness](24-freshness.md), [25 front pages](25-front-pages.md),
+  [26 capabilities and the bump gate](26-capabilities.md), [27 remote tier executor](27-executor.md).
 - **Examples:** [`schemas/examples/`](../../schemas/examples/): one or more valid instances per schema, built
   from real rc4 data where possible, plus deliberately broken ones in `examples/invalid/`.
 - **Gate summary for approval:** [`../GATE2.md`](../GATE2.md).
@@ -38,10 +42,10 @@ Dev dependencies are pinned in [`requirements-dev.txt`](../../requirements-dev.t
 | [observation](../../schemas/observation.schema.json) | DB, JSON API, CLI `--json` | Envelope of every fact shown (source, observed_at, snapshot) and the facts: host compare, containment, silicon protection, rewrite alert, mirror status, repo inventory, T0 result, runner settings, credential status, registry record, alert, branch state (CR8), release draft, release verify and fork status (CR-R1) | each producer; db | A1, A2, A3, B4, B5, B6, B8, D1, D2, D5, D6, D7, D10, D11, H1, H3, H6 | v1 |
 | [result-bundle](../../schemas/result-bundle.schema.json) | CI artifact `rm-bundle/provenance.json` + `rm-bundle/verdicts.tsv`; pipeline variable `RM_REQUEST` | What a CI job was asked, ran and found; the verdicts.tsv row contract reused from the toolkit, plus a run nonce | T0 runner (writes); ci trigger/fetch/verify | A4, D2, D4, D5, D6, D7, D10, D11, PR9 | v1 (host, ip_hash, cpu_seconds: 2) |
 | [component-manifest](../../schemas/component-manifest.schema.json) | `nanosoc-component.yaml` in each repo | ID, class, version, canonical URL, provides, requires, re-exports, variants, tests with controls | registry (reads), T0 (validates) | C1, C6, C7, C11, D1, D6, E1, E3, I2 | 3 (validated by T0 from v1) |
-| [matrix](../../schemas/matrix.schema.json) | none ($defs of the observation kinds `matrix_cell`, `matrix_quarantine`, `matrix_view`) | One matrix cell run with its D4 capture, D8 attempts and D9 baseline; a D8 quarantine entry; the derived matrix view (interfaces.md section 18) | matrix | B7, D3, D4, D7, D8, D9 | 2 (built per CR-15) |
+| [matrix](../../schemas/matrix.schema.json) | none ($defs of the observation kinds `matrix_cell`, `matrix_quarantine`, `matrix_view`) | One matrix cell run with its D4 capture, D8 attempts and D9 baseline; a D8 quarantine entry; the derived matrix view ([interfaces.md section 18](18-matrix.md)) | matrix | B7, D3, D4, D7, D8, D9 | 2 (built per CR-15) |
 | [tool-release](../../schemas/tool-release.schema.json) | draft folder `release.json`; registry `versioning.yaml` (`$defs/versioning_file`) | A tool release draft for a person (G1) with its G5 approval record; the facts of the versioning observation kinds; yanked releases and grandfathered tags | versioning | C1-C12, F6, G1, G5, G6 | 3 (built under CR-15) |
 | [release-lock](../../schemas/release-lock.schema.json) | release artefact `release.lock.yaml` (and `release.lock.draft.yaml`, `$defs/draft_lock`, CR-R1) | Every nested pin with host, state and (optional) protection; generated-RTL archive; GDS and netlist hashes; errata and ledger refs | `nanosoc_rm.releases` (`release draft`, interfaces.md section 14b) | A3, B7, C10, G2, G3, G7 | 5 (built under CR-15) |
-| [bump-proposal](../../schemas/bump-proposal.schema.json) | `bumps.sqlite`, CLI `nanosoc-rm bumps --json`, `/bumps` pages | CR-15, CR-WB-bumps: one shadow-mode bump proposal (pin move, changelog and class, defects, matrix cell, patch, decision with `auto_merge` always false); also the facts of the observation kinds bump_scan and bump_ledger (interfaces.md section 19) | bumps | E1, E2, E3, E5, E7 | Phase 4 (built, not enabled) |
+| [bump-proposal](../../schemas/bump-proposal.schema.json) | `bumps.sqlite`, CLI `nanosoc-rm bumps --json`, `/bumps` pages | CR-15, CR-WB-bumps: one shadow-mode bump proposal (pin move, changelog and class, defects, matrix cell, patch, decision with `auto_merge` always false); also the facts of the observation kinds bump_scan and bump_ledger ([interfaces.md section 19](19-bumps.md)) | bumps | E1, E2, E3, E5, E7 | Phase 4 (built, not enabled) |
 
 Two process artefacts sit beside the schemas: [`../phase-gates.yaml`](../phase-gates.yaml) (A7, the entry gate of
 each later phase; its format is in interfaces.md section 17.6) and [`../CHANGES.md`](../CHANGES.md) (PR2, the CR log).
@@ -152,16 +156,16 @@ Keys:
 | credential_status | `credential_status:<name>` | set | `credential_status:all` (one check) |
 | registry_record | `registry_record:<file>#<pointer>` | set | `registry_record:<file>` (one registry read) |
 | branch_state | `branch_state:<host>:<path>:<branch>` | set | `branch_state:<host>:<path>` (one inventory of one repo; CR8) |
-| freshness | `freshness:<configuration>` (the tree) and `freshness:<configuration>:<first tree path>` (a pin) | set | `freshness:<configuration>` (one scan of one stored walk; interfaces section 24) |
+| freshness | `freshness:<configuration>` (the tree) and `freshness:<configuration>:<first tree path>` (a pin) | set | `freshness:<configuration>` (one scan of one stored walk; [interfaces section 24](24-freshness.md)) |
 | rewrite_alert | `rewrite_alert:<host>:<path>:<branch>:<old head>` | event | none |
 | t0_result | `t0_result:<configuration or @registry>:<nonce>` | event | none |
 | compat_result | `compat_result:<configuration>:<nonce>` | event (stored only on `--store`; CR-11) | none |
 | release_draft, release_verify | `<kind>:<configuration>:<version>` | event (CR-R1; one per draft, the latest wins) | none |
 | fork_status | `fork_status:<component>:<host>:<fork path>` | event (CR-R1; stored on `forks --store`) | none |
-| regen_class | `regen_class:<component>:<from>:<to>:<configuration>` | event (interfaces section 20; stored on `regen class --store` and the `regen-class` job) | none |
-| store_index | `store_index:artifactory` | event (interfaces section 22; stored on `store index --store` and the `store-index` job; source kind `artifactory_api`) | none |
+| regen_class | `regen_class:<component>:<from>:<to>:<configuration>` | event ([interfaces section 20](20-regen.md); stored on `regen class --store` and the `regen-class` job) | none |
+| store_index | `store_index:artifactory` | event ([interfaces section 22](22-store-index.md); stored on `store index --store` and the `store-index` job; source kind `artifactory_api`) | none |
 | alert | `alert:<alert kind>:<about>` | event | none |
-| matrix_cell | `matrix_cell:<configuration>:<component or ->:<column>:<nonce>` | event (D3; interfaces.md section 18) | none |
+| matrix_cell | `matrix_cell:<configuration>:<component or ->:<column>:<nonce>` | event (D3; [interfaces.md section 18](18-matrix.md)) | none |
 | matrix_quarantine | `matrix_quarantine:<configuration>:<test>` | event (D8; latest per subject is the current entry) | none |
 | matrix_view | `matrix_view:<configuration>` | derived, never stored | none |
 | quality_density, quality_finding, readme_check, doc_score | `<kind>:<target>:<commit>` (`<commit>+worktree` for a work-tree read; `worktree` outside git) | event (CR-14; one per target and commit, so they form a trend) | none |
