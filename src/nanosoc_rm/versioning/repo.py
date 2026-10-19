@@ -174,8 +174,8 @@ class RepoView:
     canonical_key: str
     comp_class: str | None = None
     canonical: dict | None = None
-    component: object | None = None         # analysis._inputs.Component
-    registry: object | None = None          # analysis._inputs.Registry
+    component: object | None = None         # analysis.inputs.Component
+    registry: object | None = None          # analysis.inputs.Registry
     config: Config | None = None
     base_url: str | None = None
     source: object | None = None            # quality.source.Source of the head
@@ -285,7 +285,7 @@ def open_repo(target: str | None, *, ref: str | None = None, path=None, config=N
 
 
 def _attach_registry(view: RepoView, cfg: Config, target: str, strict: bool) -> None:
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     try:
         reg = inp.registry(cfg)
         comp = reg.component(target)

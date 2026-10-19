@@ -147,7 +147,7 @@ def local_source(config: Any, target: str, fact: dict) -> Source:
         return _cached(root, commit, target)
     if not commit:
         raise SourceError("%s was analysed without a commit" % target)
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     mirror = inp.mirror_path(config, target)
     if not (mirror / "HEAD").is_file():
         raise SourceError("component %s has no mirror on this host" % target)

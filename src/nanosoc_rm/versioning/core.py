@@ -131,7 +131,7 @@ def _reexports(view: RepoView, base_commit: str | None, reexports: list[str]) ->
     most severe class of the child's changelog entries added between the two pins)."""
     if not reexports or not base_commit or not view.commit or view.registry is None:
         return []
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     from nanosoc_rm.quality.source import parse_gitmodules
     from nanosoc_rm.versioning.repo import component_for_url, read_files
     gm = view.head_text(".gitmodules") or ""
@@ -406,7 +406,7 @@ def stored_by_target(kind: str, *, config=None) -> dict[str, list[dict]]:
 def overview(config) -> list[dict]:
     """One row per catalogue component: its latest stored version_plan, changelog_lint and tag_check (or None).
     Each kind is read once for all components (ROB-load-7)."""
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     reg = inp.registry(config)
     by_kind = {k: stored_by_target(k, config=config) for k in ("version_plan", "changelog_lint", "tag_check")}
     rows = []

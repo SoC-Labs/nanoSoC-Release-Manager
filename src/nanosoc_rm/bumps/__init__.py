@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nanosoc_rm.analysis._inputs import Answer, CannotAnswer, config_of
+from nanosoc_rm.analysis.inputs import Answer, CannotAnswer, config_of
 from nanosoc_rm.bumps import store as _store
 from nanosoc_rm.bumps.engine import BumpUsage, proposal_id, scan, scan_all, schedule_status, writer_problems
 from nanosoc_rm.bumps.ledger import ledger

@@ -58,7 +58,7 @@ def _murl(configuration: str, page: str = "", **params: Any) -> str:
 
 
 def _error(request: Request, e: Exception) -> HTMLResponse:
-    from nanosoc_rm.analysis._inputs import UsageProblem
+    from nanosoc_rm.analysis.inputs import UsageProblem
     status = 404 if isinstance(e, (UsageProblem, LookupError)) else 503
     return _page(request, "matrix_message.html", "Matrix", status=status, message=str(e))
 
@@ -82,7 +82,7 @@ def router(app: Any = None) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
 
     def index(request: Request) -> HTMLResponse:
-        from nanosoc_rm.analysis import _inputs as I
+        from nanosoc_rm.analysis import inputs as I
         config = config_of(request)
         try:
             confs = I.registry(config).configurations()
@@ -106,7 +106,7 @@ def router(app: Any = None) -> APIRouter:
         except Exception as e:                                   # noqa: BLE001
             return _error(request, e)
         docs = {d["subject"]: d for d in K.cells(configuration, config)}
-        from nanosoc_rm.analysis import _inputs as I
+        from nanosoc_rm.analysis import inputs as I
         all_components = sorted({d["fact"]["child"]["component"] for d in I.stored_tree(configuration, config)
                                  if d["fact"]["child"].get("component")})
         queued = request.query_params.get("queued")
@@ -205,7 +205,7 @@ def router(app: Any = None) -> APIRouter:
         except M.MatrixUsage as e:
             return PlainTextResponse("400 Bad Request: %s" % e, 400)
         except Exception as e:                                   # noqa: BLE001
-            from nanosoc_rm.analysis._inputs import UsageProblem
+            from nanosoc_rm.analysis.inputs import UsageProblem
             if isinstance(e, UsageProblem):
                 return PlainTextResponse("404 Not Found: %s" % e, 404)
             return PlainTextResponse("503 Service Unavailable: %s" % str(e)[:300], 503)

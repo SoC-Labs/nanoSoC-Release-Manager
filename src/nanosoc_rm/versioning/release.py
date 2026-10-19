@@ -434,7 +434,7 @@ def allowed(component: str, versions: list[str], *, config=None) -> list[str]:
 def _silicon_pins(config, component: str, commit: str) -> list[str]:
     """Silicon configurations whose stored tree pins `component` at `commit` (G6: never yanked)."""
     from nanosoc_rm import db
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     out = []
     try:
         reg = inp.registry(config)

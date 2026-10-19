@@ -45,7 +45,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from nanosoc_rm import clock, contracts
-from nanosoc_rm.analysis import _inputs as inp
+from nanosoc_rm.analysis import inputs as inp
 from nanosoc_rm.bumps import changelog as clog
 from nanosoc_rm.bumps import interfaces, store
 from nanosoc_rm.bumps.versions import RangeError, Version, allows, parse_tag

@@ -73,7 +73,7 @@ def router(app: Any = None) -> APIRouter:
         return _page(request, "caps_index.html", "Capabilities", rows=rows, hosts=hosts, waiting=waiting)
 
     def tree(request: Request, configuration: str) -> HTMLResponse:
-        from nanosoc_rm.analysis._inputs import CannotAnswer
+        from nanosoc_rm.analysis.inputs import CannotAnswer
         from nanosoc_rm.capabilities.view import tree_view
         from nanosoc_rm.ci import configs
         config = config_of(request)
@@ -157,7 +157,7 @@ def router(app: Any = None) -> APIRouter:
 
 def _pin(config, configuration: str, path: str) -> dict | None:
     """The stored pin at `path` (component, commit, its repo's default branch), or None."""
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     try:
         docs = I.stored_tree(configuration, config)
     except Exception:                                            # noqa: BLE001 - no stored walk: no pin facts

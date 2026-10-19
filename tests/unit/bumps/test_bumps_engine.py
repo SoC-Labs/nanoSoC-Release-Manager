@@ -355,7 +355,7 @@ def test_shadow_mode_never_writes_outside_its_own_disk(tmp_path, monkeypatch):
         seen.append([str(a) for a in args])
         return real(*args, **kw)
     monkeypatch.setattr(gitrun, "run_git", spy)
-    import nanosoc_rm.analysis._inputs as inp
+    import nanosoc_rm.analysis.inputs as inp
     monkeypatch.setattr(inp, "run_git", spy)
     _, props = _scan(store=True)
     bumps.ledger()

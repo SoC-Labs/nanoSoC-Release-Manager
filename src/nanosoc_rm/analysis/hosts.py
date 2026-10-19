@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nanosoc_rm.analysis import _inputs as inp
+from nanosoc_rm.analysis import inputs as inp
 from nanosoc_rm.config import Config
 
 __all__ = ["compare_hosts", "RELATIONS"]

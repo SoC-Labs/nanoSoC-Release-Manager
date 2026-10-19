@@ -40,7 +40,7 @@ def last_results(config, configuration: str) -> dict[str, dict]:
 
 def tree_view(config, configuration: str, *, fetch: bool = False) -> dict:
     """{configuration, root_commit, trees: [...], composed: [...], problems, hosts} (module docstring)."""
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     from nanosoc_rm.capabilities import manifest as MF
     from nanosoc_rm.capabilities import plan as PL
     from nanosoc_rm.capabilities.run import _root_node

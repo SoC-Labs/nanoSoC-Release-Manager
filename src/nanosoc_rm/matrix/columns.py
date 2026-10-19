@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Sequence
 
 from nanosoc_rm import contracts
-from nanosoc_rm.analysis import _inputs as I
+from nanosoc_rm.analysis import inputs as I
 from nanosoc_rm.matrix import versions as V
 
 __all__ = ["COLUMNS", "PINNED", "Row", "Target", "rows", "overrides_for", "MANIFEST"]

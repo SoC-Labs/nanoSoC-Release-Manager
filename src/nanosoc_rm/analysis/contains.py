@@ -27,8 +27,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from nanosoc_rm.analysis import _inputs as inp
-from nanosoc_rm.analysis._inputs import Answer, CannotAnswer, UsageProblem
+from nanosoc_rm.analysis import inputs as inp
+from nanosoc_rm.analysis.inputs import Answer, CannotAnswer, UsageProblem
 from nanosoc_rm.config import Config
 from nanosoc_rm.gitrun import run_git
 

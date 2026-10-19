@@ -44,7 +44,7 @@ def _login() -> str:
 
 
 def _fail(e: Exception) -> None:
-    from nanosoc_rm.analysis._inputs import AnalysisError
+    from nanosoc_rm.analysis.inputs import AnalysisError
     from nanosoc_rm.config import ConfigError
     code = getattr(e, "exit_code", None)
     if isinstance(e, AnalysisError):

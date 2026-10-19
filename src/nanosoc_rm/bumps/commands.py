@@ -38,7 +38,7 @@ class _BumpsGroup(click.Group):
 
 def _guard(fn):
     from nanosoc_rm import bumps
-    from nanosoc_rm.analysis._inputs import AnalysisError
+    from nanosoc_rm.analysis.inputs import AnalysisError
     try:
         return fn(), None
     except bumps.BumpUsage as e:

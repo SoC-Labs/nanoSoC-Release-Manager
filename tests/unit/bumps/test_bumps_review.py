@@ -281,7 +281,7 @@ def test_five_weeks_with_no_decided_bump_does_not_meet_the_threshold(tmp_path, m
 def test_pages_read_the_stored_ledger_and_run_no_git(tmp_path, monkeypatch):
     from test_bumps_cli_web import _local, _signed_in
     from nanosoc_rm import bumps, gitrun
-    import nanosoc_rm.analysis._inputs as inp
+    import nanosoc_rm.analysis.inputs as inp
     from nanosoc_rm.web import create_app
     w = _local(tmp_path, monkeypatch)
     c = _signed_in(create_app(w["cfg"]))

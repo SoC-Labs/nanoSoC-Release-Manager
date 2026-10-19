@@ -60,7 +60,7 @@ def targets(config: Config | str | os.PathLike | None = None) -> list[dict]:
     for name, p in sorted((quality_config(cfg).get("paths") or {}).items()):
         out.append({"target": name, "origin": "path", "where": str(p)})
     try:
-        from nanosoc_rm.analysis import _inputs as inp
+        from nanosoc_rm.analysis import inputs as inp
         reg = inp.registry(cfg)
         for c in reg.components():
             mp = inp.mirror_path(cfg, c.id)
@@ -93,7 +93,7 @@ def open_source(target: str | None, *, ref: str | None = None, path: str | os.Pa
     if not target:
         raise UsageError("give a TARGET (catalogue component) or --path DIR")
     cfg = _cfg(config, True)
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     try:
         comp = inp.registry(cfg).component(target)
     except inp.UsageProblem as e:

@@ -136,7 +136,7 @@ def matrix(configuration: str, *, columns: Sequence[str] | None = None, componen
            config=None, now: dt.datetime | None = None, tiers: Sequence[str] | None = None) -> dict:
     """One matrix_view observation (module docstring). Reads stored data only: the latest walk, the mirrors,
     stored cells, the job records. Raises analysis UsageProblem (exit 3) or CannotAnswer (exit 2)."""
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     cfg = I.config_of(config)
     cols = parse_columns(columns)
     tier_list = parse_tiers(tiers)
@@ -271,7 +271,7 @@ def queue(configuration: str, *, columns: Sequence[str] | None = None, component
     column) pairs, or (component, column, tier) triples, from the view; otherwise every runnable cell of the
     filtered view. `tiers` adds the tier cells (only those this host can run)."""
     from nanosoc_rm import jobs
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     cfg = I.config_of(config)
     view = matrix(configuration, columns=columns, components=components, config=cfg, tiers=tiers)
     runnable = cell_requests(view)
@@ -308,7 +308,7 @@ def bump_cell(configuration: str, overrides: dict[str, str], *, config=None) -> 
     ({tree_path: commit}), as the bump engine reads it (interfaces.md section 19.6): {verdict, observed_at, href,
     detail}, or None when no such cell is stored. A cell of the pinned column, or one NOT-RUN, is never a move's
     result. FLAKY (red, then green alone, D8) reads as UNVERIFIED: a bump never rests on a flaky green."""
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     from urllib.parse import urlencode
     cfg = I.config_of(config)
     want = {str(k): str(v) for k, v in (overrides or {}).items()}
