@@ -382,3 +382,25 @@ def test_bump_gate_holds_a_proposal_without_a_passing_test_bump(tmp_path, monkey
         assert f["decision"]["blockers"][1].startswith("bump gate: no test-bump of exactly this move")
         assert "nanosoc-rm test-bump eth-main %s %s" % (f["tree_paths"][0], f["to"]["commit"][:12]) in \
             f["decision"]["blockers"][1]
+
+
+@pytest.mark.requirement("E3")
+@pytest.mark.requirement("PR6")
+def test_bump_gate_lets_an_already_red_move_through_and_the_proposal_says_so(tmp_path, monkeypatch):
+    """D12 (David 2026-10-19): a test-bump whose only reds were red before the move (WARN) does not hold the
+    proposal; its second blocker line is the "already red before the bump" note instead of a hold."""
+    from nanosoc_rm.capabilities import gate
+    world(tmp_path, monkeypatch)
+    note = "already red before the bump: a:lint is still red after it, so it does not hold the bump"
+    monkeypatch.setattr(gate, "evidence", lambda config, configuration, tree_paths, to, root_commit: {
+        "verdict": "WARN", "job": 7, "href": "/capabilities/eth-main/bump?job=7", "finished_at": None,
+        "note": note})
+    scan, props = _scan()
+    proposed = [d["fact"] for d in props if d["fact"]["state"] == "proposed"]
+    assert proposed, "the world has at least one proposal the gate alone decides"
+    for d in props:
+        assert contracts.validate_observation(d) == [], d["subject"]
+    for f in proposed:
+        assert f["decision"]["would"] == "open-pull-request"
+        assert f["decision"]["blockers"][1] == "bump gate: WARN (job 7): " + note
+        assert not any(b.startswith("bump gate: the newest") for b in f["decision"]["blockers"])

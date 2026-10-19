@@ -2516,21 +2516,31 @@ is met by the tool; `regen:`, `after:`, `lease:` and `siblings` are run-time nee
   it: INFRA, not run; a regenerating one without NANOSOC_GEN_OK=1: NOT-RUN. Verdict rows beyond the exit status:
   `forbid` (a FAIL row `tier.<label>.forbid`), `require`, junit, regex; regress-table and tidelink-sim-gate have no
   parser yet and give one UNVERIFIED row.
-- **Compare** per row: same, better, worse (green -> FAIL), same-red, new-red (no green baseline), new, gone
-  (only when After's manifest reads ok; a capability lost to an absent, invalid or unreadable After manifest is
-  not-run), not-run. Functional verdict over the block rows: worse FAIL > new-red/not-run UNVERIFIED > same-red WARN > PASS; no
-  block row at all is UNVERIFIED; Now and After on different root commits is UNVERIFIED. T0 per side is `hygiene`,
-  reported and never hiding the rows (decision 4). Exit 0 PASS or WARN, 1 FAIL, 2 UNVERIFIED, 3 usage.
+- **Compare** per row: same, better, worse (green -> FAIL), same-red, new-red (a red After whose Now gave no PASS,
+  WARN or FAIL), new, gone (only when After's manifest reads ok; a capability lost to an absent, invalid or
+  unreadable After manifest is not-run), not-run. Functional verdict over the block rows: worse FAIL > new-red/not-run UNVERIFIED > same-red
+  WARN > PASS; no block row at all is UNVERIFIED; Now and After on different root commits is UNVERIFIED. The bump
+  gate lets PASS and WARN land (section 26.4). T0 per side is `hygiene`, reported and never hiding the rows
+  (decision 4). Exit 0 PASS or WARN, 1 FAIL, 2 UNVERIFIED, 3 usage.
 - The document (schemas/test-bump.schema.json, kind `test_bump`) is the job's result, never a stored fact.
 
 ### 26.4 The bump gate (`capabilities.gate`)
 
 `evidence(config, configuration, tree_paths, to, root_commit)`: the newest finished `test-bump` job whose result
 tested exactly this move (configuration, root commit = the walk's, moved commit, a superset of the tree paths;
-not `--plan`). A PASS document whose job exited non-zero counts as UNVERIFIED (never greener than the exit
-code). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional). Anything but PASS makes
+not `--plan`). A PASS or WARN document whose job exited non-zero counts as UNVERIFIED (never greener than the exit
+code). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional).
+
+`lands(ev)`: PASS and WARN land; FAIL, UNVERIFIED and no evidence hold (CR-WH-already-red, David 2026-10-19, D12).
+A WARN means every red block gate was red before the move and is still red after it (`same-red`), so the move
+makes nothing worse: it does NOT hold the bump. Its evidence `note` reads "already red before the bump: <row keys>
+... still red after it, so it does not hold the bump", and the proposal's second blocker line is
+`already_red(ev)` = "bump gate: WARN (job N): <note>" (advice for a person, not a hold). A new red still holds:
+green to red is FAIL, and a red After whose Now did not give PASS, WARN or FAIL (it did not run, or there was no
+Now) is `new-red`, UNVERIFIED: an unknown baseline is never "already red". Anything that does not land makes
 `decision.would` = hold with the second blocker "bump gate: ..." naming the `nanosoc-rm test-bump` command; the E2
-ledger then scores the proposal `held`, as for any held proposal.
+ledger then scores the proposal `held`, as for any held proposal. The proposal page shows a "Test this bump" row
+(hook `data-bumps="test-bump"`: verdict pill, job link, note) and `nanosoc-rm bumps show` a `test-bump` line.
 
 ### 26.5 The executor queue (`jobs`, section 13a)
 
@@ -2572,8 +2582,9 @@ Query `component` (catalogue id of the asking repository), `path` (the gitlink's
 `root` (40 hex: the asking repository's commit BEFORE the move, a CI range's base), optional `from`. Answer 200
 `{verdict, url, command, configurations, note}`: for each registered configuration of `component`,
 `gate.evidence(config, configuration, [path], to, root)`; a PASS in any one answers PASS with its job page;
-otherwise the first non-PASS verdict found, or null with a `note` (none finished, other root commits, no
-configuration of that component). `command` is the `nanosoc-rm test-bump CONFIG PATH TO` to run. 400 a malformed
+otherwise a WARN (already red before the bump, section 26.4) answers WARN with its job page, `command` null and the
+"already red before the bump" `note`; a caller lets the move land on PASS or WARN; otherwise the first other
+verdict found, or null with a `note` (none finished, other root commits, no configuration of that component). `command` is the `nanosoc-rm test-bump CONFIG PATH TO` to run. 400 a malformed
 parameter. Who may ask: a signed-in member (session), or a bearer READER token: `[[api.readers]]` in the service
 config (`name`, `token_sha256`, optional `revoked`; `nanosoc-rm executor token new NAME --out F --reader`). The
 Guard answers a bearer request for this one path before its session check (`capabilities.bumpcheck`); a reader

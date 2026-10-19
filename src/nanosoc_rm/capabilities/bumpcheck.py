@@ -12,7 +12,8 @@ this move, in a registered configuration of the asking repository, from exactly 
 `root` is the asking repository's commit BEFORE the move (a CI range's base). A test-bump counts only when its
 `root_commit` is that commit, its `to` is `to` and its tree paths include `path`, so a PASS for another base, or
 for a neighbouring move, never turns a CI run green. Every configuration whose `component` is `component` is
-tried; a PASS in any one answers PASS. Read-only: it reads the job records and the registry, never runs or queues
+tried; a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red before the bump) answers
+WARN with that note, and WARN lets the move land as PASS does (`gate.lands`). Read-only: it reads the job records and the registry, never runs or queues
 anything, never fetches.
 
 Who may ask: a signed-in member (the session route), or a holder of a READER token: `[[api.readers]]` entries
@@ -76,15 +77,21 @@ def answer(config: Config, query: dict) -> dict:
                        "that pins this repository)" % p["component"])
         return out
     out["command"] = "nanosoc-rm test-bump %s %s %s" % (confs[0], p["path"], p["to"])
-    notes, best = [], None
+    notes, best, landing = [], None, None
     for cid in confs:
         ev = gate.evidence(config, cid, [p["path"]], p["to"], p["root"])
         if ev.get("verdict") == "PASS":
             return dict(out, verdict="PASS", url=ev.get("href"), command=None, note=None)
+        if gate.lands(ev) and landing is None:
+            landing = (cid, ev)
         if ev.get("verdict") is not None and best is None:
             best = (cid, ev)
         if ev.get("note"):
             notes.append("%s: %s" % (cid, ev["note"]))
+    if landing is not None:
+        cid, ev = landing
+        return dict(out, verdict=ev["verdict"], url=ev.get("href"), command=None,
+                    note="%s: job %s: %s" % (cid, ev.get("job"), ev.get("note") or gate.ALREADY_RED))
     if best is not None:
         cid, ev = best
         out.update(verdict=ev["verdict"], url=ev.get("href"),
