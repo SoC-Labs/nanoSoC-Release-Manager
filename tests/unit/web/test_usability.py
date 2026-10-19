@@ -133,7 +133,8 @@ def test_the_strip_is_hidden_when_nothing_needs_anyone_and_a_broken_source_gives
 # Pages whose own text (not registry data a person wrote) must carry no spec or change-request code.
 WORDS_PAGES = ("/", "/bumps/", "/bumps/ledger", "/matrix/", "/compat", "/configurations/eth-rc4",
                "/configurations/eth-rc4/history", "/configurations/eth-rc4/silicon", "/silicon-protection",
-               "/notifications", "/inbox", "/releases/", "/versions/", "/alerts", "/catalogue/")
+               "/notifications", "/inbox", "/releases/", "/releases/forks", "/versions/", "/alerts", "/catalogue/",
+               "/quality/", "/publish/", "/store/", "/capabilities/", "/mirrors", "/hosts", "/branches")
 CODE = re.compile(r"Phase [2-5]|\bCR-[0-9A-Z][\w-]*|\((?:[A-HQ]\d{1,2}|PR\d)(?:,\s*[A-HQ]\d{1,2})*\)|\bT[0-6]\b|"
                   r"\b(?:PROTECTED_BY_TAG|BRANCH_ONLY|ON_DEFAULT|PR_ONLY|NO_GITLINK|LOCAL_URL)\b|David 20\d\d")
 
@@ -222,3 +223,54 @@ def test_the_card_view_says_why_its_count_differs_from_the_bell(fp):
     open_ = int(re.search(r"Cards · (\d+) open", text).group(1))
     assert bell == open_ + 1
     assert "data-count-note>The bell counts %d unread" % bell in text
+
+
+# ----- empty states ---------------------------------------------------------------------------------------------
+# A fresh install on the example registry with an empty store: each list page says what to do next.
+EMPTY_NEXT = {
+    "/": "nanosoc-rm freshness scan --store",
+    "/compat": "Choose a configuration above and press Run",
+    "/branches": "press Walk now",
+    "/hosts": "Press Compare now",
+    "/contains": "press <strong>Ask</strong>",
+    "/silicon-protection": "then run <code>nanosoc-rm silicon-protection</code>",
+    "/mirrors": "Press Sync",
+    "/matrix/": "and press Scan now",
+    "/releases/": "and press <strong>Draft</strong>",
+    "/releases/forks": "press List forks now",
+    "/versions/": "Press Refresh",
+    "/bumps/": "Press Scan now",
+    "/bumps/ledger": 'Press Scan now on <a href="/bumps/">Bump proposals</a>',
+    "/publish/": 'make one on the <a href="/releases/">Releases</a> page',
+    "/catalogue/": "nanosoc-rm catalogue org-scan --store",
+}
+
+
+@pytest.fixture
+def empty_site(tmp_path, monkeypatch):
+    from nanosoc_rm import auth
+    from nanosoc_rm.web import create_app
+    from fpfix import PASSWORD
+    from webfix import make_registry
+    reg = make_registry(tmp_path / "registry")
+    (tmp_path / "data").mkdir()
+    h = auth.hash_password(PASSWORD, salt=b"0123456789abcdef")
+    cfg = tmp_path / "rm.toml"
+    cfg.write_text('[service]\ndata_dir = "%s"\n[registry]\nrepo = "soclabs/nanosoc-registry"\nref = "main"\n'
+                   'path = "%s"\n[auth]\nmode = "local"\n[[auth.users]]\nlogin = "alice"\nhash = "%s"\n'
+                   % (tmp_path / "data", reg, h))
+    monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
+    return sign_in(TestClient(create_app(cfg)))
+
+
+def test_every_list_page_with_nothing_stored_says_what_to_do_next(empty_site):
+    missing = {}
+    for url, step in EMPTY_NEXT.items():
+        r = empty_site.get(url)
+        assert r.status_code == 200, url
+        if step not in r.text:
+            missing[url] = step
+    assert missing == {}, missing
+    # the pages this pass gave an empty state mark it, so a later change cannot drop it unnoticed
+    for url in ("/branches", "/contains", "/silicon-protection", "/releases/", "/bumps/ledger"):
+        assert "data-empty" in empty_site.get(url).text, url

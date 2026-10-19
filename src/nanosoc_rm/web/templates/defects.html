@@ -4,7 +4,7 @@
   <tbody>
 {% for d in defects %}
   <tr><td><a href="/defects/{{ d.fact.id }}">{{ d.fact.id }}</a></td><td>{{ d.fact.record.component }}</td><td>{{ fact(d, d.fact.record.title) }}</td></tr>
-{% else %}<tr><td colspan="3">no defects recorded</td></tr>
+{% else %}<tr><td colspan="3" class="empty" data-empty>No defect is recorded. A defect is a file in the registry's <code>defects/</code> folder, added by a merge request.</td></tr>
 {% endfor %}
   </tbody>
 </table>
@@ -12,6 +12,6 @@
 <table>
   <thead><tr><th>Erratum</th><th>Defect</th><th>Configuration</th><th>Status</th><th>Exposure</th><th>Workaround</th></tr></thead>
   <tbody>
-{% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6">no errata recorded</td></tr>{% endfor %}
+{% for e in errata %}{% include "_erratum.html" %}{% else %}<tr><td colspan="6" class="empty" data-empty>No erratum is recorded. An erratum is a file in the registry's <code>errata/</code> folder, added by a merge request.</td></tr>{% endfor %}
   </tbody>
 </table>

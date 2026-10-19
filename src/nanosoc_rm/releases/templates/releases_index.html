@@ -56,7 +56,7 @@
   {% endfor %}
   </tbody>
 </table></div>
-{% else %}<p class="empty">No release draft on this host yet.</p>{% endif %}
+{% else %}<p class="empty" data-empty>No release draft on this host yet. {% if actions %}Choose a configuration and a version above and press <strong>Draft</strong>{% else %}Run <code>nanosoc-rm release draft CONFIGURATION VERSION</code> on the service host{% endif %}.</p>{% endif %}
 {% if store is not none %}
 <h2>Documents and collateral in the store</h2>
 {% include "_store_collateral.html" %}

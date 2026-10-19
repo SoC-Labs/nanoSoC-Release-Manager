@@ -24,7 +24,7 @@
 {% else %}<p class="note">No release draft here: make one on the <a href="/releases/">Releases</a> page.</p>{% endif %}
 <h2>Tapeout drafts (registry tapeouts/)</h2>
 {% if tapeouts %}<ul>{% for t in tapeouts %}<li data-tapeout="{{ t }}"><a href="{{ purl('tapeout', t) }}">{{ t }}</a></li>{% endfor %}</ul>
-{% else %}<p class="note">No <code>tapeouts/&lt;id&gt;.tapeout.yaml</code> in the registry checkout.</p>{% endif %}
+{% else %}<p class="note" data-empty>No <code>tapeouts/&lt;id&gt;.tapeout.yaml</code> in the registry checkout. To publish a tapeout record, add that file to the registry by a merge request.</p>{% endif %}
 {% if recent %}
 <details><summary>Recent publish jobs ({{ recent|length }})</summary>
 <table><thead><tr><th>Job</th><th>State</th><th>Command</th><th>By</th><th>Queued</th></tr></thead>

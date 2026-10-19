@@ -3,6 +3,7 @@
   <label>Component <input name="component" value="{{ component or '' }}"></label>
   <button type="submit">Ask</button>
 </form>
+{% if not sha %}<p class="empty" data-empty>Type a commit (4 to 40 hex characters) and press <strong>Ask</strong>: the answer lists every registered configuration and host whose tree contains it.</p>{% endif %}
 {% if sha %}
 <p>{{ rows|length }} row(s){% if computed %}, answered now{% endif %}. One row per configuration and host; <em>no</em> means every pin was proven not to contain the commit; <em>unknown</em> means a pin could not be decided.</p>
 <table>

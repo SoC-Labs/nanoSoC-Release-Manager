@@ -5,11 +5,11 @@
   <tr><th>Since</th><td>{{ L.started_at or 'no proposal kept yet' }} ({{ L.weeks }} weeks)</td></tr>
   <tr><th>Outcomes</th><td>{% for k in ('agreed', 'disagreed', 'pending', 'superseded', 'unknown') %}{{ pill(k, OUTCOME_CLASS) }} {{ L.counts[k] }} {% endfor %}</td></tr>
   <tr><th>Agreement</th><td>{% if L.agreement_rate is not none %}{{ '%.1f'|format(100 * L.agreement_rate) }}% of {{ L.counts.decided }} decided{% else %}n/a: nothing decided yet{% endif %}</td></tr>
-  <tr><th>Threshold</th><td>{{ pill('met' if L.threshold.met else 'not met', {'met': 'state-green', 'not met': 'state-amber'}) }} {{ L.threshold.reason }}</td></tr>
+  <tr><th>Threshold</th><td>{{ pill('met' if L.threshold.met else 'not met', {'met': 'state-green', 'not met': 'state-amber'}) }} {{ L.threshold.reason|plain }}</td></tr>
   <tr><th>By class</th><td>{% for c, n in L.by_class|dictsort %}{{ pill(c, CLASS_CLASS) }} {{ n.agreed }} agreed / {{ n.disagreed }} disagreed {% else %}none decided{% endfor %}</td></tr>
-  <tr><th>Auto-merge</th><td><span class="pill state-grey">OFF</span> {{ L.auto_merge.gate }}; eligibility auto_merge = {{ L.auto_merge.configured or '{}' }}</td></tr>
+  <tr><th>Auto-merge</th><td><span class="pill state-grey">OFF</span> {{ L.auto_merge.gate|plain }}; eligibility auto_merge = {{ L.auto_merge.configured or '{}' }}</td></tr>
 </table>
-{% for p in L.problems %}<p class="banner problem">{{ p }}</p>{% endfor %}
+{% for p in L.problems %}<p class="banner problem">{{ p|plain }}</p>{% endfor %}
 {% if L.entries %}
 <div class="scroll"><table data-bumps="ledger">
   <thead><tr><th>Proposal</th><th>Consumer</th><th>Gitlink</th><th>Proposed</th><th>Class</th><th>First proposed</th><th>Outcome</th><th>What the branch holds</th><th>Marks</th></tr></thead>
@@ -30,4 +30,5 @@
   </tbody>
 </table></div>
 {% else %}<p class="empty">No proposal is kept yet, so there is nothing to compare.</p>{% endif %}
+{% else %}<p class="empty" data-empty>No ledger is kept yet. Press Scan now on <a href="/bumps/">Bump proposals</a> (or run <code>nanosoc-rm bumps ledger --store</code>); the scan computes it.</p>
 {% endif %}

@@ -10,7 +10,7 @@
     <td>{% for t in f.covering_tags %}<code>{{ t }}</code> {% else %}<strong>uncovered</strong>{% endfor %}</td>
     <td>{{ f.tree_paths|join(', ') }}</td>
   </tr>
-{% else %}<tr><td colspan="7">no rows stored</td></tr>
+{% else %}<tr><td colspan="7" class="empty" data-empty>Nothing stored yet. Walk a frozen or silicon configuration (Walk now on its page, or <code>nanosoc-rm walk CONFIG</code>), then run <code>nanosoc-rm silicon-protection</code> to list the commits its tags must keep.</td></tr>
 {% endfor %}
   </tbody>
 </table>
