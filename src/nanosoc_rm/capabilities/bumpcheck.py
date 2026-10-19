@@ -6,14 +6,17 @@ this move, in a registered configuration of the asking repository, from exactly 
 
     GET /api/v1/bump-check?component=<id>&path=<tree path>&to=<40 hex>&root=<40 hex>[&from=<40 hex>]
     200 {"verdict": "PASS"|"FAIL"|"WARN"|"UNVERIFIED"|null, "url": <job page>|null, "command": <the test-bump to
-         run>|null, "configurations": [<ids>], "note": <why no evidence counts>|null}
+         run>|null, "configurations": [<ids>], "configuration": <the one whose evidence answers>|null,
+         "note": <why no evidence counts>|null}
     400 a malformed parameter; 401 no session and no reader token; 404 nothing under [api] (bearer only)
 
 `root` is the asking repository's commit BEFORE the move (a CI range's base). A test-bump counts only when its
 `root_commit` is that commit, its `to` is `to` and its tree paths include `path`, so a PASS for another base, or
 for a neighbouring move, never turns a CI run green. Every configuration whose `component` is `component` is
-tried; a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red before the bump) answers
-WARN with that note, and WARN lets the move land as PASS does (`gate.lands`). Read-only: it reads the job records and the registry, never runs or queues
+tried. A new red (FAIL) in ANY one answers FAIL, naming that configuration, even when another passes (D14,
+David 2026-10-19). Otherwise a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red
+before the bump) answers WARN with that note, and WARN lets the move land as PASS does (`gate.lands`).
+Read-only: it reads the job records and the registry, never runs or queues
 anything, never fetches.
 
 Who may ask: a signed-in member (the session route), or a holder of a READER token: `[[api.readers]]` entries
@@ -71,17 +74,28 @@ def answer(config: Config, query: dict) -> dict:
     from nanosoc_rm.ci import configs
     p = _params(query)
     confs = [c["id"] for c in configs.configurations(config) if c.get("component") == p["component"]]
-    out = {"verdict": None, "url": None, "command": None, "configurations": confs, "note": None}
+    out = {"verdict": None, "url": None, "command": None, "configurations": confs, "configuration": None,
+           "note": None}
     if not confs:
         out["note"] = ("no registered configuration of %s: register one (or test the move in the configuration "
                        "that pins this repository)" % p["component"])
         return out
     out["command"] = "nanosoc-rm test-bump %s %s %s" % (confs[0], p["path"], p["to"])
+    evs = [(cid, gate.evidence(config, cid, [p["path"]], p["to"], p["root"])) for cid in confs]
+    broke = gate.new_red(config, confs, [p["path"]], p["to"], p["root"], known=dict(evs))
+    if broke is not None:
+        # D14: a new red in ANY configuration holds the move, even when another configuration passes
+        cid, ev = broke
+        others = ["%s %s" % (c, e.get("verdict") or "untested") for c, e in evs if c != cid]
+        return dict(out, verdict=ev["verdict"], url=ev.get("href"), configuration=cid,
+                    command="nanosoc-rm test-bump %s %s %s" % (cid, p["path"], p["to"]),
+                    note="%s: job %s is %s (a new red holds the move in any configuration, D14%s)%s"
+                    % (cid, ev.get("job"), ev["verdict"], "; " + ", ".join(others) if others else "",
+                       ": " + ev["note"] if ev.get("note") else ""))
     notes, best, landing = [], None, None
-    for cid in confs:
-        ev = gate.evidence(config, cid, [p["path"]], p["to"], p["root"])
+    for cid, ev in evs:
         if ev.get("verdict") == "PASS":
-            return dict(out, verdict="PASS", url=ev.get("href"), command=None, note=None)
+            return dict(out, verdict="PASS", url=ev.get("href"), command=None, note=None, configuration=cid)
         if gate.lands(ev) and landing is None:
             landing = (cid, ev)
         if ev.get("verdict") is not None and best is None:
@@ -90,11 +104,11 @@ def answer(config: Config, query: dict) -> dict:
             notes.append("%s: %s" % (cid, ev["note"]))
     if landing is not None:
         cid, ev = landing
-        return dict(out, verdict=ev["verdict"], url=ev.get("href"), command=None,
+        return dict(out, verdict=ev["verdict"], url=ev.get("href"), command=None, configuration=cid,
                     note="%s: job %s: %s" % (cid, ev.get("job"), ev.get("note") or gate.ALREADY_RED))
     if best is not None:
         cid, ev = best
-        out.update(verdict=ev["verdict"], url=ev.get("href"),
+        out.update(verdict=ev["verdict"], url=ev.get("href"), configuration=cid,
                    command="nanosoc-rm test-bump %s %s %s" % (cid, p["path"], p["to"]))
         notes.insert(0, "%s: job %s is %s%s" % (cid, ev.get("job"), ev["verdict"],
                                                ": " + ev["note"] if ev.get("note") else ""))
