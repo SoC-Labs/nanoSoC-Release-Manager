@@ -54,7 +54,7 @@ def _problem_text(p) -> str:
 
 def _fallback(config: Config, last: str = "good") -> str:
     """What the pages show instead: the last good records, or, when none were ever stored, say so (a banner
-    must not promise records that do not exist; ROB-faults-12)."""
+    must not promise records that do not exist)."""
     try:
         have = bool(db.latest(KIND, config=config))
     except Exception:                                            # noqa: BLE001 - a banner, never a 500

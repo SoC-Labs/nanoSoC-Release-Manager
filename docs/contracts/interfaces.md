@@ -928,7 +928,10 @@ class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), sto
 - **Plug-ins** (`nanosoc_rm.web.plugins`): a module in `PLUGINS` with a FastAPI `router` is mounted with a
   navigation entry (`Quality` for `nanosoc_rm.quality.web`, `Releases` for `nanosoc_rm.releases.web`) and renders
   through `render_page(request, template, title, environment=...)`. Its routes sit behind the same guard and CSRF
-  check (CR-R6).
+  check (CR-R6). A plug-in takes its request and template helpers from the same module and defines no copy of
+  them (CR-WH-refactor-web): `template_env(here, app_templates=True, app_globals=False, **globals)`,
+  `renderer(env, local=False)` (its `_page`), `config_of(request)`, `login_of(request)`, `is_local(request)` and
+  `job_card(env, request, config, job)`.
 - **Job kinds from plug-ins (CR-R2; one seam since CR-WC-seams):** `jobs.register_kind(name, params, args, *,
   outcome=None, limit_s=None, action=None)` returns a `jobs.JobKind`; `jobs.registered(name)` looks one up and
   `jobs.all_kinds()` lists the three built-in kinds (`jobs.KINDS`: compat, mirror-sync, walk) and every registered
@@ -1347,7 +1350,7 @@ contract examples do.
 | `tick` | `nanosoc_rm.schedule` |
 | `submit`, `cancel`, `get`, `jobs`, `log_text`, `recover`, `Worker`, `JobUsage` (CR-17, section 13a) | `nanosoc_rm.jobs` |
 | `hash_password`, `verify_password`, `LocalAuth`, `ConfiguredAuth` (CR-16) | `nanosoc_rm.auth` |
-| `PLUGINS`, `load`, `render_page` (section 13a) | `nanosoc_rm.web.plugins` |
+| `PLUGINS`, `load`, `render_page`, `template_env`, `renderer`, `config_of`, `login_of`, `is_local`, `job_card` (section 13a) | `nanosoc_rm.web.plugins` |
 | `create_app(config_path, auth=None)` | `nanosoc_rm.web` |
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |

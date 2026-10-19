@@ -105,6 +105,9 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - New documentation: a day-one guide (`docs/getting-started.md`), a task-led user guide (`docs/user-guide.md`,
   replacing `docs/MVP.md`), one glossary (`docs/concepts.md`), a command reference generated from `--help`
   (`docs/cli.md`, kept in sync by a test) and this changelog. (CR-WG-docs)
+- For plug-in authors: a plug-in page takes its template environment, page renderer, config, login, local-mode and
+  job-card helpers from `nanosoc_rm.web.plugins` instead of copying them; the app's own routes moved out of
+  `web/app.py` into `web/routes/`. Pages, URLs and behaviour are unchanged. (CR-WH-refactor-web)
 
 ## [0.1.0] - 2026-10-12
 

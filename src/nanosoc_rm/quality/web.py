@@ -1,12 +1,12 @@
 """Q6: the quality pages, a FastAPI APIRouter mounted at /quality by the web app (behind its sign-in guard).
 
     GET /quality/                               overview: every target with its latest stored numbers and trend
-                                                (CR-WD-Q5: ?scope=mine, the default when any listed target is
+                                                (?scope=mine, the default when any listed target is
                                                 in my configurations, keeps those repos; ?scope=all)
     GET /quality/{target}                       summary of one target at a ref (analyses it when not stored)
     GET /quality/{target}/density               Q1 language table and sortable file table
     GET /quality/{target}/comments              Q2 findings with suggested edits     .../comments.diff  the patch
-                                                (CR-W5, CR-WD-Q1: the decoration rule, banner and
+                                                (the decoration rule, banner and
                                                 boilerplate findings, is excluded unless ?kind=decoration (or
                                                 one of its kinds); ?banners=1 adds the rule to the patch; rows
                                                 in review order)
@@ -18,7 +18,7 @@
 
 Query: `ref` (branch, tag or sha; default the default branch, or the work tree for a `[quality] paths` target).
 A page shows the stored result for the commit the ref names when there is one. It never analyses inside the
-request (CR-R2) and a GET never queues work (integration review 2026-10-16): with nothing stored it says "not
+request and a GET never queues work: with nothing stored it says "not
 analysed yet" and offers the Analyse button, a POST that queues `nanosoc-rm quality all TARGET [--ref REF] --store`
 in the local job worker (job kind `quality`, one per target and ref at a time); while that job waits or runs the
 page answers 202 "analysing, refresh" with the job's live card. Every page shows the same rows as
@@ -124,7 +124,7 @@ def _key(fact_or_source) -> str:
 
 class NotAnalysed(Exception):
     """No stored result and no quality job queued or running for this target and ref. A GET never queues one
-    (integration review 2026-10-16: link prefetchers and previews started analyses); the page offers the POST
+    (link prefetchers and previews would start analyses); the page offers the POST
     Analyse button instead."""
 
 
@@ -147,7 +147,7 @@ def _waiting(config, target: str, ref: str | None) -> dict | None:
 
 
 def _queue(config, target: str, ref: str | None, login: str) -> dict:
-    """The queued or running quality job for (target, ref), or a new one (CR-R2: never analyse in a request).
+    """The queued or running quality job for (target, ref), or a new one (never analyse in a request).
     Called by the POST Analyse route only: a GET never queues work."""
     from nanosoc_rm import jobs
     with _lock("queue:%s:%s" % (target, ref)):
@@ -188,7 +188,7 @@ def _targets(config, by_kind: dict[str, dict[str, list[dict]]] | None = None) ->
 
 
 def my_components(config) -> set[str]:
-    """CR-WD-Q5: the repos in my configurations: each registered configuration's own component and every component
+    """The repos in my configurations: each registered configuration's own component and every component
     its last walked tree pins (stored pin_state facts). Empty when no registry or tree is stored."""
     out: set[str] = set()
     try:
@@ -211,7 +211,7 @@ def my_components(config) -> set[str]:
 
 
 def overview_model(config, scope: str | None = None) -> dict:
-    """The overview's rows and its filter (CR-WD-Q5): `scope` "mine" or "all"; None picks "mine" when any listed
+    """The overview's rows and its filter: `scope` "mine" or "all"; None picks "mine" when any listed
     target is a repo in a configuration, else "all" (a `[quality] paths` name is not a component id, so it never
     counts as mine and must not be hidden by default)."""
     mine = my_components(config)
@@ -225,7 +225,7 @@ def overview_model(config, scope: str | None = None) -> dict:
 
 
 def _overview_rows(config) -> list[dict]:
-    by_kind = {kind: q.stored_by_target(kind, config=config) for kind in q.KINDS}   # one read per kind (ROB-load-7)
+    by_kind = {kind: q.stored_by_target(kind, config=config) for kind in q.KINDS}   # one read per kind, not one per target
     out = []
     for t in _targets(config, by_kind):
         row = dict(t)
@@ -394,7 +394,7 @@ def router(app: Any = None) -> APIRouter:
 
 
 def selected_findings(findings: list[dict], sel: str = "", banners: bool = False) -> list[dict]:
-    """CR-W5, CR-WD-Q1: one kind when `sel` names it, the whole decoration rule when `sel` is "decoration";
+    """One kind when `sel` names it, the whole decoration rule when `sel` is "decoration";
     otherwise every finding outside the rule (banner and boilerplate are one rule, not N findings), plus the
     rule's findings when `banners` asks for the rule in the patch."""
     from nanosoc_rm.quality.findings import BULK_RULE, is_bulk
@@ -406,7 +406,7 @@ def selected_findings(findings: list[dict], sel: str = "", banners: bool = False
 
 
 def comments_view(config, target: str, obs: dict, sel: str = "", limit: int = 500) -> dict:
-    """The comments page model (CR-W5): rows in review order (web.review.rank severity, then path), each with its
+    """The comments page model: rows in review order (web.review.rank severity, then path), each with its
     suggested edit as removed and added line TEXT read from the analysed commit's local blob
     (quality.review_text: never fetched in a request); "line N" when the blob is not on this host."""
     from nanosoc_rm.quality import review_text as rt

@@ -1,4 +1,4 @@
-"""Notifications behind the bell (Wave F, CR-WF-gui; David 2026-10-14: front page approved, Notifications.dc.html).
+"""Notifications behind the bell (design: Notifications.dc.html).
 
 The inbox stops being the home page: its cards (web.inbox.cards, the same data source) become one line each
 here, with one action, mark read, and per-login "notify me about" kinds and projects. One more item comes from

@@ -48,7 +48,7 @@ JOB_CLASS = {"queued": "state-grey", "running": "state-info", "done": "", "faile
 
 
 def _with_tone(old: dict[str, str]) -> dict[str, str]:
-    """Wave C (spec 1.6): each older class keeps its name (tests and plug-ins read it) and gains the shell's tone
+    """Spec 1.6: each older class keeps its name (tests and plug-ins read it) and gains the shell's tone
     class from shell.TONE, which decides the colour."""
     from nanosoc_rm.web.shell import tone
     return {k: ("%s %s" % (v, tone(k))).strip() for k, v in old.items()}
@@ -79,7 +79,7 @@ def _span(s: int) -> str:
 
 def human_age(seconds: float | None) -> str:
     """An age for a page. A negative age (a fact stamped after now: clock skew between hosts, or a clock that
-    stepped back) is shown as clock skew, never as a fresh-looking "-3600 s" (ROB-faults-7)."""
+    stepped back) is shown as clock skew, never as a fresh-looking "-3600 s"."""
     if seconds is None:
         return "no facts shown"
     s = int(seconds)
@@ -108,7 +108,7 @@ class Page:
     def mark(self, obs: dict) -> Markup:
         """A fact shown as a whole element (a tree row, a matrix cell) rather than as a label: its A3 attributes
         (`data-subject`, `data-observed-at`) for that element, recorded for the page's data age. The element's
-        detail view prints the same fact with `fact()` and its source link (CR-WF-gui)."""
+        detail view prints the same fact with `fact()` and its source link."""
         self.facts.append(obs)
         return Markup('data-subject="%s" data-observed-at="%s"' % (escape(obs["subject"]), escape(obs["observed_at"])))
 
@@ -156,7 +156,7 @@ def page_doc(obs: Any) -> Any:
 
 
 def shown_command(source: Any) -> Markup:
-    """A source's command as a page shows it (K2 option a, David 2026-10-10): a registry read's
+    """A source's command as a page shows it: a registry read's
     `git -C <checkout path> show ...` shows the literal `<registry>` in place of the service's checkout path, so no
     page carries the VM's filesystem layout. The stored fact keeps the real path (`/facts` JSON, the CLI, the DB).
     Every other command is shown exactly as stored (A3)."""
@@ -177,7 +177,7 @@ NAV = (("Projects", "/", ("/", "/configurations", "/runs")), ("Compat", "/compat
        ("Alerts", "/alerts", ("/alerts",)))
 
 
-# The header's main navigation (Wave F, CR-WF-gui; Home.dc.html): label, href, the prefixes that mark it current.
+# The header's main navigation (design: Home.dc.html): label, href, the prefixes that mark it current.
 # An entry whose page is not built here (a plug-in not installed) is left out; every other page is under More.
 TOP_NAV = (("Projects", "/", ("/",)), ("Matrix", "/matrix/", ("/matrix",)), ("Releases", "/releases/", ("/releases",)),
            ("Silicon", "/silicon-protection", ("/silicon-protection",)), ("Catalogue", "/catalogue/", ("/catalogue",)))
@@ -223,8 +223,8 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
            bell: int | None = None, bare: bool = False, **ctx: Any) -> str:
     """The body template rendered first (its facts recorded), then the layout with the page's data age.
     `environment`: a plug-in's own Jinja environment for the body (the layout is always this package's).
-    Wave C shell: `rail` (shell.rail), `crumbs` [(label, href)], `tabs` [{key, label, href, count}] and
-    `tab_current` (a tab's key or href) go to the layout only. Wave F header: `bell` (unread notifications, None
+    Shell: `rail` (shell.rail), `crumbs` [(label, href)], `tabs` [{key, label, href, count}] and
+    `tab_current` (a tab's key or href) go to the layout only. Header: `bell` (unread notifications, None
     when unknown) and `bare` (the page prints its own title: no title bar)."""
     page = Page(now)
     body_env = environment or env

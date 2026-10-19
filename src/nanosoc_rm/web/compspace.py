@@ -1,4 +1,4 @@
-"""The component workspace (Wave C spec section 4, unit K): `/components/{id}` and its tabs.
+"""The component workspace (spec section 4): `/components/{id}` and its tabs.
 
     GET  /components/{id}                     Overview (web.routers.DELEGATES hands the app's page over)
     GET  /components/{id}/branches            Branches: every copy by default, the delete list first (fix 4)

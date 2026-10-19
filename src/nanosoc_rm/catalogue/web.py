@@ -1,4 +1,4 @@
-"""The Catalogue page (Wave F, CR-WF-gui; David 2026-10-14: front page approved, Characterise.dc.html), mounted at
+"""The Catalogue page (design: Characterise.dc.html), mounted at
 /catalogue through the web plug-in seam.
 
     GET  /catalogue/          the new-repo queue (the current `repo_seen` snapshots of the anonymous org scan), the
@@ -8,7 +8,7 @@
                               patch: `do=preview` shows it on the page, `do=download` returns it as a file
     POST /catalogue/scan      (local deployments) "Scan now": queue one `org-scan` local job (section 23.2:
                               read-only, anonymous listing), or show the one already queued or running; 303 to
-                              /catalogue/?job=N. The scheduler queues the same job nightly (CR-1015-orgscan)
+                              /catalogue/?job=N. The scheduler queues the same job nightly
 
 Nothing here writes the registry: the patch is for a person to review and apply by merge request (the registry
 is the source of truth). A GET reads the registry checkout's files, the store and the job records only: no scan, no

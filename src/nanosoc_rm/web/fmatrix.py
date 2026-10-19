@@ -1,4 +1,4 @@
-"""The freshness matrix, the default tab of /matrix/ (Wave F, CR-WF-gui; Matrix.dc.html): one row per repository,
+"""The freshness matrix, the default tab of /matrix/ (design: Matrix.dc.html): one row per repository,
 one column per stored configuration tree, each cell the worst pin of that repository in that tree (state word,
 commits behind, days since bump). The compatibility matrix (D3) stays the second tab, unchanged.
 
@@ -7,7 +7,7 @@ commits behind, days since bump). The compatibility matrix (D3) stays the second
 Stored facts only (freshness.view.grid / pin / tree and the stored registry records); a GET never scans.
 Frozen silicon columns are greyed and say "not counted": their cells never make a repository "lagging".
 A column's verdict is its tree verdict (freshness.view.trees: "Current except N not measured" when a direct pin could
-not be measured and none is worse, CR-1015-unmeasured), and a repository with a live cell nobody could measure is
+not be measured and none is worse), and a repository with a live cell nobody could measure is
 never called current: it says "current except N not measured" and stays listed under Lagging only.
 """
 from __future__ import annotations

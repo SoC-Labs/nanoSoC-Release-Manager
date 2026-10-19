@@ -16,7 +16,8 @@ from nanosoc_rm.web import registry_facts, routers, shell
 from nanosoc_rm.web.page import Page, env, render
 
 __all__ = ["NDJSON", "ctx", "state_of", "ndjson", "page", "not_found", "registry_problems", "delegate",
-           "job_fragment", "job_html", "redacted_alert", "same", "safe_next", "cookie_secure", "set_session", "session_header"]
+           "job_fragment", "job_html", "redacted_alert", "same", "safe_next", "cookie_secure", "set_session",
+           "session_header"]
 
 NDJSON = "application/x-ndjson"
 

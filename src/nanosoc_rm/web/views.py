@@ -166,7 +166,7 @@ _CAUSE_TEXT = {"auth": "the host refused an anonymous read (private?)", "ssh-key
 
 
 def mirror_summary(rows: list[dict]) -> list[dict]:
-    """CR-PR1: the mirrors counted by how they were read, each with a sentence (`text`) for the page."""
+    """The mirrors counted by how they were read, each with a sentence (`text`) for the page."""
     from nanosoc_rm.mirror.sync import access_summary
     out = []
     for r in access_summary(rows):
@@ -225,7 +225,7 @@ def dashboard(config: Config, now=None) -> dict:
     all_runs = runs(config)
     all_compat = compat_results(config)
     active = _active_jobs(config)
-    # One read per kind for every configuration, not one per configuration (ROB-load-6): pins() and errata() of
+    # One read per kind for every configuration, not one per configuration: pins() and errata() of
     # each configuration, grouped here with the same filter and order they apply.
     all_pins: dict[str, list[dict]] = {}
     for d in db.latest("pin_state", "pin_state:", config=config):
@@ -366,7 +366,7 @@ def run_t0(config: Config, cid: str, login: str) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Local GUI (CR-16, CR-17): compat, branches, hosts, mirrors, alerts, registry lists
+# Local GUI (section 13a): compat, branches, hosts, mirrors, alerts, registry lists
 # ---------------------------------------------------------------------------------------------------------
 LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")      # README section 6, worst first
 

@@ -1,4 +1,4 @@
-"""The Publish pages (CR-ART-publish; G8): a FastAPI router mounted at /publish through the plug-in seam.
+"""The Publish pages (G8): a FastAPI router mounted at /publish through the plug-in seam.
 
     GET  /publish/                                       the ledger (what was published), drafts ready to publish,
                                                          tapeout drafts, why publishing is off here (if it is)
@@ -9,7 +9,7 @@
     POST /publish/tapeout/{tapeout_id}/preview                queue `register-tapeout ID --dry-run`
     POST /publish/tapeout/{tapeout_id}/confirm                queue `register-tapeout ID --confirm SHA256`
 
-This is the ONE place the web app leads to a write outside the host (David 2026-10-14: a GUI Publish button for
+This is the ONE place the web app leads to a write outside the host (the GUI Publish button for
 asic-release). The pages only show stored facts (the ledger, the preview file a job wrote) and never call the
 store; both POSTs queue a job (a child process holds the token, never the web process). A POST answers 404
 outside a local deployment, 403 for a login that is not in `[stores.artifactory] publishers` or is a shared login,

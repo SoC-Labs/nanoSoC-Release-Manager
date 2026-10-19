@@ -1,4 +1,4 @@
-"""The configuration workspace (Wave C spec section 3, unit C): one configuration as six tabs.
+"""The configuration workspace (spec section 3): one configuration as six tabs.
 
     GET /configurations/{id}                    Overview: the deciding gate, red gates first   (delegate)
     GET /configurations/{id}/tree               Submodule tree: nested pins, flags, the selected-pin aside
@@ -441,7 +441,7 @@ def pin_aside(config: Any, ctx: Ctx, path: str | None) -> dict | None:
             "twins": [{"path": t["fact"]["tree_paths"][0], "commit": t["fact"]["child"]["commit"][:7], "doc": t,
                        "href": "%s/tree?node=%s" % (base, _q(t["fact"]["tree_paths"][0]))} for t in twins],
             "notes": notes, "next": nxt, "code": code, "action": action,
-            # Wave G: Test this bump on a pin row (the capabilities page queues it for an executor)
+            # Test this bump on a pin row (the capabilities page queues it for an executor)
             "test_bump": None if ctx.frozen else _test_bump_href(ctx.cid, f["tree_paths"][0])}
 
 

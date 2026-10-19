@@ -27,7 +27,8 @@ import inspect
 from types import ModuleType
 from typing import Any, Callable, NamedTuple
 
-__all__ = ["CORE", "Route", "mount_core", "ROUTERS", "WAVE_C_POSTS", "WAVE_F_POSTS", "DELEGATES", "mount", "optional", "route_table", "writes"]
+__all__ = ["CORE", "Route", "mount_core", "ROUTERS", "WAVE_C_POSTS", "WAVE_F_POSTS", "DELEGATES", "mount", "optional",
+           "route_table", "writes"]
 
 CORE = ("nanosoc_rm.web.routes.pages", "nanosoc_rm.web.routes.actions", "nanosoc_rm.web.routes.api",
         "nanosoc_rm.web.routes.signin")

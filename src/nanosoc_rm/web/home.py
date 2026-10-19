@@ -1,7 +1,7 @@
-"""The projects home at `/` (Wave F, CR-WF-gui; David 2026-10-14: front page approved, Home.dc.html).
+"""The projects home at `/` (design: Home.dc.html).
 
 One tree of projects -> configurations -> pins, one compact toolbar above it, and a detail panel on the right.
-It REVERSES Wave C's inbox at `/` (CR-W1): the inbox is now Notifications behind the bell (web.notifications).
+The older inbox is Notifications behind the bell (web.notifications).
 
     home_view(config, login, query, today=None, local=False) -> dict    everything home.html prints
     dashboard(request)                                                   GET / (routers.DELEGATES)
@@ -233,7 +233,7 @@ class _Data:
         return self._tree_cache[cid]
 
     def capabilities(self, cid: str) -> dict:
-        """Wave G: the configuration's capabilities view (capabilities.view.tree_view), once per request."""
+        """The configuration's capabilities view (capabilities.view.tree_view), once per request."""
         if not hasattr(self, "_caps_cache"):
             self._caps_cache: dict[str, Any] = {}
         if cid not in self._caps_cache:
@@ -653,7 +653,7 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
 
 def _capabilities_section(data: _Data, cid: str, tree_path: str | None, to: str | None, local: bool
                           ) -> tuple[dict, list[dict]]:
-    """Wave G: the detail panel's Capabilities section (what this tree can run, on which host, its last result) and
+    """The detail panel's Capabilities section (what this tree can run, on which host, its last result) and
     the "Test this bump" form of a live pin (local deployments; it only queues a job for an executor). Reads the
     capabilities view once per configuration per page; a problem is a line in the section, never a 500."""
     from nanosoc_rm.capabilities.web import bump_href

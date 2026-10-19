@@ -1,22 +1,21 @@
-"""The inbox cards (Wave C spec section 2; CR-W1, CR-W2, CR-W3): ranked cards, one cause and one action each, built
+"""The inbox cards (spec section 2): ranked cards, one cause and one action each, built
 only from stored observations.
 
-CR-WF-gui (David 2026-10-14, chat: front page approved) REVERSES CR-W1's inbox at `/`: `/` is the projects home
-(web.home) and the cards are the data source of Notifications behind the bell (web.notifications, one line per
-card). The full card view (evidence, snooze) stays reachable at GET /inbox, linked from Notifications; the
-configuration board moved under the projects tree.
+`/` is the projects home (web.home) and the cards are the data source of Notifications behind the bell
+(web.notifications, one line per card). The full card view (evidence, snooze) stays reachable at GET /inbox, linked
+from Notifications; the configuration board moved under the projects tree.
 
     cards(config, login=None, now=None) -> [Card]      every card the stored facts give, ranked (2.3, 2.3 Ranking)
     open_count(config, login) -> int                   cards this login has not marked done or snoozed (the rail)
     board(config, d=None, local_ci=False) -> dict      the configuration board (2.5, build-first fix 2)
-    dashboard(request)                                 GET /inbox: the card view (its own route since CR-WF-gui)
+    dashboard(request)                                 GET /inbox: the card view
     alerts(request)                                    GET /alerts, handed over by app.py (routers.DELEGATES)
     router(app)                                        GET /inbox; the local-only POSTs: /inbox/done,
                                                        /inbox/snooze, /inbox/undo, /alerts/clear-group
 
 Rules this module keeps (spec section 0 and 2):
-- A card is built from module functions over the store (views, db, verdict, alertgroups, and the Wave B modules
-  when they are installed). Nothing here walks, fetches, compares or queues: a GET never submits a job.
+- A card is built from module functions over the store (views, db, verdict, alertgroups, and the optional plug-in
+  modules when they are installed). Nothing here walks, fetches, compares or queues: a GET never submits a job.
 - Cards 1 and 2 read a configuration's verdict as the newer of its compat result and its latest CI T0 run (a
   GitHub + CI deployment stores only the second); a configuration with either is not "never checked".
 - `inbox.WEIGHTS` is the one ranking table: rank = weight x staleness (0.8 when the card's fact is older than
@@ -149,7 +148,7 @@ def _has(name: str) -> bool:
 
 
 def _optional(modname: str) -> Any:
-    """A Wave B module when it is installed here, else None (a missing plug-in means no card, never an error)."""
+    """An optional plug-in module when it is installed here, else None (a missing plug-in means no card, never an error)."""
     try:
         return importlib.import_module(modname)
     except ImportError:
@@ -377,7 +376,7 @@ def _never_checked(ctx: _Ctx) -> list[Card]:
 def _registry_unloaded(ctx: _Ctx) -> list[Card]:
     """No configuration record is stored: the registry has never loaded (a registry that loads has at least one
     configuration). Every other card is built from registry records, so an empty inbox here would mean "nothing
-    known", not "nothing needs you" (ROB-faults-12)."""
+    known", not "nothing needs you"."""
     if ctx.records:
         return []
     said = [p for p in ctx.problems if "registry" in p.lower()] or ["no registry records are stored"]
@@ -592,7 +591,7 @@ def _quality(ctx: _Ctx) -> list[Card]:
     w = WEIGHTS["quality_top"]
     newest: dict[str, dict] = {}
     # The newest document per target (subject minus its commit part), read without decoding the older commits'
-    # documents, which can be megabytes each (ROB-load-2).
+    # documents, which can be megabytes each.
     for d in db.newest_per("quality_finding", lambda s: s.rsplit(":", 1)[0], "quality_finding:", config=ctx.config):
         t = d["fact"].get("target")
         if t and (t not in newest or clock.parse(d["observed_at"]) > clock.parse(newest[t]["observed_at"])):
@@ -600,7 +599,7 @@ def _quality(ctx: _Ctx) -> list[Card]:
     out = []
     for t, d in sorted(newest.items()):
         f = d["fact"]
-        findings = [x for x in f.get("findings") or [] if not is_bulk(x)]       # CR-WD-Q1: one decoration rule
+        findings = [x for x in f.get("findings") or [] if not is_bulk(x)]       # one decoration rule
         if not findings:
             continue
         ranked = _rank_findings(findings)
@@ -701,7 +700,7 @@ def _matrix(ctx: _Ctx) -> list[Card]:
     latest: dict[str, dict] = {}
     for d in sorted(db.latest("matrix_cell", "matrix_cell:", config=ctx.config),
                     key=lambda d: clock.parse(d["fact"]["finished_at"])):
-        # keyed by tier too: a tier cell (CR-WD-matrix-t1) neither replaces nor poses as the T0 cell
+        # keyed by tier too: a tier cell neither replaces nor poses as the T0 cell
         latest.setdefault(d["fact"]["configuration"], {})[
             (d["fact"]["component"], d["fact"]["column"], d["fact"].get("tier") or None)] = d
     quarantined: dict[str, list[dict]] = {}
@@ -1044,7 +1043,7 @@ async def post_undo(request: Request) -> Response:
 
 
 async def post_clear_group(request: Request) -> Response:
-    """CR-W3: clear every open alert of one cause group; each clear is logged as `clear_alert` with the login. The
+    """Clear every open alert of one cause group; each clear is logged as `clear_alert` with the login. The
     form carries `seen`, the fingerprint of the alerts the page showed: a group that changed since answers 409."""
     from starlette.concurrency import run_in_threadpool
     config, _ = _ctx(request)
@@ -1073,7 +1072,7 @@ async def post_clear_group(request: Request) -> Response:
 
 
 def router(app: Any = None):
-    """GET /inbox (the card view, CR-WF-gui); its POSTs exist only in a local deployment (section 13a), so a
+    """GET /inbox (the card view); its POSTs exist only in a local deployment (section 13a), so a
     GitHub + CI deployment keeps exactly the two Run routes (D5)."""
     from fastapi import APIRouter
     from nanosoc_rm.web.plugins import local_routes

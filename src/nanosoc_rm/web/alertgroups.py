@@ -1,4 +1,4 @@
-"""Alerts grouped by cause (Wave C spec 5.1, build-first fix 1; CR-W3). Pure reads of the stored `alert` rows.
+"""Alerts grouped by cause (spec 5.1). Pure reads of the stored `alert` rows.
 
 Fifty `mirror_failed` alerts with one message are one problem, not fifty: the dashboard, the rail, the inbox and
 `/alerts` show one line per cause.
@@ -27,7 +27,7 @@ __all__ = ["CAUSES", "normalise", "cause_of", "groups", "group", "host_of", "see
 
 # (alert_kind or None for any kind, pattern on the normalised message, key, label, advice). First match wins.
 CAUSES: tuple[tuple[str | None, str, str, str, str], ...] = (
-    # CR-PR1: a failure WITH the host's private_read method is its own cause, before the anonymous ones.
+    # A failure WITH the host's private_read method is its own cause, before the anonymous ones.
     ("mirror_failed", r"failed with read credentials",
      "private-creds", "private repos the read credentials cannot read",
      "Check that the host's private_read key or token can read these repos, then sync again"),

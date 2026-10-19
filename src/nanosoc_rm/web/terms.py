@@ -1,6 +1,5 @@
-"""Plain words for the codes the GUI used to print (evaluation 2026-10-16, usability friction 2; David 2026-10-16:
-evaluation fix wave). A page prints the word; the code stays in a `title` tooltip, so a reader who knows the
-spec can still find it, and a reader who does not is never shown it as the only text.
+"""Plain words for the codes the GUI used to print. A page prints the word; the code stays in a `title` tooltip, so a
+reader who knows the spec can still find it, and a reader who does not is never shown it as the only text.
 
     WORDS                     {code: plain words}: host pin states, test tiers, requirement IDs
     word(code) -> str         the plain words of one code (the code itself when unknown)

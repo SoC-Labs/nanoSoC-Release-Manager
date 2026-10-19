@@ -11,7 +11,7 @@
     POST /bumps/p/{id}/mark           "mark as done by a person" (or declined), logged with the login
 
 Every page says it: the tool never pushes, writes a branch or opens a pull request. The POST routes act only in a
-local deployment (the app's local routes, CR-16/CR-17); elsewhere they answer 403 with the CLI command. Pages read
+local deployment (the app's local routes, section 13a); elsewhere they answer 403 with the CLI command. Pages read
 only bumps.sqlite (the kept proposals, scans, marks and the kept ledger): no git and no ledger computation inside a
 request. The scan and the ledger always run as jobs (nanosoc_rm.jobs): Scan now queues `bumps scan --store`, which
 also keeps the ledger, and a mark queues `bumps ledger --store`.
