@@ -14,8 +14,9 @@ this move, in a registered configuration of the asking repository, from exactly 
 `root_commit` is that commit, its `to` is `to` and its tree paths include `path`, so a PASS for another base, or
 for a neighbouring move, never turns a CI run green. Every configuration whose `component` is `component` is
 tried. A new red (FAIL) in ANY one answers FAIL, naming that configuration, even when another passes (D14,
-David 2026-10-19). Otherwise a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red before the bump) answers
-WARN with that note, and WARN lets the move land as PASS does (`gate.lands`). Read-only: it reads the job records and the registry, never runs or queues
+David 2026-10-19). Otherwise a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red
+before the bump) answers WARN with that note, and WARN lets the move land as PASS does (`gate.lands`).
+Read-only: it reads the job records and the registry, never runs or queues
 anything, never fetches.
 
 Who may ask: a signed-in member (the session route), or a holder of a READER token: `[[api.readers]]` entries
