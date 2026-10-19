@@ -4,6 +4,7 @@ spec codes, and empty states that say what to do next."""
 from __future__ import annotations
 
 import copy
+import html
 import re
 
 import pytest
@@ -126,3 +127,98 @@ def test_the_strip_is_hidden_when_nothing_needs_anyone_and_a_broken_source_gives
     r = fp["client"].get("/")
     assert r.status_code == 200 and "data-needs" not in r.text and "What needs me?" not in r.text
     assert needs.items(fp["config"]) == []
+
+
+# ----- words, not codes -----------------------------------------------------------------------------------------
+# Pages whose own text (not registry data a person wrote) must carry no spec or change-request code.
+WORDS_PAGES = ("/", "/bumps/", "/bumps/ledger", "/matrix/", "/compat", "/configurations/eth-rc4",
+               "/configurations/eth-rc4/history", "/configurations/eth-rc4/silicon", "/silicon-protection",
+               "/notifications", "/inbox", "/releases/", "/versions/", "/alerts", "/catalogue/")
+CODE = re.compile(r"Phase [2-5]|\bCR-[0-9A-Z][\w-]*|\((?:[A-HQ]\d{1,2}|PR\d)(?:,\s*[A-HQ]\d{1,2})*\)|\bT[0-6]\b|"
+                  r"\b(?:PROTECTED_BY_TAG|BRANCH_ONLY|ON_DEFAULT|PR_ONLY|NO_GITLINK|LOCAL_URL)\b|David 20\d\d")
+
+
+def visible(text: str) -> str:
+    """The words a reader sees in <main>: tags, scripts and tooltips (title attributes) left out."""
+    m = re.search(r"<main.*?</main>", text, re.S)
+    t = m.group(0) if m else text
+    t = re.sub(r"<(script|style)\b.*?</\1>", " ", t, flags=re.S)
+    t = re.sub(r"<[^>]+>", " ", t)
+    return re.sub(r"\s+", " ", html.unescape(t))
+
+
+def test_no_page_shows_a_spec_or_change_request_code_as_its_text(fp):
+    found = {}
+    for url in WORDS_PAGES:
+        r = fp["client"].get(url)
+        assert r.status_code == 200, url
+        hits = sorted(set(CODE.findall(visible(r.text))))
+        if hits:
+            found[url] = hits
+    assert found == {}, found
+
+
+def test_the_plain_filter_names_phases_and_drops_parenthesised_ids_into_a_tooltip():
+    from nanosoc_rm.web import terms
+    assert str(terms.plain("waits for the Phase 2 entry gate")) == \
+        'waits for the <span title="Phase 2 entry gate">nightly-matrix sign-off</span>'
+    assert str(terms.plain("never proposed (E3, E5)")) == 'never proposed<span class="term-code" data-code="E3 E5"></span>'
+    assert str(terms.plain("see (CR-WH-usability)")) == 'see<span class="term-code" data-code="CR-WH-usability"></span>'
+    assert str(terms.plain("Phase 4 automation")) == '<span title="Phase 4">bump-bot stage</span> automation'
+    assert str(terms.plain("CR-15 stays")) == "CR-15 stays"                     # only a parenthesised id is dropped
+
+
+# ----- the src links, the two clocks, the axes ------------------------------------------------------------------
+def test_every_src_link_names_its_fact_for_a_screen_reader(fp):
+    from nanosoc_rm.bumps.web import _fact as bump_fact
+    obs = {"subject": "bump_proposal:eth-main:p1", "observed_at": "2026-10-18T12:00:00Z"}
+    pages = {url: fp["client"].get(url).text for url in ("/configurations/eth-rc4", "/silicon-protection")}
+    pages["bump fact"] = str(bump_fact(None, obs, "p1")) + str(bump_fact(None, obs))
+    for url, text in pages.items():
+        links = re.findall(r'<a class="src"[^>]*>src</a>', text)
+        assert links, url
+        for a in links:
+            name = re.search(r'aria-label="How (.+?) was found"', a)
+            assert name and name.group(1).strip(), (url, a)
+    assert 'aria-label="How p1 was found"' in pages["bump fact"]
+    assert 'aria-label="How bump_proposal:eth-main:p1 was found"' in pages["bump fact"]
+
+
+def test_the_header_says_when_the_page_was_updated_and_links_its_oldest_fact(fp):
+    text = fp["client"].get("/configurations/eth-rc4").text
+    age = re.search(r'<p class="age" data-age-seconds="(\d+)" data-oldest-observed-at="([^"]+)"[^>]*>(.*?)</p>',
+                    text, re.S)
+    assert age, "one data-age element"
+    shown = re.sub(r"\s+", " ", age.group(3))
+    assert re.search(r"^Updated .+ ago · oldest fact <a href=\"/facts/[^\"]+\" data-oldest-fact><strong>", shown.strip())
+    href = re.search(r'href="([^"]+)" data-oldest-fact', shown).group(1)
+    oldest = fp["client"].get(html.unescape(href))
+    assert oldest.status_code == 200 and age.group(2) in oldest.text
+
+
+def test_the_workspace_names_both_axes_and_the_rail_says_its_chips_are_the_last_check(fp):
+    text = fp["client"].get("/configurations/eth-main").text
+    assert re.search(r'<span class="axis">Check</span> <span class="chip [^"]+">', text)
+    fresh = re.search(r'<span class="axis">Freshness</span> <a class="chip c-neutral" href="([^"]+)" data-freshness>'
+                      r'([^<]+)</a>', text)
+    assert fresh and fresh.group(2) == "Outdated", fresh
+    assert "sel=c%3Aeth-main" in fresh.group(1)
+    assert re.search(r'data-freshness>Frozen</a>', fp["client"].get("/configurations/eth-rc4").text)
+    assert re.search(r'data-freshness>not scanned</a>', fp["client"].get("/configurations/multicore-master").text)
+    assert "SoC configurations <span class=\"rail-axis\">· last check</span>" in text
+
+
+def test_projects_with_no_registered_configuration_say_how_to_register_one(fp):
+    text = fp["client"].get("/?sel=grp:none").text
+    assert "No configuration registered" in text and "eligibility.yaml" in text and "merge request" in text
+    assert "not scanned yet" in fp["client"].get("/?sel=grp:unk").text
+
+
+def test_the_card_view_says_why_its_count_differs_from_the_bell(fp):
+    for _, d in contracts.docs_in(EXAMPLES / "observation.catalogue.example.jsonl"):
+        db.put(d, config=fp["cfg"])                         # a new-repos item: on the bell, not a card
+    text = fp["client"].get("/inbox").text
+    bell = int(re.search(r'data-bell="(\d+)"', text).group(1))
+    open_ = int(re.search(r"Cards · (\d+) open", text).group(1))
+    assert bell == open_ + 1
+    assert "data-count-note>The bell counts %d unread" % bell in text

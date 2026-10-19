@@ -115,7 +115,7 @@ def run_page(request: Request, nonce: str) -> HTMLResponse:
     run = views.run_by_nonce(config, nonce)
     if run is None:
         return not_found(request, "run")
-    return page(request, "run.html", "T0 run %s" % nonce[:12], run=run)
+    return page(request, "run.html", "Resolve-check run %s" % nonce[:12], run=run)
 
 
 def facts_page(request: Request, subject: str) -> HTMLResponse:

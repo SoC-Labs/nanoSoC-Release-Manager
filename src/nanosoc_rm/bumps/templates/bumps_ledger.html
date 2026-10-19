@@ -1,4 +1,4 @@
-<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }} The ledger compares each proposal with the consumer branch in the mirror now: agreed when a person pinned exactly the proposed commit. Same rows as <code>nanosoc-rm bumps ledger</code>.</p>
+<p class="banner info" data-shadow="true"><strong>Shadow mode.</strong> {{ NO_WRITES }} The ledger compares each proposal with the consumer branch in the mirror now: agreed when a person pinned exactly the proposed commit. Same rows as <code>nanosoc-rm bumps ledger</code>.</p>
 {% if ledger %}{% set L = ledger.fact %}
 <table class="kv" data-bumps="ledger-summary">
   <tr><th>Ledger</th><td>{{ bfact(page, ledger, 'bump_ledger:all') }} <span class="note">computed {{ ledger_at }} by the last scan or ledger job (<code>nanosoc-rm bumps ledger --store</code>); this page never reads the mirrors</span></td></tr>

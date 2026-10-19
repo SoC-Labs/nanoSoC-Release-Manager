@@ -56,7 +56,7 @@ RULE = {
     "outdated": "A direct pin is 10+ commits behind, or behind and not bumped for 90+ days.",
     "behind": "Direct pins lag by 1 to 9 commits and were bumped within 90 days.",
     "current_except": ("Every direct pin that could be measured is at its upstream head, but at least one could not "
-                       "be counted, so the tree is not Current (David 2026-10-15)."),
+                       "be counted, so the tree is not Current."),
     "current": "Every direct pin was measured and is at its upstream default-branch head.",
     "frozen": "A tagged silicon configuration. Drift is expected and is never a to-do.",
     "not_measured": ("No stored scan yet, or a scanned tree none of whose direct pins could be counted. Register "
@@ -440,7 +440,7 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
             d = frz["tree"]["root"]["days"]
             ago, bar = "frozen " + _ago(d), (tl.bar(d, d, True) if tl else None)
         else:
-            ago, bar = "[no scan]", None
+            ago, bar = ("not scanned" if p["configs"] else "no configuration"), None
         word = _roll_word(roll)
         r = add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
                 "Repository %s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word,
@@ -451,11 +451,17 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
 
     for p in measured:
         proj_row(p, 0)
-    if unmeasured:
-        g = add("grp:unk", 0, True, "not_measured", "Not measured yet (%d)" % len(unmeasured), "group", "[no scan]",
-                "%d projects not measured yet" % len(unmeasured))
+    # Not measured, by why: a registered configuration with no stored scan yet, or no configuration registered at all
+    for gkey, members, label, ago in (
+            ("grp:unk", [p for p in unmeasured if p["configs"]], "Registered, not scanned yet", "not scanned"),
+            ("grp:none", [p for p in unmeasured if not p["configs"]], "No configuration registered",
+             "no configuration")):
+        if not members:
+            continue
+        g = add(gkey, 0, True, "not_measured", "%s (%d)" % (label, len(members)), "group", ago,
+                "%s: %d %s" % (label, len(members), "project" if len(members) == 1 else "projects"))
         if g["open"]:
-            for p in unmeasured:
+            for p in members:
                 proj_row(p, 1)
 
     detail = _detail(sel, data, today, local)
@@ -563,11 +569,19 @@ def _detail(sel: str | None, data: _Data, today: dt.date, local: bool) -> dict |
     if sel.startswith("p:"):
         return _proj_detail(sel[2:], data, today)
     if sel == "grp:unk":
-        n = sum(1 for p in data.projects if not p["measured"])
-        return {"kind": "Group", "title": "Not measured yet", "title_cls": "t-big", "state": "not_measured",
-                "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n, "chips": [],
-                "blurb": "These projects have no stored scan of a registered configuration, so their pins are not "
-                         "measured. Register a configuration (eligibility.yaml) and scan it to measure one.",
+        n = sum(1 for p in data.projects if not p["measured"] and p["configs"])
+        return {"kind": "Group", "title": "Registered, not scanned yet", "title_cls": "t-big",
+                "state": "not_measured", "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n,
+                "chips": [], "blurb": "These projects have a registered configuration with no stored scan yet. The "
+                                      "scheduler scans after each poll; open a project to scan its configuration now.",
+                "facts": [], "note": None, "links": [], "obs": None, "forms": []}
+    if sel == "grp:none":
+        n = sum(1 for p in data.projects if not p["measured"] and not p["configs"])
+        return {"kind": "Group", "title": "No configuration registered", "title_cls": "t-big",
+                "state": "not_measured", "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n,
+                "chips": [], "blurb": "Nothing measures these projects until one of their configurations is "
+                                      "registered. To register one, add it to eligibility.yaml in the registry by a "
+                                      "merge request (its id, root component and ref); the next poll scans it.",
                 "facts": [], "note": None, "links": [("The catalogue", "/catalogue/")], "obs": None, "forms": []}
     return None
 

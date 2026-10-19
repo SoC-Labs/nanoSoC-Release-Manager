@@ -18,12 +18,12 @@
   <thead><tr><th>Result</th><th>Verdict</th><th>Tier</th><th>Not run</th><th>Finished</th></tr></thead>
   <tbody>
 {% for d in c.compat %}{% set f = d.fact %}{% set v = f.run_verdict or f.verdict %}
-  <tr data-verdict="{{ v }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td><span class="pill {{ VERDICT_CLASS.get(v, '') }}">{{ v }}</span>{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</td>
-    <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'T0 only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
+  <tr data-verdict="{{ v }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td><span class="pill {{ VERDICT_CLASS.get(v, '') }}">{{ v }}</span>{% if f.reason %} <span class="note">{{ f.reason|plain }}</span>{% endif %}</td>
+    <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'resolve check only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
 {% endfor %}
   </tbody>
 </table></div>
-{% else %}<p class="empty">No stored compat result. Press {{ 'Run' if local_ci else 'Run T0' }} above, or <code>nanosoc-rm compat {{ c.id }} --store</code>.</p>{% endif %}
+{% else %}<p class="empty">No stored compat result. Press {{ 'Run' if local_ci else 'Run in CI' }} above, or <code>nanosoc-rm compat {{ c.id }} --store</code>.</p>{% endif %}
 {% if c.jobs %}
 <details><summary>Local jobs ({{ c.jobs|length }})</summary>
 <table><thead><tr><th>Job</th><th>State</th><th>Verdict</th><th>Command</th><th>By</th></tr></thead><tbody>

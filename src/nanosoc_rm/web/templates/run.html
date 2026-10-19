@@ -2,7 +2,7 @@
 <table class="kv">
   <tr data-verdict="{{ f.verdict or '' }}" class="{{ VERDICT_CLASS.get(f.verdict, '') }}"><th>Verdict</th><td>{{ fact(run, f.verdict or 'pending') }}{% if f.over_budget %} <span class="warn">over the 120 s budget</span>{% endif %}</td></tr>
   <tr><th>Configuration</th><td><a href="/configurations/{{ f.configuration }}">{{ f.configuration }}</a> at <code>{{ short(f.commit, 12) }}</code></td></tr>
-  <tr><th>Acceptance</th><td>{{ f.acceptance }}{% if f.reason %}: {{ f.reason }}{% endif %}</td></tr>
+  <tr><th>Acceptance</th><td>{{ f.acceptance }}{% if f.reason %}: {{ f.reason|plain }}{% endif %}</td></tr>
   <tr><th>Triggered</th><td>{{ f.run.trigger }} by {{ f.run.triggered_by }} at {{ f.run.triggered_at }}</td></tr>
   <tr><th>Pipeline / job</th><td>{{ f.run.pipeline_id or 'none' }} / {{ f.run.job_id or 'none' }}</td></tr>
   <tr><th>Times</th><td>{{ f.started_at or '' }} to {{ f.finished_at or '' }}</td></tr>

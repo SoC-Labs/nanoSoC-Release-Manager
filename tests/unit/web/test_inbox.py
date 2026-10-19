@@ -597,7 +597,7 @@ def test_a_stored_t0_result_is_a_verdict_in_a_ci_deployment(service, registry_sp
     assert "eth-rc4" not in never.title and never.title.startswith("2 configurations have never been checked")
     assert "CI" in never.dest and "nanosoc-rm compat" not in never.dest
     red = [c for c in cs if c.id == "compat_fail:eth-rc4"]
-    assert red and red[0].chip[0] == "UNVERIFIED" and "T0 run" in red[0].title
+    assert red and red[0].chip[0] == "UNVERIFIED" and "latest CI resolve check" in red[0].title
     assert red[0].primary["href"] == "/runs/%s" % nonce and "captured commit differs" in red[0].why
     head = re.search(r'<h2[^>]*id="h-next"[^>]*>(.*?)</h2>', s["client"].get("/inbox").text, re.S).group(1)
     assert "eth-rc4" in head and "never been checked: eth-rc4" not in head

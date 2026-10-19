@@ -8,14 +8,14 @@
       {{ ui.chip(c.chip[0], c.chip[1]) }}
       <span class="note">{% if c.fact %}{{ fact(c.fact, c.meta) }}{% else %}{{ c.meta }}{% endif %}</span>
     </div>
-    <h3 id="card-h-{{ c.number }}" class="disp">{{ c.title }}</h3>
-    <p>{{ c.why }}</p>
+    <h3 id="card-h-{{ c.number }}" class="disp">{{ c.title|plain }}</h3>
+    <p>{{ c.why|plain }}</p>
     {% if c.note %}<p class="note"><strong>{{ c.note }}</strong></p>{% endif %}
     <details id="ev-{{ c.code_id }}"{% if first %} open{% endif %}>
       <summary>Evidence ({{ c.evidence|length }})</summary>
       <ul>
       {% for e in c.shown_evidence %}
-        <li>{{ ui.chip(e.tag, e.tone) }} <span class="mono">{{ e.what }}</span>{% if e.say %} <span>{{ e.say }}</span>{% endif %}</li>
+        <li>{{ ui.chip(e.tag, e.tone) }} <span class="mono">{{ e.what }}</span>{% if e.say %} <span>{{ e.say|plain }}</span>{% endif %}</li>
       {% endfor %}
       {% if c.more %}<li class="note">+{{ c.more }} more</li>{% endif %}
       </ul>

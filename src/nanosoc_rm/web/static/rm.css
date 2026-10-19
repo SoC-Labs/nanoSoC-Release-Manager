@@ -223,6 +223,10 @@ nav.tabs a { display: inline-flex; align-items: center; gap: 6px; min-height: 44
 nav.tabs a[aria-current="page"] { border-bottom-color: var(--accent); }
 
 /* ---- chips and dots: text always present --------------------------------------------------------- */
+/* the name of the axis a verdict is on ("Check", "Freshness"), printed before its chip */
+.axis { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.rail-axis { text-transform: none; letter-spacing: 0; font-weight: 400; }
+a.chip { text-decoration: none; }
 .chip, .pill { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11.5px;
   font-weight: 600; letter-spacing: .02em; padding: 2px 7px; border-radius: 3px; white-space: nowrap; line-height: 16px;
   border: 1px solid transparent; }

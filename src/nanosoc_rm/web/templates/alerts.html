@@ -1,7 +1,7 @@
 {# GET /alerts (spec 5.1, build-first fix 1; CR-W3): one row per cause group, its alerts in a <details>; the
    cleared alerts flat. Messages are shown after shell.redact (`redacted`, by subject): no URL reaches the page. #}
 {% import "_ui.html" as ui %}
-<p class="note">Raised by the mirrors (a failed fetch, a rewritten branch) and the credential and runner checks. Alerts with one cause are one line. Clearing is logged with your login, one <code>clear_alert</code> per alert.</p>
+<p class="note">Raised by the mirrors (a failed fetch, a rewritten branch) and the credential and runner checks. Alerts with one cause are one line, and one notification behind the bell. Clearing is logged with your login, one <code>clear_alert</code> per alert.</p>
 <h2>Open ({{ open_n }} in {{ groups|length }} {{ 'group' if groups|length == 1 else 'groups' }})</h2>
 {% if groups %}
 <div class="scroll"><table>

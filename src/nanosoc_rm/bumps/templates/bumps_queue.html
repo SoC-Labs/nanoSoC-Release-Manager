@@ -1,5 +1,5 @@
-<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }} Same rows as <code>nanosoc-rm bumps queue</code>; scan with <code>nanosoc-rm bumps [CONFIG] --store</code>.</p>
-<p class="banner problem" data-schedule="disabled"><strong>Schedule: DISABLED.</strong> Gate: {{ schedule.gate }} entry gate ({{ schedule.gate_status }}). {{ schedule.reason }}</p>
+<p class="banner info" data-shadow="true"><strong>Shadow mode.</strong> {{ NO_WRITES }} Same rows as <code>nanosoc-rm bumps queue</code>; scan with <code>nanosoc-rm bumps [CONFIG] --store</code>.</p>
+<p class="banner problem" data-schedule="disabled"><strong>Not scheduled.</strong> Proposals are made only when a person presses Scan now or runs <code>nanosoc-rm bumps --store</code>. Scanning on a schedule is switched on later, after a person signs off the bump-bot checklist in <code>docs/phase-gates.yaml</code> (now: {{ schedule.gate_status }}).</p>
 
 {% if local %}
 <form class="panel" method="post" action="/bumps/scan">
@@ -8,7 +8,7 @@
     <label>Configuration <input name="configuration" value="{{ sel.configuration }}" placeholder="every registered one"></label>
     <button type="submit" title="queue `nanosoc-rm bumps CONFIG --store` as a local job; it reads the stored walk and the mirrors">Scan now</button>
   </div>
-  <p class="note">Reads the latest stored walk and the mirrors (walk and sync them first on the configuration and <a href="/mirrors">Mirrors</a> pages). Frozen and silicon configurations are never proposed (E3, E5).</p>
+  <p class="note">Reads the latest stored walk and the mirrors (walk and sync them first on the configuration and <a href="/mirrors">Mirrors</a> pages). Frozen and silicon configurations are never proposed.</p>
 </form>
 {% else %}<p class="note">To scan: <code>nanosoc-rm bumps --store</code> on a login server.</p>{% endif %}
 {% if job %}<div hx-get="/jobs/{{ job }}/fragment" hx-trigger="load" hx-swap="outerHTML"><p class="note">Job {{ job }}: <a href="/jobs/{{ job }}/log">log</a></p></div>{% endif %}
@@ -26,9 +26,9 @@
       <td class="num">{{ f.proposals|length }}</td>
       <td>{% for k, n in f.counts|dictsort %}{{ pill(k, STATUS_CLASS) }} {{ n }} {% endfor %}</td>
       {% else %}
-      <td>{{ pill('refused', {'refused': 'state-grey'}) }}</td><td>{{ f.refused }}</td>
+      <td>{{ pill('refused', {'refused': 'state-grey'}) }}</td><td>{{ f.refused|plain }}</td>
       {% endif %}
-      <td>{% for p in f.problems %}<span class="warn">{{ p }}</span><br>{% endfor %}</td>
+      <td>{% for p in f.problems %}<span class="warn">{{ p|plain }}</span><br>{% endfor %}</td>
     </tr>
   {% endfor %}
   </tbody>
@@ -71,11 +71,11 @@
 </table></div>
 {% else %}<p class="empty">{% if total %}No kept proposal matches the filter ({{ total }} kept).{% else %}No proposals are kept. A proposal appears when a catalogue component has a release tag (vX.Y.Z) newer than a consumer's pin; see each configuration's pins by status above.{% endif %}</p>{% endif %}
 
-<h2>Shadow ledger (E2)</h2>
+<h2>Shadow ledger</h2>
 {% if ledger %}{% set L = ledger.fact %}
 <p>{{ bfact(page, ledger, 'ledger') }}: {{ L.counts.agreed }} agreed, {{ L.counts.disagreed }} disagreed, {{ L.counts.pending }} pending, {{ L.counts.superseded }} superseded.
   Agreement {% if L.agreement_rate is not none %}<strong>{{ '%.0f'|format(100 * L.agreement_rate) }}%</strong>{% else %}n/a (nothing decided yet){% endif %}.
-  Threshold: {{ L.threshold.reason }}. Auto-merge: <span class="pill state-grey">OFF</span> ({{ L.auto_merge.gate }}). <a href="/bumps/ledger">Ledger</a>
+  Threshold: {{ L.threshold.reason }}. Auto-merge: <span class="pill state-grey">OFF</span> ({{ L.auto_merge.gate|plain }}). <a href="/bumps/ledger">Ledger</a>
   <span class="note">Computed {{ ledger_at }} by the last scan or ledger job; marks made since then count at the next one.</span></p>
 {% else %}<p class="note">No ledger is kept yet: a scan with <code>--store</code> (Scan now) or <code>nanosoc-rm bumps ledger --store</code> computes it. Pages never read the mirrors.</p>{% endif %}
 {% if recent %}<h2>Recent scan jobs</h2><ul>{% for j in recent %}<li><a href="/bumps/?job={{ j.id }}">job {{ j.id }}</a> {{ pill(j.state, JOB_CLASS) }} <code>{{ j.command }}</code> by {{ j.by }} {{ j.created_at }}</li>{% endfor %}</ul>{% endif %}

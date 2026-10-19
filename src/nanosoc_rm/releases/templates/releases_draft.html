@@ -16,16 +16,16 @@
 {% if job_html %}{{ job_html }}{% endif %}
 <h2>Checks</h2>
 <div class="scroll"><table>
-  <thead><tr><th>Check</th><th>Verdict</th><th>Requirement</th><th>Detail</th><th>Who</th></tr></thead>
+  <thead><tr><th>Check</th><th>Verdict</th><th>Rule</th><th>Detail</th><th>Who</th></tr></thead>
   <tbody>
   {% for c in f.checks %}
-    <tr data-check="{{ c.id }}" data-verdict="{{ c.verdict }}"><td><code>{{ c.id }}</code></td><td><span class="pill {{ VERDICT_CLASS.get(c.verdict, '') }}">{{ c.verdict }}</span></td><td>{{ c.requirement or '' }}</td><td>{{ c.detail }}</td><td>{{ 'a person' if c.person else 'the tool' }}</td></tr>
+    <tr data-check="{{ c.id }}" data-verdict="{{ c.verdict }}"><td><code>{{ c.id }}</code></td><td><span class="pill {{ VERDICT_CLASS.get(c.verdict, '') }}">{{ c.verdict }}</span></td><td>{{ (c.requirement or '')|plain }}</td><td>{{ c.detail|plain }}</td><td>{{ 'a person' if c.person else 'the tool' }}</td></tr>
   {% endfor %}
   </tbody>
 </table></div>
 <h2>Person-only steps ({{ f.person_steps|length }})</h2>
 <ol class="steps">
-{% for s in f.person_steps %}<li data-step>{{ s.step }} <span class="note">({{ s.who }})</span>{% if s.command %}<pre>{{ s.command }}</pre>{% endif %}</li>{% endfor %}
+{% for s in f.person_steps %}<li data-step>{{ s.step|plain }} <span class="note">({{ s.who }})</span>{% if s.command %}<pre>{{ s.command }}</pre>{% endif %}</li>{% endfor %}
 </ol>
 {% if f.train %}
 <h2 title="G4">Release train: {{ f.train|length }} member(s), deepest first</h2>

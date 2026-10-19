@@ -4,7 +4,8 @@ Every fact a page shows goes through `Page.fact(obs)`, which prints it with `dat
 `data-observed-at` and a `data-source-for` link to `/facts/<subject>`, and records it. The page's one
 data-age element (`data-age-seconds`, `data-oldest-observed-at`) is computed AFTER the body is rendered, from
 exactly the facts the body printed, and measured from the OLDEST of them (README section 4), so the age a page
-shows can never be younger than its oldest fact.
+shows can never be younger than its oldest fact. The header says both clocks: when the newest fact on the page was
+observed ("Updated 4 min ago") and the age of the oldest, which links to that fact.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ import copy
 import html
 import shlex
 import json
+import re
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -24,7 +26,7 @@ from nanosoc_rm import clock
 from nanosoc_rm.web import lines as _lines, terms as _terms
 
 __all__ = ["Page", "env", "render", "fact_href", "short", "human_age", "STATE_CLASS", "EXPOSURE_CLASS",
-           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav",
+           "VERDICT_CLASS", "ITEM_CLASS", "BRANCH_CLASS", "RELATION_CLASS", "JOB_CLASS", "NAV", "TOP_NAV", "top_nav", "src_name",
            "MORE_GROUPS", "more_groups"]
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -62,6 +64,13 @@ STATE_CLASS, EXPOSURE_CLASS, VERDICT_CLASS, ITEM_CLASS, BRANCH_CLASS, RELATION_C
 
 def fact_href(subject: str) -> str:
     return "/facts/" + urllib.parse.quote(subject, safe="")
+
+
+def src_name(label: Any, subject: str) -> str:
+    """What a src link's accessible name calls its fact: the label shown beside it, or the subject when the label
+    is empty, so two src links on one page never read the same to a screen reader unless their facts do."""
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(label or ""))).strip()
+    return text if text and text != subject else subject
 
 
 def short(sha: str | None, n: int = 7) -> str:
@@ -102,9 +111,10 @@ class Page:
         s = obs["subject"]
         text = obs["subject"] if label is None else label
         return Markup('<%s class="fact %s" data-subject="%s" data-observed-at="%s">%s</%s>'
-                      ' <a class="src" data-source-for="%s" href="%s" title="observed %s; how it was found">src</a>'
+                      ' <a class="src" data-source-for="%s" href="%s" title="observed %s; how it was found"'
+                      ' aria-label="How %s was found">src</a>'
                       % (tag, escape(cls), escape(s), escape(obs["observed_at"]), escape(text), tag,
-                         escape(s), escape(fact_href(s)), escape(obs["observed_at"])))
+                         escape(s), escape(fact_href(s)), escape(obs["observed_at"]), escape(src_name(text, s))))
 
     def mark(self, obs: dict) -> Markup:
         """A fact shown as a whole element (a tree row, a matrix cell) rather than as a label: its A3 attributes
@@ -115,6 +125,17 @@ class Page:
 
     def oldest(self) -> str | None:
         return min((o["observed_at"] for o in self.facts), key=clock.parse) if self.facts else None
+
+    def oldest_subject(self) -> str | None:
+        """The subject of the oldest fact on the page (the header links to it)."""
+        return min(self.facts, key=lambda o: clock.parse(o["observed_at"]))["subject"] if self.facts else None
+
+    def newest_age_seconds(self) -> int | None:
+        """How long ago the newest fact on the page was observed: when the page was last brought up to date."""
+        if not self.facts:
+            return None
+        newest = max((o["observed_at"] for o in self.facts), key=clock.parse)
+        return int((self.now - clock.parse(newest)).total_seconds())
 
     def age_seconds(self) -> int | None:
         o = self.oldest()
@@ -256,9 +277,20 @@ def render(template: str, *, title: str, identity: Any = None, problems: list[st
     body = body_env.get_template(template).render(page=page, fact=page.fact, csrf=csrf, identity=identity, **ctx)
     current = next((n for n in nav if any(path == p or (p != "/" and path.startswith(p + "/")) for p in n[2])), None)
     main_nav, more_nav = top_nav(tuple(nav), path)
+    newest = page.newest_age_seconds()
+    oldest_subject = page.oldest_subject()
+    oldest_href = None
+    if oldest_subject:
+        # the oldest fact's own source link on this page (a plug-in may serve its facts elsewhere than /facts/)
+        m = re.search(r'data-source-for="%s" href="([^"]+)"' % re.escape(str(escape(oldest_subject))), body)
+        oldest_href = html.unescape(m.group(1)) if m else fact_href(oldest_subject)
     return env.get_template("layout.html").render(
-        body=Markup(body), title=title, doc_title=doc_title or title, main_nav=main_nav, more_nav=more_nav, more_groups=more_groups(more_nav), bell=bell, bare=bare,
-        path_is_notifications=path == "/notifications" or path.startswith("/notifications/"), identity=identity, problems=problems or [], csrf=csrf, nav=nav,
-        current=current[1] if current else None, auth_mode=auth_mode, rail=rail, crumbs=crumbs or [], tabs=tabs or [],
-        tab_current=tab_current,
-        age_seconds=page.age_seconds(), oldest=page.oldest(), human_age=human_age, now=clock.iso(page.now))
+        body=Markup(body), title=title, doc_title=doc_title or title, main_nav=main_nav, more_nav=more_nav,
+        more_groups=more_groups(more_nav), bell=bell, bare=bare,
+        path_is_notifications=path == "/notifications" or path.startswith("/notifications/"), identity=identity,
+        problems=problems or [], csrf=csrf, nav=nav, current=current[1] if current else None, auth_mode=auth_mode,
+        rail=rail, crumbs=crumbs or [], tabs=tabs or [], tab_current=tab_current,
+        age_seconds=page.age_seconds(), oldest=page.oldest(), oldest_href=oldest_href,
+        updated=None if newest is None else ("Updated %s ago" % human_age(newest) if newest >= 0
+                                             else human_age(newest)),
+        human_age=human_age, now=clock.iso(page.now))

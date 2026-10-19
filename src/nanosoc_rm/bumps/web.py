@@ -29,6 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
+from nanosoc_rm.web.page import src_name
 from nanosoc_rm.web.plugins import config_of, is_local, login_of, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV", "STATE_CLASS", "OUTCOME_CLASS", "CLASS_CLASS",
@@ -62,9 +63,10 @@ def _fact(page: Any, obs: dict, label: Any = None) -> Markup:
     s = obs["subject"]
     href = "%s/facts/%s" % (PREFIX, urllib.parse.quote(s, safe=""))
     return Markup('<span class="fact" data-subject="%s" data-observed-at="%s">%s</span> <a class="src" '
-                  'data-source-for="%s" href="%s" title="observed %s; how it was found">src</a>'
+                  'data-source-for="%s" href="%s" title="observed %s; how it was found" aria-label="How %s was found">'
+                  'src</a>'
                   % (escape(s), escape(obs["observed_at"]), escape(s if label is None else label), escape(s),
-                     escape(href), escape(obs["observed_at"])))
+                     escape(href), escape(obs["observed_at"]), escape(src_name(label, s))))
 
 
 def _pill(text: Any, table: dict) -> Markup:

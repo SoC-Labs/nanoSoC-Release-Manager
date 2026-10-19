@@ -4,8 +4,9 @@
 <section id="inbox" aria-labelledby="h-next" style="display:flex;flex-direction:column;gap:16px">
   <div class="row" style="justify-content:space-between">
     <div style="flex:1 1 480px;min-width:0">
-      <p class="rail-h" style="margin:0">Inbox · {{ inbox.open }} open · ranked by what unblocks most</p>
-      <h2 id="h-next" class="disp" style="margin:.25rem 0 0;font-size:1.6rem">{{ inbox.headline }}</h2>
+      <p class="rail-h" style="margin:0">Cards · {{ inbox.open }} open · ranked by what unblocks most</p>
+      <h2 id="h-next" class="disp" style="margin:.25rem 0 0;font-size:1.6rem">{{ inbox.headline|plain }}</h2>
+      {% if inbox.bell is not none and inbox.bell != inbox.open %}<p class="note" data-count-note>The bell counts {{ inbox.bell }} unread: the same items, plus new repos to characterise, less the kinds and projects muted on <a href="/notifications">Notifications</a>.</p>{% endif %}
     </div>
     <div style="flex:0 1 260px">
       <label for="inbox-progress"><strong>{{ inbox.done_n }} of {{ inbox.total }} done</strong> today</label>

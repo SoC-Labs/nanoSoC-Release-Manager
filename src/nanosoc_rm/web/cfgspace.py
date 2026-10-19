@@ -639,9 +639,26 @@ def header(config: Any, ctx: Ctx, request: Request) -> dict:
         unused = V.unused_waivers(ctx.doc, ctx.record) if ctx.doc else []
         tiles.append({"label": "Waivers", "value": str(len(ctx.waivers)),
                       "sub": "%d cover nothing" % len(unused) if ctx.doc else "no result to check them"})
-    return {"chips": chips, "line": lines.describe(ctx.rec, ctx.root_commit),
+    return {"chips": chips, "fresh": _freshness(config, ctx), "line": lines.describe(ctx.rec, ctx.root_commit),
             "sentence": dec.sentence if v != V.NO_RESULT else "%s has never been checked." % ctx.cid,
             "action": action, "tiles": tiles, "infra": dec.infra_text}
+
+
+def _freshness(config: Any, ctx: Ctx) -> dict:
+    """The configuration's freshness verdict as Home shows it ({word, href}), so the header names both axes: the
+    last check (the chips) and how far its pins lag (this). "not scanned" when no freshness scan is stored."""
+    from nanosoc_rm.freshness import view as fview
+    root = (ctx.rec or {}).get("component") or ""
+    href = "/?" + urllib.parse.urlencode([("v", "1"), ("o", "p:" + root), ("o", "c:" + ctx.cid),
+                                          ("sel", "c:" + ctx.cid)])
+    try:
+        t = fview.tree(ctx.cid, config=config)
+    except Exception:                                            # noqa: BLE001 - one unreadable store: no word
+        t = None
+    if t is None:
+        return {"word": "not scanned", "href": href}
+    tree = t["tree"]
+    return {"word": "Frozen" if ctx.frozen or tree["frozen"] else tree["word"], "href": href}
 
 
 def _has_matrix(request: Request) -> bool:
@@ -933,7 +950,7 @@ def history_page(request: Request, id: str) -> Response:
     rows = []
     for j in views.safe_jobs(config, limit=100, configuration=ctx.cid):
         nonce = ((j.get("result") or {}).get("fact") or {}).get("nonce") if j["kind"] == "compat" else None
-        rows.append({"job": j, "tier": j["params"].get("tier") or ("T0 only" if j["kind"] == "compat" else ""),
+        rows.append({"job": j, "tier": j["params"].get("tier") or ("resolve check only" if j["kind"] == "compat" else ""),
                      "stored": by_nonce.get(nonce) if nonce and not j["params"].get("pins") else None,
                      "whatif": bool(j["params"].get("pins")),
                      "took": _span(j.get("started_at"), j.get("finished_at")),

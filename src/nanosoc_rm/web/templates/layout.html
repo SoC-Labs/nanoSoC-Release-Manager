@@ -46,7 +46,7 @@
     </a>
     {% endif %}
     <p class="age" data-age-seconds="{{ '' if age_seconds is none else age_seconds }}" data-oldest-observed-at="{{ oldest or '' }}" title="{% if oldest %}measured from the oldest fact on this page ({{ oldest }}){% else %}this page shows no stored fact{% endif %}; rendered {{ now }}">
-      Data age <strong>{{ human_age(age_seconds) }}</strong>{% if oldest %} <span class="sr">(oldest fact {{ oldest }})</span>{% endif %}
+      {% if oldest %}{{ updated }} · oldest fact <a href="{{ oldest_href }}" data-oldest-fact><strong>{{ human_age(age_seconds) }}</strong></a> <span class="sr">(observed {{ oldest }})</span>{% else %}Data age <strong>{{ human_age(age_seconds) }}</strong>{% endif %}
     </p>
     <button type="button" data-theme-toggle hidden aria-pressed="false">Dark theme</button>
     {% if identity %}

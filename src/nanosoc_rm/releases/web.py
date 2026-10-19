@@ -272,7 +272,7 @@ def router(app: Any = None) -> APIRouter:
                     z.write(p, "%s/%s" % (top, p.name))
             if withheld:
                 z.writestr("%s/WITHHELD.txt" % top, "".join(
-                    "%s is not in this download: %s. It goes only to the private release store (D12); a person "
+                    "%s is not in this download: %s. It goes only to the private release store; a person "
                     "copies it from the draft folder on the service host.\n" % (n, why)
                     for n, why in sorted(withheld.items())))
         return Response(buf.getvalue(), media_type="application/zip",
@@ -286,8 +286,8 @@ def router(app: Any = None) -> APIRouter:
         p = d / name
         withheld = private_files(_read(d)[0], _lock(d))
         if name in withheld:
-            return PlainTextResponse("403 Forbidden: %s is withheld: %s. It goes only to the private release store "
-                                     "(D12); a person copies it from the draft folder on the service host."
+            return PlainTextResponse("403 Forbidden: %s is withheld: %s. It goes only to the private release store; "
+                                     "a person copies it from the draft folder on the service host."
                                      % (name, withheld[name]), 403)
         if name.endswith((".gz", ".tgz", ".tar", ".zip")):
             return Response(p.read_bytes(), media_type="application/octet-stream",

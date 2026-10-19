@@ -1,7 +1,7 @@
-{# Run T0 (section 13): POST to /configurations/<id>/runs with the CSRF field; disabled while a run is pending. `run_class` (default primary) lets a page with
+{# The Run button (section 13 "Run T0"): POST to /configurations/<id>/runs with the CSRF field; disabled while a run is pending. `run_class` (default primary) lets a page with
    another primary action show it as a ghost.
    With no CI project (CR-17) the same button queues a local compat job (T0 locally, stored). #}
 <form data-run-t0 method="post" action="/configurations/{{ cid }}/runs" hx-post="/configurations/{{ cid }}/runs" hx-swap="outerHTML">
   <input type="hidden" name="csrf_token" value="{{ csrf }}">
-  <button type="submit" class="{{ run_class or 'primary' }}"{% if pending %} disabled title="a run is pending"{% endif %}{% if local_ci %} title="runs nanosoc-rm compat {{ cid }} --store on this host"{% endif %}>{{ 'Run' if local_ci else 'Run T0' }}</button>
+  <button type="submit" class="{{ run_class or 'primary' }}"{% if pending %} disabled title="a run is pending"{% elif local_ci %} title="runs nanosoc-rm compat {{ cid }} --store on this host"{% else %} title="triggers the resolve check (T0) in CI"{% endif %}>{{ 'Run' if local_ci else 'Run in CI' }}</button>
 </form>

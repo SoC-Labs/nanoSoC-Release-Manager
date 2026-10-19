@@ -339,9 +339,9 @@ def _t0_card(ctx: _Ctx, rec: dict, doc: dict) -> Card:
     ctx.claim(cid, d.tree_paths)
     return Card(
         id="compat_fail:%s" % cid, kind="compat_fail", chip=(d.verdict, shell.tone(d.verdict)),
-        title="%s is %s in its latest T0 run: %s." % (cid, d.verdict, label), why=why, weight=weight,
+        title="%s is %s in its latest CI resolve check: %s." % (cid, d.verdict, label), why=why, weight=weight,
         fact_at=doc.get("observed_at"), frozen=ctx.frozen[cid], facts=[doc],
-        meta="T0 run %s · %s" % (nonce[:12], _age(run.get("triggered_at"), ctx.now)),
+        meta="resolve-check run %s · %s" % (nonce[:12], _age(run.get("triggered_at"), ctx.now)),
         evidence=[_evidence(c.verdict, shell.tone(c.verdict), ", ".join(c.gates), c.label) for c in cs]
         + [_evidence(str(f.get("acceptance") or "?").upper(), "c-warn" if f.get("acceptance") == "rejected"
                      else "c-neutral", "run %s" % nonce[:12], "%s by %s" % (run.get("trigger") or "?",
@@ -370,7 +370,7 @@ def _never_checked(ctx: _Ctx) -> list[Card]:
         forms=forms, primary={"label": "Run first check: %s" % cids[0], "href": forms[0]["action"], "method": "post",
                               "fields": {}, "local": False},
         dest=("queues one check per press (nanosoc-rm compat CONFIG --store)" if ctx.local_ci
-              else "triggers one CI T0 run per press"), basis=cids)]
+              else "triggers one CI resolve check per press"), basis=cids)]
 
 
 def _registry_unloaded(ctx: _Ctx) -> list[Card]:
@@ -816,7 +816,7 @@ def _store(ctx: _Ctx) -> list[Card]:
         if kind == "release_not_archived":
             primary = {"label": "Open %s Silicon" % about, "href": _silicon_href(about), "method": "get", "fields": {}}
             dest, why = "opens the configuration's Taped out panel", (
-                "A silicon release with no manifest in the store cannot be traced from the store to its commit (D12).")
+                "A silicon release with no manifest in the store cannot be traced from the store to its commit.")
             code = "nanosoc-rm store findings"
         elif kind == "store_mismatch":
             primary = {"label": "Open the manifest in Store", "href": "/store/?q=%s" % _q(about.rsplit("/", 1)[-1]),
@@ -972,10 +972,20 @@ def dashboard(request: Request) -> Response:
     problems = list(registry_facts.refresh(config))
     cat = _cat(request.query_params.get("cat"))
     view = inbox_view(config, login_of(request), cat, problems=problems)
+    view["bell"] = _bell(config, login_of(request))
     trail = [("Projects", "/"), ("Notifications", "/notifications")]
     crumbs = trail + ([("Cards", None)] if cat == "all" else [("Cards", "/inbox"), (CAT_LABEL[cat], None)])
     return request.app.state.rm.page(request, "inbox.html", "Notification cards", problems=problems, crumbs=crumbs,
                                      inbox=view, board=None)
+
+
+def _bell(config, login: str | None) -> int | None:
+    """The bell's unread count (web.notifications), so the card view can say why its own count differs."""
+    from nanosoc_rm.web import notifications
+    try:
+        return notifications.unread_count(config, login)
+    except Exception:                                            # noqa: BLE001 - no bell figure, no note
+        return None
 
 
 def alerts(request: Request) -> Response:
@@ -994,6 +1004,7 @@ def _inbox_fragment(request: Request, cat: str) -> HTMLResponse:
     state = request.app.state.rm
     p = Page()
     view = inbox_view(config, login_of(request), cat)
+    view["bell"] = _bell(config, login_of(request))
     html = env.get_template("_inbox.html").render(page=p, fact=p.fact, csrf=state.csrf_for(ident, config),
                                                   identity=ident, actions=state.local_routes, inbox=view)
     return HTMLResponse(html)

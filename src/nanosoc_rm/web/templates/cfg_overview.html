@@ -43,7 +43,7 @@
 {% else %}
 <section class="panel" aria-labelledby="h-never">
   <h2 id="h-never">{{ c.cid }} has never been checked</h2>
-  <p>No gates and no stored result, so there is no baseline for a what-if yet. Press {{ 'Run' if local_ci else 'Run T0' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
+  <p>No gates and no stored result, so there is no baseline for a what-if yet. Press {{ 'Run' if local_ci else 'Run in CI' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
 </section>
 {% endif %}
 

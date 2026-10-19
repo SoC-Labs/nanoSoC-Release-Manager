@@ -7,7 +7,7 @@
   {% if f %}
     <p><strong>{{ f.path }}</strong>: <code>{{ (f['from'] or '?')[:12] }}</code> &rarr; <code>{{ f.to.commit[:12] }}</code> ({{ f.to.resolved_as }}) at root <code>{{ f.root_commit[:12] }}</code> on host {{ f.host or '(none)' }}{% if f.moved|length > 1 %}; moves {{ f.moved|join(', ') }} together{% endif %}.</p>
     <p>Functional verdict: {{ s.verdict(f.verdict) }}{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</p>
-    {% if f.hygiene %}<p class="note">Hygiene (T0, reported, never hides the rows): Now {{ s.verdict(f.hygiene.now.verdict if f.hygiene.now else None) }} &middot; After {{ s.verdict(f.hygiene.after.verdict if f.hygiene.after else None) }}</p>{% endif %}
+    {% if f.hygiene %}<p class="note">Hygiene (the resolve check; reported, never hides the rows): Now {{ s.verdict(f.hygiene.now.verdict if f.hygiene.now else None) }} &middot; After {{ s.verdict(f.hygiene.after.verdict if f.hygiene.after else None) }}</p>{% endif %}
     {% for p in f.problems %}<p class="banner warn">{{ p }}</p>{% endfor %}
     <table>
       <thead><tr><th scope="col">Capability</th><th scope="col">Gate</th><th scope="col">Now</th><th scope="col">After</th><th scope="col">Change</th><th scope="col">Why it ran</th><th scope="col">Detail</th></tr></thead>
