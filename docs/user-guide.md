@@ -333,11 +333,11 @@ deployment; elsewhere the page shows the CLI command instead.
 | Configuration (`/configurations/<id>`) | tabs Overview (gates, deciding rows first; pins; waivers), Submodule tree, What-if (Now vs After per gate), Matrix, Silicon, History; **Walk now** |
 | Component (`/components/<id>`) | tabs Overview, Branches (the delete list; [section 4](#4-can-i-delete-this-branch)), Quality, Versions, Review (one finding at a time into a per-login `patch.diff`) |
 | Matrix (`/matrix/`) | **Freshness**: one row per repository, one column per configuration. **Compatibility** (`?tab=compat`): each component at its pin, the latest tag in range, the latest tag and its default-branch head; **Run cell/row/column/all** queue T0 jobs; the nightly matrix is off until its phase gate |
-| Releases, Publish | release drafts with **Draft** and **Verify** jobs, the errata document, forks of the example projects; Publish previews and then publishes a signed record ([section 6](#6-how-do-i-release)) |
+| Releases, Publish | release drafts with **Draft** and **Verify** jobs (input files, such as the archive, GDS and netlist, are picked from `<data_dir>/release-inputs/` on the host), the errata document, forks of the example projects; Publish previews and then publishes a signed record ([section 6](#6-how-do-i-release)) |
 | Silicon | taped-out commits and whether a tag protects each, uncovered first |
 | Catalogue | new repositories from the nightly org scan (**Scan now**), entries with an open question, every group; **Save to catalogue** shows the `catalogue.yaml` patch ([section 8](#8-classify-a-new-repository)) |
 | Capabilities (`/capabilities/<id>`) | what each tree of a configuration declares in `.nanosoc/capabilities.yaml`, which hosts can run it, and its last test-bump result |
-| More | Compat, Branches, Hosts (**Compare now**), Contains, Registry, Mirrors (**Sync**; how each repo was read), Alerts (grouped by cause, **Clear**), Quality (**Analyse**), Versions, Bumps (shadow-mode proposals; **Scan now**), Store |
+| More | Compat, Branches, Hosts (**Compare now**), Contains, Registry, Mirrors (**Sync**; how each repo was read), Alerts (grouped by cause; **Clear all** of a group, refused if the group changed since the page was drawn, or **Clear** one), Quality (**Analyse**), Versions, Bumps (shadow-mode proposals; **Scan now**), Store |
 
 **Repository, line, submodule pin.** A configuration is a line of its repository and reads "branch main @ 8e6d043"
 or "tag v1.0.0 @ ab73e40"; a submodule pin reads "path @ sha"; a repository pinned at two commits in one tree says

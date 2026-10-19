@@ -666,8 +666,8 @@ Every 2 minutes, for each pending run:
 - `GET projects/:id/pipelines/:pid/variables`
 - `GET projects/:id/jobs/:job_id/artifacts`: unzip `rm-bundle/` into `<paths.quarantine>/<nonce>/`.
 
-A run still unfinished after the timeout (2 h) is `no-bundle` / INFRA. The variables call needs the service
-account's Maintainer role on compat-ci (GATE2 Q10).
+A run still unfinished after the timeout (2 h) is `no-bundle` / INFRA. The service account is Maintainer on
+compat-ci (GATE2 Q10); that this role can make the variables call is confirmed when compat-ci is created.
 
 ### Verify (D5)
 
