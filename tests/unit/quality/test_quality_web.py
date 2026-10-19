@@ -215,11 +215,11 @@ def test_the_quality_pages_sit_in_the_gui_shell(site):
     marked current), the CSRF header and the sign-out control, and every other page links to it."""
     c = site["client"]
     home = c.get("/").text
-    assert '<a href="/quality/"' in home and ">Quality</a>" in home
+    assert '<a href="/quality/"' in home and ">Code and doc quality</a>" in home
     for url in ("/quality/", "/quality/demo/density", "/quality/demo/trend"):
         r = _settle(c, url, site["cfg"])
         assert r.status_code == 200, url
-        assert '<a href="/quality/" aria-current="page" class="current">Quality</a>' in r.text, url
+        assert '<a href="/quality/" aria-current="page" class="current">Code and doc quality</a>' in r.text, url
         assert 'hx-headers=\'{"X-CSRF-Token": "' in r.text and "sign out" in r.text, url
         assert r.text.count("<html") == 1, url
     assert c.get("/quality", follow_redirects=False).status_code in (307, 308)   # the bare prefix redirects
@@ -230,7 +230,7 @@ def test_one_navigation_holds_every_wave_b_page_once(site):
     plug-in's landing page answers inside that shell (503 "could not answer" where this site has no registry)."""
     import re as _re
     c = site["client"]
-    labels = ["Quality", "Matrix", "Bumps", "Versions", "Releases"]
+    labels = ["Code and doc quality", "Matrix", "Bump proposals", "Versions", "Releases"]
     for url in ["/"] + ["/%s/" % p for p in ("quality", "matrix", "bumps", "versions", "releases")]:
         r = _settle(c, url, site["cfg"]) if url.startswith("/quality") else c.get(url)
         assert r.status_code in (200, 503), (url, r.status_code, r.text[:300])

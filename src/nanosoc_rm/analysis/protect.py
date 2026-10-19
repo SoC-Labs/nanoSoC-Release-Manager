@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nanosoc_rm.analysis import _inputs as inp
-from nanosoc_rm.analysis._inputs import Answer, CannotAnswer
+from nanosoc_rm.analysis import inputs as inp
+from nanosoc_rm.analysis.inputs import Answer, CannotAnswer
 from nanosoc_rm.config import Config
 
 __all__ = ["silicon_protection", "is_protected_configuration", "reached_by_default"]

@@ -8,7 +8,7 @@
     </a>
 
     <div class="rail-block" role="group" aria-labelledby="rail-h-cfg">
-      <p class="rail-h" id="rail-h-cfg">SoC configurations</p>
+      <p class="rail-h" id="rail-h-cfg">SoC configurations <span class="rail-axis">· last check</span></p>
     {% for c in rail.configurations %}
       {% if c.repo_head %}<p class="rail-repo" data-rail-repo="{{ c.repo }}">{{ ui.glyph("repo") }} {{ c.repo or "[repository]" }}</p>{% endif %}
       <a class="rail-item{% if c.current %} is-cur{% endif %}" href="{{ c.href }}"{% if c.current %} aria-current="page"{% endif %} data-rail-configuration="{{ c.id }}">

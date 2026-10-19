@@ -22,10 +22,11 @@ import urllib.parse
 from pathlib import Path
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, RedirectResponse, Response
+
+from nanosoc_rm.web.plugins import config_of, local_routes, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV"]
 
@@ -33,39 +34,18 @@ PREFIX = "/versions"
 NAV_LABEL = "Versions"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
-_WEB_TEMPLATES = HERE.parent / "web" / "templates"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _VER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 NOT_PUSHED = "Nothing here is pushed, tagged or opened: drafts and patches are files for a person to review and apply."
 CLASS_CLASS = {"breaking": "state-red", "feature": "state-amber", "fix": "state-green", "none": "state-grey"}
 
 
-def _env() -> Environment:
-    loaders = [FileSystemLoader(str(HERE / "templates"))]
-    if _WEB_TEMPLATES.is_dir():
-        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    env.globals.update(CLASS_CLASS=CLASS_CLASS, NOT_PUSHED=NOT_PUSHED, vurl=_vurl)
-    return env
-
-
 def _vurl(component: str, page: str = "") -> str:
     return "%s/%s%s" % (PREFIX, urllib.parse.quote(component, safe=""), ("/" + page) if page else "")
 
 
-ENV = _env()
-
-
-def _config(request: Request):
-    from nanosoc_rm.config import load_config
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx):
-    from nanosoc_rm.web.plugins import render_page
-    return render_page(request, template, title, status=status, environment=ENV, **ctx)
+ENV = template_env(HERE, CLASS_CLASS=CLASS_CLASS, NOT_PUSHED=NOT_PUSHED, vurl=_vurl)
+_page = renderer(ENV)
 
 
 def _job(config, q) -> dict | None:
@@ -103,13 +83,13 @@ def router(app=None) -> APIRouter:
     from nanosoc_rm import versioning
     from nanosoc_rm.versioning.commands import ensure_job_kinds
     ensure_job_kinds()
-    local = bool(getattr(getattr(getattr(app, "state", None), "rm", None), "local_routes", False))
+    local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
     @r.get("/")
     def overview(request: Request):
         from nanosoc_rm import jobs
-        config = _config(request)
+        config = config_of(request)
         problems = []
         try:
             rows = versioning.overview(config)
@@ -121,7 +101,7 @@ def router(app=None) -> APIRouter:
 
     @r.get("/{component}")
     def component_page(request: Request, component: str):
-        config = _config(request)
+        config = config_of(request)
         if not _ID.match(component):
             return _page(request, "message.html", "Not found", status=404, message="No component %r." % component)
         try:
@@ -152,7 +132,7 @@ def router(app=None) -> APIRouter:
     def manifest_diff(request: Request, component: str):
         if not _ID.match(component):
             return PlainTextResponse("404 Not Found", 404)
-        config = _config(request)
+        config = config_of(request)
         try:
             obs, patch = versioning.manifest_init(component, config=config)
         except versioning.VersioningUsage as e:
@@ -170,7 +150,7 @@ def router(app=None) -> APIRouter:
         from nanosoc_rm.versioning.release import DRAFT_FILES
         if not _ID.match(component) or not _VER.match(version) or name not in DRAFT_FILES:
             return PlainTextResponse("404 Not Found", 404)
-        f = _config(request).data_dir / "drafts" / component / version / name
+        f = config_of(request).data_dir / "drafts" / component / version / name
         if not f.is_file():
             return PlainTextResponse("404 Not Found", 404)
         return PlainTextResponse(f.read_text())
@@ -178,7 +158,7 @@ def router(app=None) -> APIRouter:
     if local:
         async def refresh(request: Request) -> Response:
             from nanosoc_rm import jobs
-            config = _config(request)
+            config = config_of(request)
             form = await request.form()
             comp = str(form.get("component") or "").strip()
             if comp and not await run_in_threadpool(_known, config, comp):
@@ -192,7 +172,7 @@ def router(app=None) -> APIRouter:
 
         async def make_draft(request: Request, component: str) -> Response:
             from nanosoc_rm import jobs
-            config = _config(request)
+            config = config_of(request)
             if not await run_in_threadpool(_known, config, component):
                 return PlainTextResponse("404 Not Found: %r is not a catalogue component" % component[:80], 404)
             try:
@@ -204,7 +184,7 @@ def router(app=None) -> APIRouter:
 
         async def approve_step(request: Request, component: str, version: str) -> Response:
             """G5 from the GUI: the SIGNED-IN login approves (review item 6); a typed login is ignored."""
-            config = _config(request)
+            config = config_of(request)
             if not _ID.match(component) or not _VER.match(version):
                 return PlainTextResponse("404 Not Found", 404)
             d = config.data_dir / "drafts" / component / version

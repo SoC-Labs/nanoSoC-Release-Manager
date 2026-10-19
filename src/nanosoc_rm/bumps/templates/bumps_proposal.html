@@ -1,13 +1,13 @@
-<p class="banner info" data-shadow="true"><strong>Shadow mode (E2).</strong> {{ NO_WRITES }}</p>
-{% if f.state == 'blocked' %}<p class="banner problem"><strong>Blocked:</strong> {{ f.reason }}</p>{% endif %}
+<p class="banner info" data-shadow="true"><strong>Shadow mode.</strong> {{ NO_WRITES }}</p>
+{% if f.state == 'blocked' %}<p class="banner problem"><strong>Blocked:</strong> {{ f.reason|plain }}</p>{% endif %}
 <table class="kv" data-proposal="{{ f.id }}" data-state="{{ f.state }}">
   <tr><th>Proposal</th><td>{{ bfact(page, obs, f.id) }} {{ pill(f.state, STATE_CLASS_B) }} (order {{ f.order }} in {{ f.configuration }}, deepest first)</td></tr>
   <tr><th>Consumer</th><td>{{ f.consumer.component }}: {{ f.consumer.repo.host }}:{{ f.consumer.repo.path }}, branch <strong>{{ f.consumer.branch }}</strong> at <code>{{ short(f.consumer.base) }}</code>{% if not f.consumer.at_configured %} <span class="warn">the configuration pins <code>{{ short(f.consumer.configured) }}</code>, not the branch tip</span>{% endif %}</td></tr>
   <tr><th>Gitlink</th><td><code>{{ f.path }}</code> (tree paths: {% for t in f.tree_paths %}<code>{{ t }}</code> {% endfor %})</td></tr>
   <tr><th>Move</th><td><code>{{ short(f['from'].commit) }}</code> ({% if not f['from'].tag %}no release{% elif not f['from'].exact %}contains {{ f['from'].tag }}{% else %}{{ f['from'].tag }}{% endif %}) to <code>{{ short(f.to.commit) }}</code> (<strong>{{ f.to.tag }}</strong>{% if f.to.grandfathered %}, grandfathered two-part tag{% endif %}) of {{ f.dependency.component }}</td></tr>
   {% if f.newest %}<tr><th>Newest release</th><td>{{ f.newest.tag }}: outside the {{ 'declared' if f.range.declared else 'assumed' }} range</td></tr>{% endif %}
-  <tr><th>Range</th><td>{{ f.range.declared or 'none declared' }}{% if f.range.assumed %}; assumed: {{ f.range.assumed }}{% endif %}{% if f.range.source %} <span class="note">({{ f.range.source }})</span>{% endif %}{% if f.range.problem %} <span class="warn">{{ f.range.problem }}</span>{% endif %}</td></tr>
-  <tr><th>Change class</th><td>{{ pill(f.change['class'], CLASS_CLASS) }} <span class="note">{{ f.change.class_source }}: {{ f.change.class_detail }}</span></td></tr>
+  <tr><th>Range</th><td>{{ f.range.declared or 'none declared' }}{% if f.range.assumed %}; assumed: {{ f.range.assumed }}{% endif %}{% if f.range.source %} <span class="note">({{ f.range.source }})</span>{% endif %}{% if f.range.problem %} <span class="warn">{{ f.range.problem|plain }}</span>{% endif %}</td></tr>
+  <tr><th>Change class</th><td>{{ pill(f.change['class'], CLASS_CLASS) }} <span class="note">{{ f.change.class_source }}: {{ f.change.class_detail|plain }}</span></td></tr>
   <tr><th>Commits</th><td>{{ f.change.commits.count }}{% if f.change.diverged %} <span class="pill state-red">diverged</span> the old pin is not an ancestor of the tag{% endif %}</td></tr>
   <tr><th>Defects fixed</th><td>{% for d in f.defects.fixed %}{{ pill('fixes', {'fixes': 'state-green'}) }} <a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }}{% if d.forms %} (forms {{ d.forms|join(', ') }}){% endif %}<br>{% else %}none in the registry{% endfor %}</td></tr>
   {% if f.defects.within_range %}<tr><th>Introduced and fixed in the range</th><td>{% for d in f.defects.within_range %}<a href="/defects/{{ d.id }}">{{ d.id }}</a> {{ d.title }} <span class="note">(the pin never had it; the tag has the fix)</span><br>{% endfor %}</td></tr>{% endif %}
@@ -25,15 +25,15 @@
         <input type="hidden" name="pins_extra" value="{{ f.matrix.pins|join('\n') }}"><input type="hidden" name="tier" value="{{ t }}">
         <button type="submit" title="queue the compat what-if with exactly this pin moved, T0 then {{ t }}">Run <span title="T0">resolve check</span> + {{ t }}</button></form>
       {% else %}<br><code>nanosoc-rm compat {{ f.configuration }}{% for p in f.matrix.pins %} --pin {{ p }}{% endfor %} --tier {{ t }}</code>{% endif %}
-    {% endfor %}<br><span class="note">E3 needs PASS from a t1 and a t2 what-if of the walked tree (each runs <span title="T0">resolve check</span> first); a <span title="T0">resolve check</span>-only what-if is never the cell.</span>{% endif %}</td></tr>
+    {% endfor %}<br><span class="note">Auto-merge needs PASS from a t1 and a t2 what-if of the walked tree (each runs <span title="T0">resolve check</span> first); a <span title="T0">resolve check</span>-only what-if is never the cell.</span>{% endif %}</td></tr>
   <tr><th>Waits for</th><td>{% for w in f.waits_for %}<a href="/bumps/p/{{ w }}">{{ w }}</a> {% else %}nothing{% endfor %}</td></tr>
   {% if f.test_bump %}<tr><th>Test this bump</th><td data-bumps="test-bump">{% if f.test_bump.verdict %}{{ pill(f.test_bump.verdict, VERDICT_CLASS) }}{% if f.test_bump.href %} <a href="{{ f.test_bump.href }}">job {{ f.test_bump.job }}</a>{% endif %}{% else %}<span class="note">no test-bump of exactly this move</span>{% endif %}{% if f.test_bump.note %}<br><span class="note">{{ f.test_bump.note }}</span>{% endif %}</td></tr>{% endif %}
   <tr><th>The bot would</th><td>{{ f.decision.would }} <span class="pill state-grey">auto-merge OFF</span> goes to a {{ f.decision.goes_to }}</td></tr>
   <tr><th>Ledger</th><td>{% if entry %}{{ pill(entry.outcome, OUTCOME_CLASS) }} {{ entry.note }} <span class="note">(computed {{ ledger_at }})</span>{% else %}<span class="note">not in the kept ledger yet (the next scan or ledger job computes it)</span>{% endif %}</td></tr>
 </table>
 
-<h2>Why it cannot auto-merge (E3)</h2>
-<ul data-bumps="blockers">{% for b in f.decision.blockers %}<li>{{ b }}</li>{% endfor %}</ul>
+<h2>Why it cannot auto-merge</h2>
+<ul data-bumps="blockers">{% for b in f.decision.blockers %}<li>{{ b|plain }}</li>{% endfor %}</ul>
 
 <h2>Patch</h2>
 <p><a href="/bumps/p/{{ f.id }}/patch.diff" download="{{ f.patch.file }}">Download {{ f.patch.file }}</a> (or <code>nanosoc-rm bumps patch {{ f.id }} --out {{ f.patch.file }}</code>). {{ f.patch.note }}</p>

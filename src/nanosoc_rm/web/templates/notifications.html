@@ -28,7 +28,7 @@
     <li class="fp-note-row{% if not i.read %} is-unread{% endif %}" data-item="{{ i.id }}" data-read="{{ 'true' if i.read else 'false' }}"{% if i.fact %} {{ page.mark(i.fact) }}{% endif %}>
       <span class="fp-tone t-{{ 'read' if i.read else i.tone }}" aria-hidden="true"></span>
       <div class="fp-note-text">
-        <p class="fp-note-title">{% if not i.read %}<span class="sr">Unread: </span>{% endif %}{{ i.text }}</p>
+        <p class="fp-note-title">{% if not i.read %}<span class="sr">Unread: </span>{% endif %}{{ i.text|plain }}</p>
         <p class="fp-note-meta">{{ i.where }}{% if i.when %} · {{ i.when }}{% endif %}</p>
       </div>
       <a class="fp-note-act" href="{{ i.action[1] }}">{{ i.action[0] }}</a>

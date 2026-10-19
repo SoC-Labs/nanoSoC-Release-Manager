@@ -16,7 +16,7 @@
     {% endif %}
   </div>
   <p><code>{{ job.command }}</code></p>
-  {% if job.reason %}<p class="{{ 'banner problem' if job.state in ('failed', 'infra') else 'note' }}">{{ job.reason }}</p>{% endif %}
+  {% if job.reason %}<p class="{{ 'banner problem' if job.state in ('failed', 'infra') else 'note' }}">{{ job.reason|plain }}</p>{% endif %}
   {% set r = job.result %}
   {% if job.kind == 'compat' and r is mapping and r.fact is mapping %}
     {% set f = r.fact %}

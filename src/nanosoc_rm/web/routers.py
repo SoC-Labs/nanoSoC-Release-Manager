@@ -1,10 +1,14 @@
-"""The core-router seam (Wave C, CR-W1): the workspace modules that own the app's main pages.
+"""How the app's routes are registered: its own route modules, then the workspace routers, then the plug-ins.
 
-    ROUTERS          the core page modules, in mount order (inbox, configuration workspace, component workspace;
-                     Wave F: the projects home and notifications)
-    WAVE_C_POSTS     the exact set of POST routes they may add (spec section 8), for the route census
-    mount(app)       import each module and include its router; called by create_app BEFORE the app's own GET
-                     routes, so `/configurations/{id}/tree` is matched before the catch-all `/configurations/{id}`
+    CORE             the app's own route modules (web/routes/), each listing its routes in ROUTES
+    Route            one row of ROUTES: method, path, handler, and whether it exists only in a local deployment
+    mount_core(app)  register every CORE route; a local-only route only when `app.state.rm.local_routes`
+    ROUTERS          the workspace modules that own the main pages (inbox, configuration workspace, component
+                     workspace, projects home, notifications), in mount order
+    WAVE_C_POSTS     the exact set of POST routes the workspace modules may add (spec section 8), for the census
+    WAVE_F_POSTS     the same for the home and notification modules
+    mount(app)       import each workspace module and include its router; called BEFORE mount_core, so
+                     `/configurations/{id}/tree` is matched before the catch-all `/configurations/{id}`
     optional(name)   the module `nanosoc_rm.web.<name>` when it is built here, else None (the app then serves its
                      older page, and the shell renders an empty block)
     route_table(app) every (method, path) the app serves, INCLUDING routes of included routers (FastAPI keeps an
@@ -14,25 +18,46 @@
 A module in ROUTERS defines `router`: an APIRouter, or a factory taking the app. A factory registers its POST
 routes only when `app.state.rm.local_routes` is true (section 13a), so a GitHub + CI deployment keeps exactly the
 two Run routes (D5). A module that is not built is skipped; one that is built but fails to import is an error,
-never hidden (the rule of web/plugins.py).
+never hidden (the rule of web/plugins.py). A CORE module is never optional: a missing one is an import error.
 """
 from __future__ import annotations
 
 import importlib
 import inspect
 from types import ModuleType
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
-__all__ = ["ROUTERS", "WAVE_C_POSTS", "WAVE_F_POSTS", "DELEGATES", "mount", "optional", "route_table", "writes"]
+__all__ = ["CORE", "Route", "mount_core", "ROUTERS", "WAVE_C_POSTS", "WAVE_F_POSTS", "DELEGATES", "mount", "optional",
+           "route_table", "writes"]
+
+CORE = ("nanosoc_rm.web.routes.pages", "nanosoc_rm.web.routes.actions", "nanosoc_rm.web.routes.api",
+        "nanosoc_rm.web.routes.signin")
+
+
+class Route(NamedTuple):
+    method: str
+    path: str
+    endpoint: Callable
+    local_only: bool = False          # section 13a: registered only in a local deployment
+
+
+def mount_core(app: Any, modules: tuple[str, ...] = CORE) -> None:
+    """Register the CORE routes on the app itself (not as included routers), every GET before any POST, in
+    module order: the order the app has always had, so a same-path GET still answers before its POST."""
+    local = bool(getattr(app.state.rm, "local_routes", False))
+    table = [r for m in modules for r in importlib.import_module(m).ROUTES if local or not r.local_only]
+    for r in sorted(table, key=lambda r: r.method != "GET"):
+        app.add_api_route(r.path, r.endpoint, methods=[r.method], include_in_schema=False)
+
 
 ROUTERS = ("nanosoc_rm.web.inbox", "nanosoc_rm.web.cfgspace", "nanosoc_rm.web.compspace", "nanosoc_rm.web.home",
            "nanosoc_rm.web.notifications")
 
-# The app's older pages hand over to the workspace module that owns them (spec 1.7), without app.py changing
-# again: app handler -> (module under nanosoc_rm.web, function). The function takes the request (and the path
+# The app's older pages hand over to the workspace module that owns them (spec 1.7): app handler -> (module
+# under nanosoc_rm.web, function). The function takes the request (and the path
 # parameter) and returns a Response, or None to let the older page answer.
 DELEGATES = {
-    "dashboard": ("home", "dashboard"),             # GET / (CR-WF-gui: the projects home, no longer the inbox)
+    "dashboard": ("home", "dashboard"),             # GET / (the projects home)
     "alerts": ("inbox", "alerts"),                  # GET /alerts
     "configuration": ("cfgspace", "configuration"),  # GET /configurations/{id}
     "compat": ("cfgspace", "compat"),               # GET /compat (?job= and ?configuration= 303 to the workspace)
@@ -40,7 +65,7 @@ DELEGATES = {
     "branches": ("compspace", "branches"),          # GET /branches (?component= 303 to the workspace)
 }
 
-# Spec section 8: every Wave C POST, all local-only and CSRF-checked; none accepts a result.
+# Spec section 8: every workspace POST, all local-only and CSRF-checked; none accepts a result.
 WAVE_C_POSTS = frozenset({
     ("POST", "/inbox/done"),
     ("POST", "/inbox/snooze"),
@@ -51,7 +76,7 @@ WAVE_C_POSTS = frozenset({
 })
 
 
-# CR-WF-gui: the Wave F core POSTs, all local-only and CSRF-checked; each writes gui.sqlite (one login's view
+# The home and notification POSTs, all local-only and CSRF-checked; each writes gui.sqlite (one login's view
 # state) and nothing else. The catalogue page's POST is a plug-in route (nanosoc_rm.catalogue.web).
 WAVE_F_POSTS = frozenset({
     ("POST", "/home/timeline"),

@@ -66,8 +66,10 @@ def test_home_is_the_projects_tree_with_the_most_outdated_project_open(fp):
     assert pins == ["n:eth-main:nanosoc-multicore-system", "n:eth-main:tidelink", "n:eth-main:nanosoc_gen",
                     "n:eth-main:asic-flow"]
     assert "c:eth-rc4" in k and not any(x.startswith("n:eth-rc4:") for x in k)
-    # projects with no stored scan fold into one group (multicore-master is registered but not scanned)
-    assert k[-1] == "grp:unk" and "Not measured yet (2)" in text
+    # projects with no stored scan fold into two groups by why: registered but not scanned (multicore-master's
+    # project), and no configuration registered at all
+    assert k[-2:] == ["grp:unk", "grp:none"]
+    assert "Registered, not scanned yet (1)" in text and "No configuration registered (1)" in text
 
 
 def test_every_row_says_its_state_in_words_beside_a_shape(fp):
@@ -214,7 +216,7 @@ def test_filters_fold_and_count(fp):
     text = c.get("/?gap=1&filters=1&v=1&o=grp:unk").text
     assert [k for k in keys(text) if k.startswith("p:")] == ["p:nanosoc-multicore-system"]   # the SoC no forkable
     assert re.search(r'data-gap-filter>No forkable project <span class="mono">1</span>', text)  # project wraps
-    text = c.get("/?lv=subsystem&filters=1&v=1&o=grp:unk").text
+    text = c.get("/?lv=subsystem&filters=1&v=1&o=grp:none").text
     assert [k for k in keys(text) if k.startswith("p:")] == ["p:ethernet-subsystem-ahb"]
     assert "Filters (1)" in text
 
@@ -285,13 +287,21 @@ def test_no_github_ci_deployment_gets_a_wave_f_post(service, registry_spy, tmp_p
 
 
 # ----- the header ------------------------------------------------------------------------------------------------
-def test_the_header_has_the_five_entries_more_search_and_the_bell(fp):
+def test_the_header_has_four_places_more_search_and_the_bell(fp):
     text = fp["client"].get("/matrix/").text
     nav = re.search(r'<nav aria-label="Main" class="topnav">(.*?)</nav>', text, re.S).group(1)
     main = re.findall(r'<a href="([^"]+)"[^>]*>([^<]+)</a>', nav.split("<details")[0])
-    assert [x[1] for x in main] == ["Projects", "Matrix", "Releases", "Silicon", "Catalogue"]
+    assert [x[1] for x in main] == ["Projects", "Matrix", "Releases", "Catalogue"]
     assert re.search(r'<a href="/matrix/" aria-current="page">Matrix</a>', nav)
-    assert "<summary>More</summary>" in nav and ">Compat</a>" in nav
+    assert "<summary>More</summary>" in nav
+    # More: three labelled groups, each entry named as its page is titled
+    groups = re.findall(r'role="group" aria-label="([^"]+)"><p class="topnav-h"[^>]*>[^<]*</p>(.*?)</div>', nav, re.S)
+    assert [g for g, _ in groups][:3] == ["Check", "Repos", "Release"], groups
+    more = dict(groups)
+    assert ">Compatibility check</a>" in more["Check"] and ">Silicon protection</a>" in more["Check"]
+    assert ">Components</a>" in more["Repos"] and ">Host copies</a>" in more["Repos"]
+    for label in ("Compat", "Silicon", "Registry", "Hosts", "Contains"):
+        assert ">%s</a>" % label not in nav, label
     assert ">Freshness</a>" not in nav and 'href="/freshness/"' not in nav     # CR-1015-retire: page retired
     assert 'id="cmd" type="search"' in text
     bell = re.search(r'<a class="bell" href="/notifications" data-bell="(\d+)" aria-label="Notifications, (\d+) unread"',

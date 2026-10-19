@@ -29,7 +29,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from nanosoc_rm import clock, contracts
-from nanosoc_rm.analysis import _inputs as inp
+from nanosoc_rm.analysis import inputs as inp
 from nanosoc_rm.bumps import store
 from nanosoc_rm.bumps.engine import _Git, _load, _Mirrors, schedule_status
 from nanosoc_rm.bumps.versions import parse_tag

@@ -166,7 +166,7 @@ _CAUSE_TEXT = {"auth": "the host refused an anonymous read (private?)", "ssh-key
 
 
 def mirror_summary(rows: list[dict]) -> list[dict]:
-    """CR-PR1: the mirrors counted by how they were read, each with a sentence (`text`) for the page."""
+    """The mirrors counted by how they were read, each with a sentence (`text`) for the page."""
     from nanosoc_rm.mirror.sync import access_summary
     out = []
     for r in access_summary(rows):
@@ -225,7 +225,7 @@ def dashboard(config: Config, now=None) -> dict:
     all_runs = runs(config)
     all_compat = compat_results(config)
     active = _active_jobs(config)
-    # One read per kind for every configuration, not one per configuration (ROB-load-6): pins() and errata() of
+    # One read per kind for every configuration, not one per configuration: pins() and errata() of
     # each configuration, grouped here with the same filter and order they apply.
     all_pins: dict[str, list[dict]] = {}
     for d in db.latest("pin_state", "pin_state:", config=config):
@@ -366,7 +366,7 @@ def run_t0(config: Config, cid: str, login: str) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Local GUI (CR-16, CR-17): compat, branches, hosts, mirrors, alerts, registry lists
+# Local GUI (section 13a): compat, branches, hosts, mirrors, alerts, registry lists
 # ---------------------------------------------------------------------------------------------------------
 LADDER = ("FAIL", "UNVERIFIED", "INFRA", "WAIVED", "WARN", "PASS")      # README section 6, worst first
 
@@ -375,6 +375,22 @@ def compat_results(config: Config, cid: str | None = None) -> list[dict]:
     """Stored compat_result observations (local runs without overrides), newest first."""
     docs = db.latest("compat_result", "compat_result:%s:" % cid if cid else "compat_result:", config=config)
     return sorted(docs, key=lambda d: d["fact"]["finished_at"], reverse=True)
+
+
+def tiers_this_host_could_not_run(results: list[dict]) -> dict[str, str]:
+    """{tier: why} for each tier whose newest stored run (in `results`, newest first) was INFRA: this host could
+    not run it (a tool missing, a seat busy). The Run form says so beside the tier instead of offering it blind."""
+    out: dict[str, str] = {}
+    seen: set[str] = set()
+    for d in results:
+        t = (d.get("fact") or {}).get("tier") or {}
+        name = t.get("tier")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if t.get("verdict") == "INFRA":
+            out[name] = str(t.get("reason") or "no reason was recorded").replace("; the tier was not run", "")
+    return out
 
 
 def run_verdict(doc: dict | None) -> str | None:

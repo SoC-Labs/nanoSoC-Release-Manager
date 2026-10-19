@@ -535,7 +535,7 @@ def run_cell(configuration: str, column: str, component: str | None = None, *, c
     (url_map is compat's own `Context.for_local` seam, refused in a CI job). `tier` adds a tier run (t1);
     `force_tier` runs it past a T0 FAIL (a person's override); `environ` is the preflight's environment."""
     from nanosoc_rm.matrix import tiers as TI
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     from nanosoc_rm.analysis.compat import compat as default_compat
     from nanosoc_rm.config import load_config
     cfg = config if config is not None else load_config()

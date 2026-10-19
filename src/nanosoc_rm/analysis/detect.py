@@ -44,8 +44,8 @@ from pathlib import Path
 from typing import Literal
 
 from nanosoc_rm import clock, contracts
-from nanosoc_rm.analysis import _inputs as inp
-from nanosoc_rm.analysis._inputs import CannotAnswer, UsageProblem
+from nanosoc_rm.analysis import inputs as inp
+from nanosoc_rm.analysis.inputs import CannotAnswer, UsageProblem
 from nanosoc_rm.config import Config
 from nanosoc_rm.gitrun import run_git
 

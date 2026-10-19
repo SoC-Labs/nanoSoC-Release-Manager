@@ -32,8 +32,16 @@
   document.addEventListener("keydown", function (ev) {
     var t = ev.target, typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
     var cmd = document.getElementById("cmd"), hits = document.getElementById("hits");
+    var more = document.querySelector("details[data-more][open]");
     if (ev.key === "/" && !typing && cmd) { ev.preventDefault(); cmd.focus(); cmd.select(); }
+    else if (ev.key === "Escape" && more) { more.open = false; more.querySelector("summary").focus(); }
     else if (ev.key === "Escape" && hits && hits.innerHTML) { hits.innerHTML = ""; if (cmd) cmd.focus(); }
+  });
+
+  /* The header's More menu closes on a click outside it. */
+  document.addEventListener("click", function (ev) {
+    var more = document.querySelector("details[data-more][open]");
+    if (more && !more.contains(ev.target)) more.open = false;
   });
 
   function ready(fn) { if (document.readyState !== "loading") fn(); else document.addEventListener("DOMContentLoaded", fn); }

@@ -104,7 +104,7 @@ def register(main: click.Group) -> None:
     def show_cmd(configuration: str, as_json: bool) -> int:
         """Per tree of CONFIGURATION's latest stored walk: its capabilities file at the pinned commit, each
         capability, the hosts that can run it, and its last test-bump result. Reads only."""
-        from nanosoc_rm.analysis._inputs import CannotAnswer
+        from nanosoc_rm.analysis.inputs import CannotAnswer
         from nanosoc_rm.capabilities.view import tree_view
         from nanosoc_rm.ci.configs import UnknownConfiguration, configuration as get_cfg
         from nanosoc_rm.config import load_config

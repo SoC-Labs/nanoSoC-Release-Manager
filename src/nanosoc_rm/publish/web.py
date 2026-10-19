@@ -9,11 +9,11 @@
     POST /publish/tapeout/{tapeout_id}/preview                queue `register-tapeout ID --dry-run`
     POST /publish/tapeout/{tapeout_id}/confirm                queue `register-tapeout ID --confirm SHA256`
 
-This is the ONE place the web app leads to a write outside the host (the Publish button for asic-release). The
-pages only show stored facts (the ledger, the preview file a job wrote) and never call the store; both POSTs queue
-a job (a child process holds the token, never the web process). A POST answers 404 outside a local deployment,
-403 for a login that is not in `[stores.artifactory] publishers` or is a shared login, 409 when publishing cannot
-run here (no token, no signing key: the button is shown disabled with the reason).
+This is the ONE place the web app leads to a write outside the host (the GUI Publish button for
+asic-release). The pages only show stored facts (the ledger, the preview file a job wrote) and never call the
+store; both POSTs queue a job (a child process holds the token, never the web process). A POST answers 404
+outside a local deployment, 403 for a login that is not in `[stores.artifactory] publishers` or is a shared login,
+409 when publishing cannot run here (no token, no signing key: the button is shown disabled with the reason).
 Confirm is accepted only for the sha256 of the preview on the page, only when that preview found no problem, and
 only with the confirmation box ticked; it is logged in `actions` with the login.
 """
@@ -25,14 +25,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
-from markupsafe import Markup
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import jobs
-from nanosoc_rm.config import Config, load_config
+from nanosoc_rm.config import Config
+from nanosoc_rm.web.plugins import config_of, is_local, job_card, login_of, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH"]
 
@@ -41,57 +40,14 @@ NAV_LABEL = "Publish"
 NAV_PATH = PREFIX + "/"
 JOB_KINDS = ("publish-release", "register-tapeout")
 HERE = Path(__file__).resolve().parent
-_WEB_TEMPLATES = HERE.parent / "web" / "templates"
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}\Z")
 _SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 _SHA256 = re.compile(r"^[0-9a-f]{64}\Z")
 
 
-def _env() -> Environment:
-    loaders = [FileSystemLoader(str(HERE / "templates"))]
-    if _WEB_TEMPLATES.is_dir():
-        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    from nanosoc_rm.web.page import env as web_env
-    env.globals.update(web_env.globals)
-    env.globals.update(purl=purl)
-    return env
-
-
 def purl(kind: str, key: str, page: str = "") -> str:
     return "%s/%s/%s%s" % (PREFIX, kind, "/".join(urllib.parse.quote(k, safe="") for k in key.split("/")),
                            ("/" + page) if page else "")
-
-
-def _config(request: Request) -> Config:
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
-
-
-def _local(request: Request) -> bool:
-    return bool(getattr(request.app.state.rm, "local_routes", False))
-
-
-def _login(request: Request) -> str:
-    return getattr(getattr(request.state, "identity", None), "login", "") or ""
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, local=_local(request), **ctx)
-
-
-def _job_html(request: Request, config: Config, job: dict | None) -> Markup:
-    if job is None:
-        return Markup("")
-    from nanosoc_rm.web.page import Page
-    p = Page()
-    ident = getattr(request.state, "identity", None)
-    csrf = request.app.state.rm.csrf_for(ident, config) if ident is not None else ""
-    return Markup(ENV.get_template("_job.html").render(
-        job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]), csrf=csrf,
-        fact=p.fact, page=p, stored=None))
 
 
 def _recent(config: Config, match: dict | None = None, limit: int = 10) -> list[dict]:
@@ -144,10 +100,10 @@ def _release_drafts(config: Config) -> list[dict]:
 
 
 async def _submit(request: Request, kind: str, params: dict, back: str, *, confirm: bool) -> Response:
-    if not _local(request):
+    if not is_local(request):
         return PlainTextResponse("404 Not Found: this deployment runs no local jobs; use the CLI", 404)
-    config = _config(request)
-    login = _login(request)
+    config = config_of(request)
+    login = login_of(request)
     from nanosoc_rm.publish.core import can_publish, readiness
     refused = can_publish(config, login)
     if refused:
@@ -180,8 +136,8 @@ async def _submit(request: Request, kind: str, params: dict, back: str, *, confi
 async def _confirm(request: Request, kind: str, key: str, params: dict, back: str) -> Response:
     from nanosoc_rm.publish.core import can_publish
     from nanosoc_rm.publish.service import read_preview
-    if _local(request):                              # who may publish is decided before anything about the preview
-        refused = can_publish(_config(request), _login(request))
+    if is_local(request):                              # who may publish is decided before anything about the preview
+        refused = can_publish(config_of(request), login_of(request))
         if refused:
             return PlainTextResponse("403 Forbidden: %s" % "; ".join(refused), 403)
     form = await request.form()
@@ -190,7 +146,7 @@ async def _confirm(request: Request, kind: str, key: str, params: dict, back: st
         return PlainTextResponse("400 Bad Request: no previewed sha256 to confirm", 400)
     if not form.get("ack"):
         return PlainTextResponse("400 Bad Request: tick the box to confirm you read the preview", 400)
-    config = _config(request)
+    config = config_of(request)
     prev = read_preview(config, kind, key)
     if prev is None or prev.get("sha256") != sha:
         return PlainTextResponse("409 Conflict: that is not the stored preview's sha256: preview again", 409)
@@ -209,28 +165,28 @@ def router(app: Any = None) -> APIRouter:
     def index(request: Request) -> HTMLResponse:
         from nanosoc_rm.publish.core import settings
         from nanosoc_rm.publish.service import publications
-        config = _config(request)
+        config = config_of(request)
         rows = sorted(publications(config), key=lambda d: d["fact"]["published_at"], reverse=True)
-        return _page(request, "publish_index.html", "Publish", rows=rows, blocked=_blocked(config, _login(request)),
+        return _page(request, "publish_index.html", "Publish", rows=rows, blocked=_blocked(config, login_of(request)),
                      drafts=_release_drafts(config), tapeouts=_tapeout_drafts(config), repo=settings(config).release_repo,
                      recent=_recent(config))
 
     def item(request: Request, kind: str, key: str, title: str, summary: dict | None) -> HTMLResponse:
         from nanosoc_rm.publish.service import read_preview
-        config = _config(request)
+        config = config_of(request)
         q = request.query_params
         job = jobs.get(config, int(q["job"])) if (q.get("job") or "").isdigit() else None
         match = {"tapeout_id": key} if kind == "tapeout" else dict(zip(("configuration", "version"), key.split("/")))
         recent = _recent(config, match)
         return _page(request, "publish_item.html", title, kind=kind, key=key, summary=summary,
                      preview=read_preview(config, kind, key), published=_published(config, kind, key),
-                     blocked=_blocked(config, _login(request)), job_html=_job_html(request, config, job or (
+                     blocked=_blocked(config, login_of(request)), job_html=job_card(ENV, request, config, job or (
                          recent[0] if recent else None)), recent=recent)
 
     def release_page(request: Request, configuration: str, version: str) -> HTMLResponse:
         if not _ID.match(configuration) or not _SEMVER.match(version):
             return _page(request, "publish_message.html", "Not found", status=404, message="No such release.")
-        config = _config(request)
+        config = config_of(request)
         draft = next((d for d in _release_drafts(config)
                       if d["configuration"] == configuration and d["version"] == version), None)
         if draft is None:
@@ -241,7 +197,7 @@ def router(app: Any = None) -> APIRouter:
                     "Publish release %s %s" % (configuration, version), draft["doc"]["fact"])
 
     def tapeout_page(request: Request, tapeout_id: str) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         if not _ID.match(tapeout_id) or tapeout_id not in _tapeout_drafts(config):
             return _page(request, "publish_message.html", "Not found", status=404,
                          message="No tapeout draft %s in the registry's tapeouts/ folder." % tapeout_id)
@@ -264,7 +220,7 @@ def router(app: Any = None) -> APIRouter:
             return PlainTextResponse("404 Not Found", 404)
         key = "%s/%s" % (configuration, version)
         from nanosoc_rm.publish.service import read_preview
-        prev = read_preview(_config(request), "release", key) or {}
+        prev = read_preview(config_of(request), "release", key) or {}
         arts = ["%s=%s" % (a[0], a[1]) for a in prev.get("artefacts") or []]
         return await _confirm(request, "release", key, {"configuration": configuration, "version": version,
                                                         "artefacts": arts}, purl("release", key))
@@ -295,4 +251,5 @@ def router(app: Any = None) -> APIRouter:
     return r
 
 
-ENV = _env()
+ENV = template_env(HERE, app_globals=True, purl=purl)
+_page = renderer(ENV, local=True)

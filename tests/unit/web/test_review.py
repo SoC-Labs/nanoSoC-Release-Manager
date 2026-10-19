@@ -288,7 +288,7 @@ def test_a_blob_less_mirror_is_never_fetched_by_a_page(tmp_path, monkeypatch):
     cfg = tmp_path / "rm.toml"
     cfg.write_text(cfg_text(data, tmp_path / "unused"))
     monkeypatch.setenv("NANOSOC_RM_CONFIG", str(cfg))
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     mirror = inp.mirror_path(load_config(cfg), "tidelink")
     mirror.parent.mkdir(parents=True, exist_ok=True)
     git("clone", "-q", "--bare", "--filter=blob:none", "file://%s" % src, str(mirror), cwd=tmp_path)

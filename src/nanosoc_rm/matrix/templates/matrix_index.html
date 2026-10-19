@@ -13,7 +13,7 @@
 <section id="panel-compat" aria-labelledby="tab-compat"{% if tab != 'compat' %} hidden{% endif %}>
 {% include '_mstyle.html' %}
 <p class="note">For each configuration: one row per component of its stored tree, one column per version of that component (pinned, latest tag in range, latest tag, default-branch head). Each cell is a local <span title="T0">resolve check</span> compat run with that one component moved. Same as <code>nanosoc-rm matrix CONFIG</code>.</p>
-<p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is automation and waits for the {{ nightly.gate }}. Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers|plain }}.</p>
+<p class="banner info" data-nightly="{{ 'enabled' if nightly.enabled else 'disabled' }}"><strong>Nightly matrix: {{ 'enabled' if nightly.enabled else 'disabled' }}.</strong> It is switched on after a person signs off the nightly-matrix checklist in <code>docs/phase-gates.yaml</code> (a deterministic generator, a clean CI runner for 7 nights, a CPU-budgeted host). Until then cells run only when a person presses Run. When enabled it covers {{ nightly.covers|plain }}.</p>
 <table>
   <thead><tr><th>Configuration</th><th>Repository</th><th>Line</th><th>Commit</th><th>Frozen</th></tr></thead>
   <tbody>

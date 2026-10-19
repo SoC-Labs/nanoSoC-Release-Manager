@@ -8,7 +8,7 @@
 Every function returns contract documents (observations validated by nanosoc_rm.contracts) and the CLI
 (`nanosoc-rm hosts | contains | silicon-protection | detect`, analysis/commands.py) is a front end over it.
 
-What this package reads, and nothing else (`_inputs.py` is the one place that touches each input):
+What this package reads, and nothing else (`inputs.py` is the one place that touches each input):
 - the service config (`load_config`, per call);
 - the registry (catalogue, eligibility, defects) through `nanosoc_rm.registry.load_registry`, or the raw files
   while that module is not built;
@@ -16,6 +16,6 @@ What this package reads, and nothing else (`_inputs.py` is the one place that to
 - the component mirrors `<data_dir>/mirrors/<id>.git`, refs `refs/r/<host>/<quote(path)>/{heads,tags}/*`
   (section 3), read through the one git runner.
 """
-from nanosoc_rm.analysis._inputs import AnalysisError, Answer, CannotAnswer, UsageProblem
+from nanosoc_rm.analysis.inputs import AnalysisError, Answer, CannotAnswer, UsageProblem
 
 __all__ = ["AnalysisError", "Answer", "CannotAnswer", "UsageProblem"]

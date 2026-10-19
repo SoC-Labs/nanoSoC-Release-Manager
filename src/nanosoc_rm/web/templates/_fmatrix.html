@@ -53,7 +53,7 @@
   {% endfor %}
   </tbody>
 </table>
-{% if not fm.rows %}<p class="fp-empty">{% if fm.scanned %}No repository of this kind lags in a live tree. <a href="{{ fm.show_all }}">Show all</a>{% else %}No tree has a stored freshness scan yet: run <code>nanosoc-rm freshness scan --store</code>, or wait for the scheduler (it scans after each poll).{% endif %}</p>{% endif %}
+{% if not fm.rows %}<p class="fp-empty">{% if fm.scanned %}No repository of this kind lags in a live tree. <a href="{{ fm.show_all }}">Show all</a>{% else %}No tree has a stored freshness scan yet. Open a configuration's row on <a href="/">Projects</a> and press Scan now, run <code>nanosoc-rm freshness scan --store</code>, or wait for the scheduler (it scans after each poll).{% endif %}</p>{% endif %}
 </div>
 <div class="fp-mx-foot">
   {% if fm.hidden and fm.lag_only %}<span>{{ fm.hidden }} repo{{ ' is' if fm.hidden == 1 else 's are' }} current in every live tree and hidden. <a href="{{ fm.show_all }}">Show all</a></span>{% endif %}

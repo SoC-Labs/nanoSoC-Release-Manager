@@ -40,7 +40,7 @@
 {% if not c.doc %}
 <section class="panel" aria-labelledby="h-never">
   <h2 id="h-never">{{ c.cid }} has never been checked. Run a first check, then ask again.</h2>
-  <p>A what-if compares against a stored result, and there is none yet. Press {{ 'Run' if local_ci else 'Run T0' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
+  <p>A what-if compares against a stored result, and there is none yet. Press {{ 'Run' if local_ci else 'Run in CI' }} above, or run <code>nanosoc-rm compat {{ c.cid }} --store</code>.</p>
 </section>
 {% endif %}
 
@@ -121,8 +121,9 @@
       <label>Tier
         <select name="tier">
           <option value="">resolve check only</option>
-          {% for k, t in tiers|dictsort %}{% if k in ('t1', 't2') %}<option value="{{ k }}">{{ k|upper }} (budget {{ t.budget_s }} s)</option>{% endif %}{% endfor %}
+          {% for k, t in tiers|dictsort %}{% if k in ('t1', 't2') %}<option value="{{ k }}">{{ k|upper|plain }} (budget {{ t.budget_s }} s){% if k in tier_blocked %}, could not run here last time{% endif %}</option>{% endif %}{% endfor %}
         </select></label>
+      {% for k, why in tier_blocked|dictsort if tiers.get(k) %}<p class="note" data-tier-blocked="{{ k }}">This host could not run the {{ k|upper|plain }} last time: {{ why }}. Pick it again once that is fixed.</p>{% endfor %}
       <label class="check"><input type="checkbox" name="force_tier" value="1"> run the tier even if <span title="T0">resolve check</span> fails (UNVERIFIED for release)</label>
     </details>
     <p><button type="submit" class="prim"{% if not chosen %} disabled{% endif %}>Run what-if</button> <span class="note">One job; the result opens here with Now vs After.</span></p>

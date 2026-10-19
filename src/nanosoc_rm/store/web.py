@@ -15,14 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
-from markupsafe import Markup
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import jobs
-from nanosoc_rm.config import load_config
+from nanosoc_rm.web.plugins import config_of, is_local, job_card, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV"]
 
@@ -30,48 +28,11 @@ PREFIX = "/store"
 NAV_LABEL = "Store"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
-_WEB_TEMPLATES = HERE.parent / "web" / "templates"
 ROLE_ORDER = ("stream", "manifest", "signature", "source", "doc")
 
 
-def _env() -> Environment:
-    loaders = [FileSystemLoader(str(HERE / "templates"))]
-    if _WEB_TEMPLATES.is_dir():
-        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    from nanosoc_rm.web.page import env as web_env
-    env.globals.update(web_env.globals)
-    return env
-
-
-ENV = _env()
-
-
-def _config(request: Request):
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
-
-
-def _local(request: Request) -> bool:
-    return bool(getattr(request.app.state.rm, "local_routes", False))
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, local=_local(request), **ctx)
-
-
-def _job_html(request: Request, config: Any, job: dict | None) -> Markup:
-    if job is None:
-        return Markup("")
-    from nanosoc_rm.web.page import Page
-    p = Page()
-    ident = getattr(request.state, "identity", None)
-    csrf = request.app.state.rm.csrf_for(ident, config) if ident is not None else ""
-    return Markup(ENV.get_template("_job.html").render(
-        job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]), csrf=csrf,
-        fact=p.fact, page=p, stored=None))
+ENV = template_env(HERE, app_globals=True)
+_page = renderer(ENV, local=True)
 
 
 def _recent(config: Any, limit: int = 5) -> list[dict]:
@@ -89,7 +50,7 @@ def router(app: Any = None) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
 
     def index_page(request: Request) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         doc, new = views.shown(config)
         q = (request.query_params.get("q") or "").strip()[:200]
         jq = request.query_params.get("job") or ""
@@ -103,10 +64,10 @@ def router(app: Any = None) -> APIRouter:
             rows[role].sort(key=lambda r: r["a"].get("created") or "", reverse=True)
         return _page(request, "store_index.html", "Store", doc=doc, new=new, q=q, hits=hits, rows=rows,
                      coll=views.collateral(config)["rows"], configured=configured,
-                     job_html=_job_html(request, config, job), recent=_recent(config), NO_IDENTITY=views.NO_IDENTITY)
+                     job_html=job_card(ENV, request, config, job), recent=_recent(config), NO_IDENTITY=views.NO_IDENTITY)
 
     def file_view(request: Request, sha1: str) -> Response:
-        config = _config(request)
+        config = config_of(request)
         got = views.cached_file(config, sha1)
         if got is None:
             return PlainTextResponse("404 Not Found: no verified copy of that document is held by the tool", 404)
@@ -116,9 +77,9 @@ def router(app: Any = None) -> APIRouter:
                             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
 
     async def post_index(request: Request) -> Response:
-        if not _local(request):
+        if not is_local(request):
             return PlainTextResponse("404 Not Found: this deployment runs no local jobs; use the CLI", 404)
-        config = _config(request)
+        config = config_of(request)
         if not (config.get("stores") or {}).get("artifactory"):
             return PlainTextResponse("400 Bad Request: no [stores.artifactory] in the service config", 400)
         for j in _recent(config, limit=50):

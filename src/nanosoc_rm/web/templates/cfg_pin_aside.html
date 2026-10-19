@@ -7,7 +7,7 @@
   <p class="note">Selected pin</p>
   <h2 style="margin:.2rem 0"><code>{{ v.path }}</code></h2>
   <p><code>{{ v.component or '?' }} @ {{ fact(v.pin, v.commit) }}</code></p>
-  <p class="disp" style="font-size:1.1em">{{ aside.headline }}</p>
+  <p class="disp" style="font-size:1.1em">{{ aside.headline|plain }}</p>
   <table class="kv">
     <tr><th scope="row">Hosts</th><td>{% for text, tone in aside.hosts %}{{ ui.chip(text, tone) }} {% else %}none stored{% endfor %}</td></tr>
     <tr><th scope="row">Lag</th><td>{{ aside.lag }}</td></tr>

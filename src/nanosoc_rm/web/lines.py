@@ -1,5 +1,4 @@
-"""Repository, line and submodule pin: one vocabulary and one set of glyphs for every page (evaluation
-2026-10-16 section 7; characterisation section 3; David 2026-10-16: evaluation fix wave).
+"""Repository, line and submodule pin: one vocabulary and one set of glyphs for every page.
 
 Words, used the same way on Home, the configuration pages, the component workspace, the Matrix and search:
 - **Repository**: one git repo (a catalogue component).

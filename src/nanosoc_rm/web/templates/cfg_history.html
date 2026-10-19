@@ -32,8 +32,8 @@
     <thead><tr><th scope="col">Result</th><th scope="col">Verdict</th><th scope="col">Tier</th><th scope="col">Not run</th><th scope="col">Finished</th></tr></thead>
     <tbody>
     {% for row in results %}{% set d = row.doc %}{% set f = d.fact %}
-      <tr data-verdict="{{ row.verdict }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td>{{ ui.chip(row.verdict, row.tone) }}{% if f.reason %} <span class="note">{{ f.reason }}</span>{% endif %}</td>
-        <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'T0 only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
+      <tr data-verdict="{{ row.verdict }}"><td>{{ fact(d, short(f.nonce, 12)) }}</td><td>{{ ui.chip(row.verdict, row.tone) }}{% if f.reason %} <span class="note">{{ f.reason|plain }}</span>{% endif %}</td>
+        <td>{{ (f.tier.tier ~ ' ' ~ f.tier.verdict) if f.tier else 'resolve check only' }}</td><td>{{ f.not_run }}</td><td>{{ f.finished_at }} ({{ age_text(f.finished_at) }} ago)</td></tr>
     {% endfor %}
     </tbody>
   </table></div>

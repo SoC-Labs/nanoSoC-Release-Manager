@@ -1,4 +1,4 @@
-"""The component workspace (Wave C spec section 4, unit K): `/components/{id}` and its tabs.
+"""The component workspace (spec section 4): `/components/{id}` and its tabs.
 
     GET  /components/{id}                     Overview (web.routers.DELEGATES hands the app's page over)
     GET  /components/{id}/branches            Branches: every copy by default, the delete list first (fix 4)
@@ -30,8 +30,9 @@ from starlette.responses import HTMLResponse, PlainTextResponse, RedirectRespons
 
 from nanosoc_rm import db
 from nanosoc_rm.quality.findings import BULK_KINDS, is_bulk
-from nanosoc_rm.web import lines, registry_facts, review, shell, uistate, verdict as V, views
+from nanosoc_rm.web import lines, plugins, registry_facts, review, shell, uistate, verdict as V, views
 from nanosoc_rm.web.page import Page, env
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["router", "component", "branches", "sentence", "branch_why", "branch_view", "pin_meaning",
            "quality_view", "tabs", "header", "BRANCH_FILTERS"]
@@ -410,10 +411,6 @@ def _ctx(request: Request) -> tuple[Any, Any]:
     return request.state.config, request.state.identity
 
 
-def _login(request: Request) -> str:
-    return getattr(getattr(request.state, "identity", None), "login", "") or ""
-
-
 def _known(config: Any, comp: str) -> bool:
     if any(d["fact"]["id"] == comp for d in views.components(config)):
         return True
@@ -448,17 +445,18 @@ def _workspace(request: Request, comp: str, tab: str, template: str, *, problems
     qv = quality_view(config, comp) if qv is None else qv
     hdr = header(config, comp, branch_rows=branch_rows, qv=qv)
     t = tabs(comp, branches_n=len(branch_rows), worth=qv.get("worth") if qv.get("analysed") else None,
-             left=_left(config, _login(request), comp, qv))
+             left=_left(config, login_of(request), comp, qv))
     return request.app.state.rm.page(
         request, template, comp, status=status, problems=problems, crumbs=_crumbs(comp, tab), hdr=hdr,
-        ws_tabs=t, ws_tab=tab, comp=comp, qv=qv, href=_href, **ctx)
+        ws_tabs=t, ws_tab=tab, comp=comp, qv=qv, href=_href,
+        doc_title=comp if tab == "overview" else "%s · %s" % (TAB_LABEL.get(tab, tab), comp), **ctx)
 
 
 def _bad(request: Request, comp: str) -> Response | None:
     config, _ = _ctx(request)
     if not views.is_valid_id(comp) or not _known(config, comp):
         return request.app.state.rm.page(request, "message.html", "Not found", status=404,
-                                         message="No component is known here.")
+                                         message="No component is known here.", next_step=True)
     return None
 
 
@@ -517,8 +515,8 @@ def _quality_page(request: Request, id: str) -> Response:
     q = request.query_params
     qv = quality_view(config, comp, ref=q.get("ref") or None, commit=q.get("commit") or None)
     b = None
-    if qv.get("comments") is not None and _login(request):
-        b = review.basket(config, _login(request), comp, qv["comments"])
+    if qv.get("comments") is not None and login_of(request):
+        b = review.basket(config, login_of(request), comp, qv["comments"])
     return _workspace(request, comp, "quality", "comp_quality.html", qv=qv, basket=b,
                       trend=_trend_svg(config, comp) if qv.get("trend_points", 0) >= 2 else None)
 
@@ -549,7 +547,7 @@ def _review_model(request: Request, comp: str, i: int | None = None, commit: str
     obs = review.stored_fact(config, comp, "comments", ref=request.query_params.get("ref") or None, commit=commit)
     if obs is None:
         return None, None, None
-    login = _login(request)
+    login = login_of(request)
     st = review.state(config, login, comp, obs, i)
     readme_obs = review.stored_fact(config, comp, "readme", commit=obs["fact"].get("commit"))
     text, problems = review.build_patch(config, login, comp, obs, readme_obs)
@@ -594,7 +592,7 @@ def _patch_diff(request: Request, id: str) -> Response:
     if obs is None:
         return PlainTextResponse("404 Not Found: no stored comment findings for %s at this commit; analyse it on "
                                  "/quality/%s first\n" % (comp, _q(comp)), 404)
-    login = _login(request)
+    login = login_of(request)
     readme_obs = review.stored_fact(config, comp, "readme", commit=obs["fact"].get("commit"))
     text, problems = review.build_patch(config, login, comp, obs, readme_obs)
     if not text.strip():
@@ -631,8 +629,8 @@ async def _decide(request: Request, id: str) -> Response:
         return PlainTextResponse("400 Bad Request: this finding has no suggested edit; use Edit", 400)
     c = review.commit_of(obs)
     text = str(form.get("text") or "") if decision == "edit" else None
-    await run_in_threadpool(uistate.decide, config, _login(request), id, c, key, decision, text)
-    nxt = review.next_index(items, uistate.decisions(config, _login(request), id, c), after=idx)
+    await run_in_threadpool(uistate.decide, config, login_of(request), id, c, key, decision, text)
+    nxt = review.next_index(items, uistate.decisions(config, login_of(request), id, c), after=idx)
     if request.headers.get("hx-request"):
         obs2, st, _ = _review_model(request, id, nxt, c)
         return _review_fragment(request, id, obs2, st)
@@ -653,7 +651,7 @@ async def _basket(request: Request, id: str) -> Response:
     op, key = str(form.get("op") or ""), str(form.get("key") or "")
     if op not in BASKET_OPS:
         return PlainTextResponse("400 Bad Request: op must be one of %s" % ", ".join(BASKET_OPS), 400)
-    login, c = _login(request), review.commit_of(obs)
+    login, c = login_of(request), review.commit_of(obs)
     i = None
     if op == "remove":
         items = review.queue(obs)
@@ -720,7 +718,7 @@ def router(app: Any) -> APIRouter:
     r.add_api_route("/components/{id}/versions", _versions_page, methods=get, include_in_schema=False)
     r.add_api_route("/components/{id}/review", _review_page, methods=get, include_in_schema=False)
     r.add_api_route("/components/{id}/review/patch.diff", _patch_diff, methods=get, include_in_schema=False)
-    if getattr(getattr(getattr(app, "state", None), "rm", None), "local_routes", False):
+    if plugins.local_routes(app):
         r.add_api_route("/components/{id}/review/decide", _decide, methods=["POST"], include_in_schema=False)
         r.add_api_route("/components/{id}/review/basket", _basket, methods=["POST"], include_in_schema=False)
     return r

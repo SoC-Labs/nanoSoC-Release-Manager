@@ -11,7 +11,7 @@
     POST /bumps/p/{id}/mark           "mark as done by a person" (or declined), logged with the login
 
 Every page says it: the tool never pushes, writes a branch or opens a pull request. The POST routes act only in a
-local deployment (the app's local routes); elsewhere they answer 403 with the CLI command. Pages read
+local deployment (the app's local routes, section 13a); elsewhere they answer 403 with the CLI command. Pages read
 only bumps.sqlite (the kept proposals, scans, marks and the kept ledger): no git and no ledger computation inside a
 request. The scan and the ledger always run as jobs (nanosoc_rm.jobs): Scan now queues `bumps scan --store`, which
 also keeps the ledger, and a mark queues `bumps ledger --store`.
@@ -24,22 +24,21 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from nanosoc_rm.config import load_config
+from nanosoc_rm.web.page import src_name
+from nanosoc_rm.web.plugins import config_of, is_local, login_of, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "ENV", "STATE_CLASS", "OUTCOME_CLASS", "CLASS_CLASS",
            "STATUS_CLASS"]
 
 PREFIX = "/bumps"
-NAV_LABEL = "Bumps"
+NAV_LABEL = "Bump proposals"
 NAV_PATH = PREFIX + "/"
 HERE = Path(__file__).resolve().parent
-_WEB_TEMPLATES = HERE.parent / "web" / "templates"
 
 # README section 6 colours; every pill also carries its text.
 STATE_CLASS = {"proposed": "state-info", "blocked": "state-amber"}
@@ -64,49 +63,21 @@ def _fact(page: Any, obs: dict, label: Any = None) -> Markup:
     s = obs["subject"]
     href = "%s/facts/%s" % (PREFIX, urllib.parse.quote(s, safe=""))
     return Markup('<span class="fact" data-subject="%s" data-observed-at="%s">%s</span> <a class="src" '
-                  'data-source-for="%s" href="%s" title="observed %s; how it was found">src</a>'
+                  'data-source-for="%s" href="%s" title="observed %s; how it was found" aria-label="How %s was found">'
+                  'src</a>'
                   % (escape(s), escape(obs["observed_at"]), escape(s if label is None else label), escape(s),
-                     escape(href), escape(obs["observed_at"])))
+                     escape(href), escape(obs["observed_at"]), escape(src_name(label, s))))
 
 
 def _pill(text: Any, table: dict) -> Markup:
     return Markup('<span class="pill %s">%s</span>' % (escape(table.get(str(text), "")), escape(text)))
 
 
-def _env() -> Environment:
-    loaders = [FileSystemLoader(str(HERE / "templates"))]
-    if _WEB_TEMPLATES.is_dir():
-        loaders.append(FileSystemLoader(str(_WEB_TEMPLATES)))
-    env = Environment(loader=ChoiceLoader(loaders), autoescape=select_autoescape(["html"]), trim_blocks=True,
-                      lstrip_blocks=True)
-    env.globals.update(bfact=_fact, pill=_pill, STATE_CLASS_B=STATE_CLASS, OUTCOME_CLASS=OUTCOME_CLASS,
-                       CLASS_CLASS=CLASS_CLASS, STATUS_CLASS=STATUS_CLASS, NO_WRITES=NO_WRITES,
-                       qs=lambda **kw: "?" + urllib.parse.urlencode({k: v for k, v in kw.items() if v}),
-                       short=lambda s, n=12: (s or "")[:n])
-    return env
-
-
-ENV = _env()
-
-
-def _config(request: Request):
-    cfg = getattr(request.state, "config", None)
-    return cfg if cfg is not None else load_config()
-
-
-def _login(request: Request) -> str:
-    ident = getattr(request.state, "identity", None)
-    return getattr(ident, "login", "") or ""
-
-
-def _local(request: Request) -> bool:
-    rm = getattr(getattr(request.app, "state", None), "rm", None)
-    return bool(getattr(rm, "local_routes", False))
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, local=_local(request), **ctx)
+ENV = template_env(HERE, STATE_CLASS_B=STATE_CLASS, bfact=_fact, pill=_pill, OUTCOME_CLASS=OUTCOME_CLASS,
+                   CLASS_CLASS=CLASS_CLASS, STATUS_CLASS=STATUS_CLASS, NO_WRITES=NO_WRITES,
+                   qs=lambda **kw: "?" + urllib.parse.urlencode({k: v for k, v in kw.items() if v}),
+                   short=lambda s, n=12: (s or "")[:n])
+_page = renderer(ENV, local=True)
 
 
 def _ledger_kept(config) -> tuple[dict | None, str | None, list[str]]:
@@ -193,16 +164,16 @@ def router(app: Any = None) -> APIRouter:
     r = APIRouter(prefix=PREFIX)
 
     async def queue(request: Request) -> HTMLResponse:
-        config = _config(request)
+        config = config_of(request)
         data = await run_in_threadpool(_queue_data, config, request.query_params)
         job = request.query_params.get("job") or ""
         problems = data.pop("problems")
-        return _page(request, "bumps_queue.html", "Bump proposals (shadow mode)", problems=problems,
+        return _page(request, "bumps_queue.html", "Bump proposals", problems=problems,
                      job=_job_id(job), **data)
 
     async def proposal(request: Request, pid: str) -> Response:
         from nanosoc_rm import bumps
-        config = _config(request)
+        config = config_of(request)
         cid = request.query_params.get("configuration") or None
         try:
             d = await run_in_threadpool(lambda: bumps.get(pid, configuration=cid, config=config))
@@ -223,20 +194,20 @@ def router(app: Any = None) -> APIRouter:
     def patch_file(request: Request, pid: str) -> Response:
         from nanosoc_rm import bumps
         try:
-            d = bumps.get(pid, config=_config(request))
+            d = bumps.get(pid, config=config_of(request))
         except bumps.BumpUsage as e:
             return PlainTextResponse(str(e) + "\n", 404)
         return Response(bumps.patch_text(d["fact"]), media_type="text/x-diff",
                         headers={"content-disposition": 'attachment; filename="%s"' % d["fact"]["patch"]["file"]})
 
     async def ledger_page(request: Request) -> HTMLResponse:
-        led, led_at, problems = await run_in_threadpool(_ledger_kept, _config(request))
-        return _page(request, "bumps_ledger.html", "Shadow ledger (E2)", problems=problems, ledger=led,
+        led, led_at, problems = await run_in_threadpool(_ledger_kept, config_of(request))
+        return _page(request, "bumps_ledger.html", "Shadow ledger", problems=problems, ledger=led,
                      ledger_at=led_at)
 
     def facts(request: Request, subject: str) -> Response:
         from nanosoc_rm import bumps
-        config = _config(request)
+        config = config_of(request)
         kind, _, rest = subject.partition(":")
         obs = None
         if kind == "bump_proposal":
@@ -261,9 +232,9 @@ def router(app: Any = None) -> APIRouter:
         from nanosoc_rm import jobs
         form = await request.form()
         cid = str(form.get("configuration") or "").strip() or None
-        if not _local(request):
+        if not is_local(request):
             return refused("nanosoc-rm bumps %s--store" % ((cid + " ") if cid else ""))
-        config = _config(request)
+        config = config_of(request)
         if cid is not None:
             # BUMPS-R8: an unknown configuration is refused here, not queued as a job that can only fail
             from nanosoc_rm.bumps.engine import CannotAnswer, _load
@@ -277,7 +248,7 @@ def router(app: Any = None) -> APIRouter:
             for j in jobs.jobs(config, kind="bumps", states=("queued", "running")):
                 if (j["params"].get("configuration") or None) == cid:
                     return RedirectResponse("%s/?job=%d" % (PREFIX, j["id"]), 303)
-            job = await run_in_threadpool(jobs.submit, config, "bumps", {"configuration": cid}, _login(request))
+            job = await run_in_threadpool(jobs.submit, config, "bumps", {"configuration": cid}, login_of(request))
         except jobs.JobUsage as e:
             return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
         return RedirectResponse("%s/?job=%d" % (PREFIX, job["id"]), 303)
@@ -286,11 +257,11 @@ def router(app: Any = None) -> APIRouter:
         from nanosoc_rm import bumps, jobs
         form = await request.form()
         decision = str(form.get("decision") or "")
-        if not _local(request):
+        if not is_local(request):
             return refused("nanosoc-rm bumps mark %s %s --by <login>" % (pid, decision or "done"))
-        config = _config(request)
+        config = config_of(request)
         try:
-            await run_in_threadpool(lambda: bumps.mark(pid, _login(request), decision, str(form.get("note") or "") or None,
+            await run_in_threadpool(lambda: bumps.mark(pid, login_of(request), decision, str(form.get("note") or "") or None,
                                                        config=config))
         except bumps.BumpUsage as e:
             return PlainTextResponse("400 Bad Request: %s\n" % e, 400)
@@ -300,7 +271,7 @@ def router(app: Any = None) -> APIRouter:
             for j in jobs.jobs(config, kind="bumps", states=("queued",)):
                 if j["params"].get("ledger"):
                     return j["id"]
-            return jobs.submit(config, "bumps", {"ledger": True}, _login(request))["id"]
+            return jobs.submit(config, "bumps", {"ledger": True}, login_of(request))["id"]
         job = await run_in_threadpool(refresh)
         cid = str(form.get("configuration") or "")
         return RedirectResponse("%s/p/%s?%s" % (PREFIX, urllib.parse.quote(pid, safe=""), urllib.parse.urlencode(

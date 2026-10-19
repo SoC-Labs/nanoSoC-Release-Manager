@@ -1,22 +1,21 @@
-"""The inbox cards (Wave C spec section 2; CR-W1, CR-W2, CR-W3): ranked cards, one cause and one action each, built
+"""The inbox cards (spec section 2): ranked cards, one cause and one action each, built
 only from stored observations.
 
-CR-WF-gui (David 2026-10-14, chat: front page approved) REVERSES CR-W1's inbox at `/`: `/` is the projects home
-(web.home) and the cards are the data source of Notifications behind the bell (web.notifications, one line per
-card). The full card view (evidence, snooze) stays reachable at GET /inbox, linked from Notifications; the
-configuration board moved under the projects tree.
+`/` is the projects home (web.home) and the cards are the data source of Notifications behind the bell
+(web.notifications, one line per card). The full card view (evidence, snooze) stays reachable at GET /inbox, linked
+from Notifications; the configuration board moved under the projects tree.
 
     cards(config, login=None, now=None) -> [Card]      every card the stored facts give, ranked (2.3, 2.3 Ranking)
     open_count(config, login) -> int                   cards this login has not marked done or snoozed (the rail)
     board(config, d=None, local_ci=False) -> dict      the configuration board (2.5, build-first fix 2)
-    dashboard(request)                                 GET /inbox: the card view (its own route since CR-WF-gui)
+    dashboard(request)                                 GET /inbox: the card view
     alerts(request)                                    GET /alerts, handed over by app.py (routers.DELEGATES)
     router(app)                                        GET /inbox; the local-only POSTs: /inbox/done,
                                                        /inbox/snooze, /inbox/undo, /alerts/clear-group
 
 Rules this module keeps (spec section 0 and 2):
-- A card is built from module functions over the store (views, db, verdict, alertgroups, and the Wave B modules
-  when they are installed). Nothing here walks, fetches, compares or queues: a GET never submits a job.
+- A card is built from module functions over the store (views, db, verdict, alertgroups, and the optional plug-in
+  modules when they are installed). Nothing here walks, fetches, compares or queues: a GET never submits a job.
 - Cards 1 and 2 read a configuration's verdict as the newer of its compat result and its latest CI T0 run (a
   GitHub + CI deployment stores only the second); a configuration with either is not "never checked".
 - `inbox.WEIGHTS` is the one ranking table: rank = weight x staleness (0.8 when the card's fact is older than
@@ -43,6 +42,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse, RedirectRespons
 from nanosoc_rm import clock, db, jobs
 from nanosoc_rm.quality.findings import is_bulk
 from nanosoc_rm.web import alertgroups, routers, shell, uistate, verdict as V, views
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["Card", "CARD_KINDS", "CATS", "WEIGHTS", "STALE_AFTER", "STALE_FACTOR", "cards", "open_count", "board",
            "dashboard", "alerts", "router", "headline", "inbox_view", "SNOOZE_DAYS"]
@@ -148,7 +148,7 @@ def _has(name: str) -> bool:
 
 
 def _optional(modname: str) -> Any:
-    """A Wave B module when it is installed here, else None (a missing plug-in means no card, never an error)."""
+    """An optional plug-in module when it is installed here, else None (a missing plug-in means no card, never an error)."""
     try:
         return importlib.import_module(modname)
     except ImportError:
@@ -339,9 +339,9 @@ def _t0_card(ctx: _Ctx, rec: dict, doc: dict) -> Card:
     ctx.claim(cid, d.tree_paths)
     return Card(
         id="compat_fail:%s" % cid, kind="compat_fail", chip=(d.verdict, shell.tone(d.verdict)),
-        title="%s is %s in its latest T0 run: %s." % (cid, d.verdict, label), why=why, weight=weight,
+        title="%s is %s in its latest CI resolve check: %s." % (cid, d.verdict, label), why=why, weight=weight,
         fact_at=doc.get("observed_at"), frozen=ctx.frozen[cid], facts=[doc],
-        meta="T0 run %s · %s" % (nonce[:12], _age(run.get("triggered_at"), ctx.now)),
+        meta="resolve-check run %s · %s" % (nonce[:12], _age(run.get("triggered_at"), ctx.now)),
         evidence=[_evidence(c.verdict, shell.tone(c.verdict), ", ".join(c.gates), c.label) for c in cs]
         + [_evidence(str(f.get("acceptance") or "?").upper(), "c-warn" if f.get("acceptance") == "rejected"
                      else "c-neutral", "run %s" % nonce[:12], "%s by %s" % (run.get("trigger") or "?",
@@ -370,13 +370,13 @@ def _never_checked(ctx: _Ctx) -> list[Card]:
         forms=forms, primary={"label": "Run first check: %s" % cids[0], "href": forms[0]["action"], "method": "post",
                               "fields": {}, "local": False},
         dest=("queues one check per press (nanosoc-rm compat CONFIG --store)" if ctx.local_ci
-              else "triggers one CI T0 run per press"), basis=cids)]
+              else "triggers one CI resolve check per press"), basis=cids)]
 
 
 def _registry_unloaded(ctx: _Ctx) -> list[Card]:
     """No configuration record is stored: the registry has never loaded (a registry that loads has at least one
     configuration). Every other card is built from registry records, so an empty inbox here would mean "nothing
-    known", not "nothing needs you" (ROB-faults-12)."""
+    known", not "nothing needs you"."""
     if ctx.records:
         return []
     said = [p for p in ctx.problems if "registry" in p.lower()] or ["no registry records are stored"]
@@ -591,7 +591,7 @@ def _quality(ctx: _Ctx) -> list[Card]:
     w = WEIGHTS["quality_top"]
     newest: dict[str, dict] = {}
     # The newest document per target (subject minus its commit part), read without decoding the older commits'
-    # documents, which can be megabytes each (ROB-load-2).
+    # documents, which can be megabytes each.
     for d in db.newest_per("quality_finding", lambda s: s.rsplit(":", 1)[0], "quality_finding:", config=ctx.config):
         t = d["fact"].get("target")
         if t and (t not in newest or clock.parse(d["observed_at"]) > clock.parse(newest[t]["observed_at"])):
@@ -599,7 +599,7 @@ def _quality(ctx: _Ctx) -> list[Card]:
     out = []
     for t, d in sorted(newest.items()):
         f = d["fact"]
-        findings = [x for x in f.get("findings") or [] if not is_bulk(x)]       # CR-WD-Q1: one decoration rule
+        findings = [x for x in f.get("findings") or [] if not is_bulk(x)]       # one decoration rule
         if not findings:
             continue
         ranked = _rank_findings(findings)
@@ -700,7 +700,7 @@ def _matrix(ctx: _Ctx) -> list[Card]:
     latest: dict[str, dict] = {}
     for d in sorted(db.latest("matrix_cell", "matrix_cell:", config=ctx.config),
                     key=lambda d: clock.parse(d["fact"]["finished_at"])):
-        # keyed by tier too: a tier cell (CR-WD-matrix-t1) neither replaces nor poses as the T0 cell
+        # keyed by tier too: a tier cell neither replaces nor poses as the T0 cell
         latest.setdefault(d["fact"]["configuration"], {})[
             (d["fact"]["component"], d["fact"]["column"], d["fact"].get("tier") or None)] = d
     quarantined: dict[str, list[dict]] = {}
@@ -816,7 +816,7 @@ def _store(ctx: _Ctx) -> list[Card]:
         if kind == "release_not_archived":
             primary = {"label": "Open %s Silicon" % about, "href": _silicon_href(about), "method": "get", "fields": {}}
             dest, why = "opens the configuration's Taped out panel", (
-                "A silicon release with no manifest in the store cannot be traced from the store to its commit (D12).")
+                "A silicon release with no manifest in the store cannot be traced from the store to its commit.")
             code = "nanosoc-rm store findings"
         elif kind == "store_mismatch":
             primary = {"label": "Open the manifest in Store", "href": "/store/?q=%s" % _q(about.rsplit("/", 1)[-1]),
@@ -960,10 +960,6 @@ def _ctx(request: Request) -> tuple[Any, Any]:
     return request.state.config, request.state.identity
 
 
-def _login(request: Request) -> str:
-    return str(getattr(request.state.identity, "login", "") or "")
-
-
 def _cat(value: Any) -> str:
     v = str(value or "all")
     return v if v in CAT_LABEL else "all"
@@ -975,11 +971,21 @@ def dashboard(request: Request) -> Response:
     config, _ = _ctx(request)
     problems = list(registry_facts.refresh(config))
     cat = _cat(request.query_params.get("cat"))
-    view = inbox_view(config, _login(request), cat, problems=problems)
+    view = inbox_view(config, login_of(request), cat, problems=problems)
+    view["bell"] = _bell(config, login_of(request))
     trail = [("Projects", "/"), ("Notifications", "/notifications")]
     crumbs = trail + ([("Cards", None)] if cat == "all" else [("Cards", "/inbox"), (CAT_LABEL[cat], None)])
     return request.app.state.rm.page(request, "inbox.html", "Notification cards", problems=problems, crumbs=crumbs,
                                      inbox=view, board=None)
+
+
+def _bell(config, login: str | None) -> int | None:
+    """The bell's unread count (web.notifications), so the card view can say why its own count differs."""
+    from nanosoc_rm.web import notifications
+    try:
+        return notifications.unread_count(config, login)
+    except Exception:                                            # noqa: BLE001 - no bell figure, no note
+        return None
 
 
 def alerts(request: Request) -> Response:
@@ -997,7 +1003,8 @@ def _inbox_fragment(request: Request, cat: str) -> HTMLResponse:
     config, ident = _ctx(request)
     state = request.app.state.rm
     p = Page()
-    view = inbox_view(config, _login(request), cat)
+    view = inbox_view(config, login_of(request), cat)
+    view["bell"] = _bell(config, login_of(request))
     html = env.get_template("_inbox.html").render(page=p, fact=p.fact, csrf=state.csrf_for(ident, config),
                                                   identity=ident, actions=state.local_routes, inbox=view)
     return HTMLResponse(html)
@@ -1020,7 +1027,7 @@ async def post_done(request: Request) -> Response:
     card, fp = _card_field(form), str(form.get("fp") or "")
     if card is None or not _FP.match(fp):
         return PlainTextResponse("400 Bad Request: card and fp are needed", 400)
-    uistate.set_card(config, _login(request), card, "done", fp)
+    uistate.set_card(config, login_of(request), card, "done", fp)
     return _back(request, _cat(form.get("cat")))
 
 
@@ -1032,7 +1039,7 @@ async def post_snooze(request: Request) -> Response:
     if card is None or not days.isdigit() or int(days) not in SNOOZE_DAYS:
         return PlainTextResponse("400 Bad Request: card and days (1, 7 or 30) are needed", 400)
     until = clock.now() + dt.timedelta(days=int(days))
-    uistate.set_card(config, _login(request), card, "snoozed", str(form.get("fp") or "")[:64], until=until)
+    uistate.set_card(config, login_of(request), card, "snoozed", str(form.get("fp") or "")[:64], until=until)
     return _back(request, _cat(form.get("cat")))
 
 
@@ -1042,12 +1049,12 @@ async def post_undo(request: Request) -> Response:
     card = _card_field(form)
     if card is None:
         return PlainTextResponse("400 Bad Request: card is needed", 400)
-    uistate.undo_card(config, _login(request), card)
+    uistate.undo_card(config, login_of(request), card)
     return _back(request, _cat(form.get("cat")))
 
 
 async def post_clear_group(request: Request) -> Response:
-    """CR-W3: clear every open alert of one cause group; each clear is logged as `clear_alert` with the login. The
+    """Clear every open alert of one cause group; each clear is logged as `clear_alert` with the login. The
     form carries `seen`, the fingerprint of the alerts the page showed: a group that changed since answers 409."""
     from starlette.concurrency import run_in_threadpool
     config, _ = _ctx(request)
@@ -1061,7 +1068,7 @@ async def post_clear_group(request: Request) -> Response:
     if g["fp"] != seen:                                          # I-R3: clear only what the person saw
         return PlainTextResponse("409 Conflict: the group %s changed since the page was drawn (%d open now); "
                                  "reload and check it again" % (key[:60], g["count"]), 409)
-    login = _login(request)
+    login = login_of(request)
 
     def clear() -> None:
         for s in g["subjects"]:
@@ -1076,7 +1083,7 @@ async def post_clear_group(request: Request) -> Response:
 
 
 def router(app: Any = None):
-    """GET /inbox (the card view, CR-WF-gui); its POSTs exist only in a local deployment (section 13a), so a
+    """GET /inbox (the card view); its POSTs exist only in a local deployment (section 13a), so a
     GitHub + CI deployment keeps exactly the two Run routes (D5)."""
     from fastapi import APIRouter
     from nanosoc_rm.web.plugins import local_routes

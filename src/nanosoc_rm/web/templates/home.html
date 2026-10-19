@@ -26,6 +26,15 @@
   {{ fp.judged() }}
 </div>
 
+{% if h.needs %}
+<section class="fp-needs" aria-labelledby="needs-h" data-needs>
+  <h2 id="needs-h" class="fp-needs-h">What needs me?</h2>
+  <ul>
+  {% for n in h.needs %}<li data-need="{{ n.key }}"><span>{{ n.text }}</span> <a href="{{ n.href }}" hx-boost="false">{{ n.label }}</a></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 {% if h.show_filters %}
 <div id="filters" class="fp-filters">
   {% for f in h.facets %}

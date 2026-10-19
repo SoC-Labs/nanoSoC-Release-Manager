@@ -32,7 +32,7 @@ _ID = re.compile(r"^[A-Za-z0-9@][A-Za-z0-9_.@-]{0,127}\Z")
 
 
 def _guard(fn):
-    from nanosoc_rm.analysis._inputs import CannotAnswer, UsageProblem
+    from nanosoc_rm.analysis.inputs import CannotAnswer, UsageProblem
     from nanosoc_rm.versioning import VersioningError, VersioningRefused, VersioningUsage
     try:
         return fn(), None
@@ -235,7 +235,7 @@ def register(main: click.Group) -> None:
     def refresh_cmd(components, as_json):
         """Lint, next and tags for every catalogue component (or those named), stored for the /versions pages."""
         from nanosoc_rm import versioning
-        from nanosoc_rm.analysis import _inputs as inp
+        from nanosoc_rm.analysis import inputs as inp
         from nanosoc_rm.config import load_config
         cfg = load_config()
         reg, rc = _guard(lambda: inp.registry(cfg))

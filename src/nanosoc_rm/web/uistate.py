@@ -1,4 +1,4 @@
-"""Per-user GUI state (Wave C, CR-W2): `<data_dir>/gui.sqlite`.
+"""Per-user GUI state: `<data_dir>/gui.sqlite`.
 
 Not a fact store and not rebuildable, like jobs.sqlite and bumps.sqlite: it holds what one signed-in person did
 to their own view, nothing that changes system state. Each row carries the login and the time.
@@ -13,7 +13,7 @@ to their own view, nothing that changes system state. Each row carries the login
     flags(config, login, comp, commit) -> {name: value}           basket flags ("banner", "readme:<row key>")
     set_flag(config, login, comp, commit, name, value)            value None removes the flag
     clear_basket(config, login, comp, commit)
-    prefs(config, login) -> {name: value}                         per-login view preferences (Wave F, CR-WF-gui):
+    prefs(config, login) -> {name: value}                         per-login view preferences:
                                                                   "timeline" ("on"/"off"), "notify.kind.<cat>" and
                                                                   "notify.project.<id>" ("off" mutes one)
     set_pref(config, login, name, value)                          value None removes the preference
@@ -21,7 +21,7 @@ to their own view, nothing that changes system state. Each row carries the login
 A done card reopens when its facts change: `card_state(..., fingerprints={card: fp})` drops a done row whose
 stored fingerprint differs from the card's current one. A snoozed card reopens at `until`.
 
-WAL mode, one table per concern, `PRAGMA user_version = 2` (version 2 adds `pref`, CR-WF-gui; a version-1 file
+WAL mode, one table per concern, `PRAGMA user_version = 2` (version 2 adds `pref`; a version-1 file
 gains the table the next time it is opened, every other table untouched). `prefs` never creates the file: a GET that reads
 preferences of a login with no file answers {} (the defaults). This module imports no HTTP library (AT-A2's local
 rule: a sqlite write sits in a file that makes no outbound call).
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS basket_flag (
 CREATE TABLE IF NOT EXISTS pref (
     login TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (login, name));
 """
-# A preference name: the timeline toggle, or one muted notification kind or project (CR-WF-gui).
+# A preference name: the timeline toggle, or one muted notification kind or project.
 PREF_NAME = re.compile(r"^(timeline|notify\.kind\.[a-z_]{1,40}|notify\.project\.[A-Za-z0-9_.-]{1,100})\Z")
 
 

@@ -1,4 +1,4 @@
-"""The configuration workspace (Wave C spec section 3, unit C): one configuration as six tabs.
+"""The configuration workspace (spec section 3): one configuration as six tabs.
 
     GET /configurations/{id}                    Overview: the deciding gate, red gates first   (delegate)
     GET /configurations/{id}/tree               Submodule tree: nested pins, flags, the selected-pin aside
@@ -441,7 +441,7 @@ def pin_aside(config: Any, ctx: Ctx, path: str | None) -> dict | None:
             "twins": [{"path": t["fact"]["tree_paths"][0], "commit": t["fact"]["child"]["commit"][:7], "doc": t,
                        "href": "%s/tree?node=%s" % (base, _q(t["fact"]["tree_paths"][0]))} for t in twins],
             "notes": notes, "next": nxt, "code": code, "action": action,
-            # Wave G: Test this bump on a pin row (the capabilities page queues it for an executor)
+            # Test this bump on a pin row (the capabilities page queues it for an executor)
             "test_bump": None if ctx.frozen else _test_bump_href(ctx.cid, f["tree_paths"][0])}
 
 
@@ -639,9 +639,26 @@ def header(config: Any, ctx: Ctx, request: Request) -> dict:
         unused = V.unused_waivers(ctx.doc, ctx.record) if ctx.doc else []
         tiles.append({"label": "Waivers", "value": str(len(ctx.waivers)),
                       "sub": "%d cover nothing" % len(unused) if ctx.doc else "no result to check them"})
-    return {"chips": chips, "line": lines.describe(ctx.rec, ctx.root_commit),
+    return {"chips": chips, "fresh": _freshness(config, ctx), "line": lines.describe(ctx.rec, ctx.root_commit),
             "sentence": dec.sentence if v != V.NO_RESULT else "%s has never been checked." % ctx.cid,
             "action": action, "tiles": tiles, "infra": dec.infra_text}
+
+
+def _freshness(config: Any, ctx: Ctx) -> dict:
+    """The configuration's freshness verdict as Home shows it ({word, href}), so the header names both axes: the
+    last check (the chips) and how far its pins lag (this). "not scanned" when no freshness scan is stored."""
+    from nanosoc_rm.freshness import view as fview
+    root = (ctx.rec or {}).get("component") or ""
+    href = "/?" + urllib.parse.urlencode([("v", "1"), ("o", "p:" + root), ("o", "c:" + ctx.cid),
+                                          ("sel", "c:" + ctx.cid)])
+    try:
+        t = fview.tree(ctx.cid, config=config)
+    except Exception:                                            # noqa: BLE001 - one unreadable store: no word
+        t = None
+    if t is None:
+        return {"word": "not scanned", "href": href}
+    tree = t["tree"]
+    return {"word": "Frozen" if ctx.frozen or tree["frozen"] else tree["word"], "href": href}
 
 
 def _has_matrix(request: Request) -> bool:
@@ -671,6 +688,7 @@ def _page(request: Request, ctx: Ctx, tab: str, template: str, problems: list[st
     head["primary"] = None if page_primary else ("action" if a and a.get("method") == "get" else "run")
     return request.app.state.rm.page(
         request, template, ctx.cid, status=status, problems=problems, crumbs=_crumbs(ctx, tab), c=ctx, tab=tab,
+        doc_title=ctx.cid if tab == "overview" else "%s · %s" % (dict((k, x) for k, x, _ in TABS)[tab], ctx.cid),
         head=head, tabs_=_tabs(request, ctx, tab, config), base=_base(ctx.cid),
         pending=[j for j in views.safe_jobs(config, states=("queued", "running"), configuration=ctx.cid)
                  if j["kind"] == "compat" and not j["params"].get("pins")]
@@ -686,7 +704,7 @@ def _fragment(request: Request, template: str, **kw: Any) -> HTMLResponse:
 
 def _not_found(request: Request) -> HTMLResponse:
     return request.app.state.rm.page(request, "message.html", "Not found", status=404,
-                                     message="No configuration is known here.")
+                                     message="No configuration is known here.", next_step=True)
 
 
 def _job_ctx(config: Any, job: dict | None) -> dict:
@@ -817,6 +835,10 @@ def whatif_page(request: Request, id: str) -> Response:
     comp = q.get("component") or (ctx.decision.component if ctx.decision.kind == "ssh-pin" else None) \
         or ((job or {}).get("params", {}).get("pins") and _comp_of_override(ctx, job)) or None
     if comp not in tree_comps:
+        asked = q.get("component")
+        if asked:
+            problems = problems + ["%s has no component %s in its stored tree: pick one from the list below"
+                                   % (ctx.cid, asked[:80])]
         comp = None
     fl = shell.component_flags(config)
     flt = (q.get("q") or "").strip().lower()
@@ -853,6 +875,7 @@ def whatif_page(request: Request, id: str) -> Response:
                  change_tone=CHANGE_TONE, comp=comp, comp_rows=comp_rows, flt=q.get("q") or "", targets=tg,
                  target=target, target_label=target_label, refs=refs_by_kind, n_refs=len(refs), paths=paths,
                  chosen=chosen, tiers=tiers, steps=steps, code=(act or {}).get("code"),
+                 tier_blocked=views.tiers_this_host_could_not_run(views.compat_results(config, ctx.cid)[:10]),
                  pin_values=["%s=%s" % (p, target) for p in chosen] if target else [],
                  cli="nanosoc-rm compat %s%s" % (ctx.cid, "".join(" --pin %s=%s" % (p, target) for p in chosen)
                                                  if target else " --pin TREE_PATH=SHA"),
@@ -932,7 +955,7 @@ def history_page(request: Request, id: str) -> Response:
     rows = []
     for j in views.safe_jobs(config, limit=100, configuration=ctx.cid):
         nonce = ((j.get("result") or {}).get("fact") or {}).get("nonce") if j["kind"] == "compat" else None
-        rows.append({"job": j, "tier": j["params"].get("tier") or ("T0 only" if j["kind"] == "compat" else ""),
+        rows.append({"job": j, "tier": j["params"].get("tier") or ("resolve check only" if j["kind"] == "compat" else ""),
                      "stored": by_nonce.get(nonce) if nonce and not j["params"].get("pins") else None,
                      "whatif": bool(j["params"].get("pins")),
                      "took": _span(j.get("started_at"), j.get("finished_at")),

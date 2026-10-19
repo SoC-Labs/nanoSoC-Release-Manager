@@ -217,13 +217,13 @@ that found it.
 | Question | Page | Command |
 |---|---|---|
 | Which pins are red on which host? | configuration > Submodule tree | `nanosoc-rm pins CONFIG [--state S] [--host H]` |
-| Is taped-out silicon still protected? | **Silicon** | `nanosoc-rm silicon-protection [CONFIG] [--uncovered]` |
-| Do the GitHub and GitLab copies agree? | More > Hosts | `nanosoc-rm hosts [COMPONENT]` |
-| Which configurations contain a commit? | More > Contains | `nanosoc-rm contains SHA` |
+| Is taped-out silicon still protected? | More > Silicon protection | `nanosoc-rm silicon-protection [CONFIG] [--uncovered]` |
+| Do the GitHub and GitLab copies agree? | More > Host copies | `nanosoc-rm hosts [COMPONENT]` |
+| Which configurations contain a commit? | More > Contains commit | `nanosoc-rm contains SHA` |
 | Which repos exist but are not catalogued? | **Catalogue** | `nanosoc-rm inventory --unclassified` |
 | What alerts are open? | More > Alerts | `nanosoc-rm alerts` |
 | Are the mirrors fresh? | More > Mirrors | `nanosoc-rm mirror status` |
-| Which errata apply? | More > Registry | `nanosoc-rm registry records` |
+| Which errata apply? | More > Components (Defects and errata) | `nanosoc-rm registry records` |
 
 A frozen configuration's known failures read WAIVED (amber), with the raw verdict and every waiver's reason and
 approver beside it; a new failure on the same tree still reads red.
@@ -312,7 +312,7 @@ To have a project measured, register a configuration for it: a merge request add
 | Not measured, or UNREADABLE, on a private repo | the tool reads anonymously unless the operator configured read access for that host | ask the tool owner; the operator step is in [DEPLOY.md](DEPLOY.md), "Private repos" |
 | A T0 FAIL that never goes away | a long-standing hygiene problem, often an ssh URL in `.gitmodules` | fix the URL in the repo (use https), or, for a frozen tree, a waiver in the registry |
 | UNVERIFIED for a pin you moved in a what-if, "not fetched" | the moved commit was never fetched or scanned (an ssh or private URL) | fix the URL, or test the bump on an executor; a FAIL found elsewhere still reads FAIL |
-| "Data age 3 days" on a fresh-looking page | the header shows the age of the oldest fact on the page | open the fact's **src** link; **(coming)** two clocks, scan time and last check |
+| "oldest fact 3 days" on a fresh-looking page | the header shows when the page was last updated and the age of its oldest fact | follow the oldest fact's link in the header to see what it is and how it was found |
 | Sign-in refused with the right password | 5 wrong passwords for that login within 5 minutes lock it for the rest of the 5 minutes | wait 5 minutes, or ask the operator to restart the service |
 | A Quality page says "not analysed yet" | nothing stored for that ref, and opening a page never starts an analysis | press **Analyse** |
 | A page says "analysing, refresh" | an analysis job is queued or running | refresh in about a minute |

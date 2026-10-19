@@ -4,7 +4,9 @@
 <section class="panel" aria-labelledby="cfg-sentence">
   {% if head.line %}<p class="note" data-line>Line <code>{{ head.line }}</code></p>{% endif %}
   <p class="row" style="align-items:center">
-    {% for text, tone in head.chips %}{{ ui.chip(text, tone) }} {% endfor %}
+    {% for text, tone in head.chips %}{% if loop.first %}<span class="axis">Check</span> {{ ui.chip(text, tone) }}
+    {% if head.fresh %}<span class="axis">Freshness</span> <a class="chip c-neutral" href="{{ head.fresh.href }}" data-freshness>{{ head.fresh.word }}</a>{% endif %}
+    {% else %}{{ ui.chip(text, tone) }} {% endif %}{% endfor %}
     {% if c.record %}<span class="note">{{ fact(c.record, 'registry record') }}</span>{% endif %}
   </p>
   <p id="cfg-sentence" class="disp" style="font-size:1.2em;margin:.5rem 0">{{ head.sentence }}</p>

@@ -59,7 +59,7 @@ def _https(view) -> str:
 
 def _tags_at(view, component_id: str, commit: str) -> list[str]:
     """Release tags of `component_id` (from its own mirror) that point at `commit`."""
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     from nanosoc_rm.versioning import tags as tagmod
     if view.config is None or view.registry is None:
         return []

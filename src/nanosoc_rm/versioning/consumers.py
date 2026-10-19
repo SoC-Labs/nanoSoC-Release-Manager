@@ -28,7 +28,7 @@ __all__ = ["changelog_entries", "classify_bump", "regen_signals"]
 
 
 def _view(component: str, config):
-    from nanosoc_rm.analysis import _inputs as inp
+    from nanosoc_rm.analysis import inputs as inp
     try:
         view = open_repo(component, config=config)
     except (VersioningError, inp.UsageProblem, inp.CannotAnswer) as e:

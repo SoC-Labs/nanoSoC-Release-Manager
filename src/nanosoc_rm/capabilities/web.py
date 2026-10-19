@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, select_autoescape
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+
+from nanosoc_rm.web.plugins import config_of, is_local, local_routes, public_text, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "POSTS", "bump_href"]
 
@@ -30,15 +31,8 @@ PREFIX = "/capabilities"
 NAV_LABEL = None
 POSTS = frozenset({("POST", PREFIX + "/{configuration}/test-bump")})
 HERE = Path(__file__).resolve().parent
-
-
-def _env() -> Environment:
-    env = Environment(loader=ChoiceLoader([FileSystemLoader(str(HERE / "templates"))]),
-                      autoescape=select_autoescape(["html"]), trim_blocks=True, lstrip_blocks=True)
-    return env
-
-
-ENV = _env()
+ENV = template_env(HERE, app_templates=False)
+_page = renderer(ENV)
 
 
 def bump_href(configuration: str, path: str, to: str | None = None) -> str:
@@ -48,29 +42,12 @@ def bump_href(configuration: str, path: str, to: str | None = None) -> str:
     return "%s/%s/bump?%s" % (PREFIX, urllib.parse.quote(configuration, safe=""), urllib.parse.urlencode(q))
 
 
-def _config(request: Request):
-    cfg = getattr(request.state, "config", None)
-    if cfg is None:
-        from nanosoc_rm.config import load_config
-        cfg = load_config()
-    return cfg
-
-
-def _page(request: Request, template: str, title: str, status: int = 200, **ctx: Any) -> HTMLResponse:
-    from nanosoc_rm.web import plugins
-    return plugins.render_page(request, template, title, status=status, environment=ENV, **ctx)
-
-
-def _local(request: Request) -> bool:
-    return bool(getattr(getattr(request.app.state, "rm", None), "local_routes", False))
-
-
 def _message(request: Request, message: str, status: int) -> HTMLResponse:
-    return _page(request, "caps_message.html", "Capabilities", status=status, message=message)
+    return _page(request, "caps_message.html", "Capabilities", status=status,
+                 message=public_text(config_of(request), message))
 
 
 def router(app: Any = None) -> APIRouter:
-    from nanosoc_rm.web.plugins import local_routes
     local = local_routes(app)
     r = APIRouter(prefix=PREFIX)
 
@@ -78,7 +55,7 @@ def router(app: Any = None) -> APIRouter:
         from nanosoc_rm import jobs
         from nanosoc_rm.capabilities.view import tree_view
         from nanosoc_rm.ci import configs
-        config = _config(request)
+        config = config_of(request)
         try:
             confs = configs.configurations(config)
             hosts = sorted(configs._registry(config).sites())
@@ -97,10 +74,10 @@ def router(app: Any = None) -> APIRouter:
         return _page(request, "caps_index.html", "Capabilities", rows=rows, hosts=hosts, waiting=waiting)
 
     def tree(request: Request, configuration: str) -> HTMLResponse:
-        from nanosoc_rm.analysis._inputs import CannotAnswer
+        from nanosoc_rm.analysis.inputs import CannotAnswer
         from nanosoc_rm.capabilities.view import tree_view
         from nanosoc_rm.ci import configs
-        config = _config(request)
+        config = config_of(request)
         try:
             configs.configuration(configuration, config)
         except configs.UnknownConfiguration as e:
@@ -116,7 +93,7 @@ def router(app: Any = None) -> APIRouter:
     def bump(request: Request, configuration: str) -> HTMLResponse:
         from nanosoc_rm import jobs
         from nanosoc_rm.ci import configs
-        config = _config(request)
+        config = config_of(request)
         q = request.query_params
         try:
             configs.configuration(configuration, config)
@@ -141,18 +118,18 @@ def router(app: Any = None) -> APIRouter:
             to = pin.get("default_branch")
         self_href = "%s/%s/bump?job=%d" % (PREFIX, urllib.parse.quote(configuration, safe=""), job["id"]) if job else ""
         return _page(request, "caps_bump.html", "Test a bump in %s" % configuration, configuration=configuration,
-                     job=job, bump_path=path, to=to, pin=pin, history=history, local=_local(request),
+                     job=job, bump_path=path, to=to, pin=pin, history=history, local=is_local(request),
                      queued=bool(q.get("queued")), self_href=self_href)
 
     async def post_test_bump(request: Request, configuration: str) -> Response:
         from starlette.concurrency import run_in_threadpool
         from nanosoc_rm import jobs
-        if not _local(request):
+        if not is_local(request):
             return PlainTextResponse("404 Not Found: this service has no local job queue", 404)
         form = await request.form()
         path = str(form.get("path") or "").strip().strip("/")
         to = str(form.get("to") or "").strip()
-        config = _config(request)
+        config = config_of(request)
         ident = getattr(request.state, "identity", None)
         login = getattr(ident, "login", None) or "web"
         try:
@@ -181,7 +158,7 @@ def router(app: Any = None) -> APIRouter:
 
 def _pin(config, configuration: str, path: str) -> dict | None:
     """The stored pin at `path` (component, commit, its repo's default branch), or None."""
-    from nanosoc_rm.analysis import _inputs as I
+    from nanosoc_rm.analysis import inputs as I
     try:
         docs = I.stored_tree(configuration, config)
     except Exception:                                            # noqa: BLE001 - no stored walk: no pin facts

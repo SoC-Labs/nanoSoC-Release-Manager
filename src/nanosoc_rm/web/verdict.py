@@ -1,4 +1,4 @@
-"""The deciding gate of a stored compat result (Wave C spec section 2.2), shared by the inbox, the board, the rail
+"""The deciding gate of a stored compat result (spec section 2.2), shared by the inbox, the board, the rail
 and the configuration Overview. Pure functions over one `compat_result` document: no store, no git, no request.
 
     deciding(doc, record=None) -> Decision        the one cause that makes the configuration red, and its label
@@ -18,7 +18,7 @@ Rules (spec 2.2):
 5. The deciding cause has the most gates; a tie goes to the most not-reached pins, then to GATES order.
 6. Labels from GATE_LABEL; an unknown gate falls back to its id. A vendor gate's label follows its items: a
    finding names the trees, an unscannable tree says "scan unverified", and a gate red only on unfetched trees
-   says "{n} trees not scanned (not fetched)" (review VS-1).
+   says "{n} trees not scanned (not fetched)".
 7. `infra`: the tier row or a gate is INFRA ("This host cannot run {tier}. Nothing to fix in the design.").
 """
 from __future__ import annotations
@@ -52,7 +52,7 @@ GATE_LABEL_UNVERIFIED = {
     "t0.vendor.no-arm-ip": "Arm source scan unverified in {paths}",
     "t0.vendor.no-foundry-data": "foundry data scan unverified in {paths}",
 }
-# CR-6: what each vendor gate means, and what its amber says (the overview's gate table shows it).
+# What each vendor gate means, and what its amber says (the overview's gate table shows it).
 GATE_HELP = {
     "t0.vendor.no-arm-ip": "Arm source: the Arm confidential banner, a known vendor file by hash, or a file "
                            "that could not be read. An uncovered finding fails; catalogue vendor_allowlist entries "
@@ -235,14 +235,26 @@ def causes(doc: dict | None, record: dict | None = None) -> list[Cause]:
     return out
 
 
+def _why(detail: str, limit: int = 160) -> str:
+    """The first clause of an INFRA detail, short enough for one sentence (the full detail stays on the result)."""
+    d = " ".join(str(detail or "").split()).replace("; the tier was not run", "").rstrip(" .")
+    return d if len(d) <= limit else d[:limit - 1].rsplit(" ", 1)[0] + "…"
+
+
 def _infra(f: dict) -> tuple[bool, str | None]:
+    """(INFRA?, one plain sentence: what this host could not run, why, and that the design is not at fault)."""
+    from nanosoc_rm.web.terms import TIER_WORDS
     tier = _tier_row(f)
     if tier and tier["verdict"] == "INFRA":
-        return True, "This host cannot run %s. Nothing to fix in the design. %s" % (
-            tier["id"].split(".", 1)[1].upper(), tier["detail"])
+        code = tier["id"].split(".", 1)[1].upper()
+        why = _why(tier["detail"])
+        return True, "This host cannot run the %s (%s)%s. Nothing to fix in the design." % (
+            TIER_WORDS.get(code, code), code.lower(), (": " + why) if why else "")
     g = next((g for g in f.get("gates") or [] if g.get("verdict") == "INFRA"), None)
     if g is not None:
-        return True, "This host cannot run %s. Nothing to fix in the design. %s" % (g["id"], g.get("detail") or "")
+        why = _why(g.get("detail") or "")
+        return True, "This host could not run the %s check%s. Nothing to fix in the design." % (
+            g["id"], (": " + why) if why else "")
     return False, None
 
 
@@ -306,8 +318,7 @@ def unused_waivers(doc: dict | None, record: dict | None) -> list[dict]:
     plus the foundry gate for an arm-gate `not-reached` waiver: `t0.gates._waiver_gates`) names its tree_path in
     `waived[].covered_by`, and no pin at its tree_path has that gate's item at its result. Keyed on (gate,
     tree_path) as `t0.gates.apply_waivers` is, which counts a waiver used when it names an item even if another,
-    unwaived item keeps the gate FAIL (so no `waived` list is stored), so the GUI and the CLI's unused count agree
-    (ROB-mutation-2; CR-ROB-int)."""
+    unwaived item keeps the gate FAIL (so no `waived` list is stored), so the GUI and the CLI's unused count agree."""
     from nanosoc_rm.t0.gates import _waiver_gates
     rec = ((record or {}).get("fact") or {}).get("record") or {}
     waivers = list(rec.get("t0_waivers") or []) if rec.get("frozen") else []

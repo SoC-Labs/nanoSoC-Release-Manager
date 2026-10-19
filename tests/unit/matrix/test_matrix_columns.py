@@ -71,7 +71,7 @@ def test_a_split_component_moves_every_pin_but_not_one_nested_below_another():
 
 
 def test_unknown_component_is_a_usage_problem(scene):
-    from nanosoc_rm.analysis._inputs import UsageProblem
+    from nanosoc_rm.analysis.inputs import UsageProblem
     from nanosoc_rm.config import load_config
     with scene.env.active(), pytest.raises(UsageProblem, match="not in top-main's stored tree"):
         C.rows("top-main", load_config(), ["gamma"])

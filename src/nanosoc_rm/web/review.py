@@ -1,5 +1,5 @@
-"""The review queue of one component's comment findings, one at a time, and the per-user patch basket (Wave C spec
-4.5; build-first 5). Reads the stored `quality_finding` (and `readme_check`) facts, the person's decisions in
+"""The review queue of one component's comment findings, one at a time, and the per-user patch basket (spec
+4.5). Reads the stored `quality_finding` (and `readme_check`) facts, the person's decisions in
 `gui.sqlite` (web.uistate), and blobs only through `quality.review_text` (local reads, never a fetch).
 
     stored_fact(config, comp, kind, ref=None, commit=None) -> obs | None   the analysed result to review
@@ -48,7 +48,7 @@ def commit_of(obs: dict) -> str:
 def stored_fact(config: Any, comp: str, kind: str = "comments", ref: str | None = None,
                 commit: str | None = None) -> dict | None:
     """The newest stored observation of `kind` for the component; with `commit` (a prefix) or `ref` the newest one
-    analysed at that commit or ref. Never analyses (CR-R2: a missing result is a job, not a request)."""
+    analysed at that commit or ref. Never analyses (a missing result is a job, not a request)."""
     try:
         hist = q.stored(kind, comp, config=config)
     except Exception:                                            # noqa: BLE001 - no store yet reads as nothing
@@ -67,8 +67,8 @@ def key(commit: str, f: dict) -> str:
 
 
 def queue(obs: dict | None) -> list[dict]:
-    """The findings of a stored result outside the decoration rule (CR-WD-Q1), ranked: a suggested edit first,
-    then High, Medium, Check, Low; then path and line (CR-WD-Q3)."""
+    """The findings of a stored result outside the decoration rule, ranked: a suggested edit first,
+    then High, Medium, Check, Low; then path and line."""
     if obs is None:
         return []
     c = commit_of(obs)
@@ -84,7 +84,7 @@ def queue(obs: dict | None) -> list[dict]:
 
 
 def banners(obs: dict | None) -> list[dict]:
-    """The findings of the decoration rule (banner and boilerplate, CR-WD-Q1): one basket flag applies them all."""
+    """The findings of the decoration rule (banner and boilerplate): one basket flag applies them all."""
     return [x for x in (obs or {}).get("fact", {}).get("findings") or [] if is_bulk(x)]
 
 

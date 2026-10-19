@@ -928,7 +928,10 @@ class Worker(config_path=None, *, argv_prefix=None, poll_s=1.0)   # start(), sto
 - **Plug-ins** (`nanosoc_rm.web.plugins`): a module in `PLUGINS` with a FastAPI `router` is mounted with a
   navigation entry (`Quality` for `nanosoc_rm.quality.web`, `Releases` for `nanosoc_rm.releases.web`) and renders
   through `render_page(request, template, title, environment=...)`. Its routes sit behind the same guard and CSRF
-  check (CR-R6).
+  check (CR-R6). A plug-in takes its request and template helpers from the same module and defines no copy of
+  them (CR-WH-refactor-web): `template_env(here, app_templates=True, app_globals=False, **globals)`,
+  `renderer(env, local=False)` (its `_page`), `config_of(request)`, `login_of(request)`, `is_local(request)` and
+  `job_card(env, request, config, job)`.
 - **Job kinds from plug-ins (CR-R2; one seam since CR-WC-seams):** `jobs.register_kind(name, params, args, *,
   outcome=None, limit_s=None, action=None)` returns a `jobs.JobKind`; `jobs.registered(name)` looks one up and
   `jobs.all_kinds()` lists the three built-in kinds (`jobs.KINDS`: compat, mirror-sync, walk) and every registered
@@ -1347,7 +1350,7 @@ contract examples do.
 | `tick` | `nanosoc_rm.schedule` |
 | `submit`, `cancel`, `get`, `jobs`, `log_text`, `recover`, `Worker`, `JobUsage` (CR-17, section 13a) | `nanosoc_rm.jobs` |
 | `hash_password`, `verify_password`, `LocalAuth`, `ConfiguredAuth` (CR-16) | `nanosoc_rm.auth` |
-| `PLUGINS`, `load`, `render_page` (section 13a) | `nanosoc_rm.web.plugins` |
+| `PLUGINS`, `load`, `render_page`, `template_env`, `renderer`, `config_of`, `login_of`, `is_local`, `job_card` (section 13a) | `nanosoc_rm.web.plugins` |
 | `create_app(config_path, auth=None)` | `nanosoc_rm.web` |
 | `FakeMembership(login=)`, `is_member(config, login)` | `nanosoc_rm.auth` |
 | `WRITE_CALLS` | `nanosoc_rm.contracts` |
@@ -2399,7 +2402,24 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   Frozen and "not counted"); a pin row's state is its `rollup` (the worst live state at or beneath it). Siblings
   sort by `home.sibling_rank`: SoC, custom peripherals (a direct component or subsystem of the configuration
   root), subsystems and components, arch tech, generator, libraries and infra, toolkits and flows; then worst state
-  first. A project with no measured configuration folds into one "Not measured yet" group (`grp:unk`).
+  first. A project with no measured configuration folds into one of two groups by why: "Registered, not scanned
+  yet" (`grp:unk`: a registered configuration with no stored scan) and "No configuration registered" (`grp:none`;
+  its detail says how to register one).
+- **Header** (CR-WH-usability; `web.page`). Main navigation: Projects, Matrix, Releases, Catalogue (`TOP_NAV`; an
+  entry whose plug-in is not installed is left out) and the bell. Every other page is under **More**, in the groups
+  of `MORE_GROUPS` (Check, Repos, Release; a plug-in page not listed goes under Other), each `role="group"` with its
+  label; More closes on Escape and on a click outside it. A navigation label is its page's title. The data-age
+  element keeps `data-age-seconds`/`data-oldest-observed-at` (the OLDEST fact, section 13) and reads "Updated <the
+  newest fact's age> ago · oldest fact <age>", the age linking to the oldest fact's own sources page
+  (`data-oldest-fact`). A signed-in page GET of an address no route serves is the styled Not found page with a next
+  step (`data-next`); `/api` keeps a JSON 404. Each workspace tab's browser title names the tab ("Submodule tree ·
+  eth-rc4"); the heading stays the configuration or component.
+- **What needs me?** (`web.needs.items`; hook `data-needs`, each line `data-need="<key>"`): at most three one-line
+  actions under the toolbar, each with one link, from stored facts only, in this order: `unreleased` (a
+  configuration with a `silicon` record and no `release_publication` of kind release), `held` (bump proposals in
+  state blocked that no person has marked), `private` (open alerts in the `private-*` cause groups), `catalogue`
+  (current `repo_seen` snapshots plus catalogue entries with a `question`). Hidden when empty; a source that raises
+  gives no line.
 - **Pills** count live configurations by tree verdict and frozen ones as Frozen; the Not measured pill adds the
   projects with no stored scan to the scanned live trees that read Not measured, so every configuration is in one
   pill, and its filter keeps both. CR-1015-unmeasured: a tree reading `current_except` is in its own pill
@@ -2418,7 +2438,7 @@ and its pages show no button for a missing route (the timeline toggle is then a 
   today's month to `_TL_AFTER` days after today), the today line, and a dashed line at each frozen configuration's
   root commit date (its tapeout).
 - **Page hooks** (tests read pages only through these): `data-row` (row key: `p:<project>`, `c:<configuration>`,
-  `n:<configuration>:<tree path>`, `grp:unk`) and `data-state` (a `freshness.rules.TREE_STATES` value) on each tree
+  `n:<configuration>:<tree path>`, `grp:unk`, `grp:none`) and `data-state` (a `freshness.rules.TREE_STATES` value) on each tree
   row, with `data-subject`/`data-observed-at` when the row is a stored fact; `data-fresh-pill` (state) on each pill;
   `data-timeline` (`on`\|`off`); `data-gap-filter`; `data-bell` (unread count, empty when unknown) on the bell;
   `data-matrix-row` (component), `data-column` (configuration), `data-cell-state` and `data-detail` on the matrix;

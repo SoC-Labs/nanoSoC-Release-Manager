@@ -39,16 +39,19 @@ how long since the pin last moved.
 | **Frozen** | taped-out silicon; old on purpose | nothing; it is never counted as outdated |
 
 Click a row to see its details in the right-hand panel. **How is this judged?** in the toolbar repeats the rules.
-**Filters** narrows the tree by type and role. Projects with no registered configuration fold into **Not measured
-yet**: that means nobody registered one, not that a check failed.
+**Filters** narrows the tree by type and role. Projects that cannot be measured yet fold into **Registered, not
+scanned yet** or **No configuration registered**: the second means nobody registered one, not that a check failed,
+and its detail says how to register one. Above the tree, **What needs me?** lists up to three things to do now, each
+with one link; it is hidden when there is nothing.
 
 Under the tree, the configuration board shows each configuration's last check verdict (**FAIL**, **UNVERIFIED**,
 **INFRA**, **WAIVED**, **WARN**, **PASS**, worst first). Freshness ("do the pins lag?") and the check verdict ("does
 it work?") are different questions; a configuration can be Outdated and PASS.
 
 The other header pages: **Matrix** (freshness across all configurations, and the compatibility matrix),
-**Releases**, **Silicon** (taped-out commits that need protecting), **Catalogue** (new repositories to classify).
-Everything else is under **More**. The bell opens **Notifications**: one line per thing that needs a person.
+**Releases** and **Catalogue** (new repositories to classify). Everything else is under **More**, in three groups:
+**Check** (Compatibility check, Silicon protection, Alerts, Code and doc quality), **Repos** (Components, Branches,
+Host copies, Mirrors, Contains commit) and **Release** (Bump proposals, Versions, Store, Publish). The bell opens **Notifications**: one line per thing that needs a person.
 Press `/` to search for a configuration, a repository or a commit.
 
 ## 3. Test a bump (10 minutes)

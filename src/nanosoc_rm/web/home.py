@@ -1,7 +1,7 @@
-"""The projects home at `/` (Wave F, CR-WF-gui; David 2026-10-14: front page approved, Home.dc.html).
+"""The projects home at `/` (design: Home.dc.html).
 
 One tree of projects -> configurations -> pins, one compact toolbar above it, and a detail panel on the right.
-It REVERSES Wave C's inbox at `/` (CR-W1): the inbox is now Notifications behind the bell (web.notifications).
+The older inbox is Notifications behind the bell (web.notifications).
 
     home_view(config, login, query, today=None, local=False) -> dict    everything home.html prints
     dashboard(request)                                                   GET / (routers.DELEGATES)
@@ -20,6 +20,8 @@ Rules this module keeps:
 - A configuration's verdict is its tree verdict (worst DIRECT pin, freshness.rules; a tree with a direct pin that
   could not be measured is never Current: "Current except N not measured" when nothing worse); a pin row shows the worst
   state at or below it (its rollup); a frozen silicon configuration says Frozen and "not counted", never Outdated.
+- "What needs me?" (web.needs): at most three one-line actions from stored facts, under the toolbar, hidden when
+  there are none.
 - The section 13 configuration board (AT-H1: per configuration the T0 result, red pins, errata, host drift,
   runner, data age and the one Run button) stays on this page, closed under the tree (`home.html`).
 """
@@ -34,7 +36,8 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, RedirectResponse, Response
 
 from nanosoc_rm import clock
-from nanosoc_rm.web import lines, registry_facts, uistate, views
+from nanosoc_rm.web import lines, needs, registry_facts, uistate, views
+from nanosoc_rm.web.plugins import login_of
 
 __all__ = ["home_view", "dashboard", "router", "STATE_KEY", "WORD", "RULE", "PILLS", "KRANK", "sibling_rank",
            "parse_state"]
@@ -53,7 +56,7 @@ RULE = {
     "outdated": "A direct pin is 10+ commits behind, or behind and not bumped for 90+ days.",
     "behind": "Direct pins lag by 1 to 9 commits and were bumped within 90 days.",
     "current_except": ("Every direct pin that could be measured is at its upstream head, but at least one could not "
-                       "be counted, so the tree is not Current (David 2026-10-15)."),
+                       "be counted, so the tree is not Current."),
     "current": "Every direct pin was measured and is at its upstream default-branch head.",
     "frozen": "A tagged silicon configuration. Drift is expected and is never a to-do.",
     "not_measured": ("No stored scan yet, or a scanned tree none of whose direct pins could be counted. Register "
@@ -232,7 +235,7 @@ class _Data:
         return self._tree_cache[cid]
 
     def capabilities(self, cid: str) -> dict:
-        """Wave G: the configuration's capabilities view (capabilities.view.tree_view), once per request."""
+        """The configuration's capabilities view (capabilities.view.tree_view), once per request."""
         if not hasattr(self, "_caps_cache"):
             self._caps_cache: dict[str, Any] = {}
         if cid not in self._caps_cache:
@@ -437,7 +440,7 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
             d = frz["tree"]["root"]["days"]
             ago, bar = "frozen " + _ago(d), (tl.bar(d, d, True) if tl else None)
         else:
-            ago, bar = "[no scan]", None
+            ago, bar = ("not scanned" if p["configs"] else "no configuration"), None
         word = _roll_word(roll)
         r = add(key, level, bool(p["measured"]), roll["state"], p["id"], "proj", ago,
                 "Repository %s, %s, %s, %s" % (p["id"], chip, word, ago), chip=chip, bar=bar, word=word,
@@ -448,11 +451,17 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
 
     for p in measured:
         proj_row(p, 0)
-    if unmeasured:
-        g = add("grp:unk", 0, True, "not_measured", "Not measured yet (%d)" % len(unmeasured), "group", "[no scan]",
-                "%d projects not measured yet" % len(unmeasured))
+    # Not measured, by why: a registered configuration with no stored scan yet, or no configuration registered at all
+    for gkey, members, label, ago in (
+            ("grp:unk", [p for p in unmeasured if p["configs"]], "Registered, not scanned yet", "not scanned"),
+            ("grp:none", [p for p in unmeasured if not p["configs"]], "No configuration registered",
+             "no configuration")):
+        if not members:
+            continue
+        g = add(gkey, 0, True, "not_measured", "%s (%d)" % (label, len(members)), "group", ago,
+                "%s: %d %s" % (label, len(members), "project" if len(members) == 1 else "projects"))
         if g["open"]:
-            for p in unmeasured:
+            for p in members:
                 proj_row(p, 1)
 
     detail = _detail(sel, data, today, local)
@@ -468,7 +477,8 @@ def home_view(config, login: str | None, query: Any, *, today: dt.date | None = 
                          "span": tl.span_text() if tl else "",
                          "return_to": _url(st, open=open_, tl=None)},
             "rows": rows, "detail": detail, "state": st, "today": today.isoformat(),
-            "scanned": bool(data.trees), "n_projects": len(data.projects)}
+            "scanned": bool(data.trees), "n_projects": len(data.projects),
+            "needs": needs.items(config, data.chars)}
 
 
 def _open_default(st: dict, data: _Data) -> set[str]:
@@ -559,11 +569,19 @@ def _detail(sel: str | None, data: _Data, today: dt.date, local: bool) -> dict |
     if sel.startswith("p:"):
         return _proj_detail(sel[2:], data, today)
     if sel == "grp:unk":
-        n = sum(1 for p in data.projects if not p["measured"])
-        return {"kind": "Group", "title": "Not measured yet", "title_cls": "t-big", "state": "not_measured",
-                "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n, "chips": [],
-                "blurb": "These projects have no stored scan of a registered configuration, so their pins are not "
-                         "measured. Register a configuration (eligibility.yaml) and scan it to measure one.",
+        n = sum(1 for p in data.projects if not p["measured"] and p["configs"])
+        return {"kind": "Group", "title": "Registered, not scanned yet", "title_cls": "t-big",
+                "state": "not_measured", "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n,
+                "chips": [], "blurb": "These projects have a registered configuration with no stored scan yet. The "
+                                      "scheduler scans after each poll; open a project to scan its configuration now.",
+                "facts": [], "note": None, "links": [], "obs": None, "forms": []}
+    if sel == "grp:none":
+        n = sum(1 for p in data.projects if not p["measured"] and not p["configs"])
+        return {"kind": "Group", "title": "No configuration registered", "title_cls": "t-big",
+                "state": "not_measured", "css": "unk", "word": WORD["not_measured"], "sub": "%d projects" % n,
+                "chips": [], "blurb": "Nothing measures these projects until one of their configurations is "
+                                      "registered. To register one, add it to eligibility.yaml in the registry by a "
+                                      "merge request (its id, root component and ref); the next poll scans it.",
                 "facts": [], "note": None, "links": [("The catalogue", "/catalogue/")], "obs": None, "forms": []}
     return None
 
@@ -652,7 +670,7 @@ def _pin_detail(sel: str, data: _Data, today: dt.date, local: bool = False) -> d
 
 def _capabilities_section(data: _Data, cid: str, tree_path: str | None, to: str | None, local: bool
                           ) -> tuple[dict, list[dict]]:
-    """Wave G: the detail panel's Capabilities section (what this tree can run, on which host, its last result) and
+    """The detail panel's Capabilities section (what this tree can run, on which host, its last result) and
     the "Test this bump" form of a live pin (local deployments; it only queues a job for an executor). Reads the
     capabilities view once per configuration per page; a problem is a line in the section, never a 500."""
     from nanosoc_rm.capabilities.web import bump_href
@@ -839,10 +857,6 @@ def _pinned_in(pid: str, data: _Data) -> str | None:
 # ---------------------------------------------------------------------------------------------------------
 # Pages
 # ---------------------------------------------------------------------------------------------------------
-def _login(request: Request) -> str:
-    return str(getattr(request.state.identity, "login", "") or "")
-
-
 def dashboard(request: Request) -> Response:
     """GET /: the projects home, with the section 13 configuration board closed under the tree."""
     from nanosoc_rm import jobs
@@ -850,7 +864,7 @@ def dashboard(request: Request) -> Response:
     config = request.state.config
     state = request.app.state.rm
     problems = list(registry_facts.refresh(config))
-    view = home_view(config, _login(request), request.query_params, local=state.local_routes, problems=problems)
+    view = home_view(config, login_of(request), request.query_params, local=state.local_routes, problems=problems)
     return state.page(request, "home.html", "Projects", problems=problems, crumbs=[], no_rail=True, bare=True, home=view,
                       board=inbox.board(config, local_ci=jobs.is_local_ci(config)))
 
@@ -862,7 +876,7 @@ async def post_timeline(request: Request) -> Response:
     value = str(form.get("timeline") or "")
     if value not in ("on", "off"):
         return PlainTextResponse("400 Bad Request: timeline must be on or off", 400)
-    uistate.set_pref(config, _login(request), "timeline", value)
+    uistate.set_pref(config, login_of(request), "timeline", value)
     back = str(form.get("return") or "/")
     if not back.startswith("/?") and back != "/":
         back = "/"

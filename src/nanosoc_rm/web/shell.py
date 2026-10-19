@@ -1,4 +1,4 @@
-"""The page shell's data (Wave C spec section 1): the left rail, the command-bar search, breadcrumbs, redaction
+"""The page shell's data (spec section 1): the left rail, the command-bar search, breadcrumbs, redaction
 and the verdict-to-tone map. Reads stored observations and registry records only; never walks, fetches or
 compares inside a request. Templates only loop over what these functions return.
 
@@ -71,7 +71,7 @@ def _by_configuration(docs: Iterable[dict]) -> dict[str, list[dict]]:
 
 def _decisions(config) -> dict[str, tuple[dict | None, V.Decision]]:
     """{configuration: (its newest compat_result or None, the deciding gate)}. One read of every stored
-    compat_result for all configurations, not one per configuration (ROB-load-6)."""
+    compat_result for all configurations, not one per configuration."""
     results = _by_configuration(views.compat_results(config))      # newest first, as compat_results(config, cid)
     out = {}
     for rec in views.configurations(config):
@@ -145,7 +145,7 @@ def rail(config, identity: Any = None, path: str = "", nav: Iterable[tuple] = ()
     except Exception:                                            # noqa: BLE001 - the rail never breaks a page
         open_n = 0
     decisions = _decisions(config)
-    all_pins = db.latest("pin_state", "pin_state:", config=config)   # one read for every configuration (ROB-load-6)
+    all_pins = db.latest("pin_state", "pin_state:", config=config)   # one read for every configuration
     pin_count = {cid: len(ps) for cid, ps in _by_configuration(all_pins).items()}
     configs = []
     for rec in views.configurations(config):

@@ -27,7 +27,7 @@
   <ul>
   {% for c in mine %}
     <li data-component="{{ c.id }}"><a href="/components/{{ quote(c.id) }}/branches">{{ c.id }}</a> · {% if c.stored %}{{ c.stored }} branches stored{% elif c.mirrored %}mirrored, not read yet{% else %}no mirror{% endif %}{% if c.rec %} · {{ fact(c.rec, "registry") }}{% endif %}</li>
-  {% else %}<li class="note">No stored walk yet.</li>
+  {% else %}<li class="empty" data-empty>No stored walk yet. Open a configuration and press Walk now (or run <code>nanosoc-rm walk CONFIG</code>); its repos then list here.</li>
   {% endfor %}
   </ul>
 </section>

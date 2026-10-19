@@ -60,7 +60,7 @@
         <td><code>{{ short(p.commit) }}</code></td>
         <td>{% for h in p.hosts %}{{ ui.chip(h.text, h.tone) }} {% endfor %}</td>
         <td class="num">{{ "-" if p.lag is none else p.lag }}</td>
-        <td>{{ ui.chip(p.meaning.chip, p.meaning.tone) }} {{ p.meaning.text }}{% if p.meaning.gate %} <a href="{{ p.href }}">Open the deciding gate</a>{% endif %}</td>
+        <td>{{ ui.chip(p.meaning.chip, p.meaning.tone) }} {{ p.meaning.text|plain }}{% if p.meaning.gate %} <a href="{{ p.href }}">Open the deciding gate</a>{% endif %}</td>
       </tr>
     {% endfor %}
     {% for cid in never %}
