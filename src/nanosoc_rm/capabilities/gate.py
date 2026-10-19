@@ -6,6 +6,8 @@
     already_red(ev) -> str | None                                             the note a landing WARN carries
     siblings(config, configuration) -> [ids]                                  every configuration of its component
     new_red(config, configurations, tree_paths, to, root_commit) -> (id, ev) | None   the first FAIL among them
+    held_in(config, configurations, tree_paths, to, root_commit) -> (id, ev) | None   the first FAIL, else the
+                                                                              first UNVERIFIED among them
 
 A test-bump counts only when it tested EXACTLY the move: the same configuration, the same root commit as the walk
 the proposal comes from, the same moved commit, and every tree path the proposal moves. Its functional verdict
@@ -23,20 +25,25 @@ decides:
 D14 (David 2026-10-19): a NEW red for the same move in ANY registered configuration of the component holds the
 bump, even when another configuration passes. A new red is FAIL (a block gate went green before to red after).
 `new_red` finds it; the bump engine and `GET /api/v1/bump-check` hold on it and name the configuration that broke.
-WARN, UNVERIFIED and no evidence in another configuration are not new reds: they do not change the answer.
+UNVERIFIED for the same move in any other configuration (the move could not be judged there) holds it too, like a
+FAIL (David 2026-10-19): `held_in` finds a FAIL first, else an UNVERIFIED, and the proposal and the bump-check
+name that configuration and say the move "could not be judged there". WARN and no evidence in another
+configuration do not change the answer.
 
 Hooks only warn; this gate, the CI bump-check template and the bump engine are where a move is blocked. The gate
 reads job records only: it never runs anything.
 """
 from __future__ import annotations
 
-__all__ = ["evidence", "lands", "blocker", "already_red", "siblings", "new_red", "broke_in", "KIND", "LANDS",
-           "NEW_RED"]
+__all__ = ["evidence", "lands", "blocker", "already_red", "siblings", "new_red", "held_in", "broke_in", "KIND",
+           "LANDS", "NEW_RED", "UNJUDGED", "NOT_JUDGED"]
 
 KIND = "test-bump"
 LANDS = ("PASS", "WARN")
 ALREADY_RED = "already red before the bump"
 NEW_RED = "FAIL"                                         # D14: green before, red after
+UNJUDGED = "UNVERIFIED"                                  # the move could not be judged in that configuration
+NOT_JUDGED = "could not be judged there"
 
 
 def evidence(config, configuration: str, tree_paths: list[str], to: str, root_commit: str | None) -> dict:
@@ -118,13 +125,32 @@ def new_red(config, configurations: list[str], tree_paths: list[str], to: str, r
     return None
 
 
+def held_in(config, configurations: list[str], tree_paths: list[str], to: str, root_commit: str | None,
+            known: dict | None = None) -> tuple[str, dict] | None:
+    """(configuration, evidence) of the first of `configurations` with a new red (FAIL) for exactly this move, else
+    of the first whose move could not be judged (UNVERIFIED), else None: either holds the bump (D14)."""
+    known = dict(known or {})
+    for cid in configurations:
+        if cid not in known:
+            known[cid] = evidence(config, cid, tree_paths, to, root_commit)
+    red = new_red(config, configurations, tree_paths, to, root_commit, known=known)
+    if red is not None:
+        return red
+    cid = next((c for c in configurations if known[c].get("verdict") == UNJUDGED), None)
+    return None if cid is None else (cid, dict(known[cid], configuration=cid))
+
+
 def broke_in(ev: dict, configuration: str, decided_by: str, own: dict) -> dict:
     """The evidence a proposal of `decided_by` records when `configuration` (another configuration of the same
-    component) has a new red for the move although `own` (decided_by's evidence) would let it land (D14)."""
+    component) has a new red for the move, or the move could not be judged there, although `own` (decided_by's
+    evidence) would let it land (D14)."""
+    if ev.get("verdict") == UNJUDGED:
+        what = "configuration %s is UNVERIFIED: the move %s, which holds the bump (D14)" % (configuration, NOT_JUDGED)
+    else:
+        what = "a new red in configuration %s holds the bump (D14)" % configuration
     return dict(ev, configuration=configuration,
-                note="a new red in configuration %s holds the bump (D14) although %s is %s%s" % (
-                    configuration, decided_by, own.get("verdict") or "untested",
-                    ": " + ev["note"] if ev.get("note") else ""))
+                note="%s although %s is %s%s" % (what, decided_by, own.get("verdict") or "untested",
+                                                  ": " + ev["note"] if ev.get("note") else ""))
 
 
 def lands(ev: dict) -> bool:

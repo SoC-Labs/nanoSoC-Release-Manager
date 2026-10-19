@@ -34,7 +34,8 @@ Per pin of the walk (a gitlink at `path` in a consumer repo):
    its second blocker names the `nanosoc-rm test-bump` command. A WARN that lands puts its "already red before the
    bump" note second instead. `test_bump` records the evidence it found. A new red (FAIL) for the same move in
    ANY other registered configuration of the same component holds the proposal too (D14), even when this
-   configuration passes: `test_bump` is then that configuration's evidence, naming it.
+   configuration passes, and so does an UNVERIFIED there (the move could not be judged there) when this
+   configuration's own evidence would let it land: `test_bump` is then that configuration's evidence, naming it.
 
 Frozen and silicon configurations are refused before any of this (E3, E5): their scan has no rows. The decision
 is always shadow: `would` open a pull request, `auto_merge` false, `goes_to` person. The engine never writes a
@@ -767,10 +768,11 @@ def _finish(cid: str, props: dict, rows: list[dict], cfg: Config, auto_merge: di
         from nanosoc_rm.capabilities import gate as bump_gate
         p["test_bump"] = bump_gate.evidence(cfg, cid, p["tree_paths"], p["to"]["commit"], root_commit)
         if p["test_bump"].get("verdict") != bump_gate.NEW_RED:
-            # D14: a new red for the same move in any other configuration of the component holds it too
-            broke = bump_gate.new_red(cfg, bump_gate.siblings(cfg, cid)[1:], p["tree_paths"], p["to"]["commit"],
+            # D14: a new red, or a move that could not be judged, in any other configuration of the component
+            # holds it too; an UNVERIFIED there replaces only evidence that would land (its own hold says more)
+            broke = bump_gate.held_in(cfg, bump_gate.siblings(cfg, cid)[1:], p["tree_paths"], p["to"]["commit"],
                                       root_commit)
-            if broke is not None:
+            if broke is not None and (broke[1]["verdict"] == bump_gate.NEW_RED or bump_gate.lands(p["test_bump"])):
                 p["test_bump"] = bump_gate.broke_in(broke[1], broke[0], cid, p["test_bump"])
         gate_blocker = bump_gate.blocker(p["test_bump"], cid, p["tree_paths"][0], p["to"]["commit"])
         blockers = _blockers(p, p.pop("_ctx"), auto_merge)

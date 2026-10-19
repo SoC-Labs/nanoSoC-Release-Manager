@@ -2507,8 +2507,17 @@ first (configuration, evidence) among them whose `evidence` is FAIL, else None. 
 configuration's evidence as above; unless that is already FAIL, it asks `new_red` of the siblings, and a hit
 replaces `test_bump` with `broke_in(...)`: the sibling's evidence, `configuration` = the sibling, `note` "a new red
 in configuration X holds the bump (D14) although <own> is <verdict>: ...". `blocker` then names the sibling's
-`nanosoc-rm test-bump X PATH TO`. Only FAIL counts: a WARN, UNVERIFIED or untested sibling changes nothing, so
-WARN in one and PASS in another lands, and the proposal's own UNVERIFIED or missing evidence holds as before.
+`nanosoc-rm test-bump X PATH TO`. A FAIL or an UNVERIFIED sibling counts: a WARN or untested sibling changes
+nothing, so WARN in one and PASS in another lands, and the proposal's own UNVERIFIED or missing evidence holds as
+before.
+
+**Could not be judged there (CR-WJ-unverified, David 2026-10-19).** UNVERIFIED for the same move in any other
+registered configuration (the move could not be judged there) holds the bump like a FAIL.
+`held_in(config, configurations, tree_paths, to, root_commit)` is the first FAIL among them, else the first
+UNVERIFIED, else None. The engine asks `held_in` instead of `new_red`; a FAIL hit replaces `test_bump` as above;
+an UNVERIFIED hit replaces it only when the proposal's own evidence lands (PASS or WARN), since its own hold
+already names what to run. The `note` then reads "configuration X is UNVERIFIED: the move could not be judged
+there, which holds the bump (D14) although <own> is <verdict>: ...", and `blocker` names X's command.
 
 ### 26.5 The executor queue (`jobs`, section 13a)
 
@@ -2552,7 +2561,8 @@ Query `component` (catalogue id of the asking repository), `path` (the gitlink's
 null when none does): for each registered configuration of `component`,
 `gate.evidence(config, configuration, [path], to, root)`. A FAIL (new red) in ANY one answers FAIL, even when
 another passes (D14, section 26.4), with `configuration` that one, its job page, the `nanosoc-rm test-bump` command
-for it, and a `note` naming it and what each other configuration gave; otherwise a PASS in any one answers PASS
+for it, and a `note` naming it and what each other configuration gave; otherwise an UNVERIFIED in ANY one answers
+UNVERIFIED the same way, its `note` saying the move "could not be judged there" (CR-WJ-unverified); otherwise a PASS in any one answers PASS
 with its job page; otherwise a WARN (already red before the bump, section 26.4) answers WARN with its job page, `command` null and the
 "already red before the bump" `note`; a caller lets the move land on PASS or WARN; otherwise the first other
 verdict found, or null with a `note` (none finished, other root commits, no configuration of that component). `command` is the `nanosoc-rm test-bump CONFIG PATH TO` to run. 400 a malformed
