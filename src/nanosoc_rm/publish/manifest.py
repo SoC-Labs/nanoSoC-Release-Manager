@@ -250,12 +250,7 @@ def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str 
     version = release.get("version") if isinstance(release, dict) else None
     if not version:
         raise PublishRefused("the tapeout draft names no release folder (record.release: {project, version})")
-    src = rec.get("source") or {}
-    repo = _need(rec, "/source/repo")
-    commit = src.get("commit") or src.get("tag_commit")
-    if not commit:
-        raise PublishRefused("the tapeout draft has no /source/commit (or tag_commit)")
-    pins = _need(rec, "/source/pins")
+    src, repo, commit, pins = _source(rec)
     gds = rec.get("gds") or {}
     raw_md5 = _need(rec, "/gds/raw_md5")
     layout = gds.get("layout_hash") or gds.get("canonical_sha256")
@@ -263,74 +258,35 @@ def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str 
     stored_sha = gds.get("stored_sha256") or gds.get("stored_zst_sha256")
     raw_from = None
     if store is not None and store_path:
-        st = store.storage(store_path)
-        if st is None:
-            raise PublishRefused("the GDS %s is not in the store" % store_path)
-        sums = st.get("checksums") or {}
-        props = store.properties(store_path)
-        prop_raw = next((v[0] for k in RAW_MD5_PROPS for v in [props.get(k) or []] if v), None)
-        prop_layout = next((v[0] for k in LAYOUT_PROPS for v in [props.get(k) or []] if v), None)
-        if sums.get("md5") == raw_md5:
-            raw_from = "stored"
-        elif prop_raw == raw_md5:
-            raw_from = "property"
-        else:
-            raise PublishRefused("the stored GDS %s: raw md5 %s matches neither the stored object (%s) nor its raw-md5 "
-                                 "property (%s); the join is by raw md5, never by the compressed checksum"
-                                 % (store_path, raw_md5, sums.get("md5"), prop_raw or "none"))
-        if layout and prop_layout and prop_layout != layout:
-            raise PublishRefused("the stored GDS's layout hash property %s differs from the draft's %s"
-                                 % (prop_layout, layout))
-        if stored_sha and sums.get("sha256") != stored_sha:
-            raise PublishRefused("the stored GDS's sha256 %s differs from the draft's %s" % (sums.get("sha256"), stored_sha))
-        stored_sha = sums.get("sha256")
-        layout = layout or prop_layout
+        raw_from, stored_sha, layout = _stored_gds(store, store_path, raw_md5, layout, stored_sha)
     elif status != "draft" and store is not None:
         raise PublishRefused("a %s tapeout record needs the GDS's store path (record.gds.store_path)" % status)
-    foundry = dict(_need(rec, "/foundry"))
-    foundry.setdefault("shuttle", None)
-    foundry = {k: (None if v is None else str(v)) for k, v in foundry.items()}
-    fv = rec.get("foundry_verdict") or {}
-    verdict = fv.get("verdict") if isinstance(fv, dict) else None
-    if verdict not in _FOUNDRY_VERDICTS:
-        verdict = "accepted" if status in ("accepted", "fabricated") else "unknown"
+    foundry = _foundry(rec)
     dates = {k: _date(v) for k, v in (rec.get("submission") or rec.get("dates") or {}).items()}
     returns = [dict(r) for r in rec.get("foundry_returns") or [] if isinstance(r, dict)]
     cites = next((r.get("cites_raw_md5") for r in returns if r.get("cites_raw_md5")), None)
-    signoff = rec.get("signoff") or []
-    if isinstance(signoff, dict):
-        signoff = [{"name": k, "path": v if isinstance(v, str) else None,
-                    "verdict": None if isinstance(v, str) else (str(v) if v is not None else None)}
-                   for k, v in sorted(signoff.items())]
-    errata = dict(rec.get("errata") or {})
-    errata.setdefault("ids", [])
-    errata["revision"] = errata.pop("doc_revision", errata.get("revision"))
+    signoff = _signoff_rows(rec.get("signoff") or [])
+    errata = _errata(rec)
     pdk = rec.get("pdk") or {}
     record = {
         "schema": 1, "kind": "tapeout-record", "tapeout_id": rec["tapeout_id"], "project": rec["project"],
         "version": version, "block": rec.get("block"), "chip": rec["chip"],
         "silicon_revision": rec.get("silicon_revision"), "configuration": rec.get("configuration"), "status": status,
         "foundry": foundry, "pdk": {"name": _need(rec, "/pdk/name"), "version": pdk.get("version")},
-        "libraries": [{"name": str(x.get("name")), "version": x.get("version")} for x in rec.get("libraries") or []
-                      if isinstance(x, dict) and x.get("name")],
-        "submission_date": _date((rec.get("submission") or {}).get("submitted_on")) or _date(rec.get("submission_date")),
+        "libraries": _named(rec.get("libraries"), "name", lambda x: {"name": str(x.get("name")),
+                                                                     "version": x.get("version")}),
+        "submission_date": _submission_date(rec),
         "dates": dates,
-        "foundry_verdict": {"verdict": verdict, "date": _date(fv.get("date") if isinstance(fv, dict) else None)
-                            or dates.get("foundry_graded_on"),
-                            "report_md5": next((r.get("final_report_md5") for r in returns if r.get("final_report_md5")),
-                                               None),
-                            "cites_raw_md5": cites,
-                            "note": fv.get("note") if isinstance(fv, dict) else None},
+        "foundry_verdict": _foundry_verdict(rec.get("foundry_verdict") or {}, status, dates, returns, cites),
         "source": {"repo": dict(repo), "tags": list(src.get("tags") or []), "commit": commit, "pins": dict(pins),
                    "build": src.get("build"), "silicon_equivalent": list(src.get("silicon_equivalent") or [])},
         "toolkit": rec.get("toolkit"),
         "gds": {"file": gds.get("file"), "raw_md5": raw_md5, "raw_sha256": gds.get("raw_sha256"),
-                "bytes": gds.get("bytes"), "layout_hash": layout,
-                "layout_method": gds.get("layout_method") or gds.get("canonical_method"),
+                "bytes": gds.get("bytes"), "layout_hash": layout, "layout_method": _layout_method(gds),
                 "store_path": store_path, "stored_sha256": stored_sha, "raw_md5_from": raw_from},
-        "signoff": [dict(s) for s in signoff if isinstance(s, dict) and s.get("name")],
+        "signoff": _named(signoff, "name", dict),
         "foundry_returns": returns, "errata": errata,
-        "documents": [dict(x) for x in rec.get("documents") or [] if isinstance(x, dict) and x.get("kind")],
+        "documents": _named(rec.get("documents"), "kind", dict),
         "release": {"project": release.get("project") or rec["project"], "version": version,
                     "manifest_sha256": release.get("manifest_sha256")},
         "generated_by": {"tool": "nanosoc-release-manager", "version": __version__},
@@ -342,6 +298,94 @@ def tapeout_record(config: Config, tapeout_id: str | None = None, *, draft: str 
     if problems:
         raise PublishRefused("the tapeout record does not meet its contract: %s" % "; ".join(problems[:5]))
     return record
+
+
+def _source(rec: dict) -> tuple[dict, Any, str, Any]:
+    """(source, repo, commit, pins) of the draft: the repo, the commit (or the tag's commit) and the pins are
+    required."""
+    src = rec.get("source") or {}
+    repo = _need(rec, "/source/repo")
+    commit = src.get("commit") or src.get("tag_commit")
+    if not commit:
+        raise PublishRefused("the tapeout draft has no /source/commit (or tag_commit)")
+    return src, repo, commit, _need(rec, "/source/pins")
+
+
+def _foundry(rec: dict) -> dict:
+    foundry = dict(_need(rec, "/foundry"))
+    foundry.setdefault("shuttle", None)
+    return {k: (None if v is None else str(v)) for k, v in foundry.items()}
+
+
+def _errata(rec: dict) -> dict:
+    errata = dict(rec.get("errata") or {})
+    errata.setdefault("ids", [])
+    errata["revision"] = errata.pop("doc_revision", errata.get("revision"))
+    return errata
+
+
+def _named(items: Any, key: str, row) -> list[dict]:
+    """`row(x)` of each mapping in `items` that has a `key`; anything else is dropped."""
+    return [row(x) for x in items or [] if isinstance(x, dict) and x.get(key)]
+
+
+def _submission_date(rec: dict) -> str | None:
+    return _date((rec.get("submission") or {}).get("submitted_on")) or _date(rec.get("submission_date"))
+
+
+def _layout_method(gds: dict) -> str | None:
+    return gds.get("layout_method") or gds.get("canonical_method")
+
+
+def _first_prop(props: dict, keys: Sequence[str]) -> str | None:
+    return next((v[0] for k in keys for v in [props.get(k) or []] if v), None)
+
+
+def _stored_gds(store: Any, store_path: str, raw_md5: str, layout: str | None,
+                stored_sha: str | None) -> tuple[str, str | None, str | None]:
+    """(raw_md5_from, stored sha256, layout hash) of the GDS in the store, which must agree with the draft. The
+    join is by raw md5: the stored object's own md5, or its raw-md5 property when it is stored compressed."""
+    st = store.storage(store_path)
+    if st is None:
+        raise PublishRefused("the GDS %s is not in the store" % store_path)
+    sums = st.get("checksums") or {}
+    props = store.properties(store_path)
+    prop_raw = _first_prop(props, RAW_MD5_PROPS)
+    prop_layout = _first_prop(props, LAYOUT_PROPS)
+    if sums.get("md5") == raw_md5:
+        raw_from = "stored"
+    elif prop_raw == raw_md5:
+        raw_from = "property"
+    else:
+        raise PublishRefused("the stored GDS %s: raw md5 %s matches neither the stored object (%s) nor its raw-md5 "
+                             "property (%s); the join is by raw md5, never by the compressed checksum"
+                             % (store_path, raw_md5, sums.get("md5"), prop_raw or "none"))
+    if layout and prop_layout and prop_layout != layout:
+        raise PublishRefused("the stored GDS's layout hash property %s differs from the draft's %s"
+                             % (prop_layout, layout))
+    if stored_sha and sums.get("sha256") != stored_sha:
+        raise PublishRefused("the stored GDS's sha256 %s differs from the draft's %s" % (sums.get("sha256"), stored_sha))
+    return raw_from, sums.get("sha256"), layout or prop_layout
+
+
+def _signoff_rows(signoff: Any) -> Any:
+    """A backfill draft's `signoff` mapping (name -> report path, or name -> verdict) as the record's rows."""
+    if not isinstance(signoff, dict):
+        return signoff
+    return [{"name": k, "path": v if isinstance(v, str) else None,
+             "verdict": None if isinstance(v, str) else (str(v) if v is not None else None)}
+            for k, v in sorted(signoff.items())]
+
+
+def _foundry_verdict(fv: Any, status: str, dates: dict, returns: list[dict], cites: str | None) -> dict:
+    """The foundry's verdict: the draft's when it is one of the known words, else read from the status."""
+    given = fv if isinstance(fv, dict) else {}
+    verdict = given.get("verdict")
+    if verdict not in _FOUNDRY_VERDICTS:
+        verdict = "accepted" if status in ("accepted", "fabricated") else "unknown"
+    return {"verdict": verdict, "date": _date(given.get("date")) or dates.get("foundry_graded_on"),
+            "report_md5": next((r.get("final_report_md5") for r in returns if r.get("final_report_md5")), None),
+            "cites_raw_md5": cites, "note": given.get("note")}
 
 
 def _configured_project(config: Config, configuration: Any) -> str | None:

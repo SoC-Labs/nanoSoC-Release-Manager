@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -220,23 +221,8 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
     an event observation unless `store` is False).
     ReleaseUsage (exit 3) before any work for a bad request; ReleaseError (exit 2) when it cannot answer."""
     config = config if isinstance(config, Config) else load_config(config)
-    parse_version(version)
-    reg = _registry(config)
-    cfg = reg.configuration(configuration)
-    if cfg is None:
-        raise ReleaseUsage("no registered configuration %r" % configuration)
-    if kind not in (None, "fix", "feature", "tapeout"):
-        raise ReleaseUsage("--kind must be fix, feature or tapeout")
+    reg, cfg, kind = _draft_request(config, configuration, version, kind, archive, gds, netlist, artefacts)
     silicon = cfg.get("silicon")
-    kind = kind or ("tapeout" if silicon else "feature")
-    for label, p in (("--archive", archive), ("--gds", gds), ("--netlist", netlist)):
-        if p is not None and not Path(p).is_file():
-            raise ReleaseUsage("%s %s: no such file" % (label, p))
-    for k, p in artefacts:
-        if k not in ARTEFACT_KINDS:
-            raise ReleaseUsage("--artefact kind %r is not one of %s" % (k, ", ".join(ARTEFACT_KINDS)))
-        if not Path(p).is_file():
-            raise ReleaseUsage("--artefact %s=%s: no such file" % (k, p))
     target = Path(out) if out is not None else draft_path(config, configuration, version)
     _check_target(target, replace)
     waivers = [dict(w) for w in waivers]
@@ -249,168 +235,28 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
     tag = "v%s" % version
     release = {"component": comp, "configuration": configuration, "version": version, "tag": tag, "commit": commit,
                "kind": kind, "silicon": bool(silicon)}
-    checks: list[dict] = []
-    steps: list[dict] = []
-    pending: list[dict] = []
-    sources = [{"kind": "derived", "command": command or "nanosoc-rm release draft %s %s" % (configuration, version)}]
+    acc = _Draft(sources=[{"kind": "derived",
+                           "command": command or "nanosoc-rm release draft %s %s" % (configuration, version)}])
 
-    # -- pins (G3) and protection (B5, G2) ------------------------------------------------------------------
-    pins, unjudged = lockmod.lock_pins(docs)
-    if unjudged:
-        pending.append({"field": "pins", "reason": "%d pin(s) without a state: %s" % (len(unjudged), "; ".join(unjudged))})
-        checks.append(check("lock.pins-stated", "FAIL", "; ".join(unjudged), requirement="G3"))
-    else:
-        checks.append(check("lock.pins-stated", "PASS", "%d pin(s), each with its host and state" % len(pins),
-                            requirement="G3"))
-    unprotected = [p["tree_paths"][0] for p in pins if (p.get("protection") or {}).get("by", "none") == "none"]
-    protected_where = ", ".join("%s %d" % (b, n) for b, n in sorted(
-        _count(p.get("protection", {}).get("by", "none") for p in pins).items()))
-    unread = [p["tree_paths"][0] for p in pins if (p.get("protection") or {}).get("by") == "unreadable"]
-    strict = bool(silicon or cfg.get("frozen"))
-    if unprotected:
-        verdict, detail = ("FAIL" if strict else "WARN"), "unprotected on the pinned host: %s" % ", ".join(unprotected)
-    elif unread:
-        verdict, detail = "UNVERIFIED", ("not judged, the host refused the read (a private repo read without a "
-                                         "token): %s" % ", ".join(unread))
-    else:
-        verdict, detail = "PASS", "every pin protected on its pinned host (%s)" % protected_where
-    if unprotected and unread:
-        detail += "; not judged (unreadable): %s" % ", ".join(unread)
-    checks.append(check("lock.pins-protected", verdict, detail, requirement="G3"))
-    gaps = sorted({"%s (%s: %s)" % (p["tree_paths"][0], h, a) for p in pins
-                   for h, a in (p.get("protection") or {}).get("hosts", {}).items()
-                   if a in ("none", "not-held") and h != p["repo"]["host"]})
-    checks.append(check("lock.pins-canonical", "WARN" if gaps else "PASS",
-                        ("canonical host does not protect: %s (B5: push the commit there, then keep-tag it)"
-                         % "; ".join(gaps)) if gaps else "every pin is also protected on its canonical host",
-                        requirement="G2"))
-    untagged = [p for p in pins if (p.get("protection") or {}).get("by") not in ("release-tag", "keep-tag")
-                and not _waived(p, waivers)]
-    waived_n = sum(1 for p in pins if (p.get("protection") or {}).get("by") not in ("release-tag", "keep-tag")
-                   and _waived(p, waivers))
-    checks.append(check("lock.pins-tagged", "FAIL" if untagged else ("WAIVED" if waived_n else "PASS"),
-                        ("%d pin(s) neither tagged nor keep-tagged nor waived: %s" % (
-                            len(untagged), ", ".join(p["tree_paths"][0] for p in untagged))) if untagged else
-                        "every pin tagged or keep-tagged%s" % (" (%d covered by a waiver)" % waived_n if waived_n else ""),
-                        requirement="G2"))
-    steps += _keep_tag_steps(config, reg, configuration, untagged)
-
-    # -- tags (C1, C10) ---------------------------------------------------------------------------------------
+    pins, unprotected = _pin_checks(acc, config, reg, configuration, cfg, docs, waivers)
     tags = lockmod.repo_tags(config, comp, canon)
-    sources.append({"kind": "git", "command": "git -C <mirrors>/%s.git for-each-ref %s/tags" % (
-        comp, ref_prefix(canon["host"], canon["path"]))})
-    checks.append(_tag_check("release.tag", tag, commit, tags, "C10"))
-    newer = [t for t in tags if RELEASE_TAG.match(t) and tags[t] != commit
-             and parse_version(t[1:]) >= parse_version(version)]
-    checks.append(check("release.version-order", "FAIL" if newer else "PASS",
-                        ("release tag(s) %s at other commits are not older than %s" % (", ".join(sorted(newer)), version))
-                        if newer else "%s is newer than every release tag at another commit" % version,
-                        requirement="C1"))
-    if tags.get(tag) != commit:
-        steps.append(_tag_step(config, canon, tag, commit, "%s %s (%s)" % (comp, version, configuration)))
-    sil_tag = None
-    if silicon:
-        sil_tag = "silicon/%s-%s" % (silicon["chip"], silicon["revision"])
-        checks.append(_tag_check("release.silicon-tag", sil_tag, commit, tags, "C10"))
-        if tags.get(sil_tag) != commit:
-            steps.append(_tag_step(config, canon, sil_tag, commit, "%s silicon %s" % (silicon["chip"], silicon["revision"])))
-    if candidate is not None:
-        steps.insert(0, _tag_step(config, canon, "%s-rc.%d" % (tag, candidate), commit, "candidate %d" % candidate))
-
-    # -- errata (F4) ------------------------------------------------------------------------------------------
+    sil_tag = _tag_checks(acc, config, canon, release, tags, silicon, candidate)
     earlier = _earlier(config, configuration, version)
-    edoc = errmod.document(reg, configuration, release=release)
-    checks.append(errmod.revision_check(edoc, _issued_errata(config, configuration, earlier, target)))
-    cat_a = [e["id"] for e in edoc.records if e.get("category") == "A" and e["status"] in errmod.OPEN_STATUSES]
-    undecided = [e["id"] for e in edoc.records if e.get("category") is None and e["status"] in errmod.OPEN_STATUSES]
-    if cat_a:
-        checks.append(check("errata.category-a", "FAIL", "Category A erratum open: %s; each needs David's recorded "
-                            "decision before release" % ", ".join(cat_a), requirement="G2"))
-    else:
-        checks.append(check("errata.category-a", "WARN" if undecided else "PASS",
-                            ("no Category A erratum; category undecided for %s" % ", ".join(undecided)) if undecided
-                            else "no open Category A erratum", requirement="G2"))
-    sources.append({"kind": "registry", "command": "errata records of %s in the registry at %s" % (
-        configuration, reg.commit[:12] if reg.commit else "an uncommitted checkout")})
-    errata_changed = bool(earlier) and all(e["errata"]["revision"] != edoc.revision for e in earlier)
-
-    # -- generated RTL (G7) and silicon outputs (G3) ---------------------------------------------------------
-    files: dict[str, bytes] = {}
-    scan_items: list[tuple[str, bytes | None]] = []
-    copy_archive = None
-    man = None
-    generated_rtl = None
-    if archive is not None:
-        try:
-            man = archmod.manifest(archive, keep_members=True)
-        except archmod.ArchiveError as e:
-            raise ReleaseUsage(str(e)) from None
-        files[MD5S] = man.text.encode()
-        scan_items += [("archive:%s" % n, b if len(b) <= MAX_SCAN_BYTES else None) for n, b in man.members]
-        name = _safe_name(Path(archive).name)
-        if man.bytes <= MAX_ARCHIVE_COPY:
-            copy_archive = (Path(archive), name)
-        gen = _generator_pin(pins, generator)
-        if gen is None:
-            pending.append({"field": "generated_rtl", "reason": "no generator pin (%s) in the tree to record"
-                            % (generator or "component nanosoc_gen")})
-        else:
-            generated_rtl = {"committed": bool(rtl_committed),
-                             "generator": {"component": gen["component"], "commit": gen["commit"],
-                                           "tree_path": gen["tree_paths"][0]},
-                             "archive": {"store": "disk", "path": name, "md5": man.md5, "bytes": man.bytes},
-                             "manifest": {"store": "disk", "path": MD5S, "md5": man.manifest_md5}, "files": man.files}
-            if man.files < 1:
-                pending.append({"field": "generated_rtl", "reason": "the archive holds no regular file"})
-                generated_rtl = None
-        checks.append(check("rtl.archive", "PASS" if generated_rtl else "UNVERIFIED",
-                            "%s: %d file(s), md5 %s, manifest md5 %s" % (name, man.files, man.md5, man.manifest_md5),
-                            requirement="G7"))
-    else:
-        pending.append({"field": "generated_rtl", "reason": "no generated-RTL archive given (--archive): G7 needs "
-                        "build_soc/ archived with an md5 manifest"})
-        checks.append(check("rtl.archive", "UNVERIFIED", "no archive given: run the draft again with --archive "
-                            "<build_soc.tar.gz>", person=True, requirement="G7"))
-    outputs = None
-    if silicon:
-        if gds is not None and netlist is not None:
-            outputs = {}
-            for key, p in (("gds", gds), ("pnr_netlist", netlist)):
-                h, n = md5_file(Path(p))
-                outputs[key] = {"file": Path(p).name, "md5": h, "bytes": n}
-            checks.append(check("outputs.hashes", "PASS", "GDS md5 %s (%d B), netlist md5 %s (%d B)" % (
-                outputs["gds"]["md5"], outputs["gds"]["bytes"], outputs["pnr_netlist"]["md5"],
-                outputs["pnr_netlist"]["bytes"]), requirement="G3"))
-        else:
-            pending.append({"field": "outputs", "reason": "a silicon release records the GDS and P&R netlist hashes "
-                            "(--gds, --netlist)"})
-            checks.append(check("outputs.hashes", "UNVERIFIED", "silicon release without --gds and --netlist",
-                                person=True, requirement="G3"))
-    missing = [k for k in ("flists", "bitstream", "logs") if k not in {a for a, _ in artefacts}]
-    checks.append(check("lock.artefacts", "WARN" if missing else "PASS",
-                        ("G3 also lists %s: none given (--artefact KIND=PATH); the lock does not carry them"
-                         % ", ".join(missing)) if missing else "file lists, bitstream and logs recorded",
-                        requirement="G3"))
-    arts = []
-    for k, p in artefacts:
-        h, n = md5_file(Path(p))
-        arts.append({"kind": k, "store": "disk", "path": _safe_name(Path(p).name), "md5": h, "bytes": n})
-        scan_items.append(("artefact:%s" % Path(p).name, Path(p).read_bytes() if n <= MAX_SCAN_BYTES else None))
-
-    # -- evidence (G2) ------------------------------------------------------------------------------------------
+    edoc, errata_changed = _errata_checks(acc, config, reg, release, earlier, target)
+    copy_archive, man, generated_rtl = _rtl_archive(acc, archive, generator, rtl_committed, pins)
+    outputs = _silicon_outputs(acc, silicon, gds, netlist)
+    arts = _artefacts(acc, artefacts)
     tchecks, facts = cl.tier_checks(config, configuration, commit, kind)
-    checks += tchecks
-    checks += cl.clone_checks(facts, cfg.get("upgrade_from"))
-    checks.append(check("ledger.signed", "UNVERIFIED", "GATES.md is unsigned: a person signs it once every gate has "
-                        "evidence", person=True, requirement="G2"))
+    acc.checks += tchecks
+    acc.checks += cl.clone_checks(facts, cfg.get("upgrade_from"))
+    acc.checks.append(check("ledger.signed", "UNVERIFIED", "GATES.md is unsigned: a person signs it once every gate "
+                            "has evidence", person=True, requirement="G2"))
 
-    # -- the lock -----------------------------------------------------------------------------------------------
     generated_at = clock.iso()
-    lock: dict[str, Any] = {"schema": 1, "release": {"component": comp, "configuration": configuration,
-                                                       "version": version, "tag": tag, "commit": commit},
-                            "generated_at": generated_at,
-                            "generated_by": {"tool": "nanosoc-release-manager", "version": __version__},
-                            "sources": _lock_sources(docs, config), "pins": pins, "waivers": waivers}
+    lock = {"schema": 1, "release": {"component": comp, "configuration": configuration, "version": version,
+                                     "tag": tag, "commit": commit},
+            "generated_at": generated_at, "generated_by": {"tool": "nanosoc-release-manager", "version": __version__},
+            "sources": _lock_sources(docs, config), "pins": pins, "waivers": waivers}
     if silicon:
         lock["release"]["silicon"] = {"chip": silicon["chip"], "revision": silicon["revision"], "tag": sil_tag}
     if generated_rtl:
@@ -419,76 +265,307 @@ def draft(configuration: str, version: str, *, config: Config | str | None = Non
         lock["outputs"] = outputs
     lock.update(errata={"file": "ERRATA.md", "revision": edoc.revision}, gate_ledger={"file": "GATES.md"},
                 artefacts=arts)
-    if not pins:
-        pending.append({"field": "pins", "reason": "the tree has no pin"})
-    complete = not pending
-    if complete:
-        problems = contracts.validate("release-lock", lock)
-    else:
-        lock["pending"] = pending
-        problems = contracts.validate("release-lock", lock, "/$defs/draft_lock")
-    if problems:
-        raise ReleaseError("the lock the draft built does not meet its contract: %s" % "; ".join(problems[:5]))
-    checks.append(check("lock.complete", "PASS" if complete else "UNVERIFIED",
-                        "release.lock.yaml written" if complete else "pending: %s" % "; ".join(
-                            "%s (%s)" % (p["field"], p["reason"]) for p in pending), requirement="G3"))
-    lock_name = LOCK if complete else DRAFT_LOCK
-    files[lock_name] = ("# %s\n# %s\n" % (PUBLISH_NOTE, "Generated by nanosoc-rm release draft; never edit by hand.")
-                        + yaml.safe_dump(lock, sort_keys=False, width=120)).encode()
+    complete, lock_name = _finish_lock(acc, lock, pins)
 
-    # -- train (G4), notes, checklist, ledger ---------------------------------------------------------------------
     train = _train(reg, pins)
-    if train:
-        steps.append({"step": "Release train (G4): finalise these %d component(s) bottom-up, deepest first, before "
-                              "this release: %s" % (len(train), ", ".join("%s@%s" % (t["component"], t["commit"][:7])
-                                                                          for t in train)),
-                      "who": "the owners of each component, approved once by David"})
-    steps += cl.approvals(kind, bool(silicon), errata_changed)
-    steps.append({"step": "Sign GATES.md once every gate has its evidence", "who": "the approvers above"})
-    steps.append({"step": "Upload the lock, ERRATA, GATES, the archive and its manifest to the release store (D12) "
-                          "only after the vendor scan below is clean", "who": "the release approver"})
+    _closing_steps(acc, train, kind, silicon, errata_changed)
     notes = _notes(config, release, docs, pins, tags, since, earlier, comp)
-    files["RELEASE_NOTES.md"] = notesmod.render(release, notes, edoc.revision, len(edoc.records),
-                                                ["%s: %s" % (p["field"], p["reason"]) for p in pending]).encode()
-    files["ERRATA.md"] = edoc.markdown.encode()
-    files["ERRATA.html"] = edoc.html.encode()
-    unclassed = sum(1 for e in notes["root"] + [x for c in notes["changed"] for x in c["entries"]]
-                    if e["class"] == "unclassed")
-    checks.append(check("notes.classes", "WARN" if unclassed else "PASS",
-                        "%d change(s) without a change class (C2)" % unclassed if unclassed else
-                        "every listed change has a class", requirement="C2"))
+    _release_texts(acc, release, notes, edoc)
+    _vendor_scans(acc, release, complete, gds is not None or netlist is not None)
 
-    # -- vendor scan (D11): the files meant for sharing must be clean; the archive and artefacts are private -----
-    # GATES.md, CHECKLIST.md and README.txt list the checks, so they are rendered once without the scan rows,
-    # scanned with the rest, then rendered again with them (the rows add only this tool's own check text).
-    if scan_items:
-        checks.append(_scan_check("vendor.scan-private", scan_items, False))
-    shared = dict(files)
-    shared.update(_person_files(release, checks, steps, complete))
-    checks.insert(len(checks) - (1 if scan_items else 0), _scan_check(
-        "vendor.scan", list(shared.items()), gds is not None or netlist is not None))
-    files.update(_person_files(release, checks, steps, complete))
-
-    verdict = ladder(c["verdict"] for c in checks)
-    machine_ok = all(c["verdict"] in ("PASS", "WARN", "WAIVED", "NOT-RUN") for c in checks if not c["person"])
+    verdict = ladder(c["verdict"] for c in acc.checks)
+    machine_ok = all(c["verdict"] in ("PASS", "WARN", "WAIVED", "NOT-RUN") for c in acc.checks if not c["person"])
     ready = complete and machine_ok and verdict not in ("FAIL", "INFRA")
     fact = {"configuration": configuration, "component": comp, "version": version, "tag": tag, "commit": commit,
             "kind": kind, "silicon": bool(silicon), "generated_at": generated_at,
             "lock": {"file": lock_name, "complete": complete, "pins": len(pins), "unprotected": unprotected,
-                     "pending": ["%s: %s" % (p["field"], p["reason"]) for p in pending]},
+                     "pending": ["%s: %s" % (p["field"], p["reason"]) for p in acc.pending]},
             "errata": {"revision": edoc.revision, "records": len(edoc.records), "digest": edoc.digest},
             "archive": None if man is None else {"md5": man.md5, "bytes": man.bytes, "files": man.files,
                                                  "manifest_md5": man.manifest_md5},
-            "checks": checks, "verdict": verdict, "ready": ready, "person_steps": steps, "train": train,
+            "checks": acc.checks, "verdict": verdict, "ready": ready, "person_steps": acc.steps, "train": train,
             "files": [], "published": False}
     times = [d["observed_at"] for d in docs] + [d["observed_at"] for d in facts] + [started]
     obs = {"schema": 1, "kind": "release_draft", "subject": "release_draft:%s:%s" % (configuration, version),
-           "observed_at": min(times, key=clock.parse), "sources": sources, "fact": fact}
-    _write(target, files, copy_archive, obs, replace)
+           "observed_at": min(times, key=clock.parse), "sources": acc.sources, "fact": fact}
+    _write(target, acc.files, copy_archive, obs, replace)
     if store:
         from nanosoc_rm import db
         db.put(obs, config=config)
     return obs
+
+
+@dataclass
+class _Draft:
+    """What the draft's steps add to, in order: the order of `checks` and `steps` is the order a person reads."""
+    checks: list[dict] = field(default_factory=list)
+    steps: list[dict] = field(default_factory=list)
+    pending: list[dict] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)
+    files: dict[str, bytes] = field(default_factory=dict)
+    scan_items: list[tuple[str, bytes | None]] = field(default_factory=list)
+
+    def pend(self, field_name: str, reason: str) -> None:
+        self.pending.append({"field": field_name, "reason": reason})
+
+
+def _draft_request(config: Config, configuration: str, version: str, kind: str | None, archive, gds, netlist,
+                   artefacts: Sequence[tuple[str, str]]) -> tuple[Any, dict, str]:
+    """(registry, configuration entry, kind) of a well-formed request; ReleaseUsage before any work otherwise."""
+    parse_version(version)
+    reg = _registry(config)
+    cfg = reg.configuration(configuration)
+    if cfg is None:
+        raise ReleaseUsage("no registered configuration %r" % configuration)
+    if kind not in (None, "fix", "feature", "tapeout"):
+        raise ReleaseUsage("--kind must be fix, feature or tapeout")
+    for label, p in (("--archive", archive), ("--gds", gds), ("--netlist", netlist)):
+        if p is not None and not Path(p).is_file():
+            raise ReleaseUsage("%s %s: no such file" % (label, p))
+    for k, p in artefacts:
+        if k not in ARTEFACT_KINDS:
+            raise ReleaseUsage("--artefact kind %r is not one of %s" % (k, ", ".join(ARTEFACT_KINDS)))
+        if not Path(p).is_file():
+            raise ReleaseUsage("--artefact %s=%s: no such file" % (k, p))
+    return reg, cfg, kind or ("tapeout" if cfg.get("silicon") else "feature")
+
+
+def _by(p: dict) -> str | None:
+    return (p.get("protection") or {}).get("by")
+
+
+def _pin_checks(acc: _Draft, config: Config, reg: Any, configuration: str, cfg: dict, docs: list[dict],
+                waivers: list[dict]) -> tuple[list[dict], list[str]]:
+    """G3 and G2 over the pins: stated, protected, protected on the canonical host, tagged. (pins, unprotected)."""
+    pins, unjudged = lockmod.lock_pins(docs)
+    if unjudged:
+        acc.pend("pins", "%d pin(s) without a state: %s" % (len(unjudged), "; ".join(unjudged)))
+        acc.checks.append(check("lock.pins-stated", "FAIL", "; ".join(unjudged), requirement="G3"))
+    else:
+        acc.checks.append(check("lock.pins-stated", "PASS", "%d pin(s), each with its host and state" % len(pins),
+                                requirement="G3"))
+    unprotected = [p["tree_paths"][0] for p in pins if (p.get("protection") or {}).get("by", "none") == "none"]
+    acc.checks.append(_protected_check(pins, unprotected, strict=bool(cfg.get("silicon") or cfg.get("frozen"))))
+    gaps = sorted({"%s (%s: %s)" % (p["tree_paths"][0], h, a) for p in pins
+                   for h, a in (p.get("protection") or {}).get("hosts", {}).items()
+                   if a in ("none", "not-held") and h != p["repo"]["host"]})
+    acc.checks.append(check("lock.pins-canonical", "WARN" if gaps else "PASS",
+                            ("canonical host does not protect: %s (B5: push the commit there, then keep-tag it)"
+                             % "; ".join(gaps)) if gaps else "every pin is also protected on its canonical host",
+                            requirement="G2"))
+    loose = [p for p in pins if _by(p) not in ("release-tag", "keep-tag")]
+    untagged = [p for p in loose if not _waived(p, waivers)]
+    waived_n = len(loose) - len(untagged)
+    if untagged:
+        detail = "%d pin(s) neither tagged nor keep-tagged nor waived: %s" % (
+            len(untagged), ", ".join(p["tree_paths"][0] for p in untagged))
+    else:
+        detail = "every pin tagged or keep-tagged%s" % (" (%d covered by a waiver)" % waived_n if waived_n else "")
+    acc.checks.append(check("lock.pins-tagged", "FAIL" if untagged else ("WAIVED" if waived_n else "PASS"), detail,
+                            requirement="G2"))
+    acc.steps += _keep_tag_steps(config, reg, configuration, untagged)
+    return pins, unprotected
+
+
+def _protected_check(pins: list[dict], unprotected: list[str], strict: bool) -> dict:
+    """lock.pins-protected: an unprotected pin FAILs a silicon or frozen release (else WARN); an unreadable host
+    leaves the pin unjudged."""
+    protected_where = ", ".join("%s %d" % (b, n) for b, n in sorted(
+        _count(p.get("protection", {}).get("by", "none") for p in pins).items()))
+    unread = [p["tree_paths"][0] for p in pins if _by(p) == "unreadable"]
+    if unprotected:
+        verdict, detail = ("FAIL" if strict else "WARN"), "unprotected on the pinned host: %s" % ", ".join(unprotected)
+        if unread:
+            detail += "; not judged (unreadable): %s" % ", ".join(unread)
+    elif unread:
+        verdict, detail = "UNVERIFIED", ("not judged, the host refused the read (a private repo read without a "
+                                         "token): %s" % ", ".join(unread))
+    else:
+        verdict, detail = "PASS", "every pin protected on its pinned host (%s)" % protected_where
+    return check("lock.pins-protected", verdict, detail, requirement="G3")
+
+
+def _tag_checks(acc: _Draft, config: Config, canon: dict, release: dict, tags: dict[str, str], silicon: dict | None,
+                candidate: int | None) -> str | None:
+    """C1 and C10: the release tag, its order among the release tags, the silicon tag. Returns the silicon tag."""
+    comp, version, tag, commit = release["component"], release["version"], release["tag"], release["commit"]
+    acc.sources.append({"kind": "git", "command": "git -C <mirrors>/%s.git for-each-ref %s/tags" % (
+        comp, ref_prefix(canon["host"], canon["path"]))})
+    acc.checks.append(_tag_check("release.tag", tag, commit, tags, "C10"))
+    newer = [t for t in tags if RELEASE_TAG.match(t) and tags[t] != commit
+             and parse_version(t[1:]) >= parse_version(version)]
+    acc.checks.append(check("release.version-order", "FAIL" if newer else "PASS",
+                            ("release tag(s) %s at other commits are not older than %s"
+                             % (", ".join(sorted(newer)), version))
+                            if newer else "%s is newer than every release tag at another commit" % version,
+                            requirement="C1"))
+    if tags.get(tag) != commit:
+        acc.steps.append(_tag_step(config, canon, tag, commit, "%s %s (%s)" % (comp, version,
+                                                                              release["configuration"])))
+    sil_tag = None
+    if silicon:
+        sil_tag = "silicon/%s-%s" % (silicon["chip"], silicon["revision"])
+        acc.checks.append(_tag_check("release.silicon-tag", sil_tag, commit, tags, "C10"))
+        if tags.get(sil_tag) != commit:
+            acc.steps.append(_tag_step(config, canon, sil_tag, commit,
+                                       "%s silicon %s" % (silicon["chip"], silicon["revision"])))
+    if candidate is not None:
+        acc.steps.insert(0, _tag_step(config, canon, "%s-rc.%d" % (tag, candidate), commit,
+                                      "candidate %d" % candidate))
+    return sil_tag
+
+
+def _errata_checks(acc: _Draft, config: Config, reg: Any, release: dict, earlier: list[dict],
+                   target: Path) -> tuple[Any, bool]:
+    """F4 and G2: the errata revision, and no open Category A erratum. (errata document, errata changed)."""
+    configuration = release["configuration"]
+    edoc = errmod.document(reg, configuration, release=release)
+    acc.checks.append(errmod.revision_check(edoc, _issued_errata(config, configuration, earlier, target)))
+    open_records = [e for e in edoc.records if e["status"] in errmod.OPEN_STATUSES]
+    cat_a = [e["id"] for e in open_records if e.get("category") == "A"]
+    undecided = [e["id"] for e in open_records if e.get("category") is None]
+    if cat_a:
+        acc.checks.append(check("errata.category-a", "FAIL", "Category A erratum open: %s; each needs David's "
+                                "recorded decision before release" % ", ".join(cat_a), requirement="G2"))
+    else:
+        acc.checks.append(check("errata.category-a", "WARN" if undecided else "PASS",
+                                ("no Category A erratum; category undecided for %s" % ", ".join(undecided))
+                                if undecided else "no open Category A erratum", requirement="G2"))
+    acc.sources.append({"kind": "registry", "command": "errata records of %s in the registry at %s" % (
+        configuration, reg.commit[:12] if reg.commit else "an uncommitted checkout")})
+    return edoc, bool(earlier) and all(e["errata"]["revision"] != edoc.revision for e in earlier)
+
+
+def _rtl_archive(acc: _Draft, archive, generator: str | None, rtl_committed: bool,
+                 pins: list[dict]) -> tuple[tuple[Path, str] | None, Any, dict | None]:
+    """G7: the generated-RTL archive's md5 manifest and its generator pin. (archive to copy, manifest, record)."""
+    if archive is None:
+        acc.pend("generated_rtl", "no generated-RTL archive given (--archive): G7 needs build_soc/ archived with an "
+                 "md5 manifest")
+        acc.checks.append(check("rtl.archive", "UNVERIFIED", "no archive given: run the draft again with --archive "
+                                "<build_soc.tar.gz>", person=True, requirement="G7"))
+        return None, None, None
+    try:
+        man = archmod.manifest(archive, keep_members=True)
+    except archmod.ArchiveError as e:
+        raise ReleaseUsage(str(e)) from None
+    acc.files[MD5S] = man.text.encode()
+    acc.scan_items += [("archive:%s" % n, b if len(b) <= MAX_SCAN_BYTES else None) for n, b in man.members]
+    name = _safe_name(Path(archive).name)
+    copy_archive = (Path(archive), name) if man.bytes <= MAX_ARCHIVE_COPY else None
+    gen = _generator_pin(pins, generator)
+    generated_rtl = None
+    if gen is None:
+        acc.pend("generated_rtl", "no generator pin (%s) in the tree to record" % (generator or "component nanosoc_gen"))
+    elif man.files < 1:
+        acc.pend("generated_rtl", "the archive holds no regular file")
+    else:
+        generated_rtl = {"committed": bool(rtl_committed),
+                         "generator": {"component": gen["component"], "commit": gen["commit"],
+                                       "tree_path": gen["tree_paths"][0]},
+                         "archive": {"store": "disk", "path": name, "md5": man.md5, "bytes": man.bytes},
+                         "manifest": {"store": "disk", "path": MD5S, "md5": man.manifest_md5}, "files": man.files}
+    acc.checks.append(check("rtl.archive", "PASS" if generated_rtl else "UNVERIFIED",
+                            "%s: %d file(s), md5 %s, manifest md5 %s" % (name, man.files, man.md5, man.manifest_md5),
+                            requirement="G7"))
+    return copy_archive, man, generated_rtl
+
+
+def _silicon_outputs(acc: _Draft, silicon: dict | None, gds, netlist) -> dict | None:
+    """G3: a silicon release records the GDS and P&R netlist hashes."""
+    if not silicon:
+        return None
+    if gds is None or netlist is None:
+        acc.pend("outputs", "a silicon release records the GDS and P&R netlist hashes (--gds, --netlist)")
+        acc.checks.append(check("outputs.hashes", "UNVERIFIED", "silicon release without --gds and --netlist",
+                                person=True, requirement="G3"))
+        return None
+    outputs = {}
+    for key, p in (("gds", gds), ("pnr_netlist", netlist)):
+        h, n = md5_file(Path(p))
+        outputs[key] = {"file": Path(p).name, "md5": h, "bytes": n}
+    acc.checks.append(check("outputs.hashes", "PASS", "GDS md5 %s (%d B), netlist md5 %s (%d B)" % (
+        outputs["gds"]["md5"], outputs["gds"]["bytes"], outputs["pnr_netlist"]["md5"],
+        outputs["pnr_netlist"]["bytes"]), requirement="G3"))
+    return outputs
+
+
+def _artefacts(acc: _Draft, artefacts: Sequence[tuple[str, str]]) -> list[dict]:
+    """G3's other artefacts (file lists, bitstream, logs, source archive): hashed, and scanned as private."""
+    missing = [k for k in ("flists", "bitstream", "logs") if k not in {a for a, _ in artefacts}]
+    acc.checks.append(check("lock.artefacts", "WARN" if missing else "PASS",
+                            ("G3 also lists %s: none given (--artefact KIND=PATH); the lock does not carry them"
+                             % ", ".join(missing)) if missing else "file lists, bitstream and logs recorded",
+                            requirement="G3"))
+    arts = []
+    for k, p in artefacts:
+        h, n = md5_file(Path(p))
+        arts.append({"kind": k, "store": "disk", "path": _safe_name(Path(p).name), "md5": h, "bytes": n})
+        acc.scan_items.append(("artefact:%s" % Path(p).name, Path(p).read_bytes() if n <= MAX_SCAN_BYTES else None))
+    return arts
+
+
+def _finish_lock(acc: _Draft, lock: dict, pins: list[dict]) -> tuple[bool, str]:
+    """Validate the lock (a draft lock with `pending` when anything is missing) and add its file. (complete, name)."""
+    if not pins:
+        acc.pend("pins", "the tree has no pin")
+    complete = not acc.pending
+    if complete:
+        problems = contracts.validate("release-lock", lock)
+    else:
+        lock["pending"] = acc.pending
+        problems = contracts.validate("release-lock", lock, "/$defs/draft_lock")
+    if problems:
+        raise ReleaseError("the lock the draft built does not meet its contract: %s" % "; ".join(problems[:5]))
+    acc.checks.append(check("lock.complete", "PASS" if complete else "UNVERIFIED",
+                            "release.lock.yaml written" if complete else "pending: %s" % "; ".join(
+                                "%s (%s)" % (p["field"], p["reason"]) for p in acc.pending), requirement="G3"))
+    lock_name = LOCK if complete else DRAFT_LOCK
+    acc.files[lock_name] = ("# %s\n# %s\n" % (PUBLISH_NOTE, "Generated by nanosoc-rm release draft; never edit by "
+                                                            "hand.")
+                            + yaml.safe_dump(lock, sort_keys=False, width=120)).encode()
+    return complete, lock_name
+
+
+def _closing_steps(acc: _Draft, train: list[dict], kind: str, silicon: dict | None, errata_changed: bool) -> None:
+    """The person steps after the checks: the release train (G4), the approvals (G5), signing and uploading."""
+    if train:
+        acc.steps.append({"step": "Release train (G4): finalise these %d component(s) bottom-up, deepest first, "
+                                  "before this release: %s" % (len(train), ", ".join(
+                                      "%s@%s" % (t["component"], t["commit"][:7]) for t in train)),
+                          "who": "the owners of each component, approved once by David"})
+    acc.steps += cl.approvals(kind, bool(silicon), errata_changed)
+    acc.steps.append({"step": "Sign GATES.md once every gate has its evidence", "who": "the approvers above"})
+    acc.steps.append({"step": "Upload the lock, ERRATA, GATES, the archive and its manifest to the release store "
+                              "(D12) only after the vendor scan below is clean", "who": "the release approver"})
+
+
+def _release_texts(acc: _Draft, release: dict, notes: dict, edoc: Any) -> None:
+    """RELEASE_NOTES.md, ERRATA.md and ERRATA.html, and the C2 check that every listed change has a class."""
+    acc.files["RELEASE_NOTES.md"] = notesmod.render(release, notes, edoc.revision, len(edoc.records),
+                                                    ["%s: %s" % (p["field"], p["reason"])
+                                                     for p in acc.pending]).encode()
+    acc.files["ERRATA.md"] = edoc.markdown.encode()
+    acc.files["ERRATA.html"] = edoc.html.encode()
+    unclassed = sum(1 for e in notes["root"] + [x for c in notes["changed"] for x in c["entries"]]
+                    if e["class"] == "unclassed")
+    acc.checks.append(check("notes.classes", "WARN" if unclassed else "PASS",
+                            "%d change(s) without a change class (C2)" % unclassed if unclassed else
+                            "every listed change has a class", requirement="C2"))
+
+
+def _vendor_scans(acc: _Draft, release: dict, complete: bool, outputs_given: bool) -> None:
+    """D11: the files meant for sharing must be clean; the archive and artefacts are private.
+
+    GATES.md, CHECKLIST.md and README.txt list the checks, so they are rendered once without the scan rows, scanned
+    with the rest, then rendered again with them (the rows add only this tool's own check text)."""
+    if acc.scan_items:
+        acc.checks.append(_scan_check("vendor.scan-private", acc.scan_items, False))
+    shared = dict(acc.files)
+    shared.update(_person_files(release, acc.checks, acc.steps, complete))
+    acc.checks.insert(len(acc.checks) - (1 if acc.scan_items else 0),
+                      _scan_check("vendor.scan", list(shared.items()), outputs_given))
+    acc.files.update(_person_files(release, acc.checks, acc.steps, complete))
 
 
 def _person_files(release: dict, checks: list[dict], steps: list[dict], complete: bool) -> dict[str, bytes]:
@@ -710,100 +787,27 @@ def verify(ref: str | os.PathLike, *, config: Config | str | None = None, agains
     f = doc["fact"]
     cid, version, commit = f["configuration"], f["version"], f["commit"]
     started = clock.iso()
-    checks, drift = [], []
-    # files as recorded
-    bad = []
-    signed: list[str] | None = None
-    for x in f["files"]:
-        p = d / x["name"]
-        if not p.is_file():
-            bad.append("%s is missing" % x["name"])
-        elif md5_file(p)[0] != x["md5"]:
-            if x["name"] == "GATES.md":
-                # G2: a person signs the ledger after the draft. Only the signature cells may change: the ledger
-                # with those cells blank must still be the drafted file byte for byte.
-                text = p.read_text(encoding="utf-8", errors="replace")
-                blank, signed = cl.unsigned(text)
-                if md5_bytes(blank.encode()) == x["md5"]:
-                    continue
-            bad.append("%s changed since the draft (md5)" % x["name"])
-    extra = sorted(p.name for p in d.iterdir() if p.name != DRAFT_FILE and p.name not in {x["name"] for x in f["files"]})
-    bad += ["%s was added after the draft" % n for n in extra]
-    drift += bad
-    checks.append(check("files.md5", "FAIL" if bad else "PASS", "; ".join(bad) or "%d file(s) as drafted%s" % (
-        len(f["files"]), " (GATES.md differs only in its signatures)" if signed is not None else "")))
-    checks.append(check("ledger.signed", "PASS" if signed else "NOT-RUN",
-                        ("GATES.md is signed by: %s" % ", ".join(signed)) if signed else
-                        "GATES.md is not signed yet (a person signs it once every gate has evidence)",
-                        person=not signed, requirement="G2"))
-    # pins
+    checks: list[dict] = []
+    drift: list[str] = []
+    _verify_files(checks, drift, d, f)
     reg = _registry(config)
     cfg = reg.configuration(cid)
     if cfg is None:
         raise ReleaseError("configuration %s is no longer registered" % cid)
-    docs = (walk or _walk)(cid, config)
     lock = _lock_of(d) or {}
-    now_root = _root_commit(config, cfg, _repo(reg.canonical(f["component"])), docs)
-    if now_root != commit:
-        checks.append(check("release.commit", "WARN", "the configuration's ref now resolves to %s, not the drafted %s: "
-                            "the draft still describes %s, whose tree is re-walked below; draft again to release the "
-                            "new commit" % (now_root[:12], commit[:12], commit[:12])))
-        # the lock describes the drafted commit's tree: re-judge THAT tree against the hosts now (never skip it)
-        docs = _walk_at(cid, config, commit)
-    else:
-        checks.append(check("release.commit", "PASS", "the configuration still resolves to %s" % commit[:12]))
-    now_pins, _ = lockmod.lock_pins(docs)
-    pin_checks = _pin_drift(lock.get("pins") or [], now_pins)
-    drift += pin_checks
-    checks.append(check("lock.pins", "FAIL" if pin_checks else "PASS",
-                        "; ".join(pin_checks) or "every lock pin has the same commit, state and protection now"))
-    # tags
+    docs = _verify_pins(checks, drift, config, reg, cfg, f, lock, walk)
     tags = lockmod.repo_tags(config, f["component"], _repo(reg.canonical(f["component"])))
-    drafted = {c["id"]: c["verdict"] for c in f["checks"]}
-    sil = (lock.get("release") or {}).get("silicon")
-    for name, cid_ in [(f["tag"], "release.tag")] + ([(sil["tag"], "release.silicon-tag")] if sil else []):
-        at = tags.get(name)
-        if at is not None and at != commit:
-            drift.append("%s now exists at %s, not the drafted commit %s" % (name, at[:12], commit[:12]))
-            checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1]))
-        elif at is None and drafted.get(cid_) == "PASS":
-            # the draft saw this tag at the commit; tags are permanent (C10), so its loss is drift
-            drift.append("%s pointed at %s when drafted and is gone now: tags are never deleted (C10)" % (
-                name, commit[:12]))
-            checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1], requirement="C10"))
-        else:
-            checks.append(check("tag.%s" % name.replace("/", "-"), "PASS" if at else "NOT-RUN",
-                                "%s %s" % (name, "points at the drafted commit" if at else "is not created yet")))
-    # errata
+    _verify_tags(checks, drift, tags, f, lock)
     edoc = errmod.document(reg, cid, release={"version": version, "tag": f["tag"], "commit": commit})
     if edoc.digest != f["errata"]["digest"] or edoc.revision != f["errata"]["revision"]:
         drift.append("the errata records changed since the draft (revision %s -> %s): draft again" % (
             f["errata"]["revision"], edoc.revision))
         checks.append(check("errata.digest", "FAIL", drift[-1], requirement="F4"))
     else:
-        checks.append(check("errata.digest", "PASS", "the registry renders the same errata (revision %d)" % edoc.revision,
-                            requirement="F4"))
-    # archive (G7)
+        checks.append(check("errata.digest", "PASS", "the registry renders the same errata (revision %d)"
+                            % edoc.revision, requirement="F4"))
     if f["archive"]:
-        rtl = lock.get("generated_rtl") or {}
-        name = (rtl.get("archive") or {}).get("path")
-        copy = d / name if name else None
-        if copy and copy.is_file():
-            man = archmod.manifest(copy)
-            ok = man.md5 == f["archive"]["md5"] and man.text.encode() == (d / MD5S).read_bytes()
-            if not ok:
-                drift.append("the archive copy no longer matches its manifest")
-            checks.append(check("rtl.archive", "PASS" if ok else "FAIL", "%s re-read: %d file(s), md5 %s" % (
-                name, man.files, man.md5), requirement="G7"))
-        else:
-            checks.append(check("rtl.archive", "NOT-RUN", "no copy of the archive in the draft (over %d MB)" % (
-                MAX_ARCHIVE_COPY >> 20), requirement="G7"))
-        if against is not None:
-            diffs = archmod.compare((d / MD5S).read_text(), against)
-            drift += ["build_soc %s" % x for x in diffs[:20]]
-            checks.append(check("rtl.reproduces", "FAIL" if diffs else "PASS", ("%d difference(s): %s" % (
-                len(diffs), "; ".join(diffs[:10]))) if diffs else "%s reproduces the archive file for file (%d files)"
-                % (against, f["archive"]["files"]), requirement="G7"))
+        _verify_archive(checks, drift, d, f, lock, against)
     elif against is not None:
         raise ReleaseUsage("--against needs a draft made with --archive")
     verdict = ladder(c["verdict"] for c in checks)
@@ -823,6 +827,100 @@ def verify(ref: str | os.PathLike, *, config: Config | str | None = None, agains
         from nanosoc_rm import db
         db.put(obs, config=config)
     return obs
+
+
+def _verify_files(checks: list[dict], drift: list[str], d: Path, f: dict) -> None:
+    """files.md5 and ledger.signed: every drafted file is unchanged, except the signature cells of GATES.md."""
+    bad = []
+    signed: list[str] | None = None
+    for x in f["files"]:
+        p = d / x["name"]
+        if not p.is_file():
+            bad.append("%s is missing" % x["name"])
+        elif md5_file(p)[0] != x["md5"]:
+            if x["name"] == "GATES.md":
+                # G2: a person signs the ledger after the draft. Only the signature cells may change: the ledger
+                # with those cells blank must still be the drafted file byte for byte.
+                text = p.read_text(encoding="utf-8", errors="replace")
+                blank, signed = cl.unsigned(text)
+                if md5_bytes(blank.encode()) == x["md5"]:
+                    continue
+            bad.append("%s changed since the draft (md5)" % x["name"])
+    listed = {x["name"] for x in f["files"]}
+    extra = sorted(p.name for p in d.iterdir() if p.name != DRAFT_FILE and p.name not in listed)
+    bad += ["%s was added after the draft" % n for n in extra]
+    drift += bad
+    checks.append(check("files.md5", "FAIL" if bad else "PASS", "; ".join(bad) or "%d file(s) as drafted%s" % (
+        len(f["files"]), " (GATES.md differs only in its signatures)" if signed is not None else "")))
+    checks.append(check("ledger.signed", "PASS" if signed else "NOT-RUN",
+                        ("GATES.md is signed by: %s" % ", ".join(signed)) if signed else
+                        "GATES.md is not signed yet (a person signs it once every gate has evidence)",
+                        person=not signed, requirement="G2"))
+
+
+def _verify_pins(checks: list[dict], drift: list[str], config: Config, reg: Any, cfg: dict, f: dict, lock: dict,
+                 walk: Callable[[str, Config], list[dict]] | None) -> list[dict]:
+    """release.commit and lock.pins: the drafted commit's tree, judged on the hosts now. Returns the walk."""
+    cid, commit = f["configuration"], f["commit"]
+    docs = (walk or _walk)(cid, config)
+    now_root = _root_commit(config, cfg, _repo(reg.canonical(f["component"])), docs)
+    if now_root != commit:
+        checks.append(check("release.commit", "WARN", "the configuration's ref now resolves to %s, not the drafted %s: "
+                            "the draft still describes %s, whose tree is re-walked below; draft again to release the "
+                            "new commit" % (now_root[:12], commit[:12], commit[:12])))
+        # The lock describes the drafted commit's tree: re-judge THAT tree against the hosts now, never skip it.
+        docs = _walk_at(cid, config, commit)
+    else:
+        checks.append(check("release.commit", "PASS", "the configuration still resolves to %s" % commit[:12]))
+    now_pins, _ = lockmod.lock_pins(docs)
+    pin_checks = _pin_drift(lock.get("pins") or [], now_pins)
+    drift += pin_checks
+    checks.append(check("lock.pins", "FAIL" if pin_checks else "PASS",
+                        "; ".join(pin_checks) or "every lock pin has the same commit, state and protection now"))
+    return docs
+
+
+def _verify_tags(checks: list[dict], drift: list[str], tags: dict[str, str], f: dict, lock: dict) -> None:
+    """tag.<name>: the release (and silicon) tag is absent or at the drafted commit; a tag the draft saw is kept."""
+    commit = f["commit"]
+    drafted = {c["id"]: c["verdict"] for c in f["checks"]}
+    sil = (lock.get("release") or {}).get("silicon")
+    for name, cid_ in [(f["tag"], "release.tag")] + ([(sil["tag"], "release.silicon-tag")] if sil else []):
+        at = tags.get(name)
+        if at is not None and at != commit:
+            drift.append("%s now exists at %s, not the drafted commit %s" % (name, at[:12], commit[:12]))
+            checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1]))
+        elif at is None and drafted.get(cid_) == "PASS":
+            # Tags are permanent (C10), so losing one the draft saw at the commit is drift.
+            drift.append("%s pointed at %s when drafted and is gone now: tags are never deleted (C10)" % (
+                name, commit[:12]))
+            checks.append(check("tag.%s" % name.replace("/", "-"), "FAIL", drift[-1], requirement="C10"))
+        else:
+            checks.append(check("tag.%s" % name.replace("/", "-"), "PASS" if at else "NOT-RUN",
+                                "%s %s" % (name, "points at the drafted commit" if at else "is not created yet")))
+
+
+def _verify_archive(checks: list[dict], drift: list[str], d: Path, f: dict, lock: dict, against) -> None:
+    """G7: the archive copy still matches its manifest, and `against` reproduces it file for file."""
+    rtl = lock.get("generated_rtl") or {}
+    name = (rtl.get("archive") or {}).get("path")
+    copy = d / name if name else None
+    if copy and copy.is_file():
+        man = archmod.manifest(copy)
+        ok = man.md5 == f["archive"]["md5"] and man.text.encode() == (d / MD5S).read_bytes()
+        if not ok:
+            drift.append("the archive copy no longer matches its manifest")
+        checks.append(check("rtl.archive", "PASS" if ok else "FAIL", "%s re-read: %d file(s), md5 %s" % (
+            name, man.files, man.md5), requirement="G7"))
+    else:
+        checks.append(check("rtl.archive", "NOT-RUN", "no copy of the archive in the draft (over %d MB)" % (
+            MAX_ARCHIVE_COPY >> 20), requirement="G7"))
+    if against is not None:
+        diffs = archmod.compare((d / MD5S).read_text(), against)
+        drift += ["build_soc %s" % x for x in diffs[:20]]
+        checks.append(check("rtl.reproduces", "FAIL" if diffs else "PASS", ("%d difference(s): %s" % (
+            len(diffs), "; ".join(diffs[:10]))) if diffs else "%s reproduces the archive file for file (%d files)"
+            % (against, f["archive"]["files"]), requirement="G7"))
 
 
 def _pin_drift(old: list[dict], new: list[dict]) -> list[str]:
