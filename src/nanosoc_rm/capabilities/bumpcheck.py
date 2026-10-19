@@ -14,7 +14,8 @@ this move, in a registered configuration of the asking repository, from exactly 
 `root_commit` is that commit, its `to` is `to` and its tree paths include `path`, so a PASS for another base, or
 for a neighbouring move, never turns a CI run green. Every configuration whose `component` is `component` is
 tried. A new red (FAIL) in ANY one answers FAIL, naming that configuration, even when another passes (D14,
-David 2026-10-19). Otherwise a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red
+David 2026-10-19). Otherwise an UNVERIFIED in any one answers UNVERIFIED, naming that configuration and saying the
+move "could not be judged there", even when another passes (D14). Otherwise a PASS in any one answers PASS. Otherwise a WARN (every red gate was already red
 before the bump) answers WARN with that note, and WARN lets the move land as PASS does (`gate.lands`).
 Read-only: it reads the job records and the registry, never runs or queues
 anything, never fetches.
@@ -82,15 +83,18 @@ def answer(config: Config, query: dict) -> dict:
         return out
     out["command"] = "nanosoc-rm test-bump %s %s %s" % (confs[0], p["path"], p["to"])
     evs = [(cid, gate.evidence(config, cid, [p["path"]], p["to"], p["root"])) for cid in confs]
-    broke = gate.new_red(config, confs, [p["path"]], p["to"], p["root"], known=dict(evs))
+    broke = gate.held_in(config, confs, [p["path"]], p["to"], p["root"], known=dict(evs))
     if broke is not None:
-        # D14: a new red in ANY configuration holds the move, even when another configuration passes
+        # D14: a new red, or a move that could not be judged, in ANY configuration holds the move, even when
+        # another configuration passes
         cid, ev = broke
         others = ["%s %s" % (c, e.get("verdict") or "untested") for c, e in evs if c != cid]
+        why = ("a new red holds the move in any configuration" if ev["verdict"] == gate.NEW_RED else
+               "the move %s, which holds it in any configuration" % gate.NOT_JUDGED)
         return dict(out, verdict=ev["verdict"], url=ev.get("href"), configuration=cid,
                     command="nanosoc-rm test-bump %s %s %s" % (cid, p["path"], p["to"]),
-                    note="%s: job %s is %s (a new red holds the move in any configuration, D14%s)%s"
-                    % (cid, ev.get("job"), ev["verdict"], "; " + ", ".join(others) if others else "",
+                    note="%s: job %s is %s (%s, D14%s)%s"
+                    % (cid, ev.get("job"), ev["verdict"], why, "; " + ", ".join(others) if others else "",
                        ": " + ev["note"] if ev.get("note") else ""))
     notes, best, landing = [], None, None
     for cid, ev in evs:

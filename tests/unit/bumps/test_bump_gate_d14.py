@@ -1,7 +1,9 @@
 """D14 (David 2026-10-19, interactive): a NEW red (FAIL: green before, red after) for the same move in ANY
 registered configuration of the component holds the bump, even when another configuration passes; the bump
 proposal and `GET /api/v1/bump-check` name the configuration that broke. A WARN (already red before the bump, D12)
-in one configuration and a PASS in another still lands; UNVERIFIED still holds as before (interfaces.md 26.4, 26.7).
+in one configuration and a PASS in another still lands. UNVERIFIED (the move could not be judged) in ANY
+configuration holds it too, like a FAIL (David 2026-10-19): the proposal and the bump-check name that
+configuration and say "could not be judged there"; a FAIL anywhere still answers first (interfaces.md 26.4, 26.7).
 """
 from __future__ import annotations
 
@@ -54,9 +56,12 @@ def _registry(monkeypatch, verdicts: dict, component="top", extra=()):
     ({"top-asic": "WARN", "top-fpga": "PASS"}, "PASS", "top-fpga"),       # WARN + PASS lands
     ({"top-asic": "WARN", "top-fpga": None}, "WARN", "top-asic"),         # WARN alone lands (D12)
     ({"top-asic": "UNVERIFIED", "top-fpga": None}, "UNVERIFIED", "top-asic"),   # UNVERIFIED holds, as before
-    ({"top-asic": "UNVERIFIED", "top-fpga": "PASS"}, "PASS", "top-fpga"),       # not a new red: as before
+    ({"top-asic": "UNVERIFIED", "top-fpga": "PASS"}, "UNVERIFIED", "top-asic"),  # not judged there: holds
+    ({"top-asic": "PASS", "top-fpga": "UNVERIFIED"}, "UNVERIFIED", "top-fpga"),  # whichever order
+    ({"top-asic": "WARN", "top-fpga": "UNVERIFIED"}, "UNVERIFIED", "top-fpga"),  # a landing WARN never hides it
+    ({"top-asic": "UNVERIFIED", "top-fpga": "FAIL"}, "FAIL", "top-fpga"),        # a new red answers first
 ])
-def test_bump_check_holds_on_a_new_red_in_any_configuration(monkeypatch, verdicts, want, named):
+def test_bump_check_holds_on_a_new_red_or_unjudged_in_any_configuration(monkeypatch, verdicts, want, named):
     from nanosoc_rm.capabilities import bumpcheck as BC
     from nanosoc_rm.capabilities import gate
     seen = _registry(monkeypatch, verdicts, extra=("else-main",))
@@ -65,10 +70,11 @@ def test_bump_check_holds_on_a_new_red_in_any_configuration(monkeypatch, verdict
     assert a["configurations"] == list(verdicts)
     assert "else-main" not in seen, "only configurations of the asking component are read"
     assert gate.lands({"verdict": want}) is (want in ("PASS", "WARN"))
-    if want == "FAIL":
+    if want in ("FAIL", "UNVERIFIED"):
         assert a["url"] == "/capabilities/%s/bump?job=%d" % (named, list(verdicts).index(named) + 11)
         assert a["command"] == "nanosoc-rm test-bump %s %s %s" % (named, PATH, TO)
-        assert a["note"].startswith("%s: job " % named) and "D14" in a["note"] and "y:sim worse" in a["note"]
+        assert a["note"].startswith("%s: job " % named) and "D14" in a["note"]
+        assert ("y:sim worse" if want == "FAIL" else "could not be judged there") in a["note"], a["note"]
         for other, v in verdicts.items():
             if other != named:
                 assert "%s %s" % (other, v or "untested") in a["note"], "the note says what the others gave"
@@ -82,6 +88,14 @@ def test_gate_new_red_and_siblings(monkeypatch):
     cid, ev = gate.new_red(None, ["top-asic", "top-sim", "top-fpga"], [PATH], TO, ROOT)
     assert cid == "top-fpga" and ev["verdict"] == "FAIL" and ev["configuration"] == "top-fpga"
     assert gate.new_red(None, ["top-asic", "top-sim"], [PATH], TO, ROOT) is None
+    # held_in: a FAIL first wherever it is, else the first UNVERIFIED, else nothing holds
+    assert gate.held_in(None, ["top-sim", "top-asic", "top-fpga"], [PATH], TO, ROOT)[0] == "top-fpga"
+    cid_u, ev_u = gate.held_in(None, ["top-asic", "top-sim"], [PATH], TO, ROOT)
+    assert cid_u == "top-sim" and ev_u["verdict"] == "UNVERIFIED" and ev_u["configuration"] == "top-sim"
+    assert gate.held_in(None, ["top-asic"], [PATH], TO, ROOT) is None
+    u = gate.broke_in(ev_u, "top-sim", "top-asic", {"verdict": "PASS"})
+    assert "could not be judged there" in u["note"] and "although top-asic is PASS" in u["note"]
+    assert "top-sim" in gate.blocker(u, "top-asic", PATH, TO)
     # the blocker of a sibling's red names the sibling's command
     b = gate.blocker(ev, "top-asic", PATH, TO)
     assert "nanosoc-rm test-bump top-fpga %s %s" % (PATH, TO[:12]) in b and "in top-fpga (job" in b
@@ -113,10 +127,14 @@ def _siblings(monkeypatch, own: str, sib: str):
     (None, "FAIL", "hold", "eth-fpga"),
     ("FAIL", "PASS", "hold", "eth-main"),                  # its own red holds, as before
     ("WARN", "PASS", "open-pull-request", "eth-main"),     # WARN here, PASS there: lands
-    ("PASS", "UNVERIFIED", "open-pull-request", "eth-main"),   # not a new red: its own evidence decides
+    ("PASS", "UNVERIFIED", "hold", "eth-fpga"),            # not judged there: holds like a FAIL
+    ("WARN", "UNVERIFIED", "hold", "eth-fpga"),
     ("UNVERIFIED", "PASS", "hold", "eth-main"),            # its own UNVERIFIED still holds, as before
+    ("UNVERIFIED", "UNVERIFIED", "hold", "eth-main"),      # its own hold already says what to run
+    (None, "UNVERIFIED", "hold", "eth-main"),
+    ("UNVERIFIED", "FAIL", "hold", "eth-fpga"),            # a new red elsewhere names that configuration
 ])
-def test_bump_engine_holds_on_a_new_red_in_another_configuration(tmp_path, monkeypatch, own, sib, would, named):
+def test_bump_engine_holds_on_a_new_red_or_unjudged_in_another_configuration(tmp_path, monkeypatch, own, sib, would, named):
     world(tmp_path, monkeypatch)
     _siblings(monkeypatch, own, sib)
     _, props = _scan()
@@ -131,5 +149,8 @@ def test_bump_engine_holds_on_a_new_red_in_another_configuration(tmp_path, monke
             gate_line = f["decision"]["blockers"][1]
             assert gate_line.startswith("bump gate:") and "nanosoc-rm test-bump %s " % named in gate_line
         if named == "eth-fpga":
-            assert f["test_bump"]["job"] == 41 and "a new red in configuration eth-fpga" in f["test_bump"]["note"]
+            want = ("a new red in configuration eth-fpga" if sib == "FAIL" else
+                    "configuration eth-fpga is UNVERIFIED: the move could not be judged there")
+            assert f["test_bump"]["job"] == 41 and want in f["test_bump"]["note"], f["test_bump"]["note"]
+            assert "could not be judged there" in f["decision"]["blockers"][1] or sib == "FAIL"
             assert "although eth-main is %s" % (own or "untested") in f["test_bump"]["note"]

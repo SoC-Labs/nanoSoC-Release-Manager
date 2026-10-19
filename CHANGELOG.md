@@ -30,6 +30,10 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - A new red (green to red, FAIL) for the same move in ANY configuration of the component now holds a bump proposal
   and makes `GET /api/v1/bump-check` answer FAIL, even when another configuration passes; both name the
   configuration that broke (`configuration` in the answer and in the proposal's `test_bump`). (CR-WI-d14)
+- UNVERIFIED (the move could not be judged) for the same move in ANY configuration of the component now holds a
+  bump proposal whose own test-bump passed, and makes `GET /api/v1/bump-check` answer UNVERIFIED, even when
+  another configuration passes; both name that configuration and say "could not be judged there". A FAIL anywhere
+  still answers first. (CR-WJ-unverified)
 - A what-if whose moved pin was walked but never fetched (an ssh or private URL) reads UNVERIFIED (exit 2), not
   FAIL, unless the gates judged a FAIL elsewhere. (CR-1016-quickfix, CR-WG-integration)
 - Opening a Quality page never starts an analysis: a page with nothing stored offers an **Analyse** button.

@@ -180,14 +180,14 @@
           "type": "object",
           "required": ["verdict", "job", "href", "finished_at", "note"],
           "additionalProperties": false,
-          "description": "Wave G bump gate (David 2026-10-16, decision 3): the newest finished test-bump job of exactly this move (configuration, root commit, moved commit, every tree path). A FAIL in any other configuration of the component holds too (D14). Anything but PASS or WARN holds the proposal (decision.would = hold) with a blocker naming the command. Optional so older stored proposals stay valid.",
+          "description": "Wave G bump gate (David 2026-10-16, decision 3): the newest finished test-bump job of exactly this move (configuration, root commit, moved commit, every tree path). A FAIL or an UNVERIFIED in any other configuration of the component holds too (D14). Anything but PASS or WARN holds the proposal (decision.would = hold) with a blocker naming the command. Optional so older stored proposals stay valid.",
           "properties": {
             "verdict": { "enum": ["PASS", "WARN", "FAIL", "UNVERIFIED", null] },
             "job": { "type": ["integer", "null"] },
             "href": { "type": ["string", "null"] },
             "finished_at": { "anyOf": [{ "$ref": "defs.schema.json#/$defs/utc" }, { "type": "null" }] },
             "note": { "type": ["string", "null"] },
-            "configuration": { "type": ["string", "null"], "description": "D14 (David 2026-10-19): the configuration whose test-bump this is: the proposal's own, or another configuration of the same component whose new red (FAIL) holds the move." }
+            "configuration": { "type": ["string", "null"], "description": "D14 (David 2026-10-19): the configuration whose test-bump this is: the proposal's own, or another configuration of the same component whose new red (FAIL) or UNVERIFIED (could not be judged there) holds the move." }
           }
         },
         "patch": {
