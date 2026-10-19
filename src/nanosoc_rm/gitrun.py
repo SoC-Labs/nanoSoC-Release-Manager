@@ -167,6 +167,21 @@ _CONFIG_SCOPE = ("--global", "--system", "--worktree", "-f", "--file", "--blob")
 def _check_subcommand(sub: str, rest: list[str], argv: Sequence[str]) -> None:
     if sub in GIT_WRITES:
         raise _refuse("%s writes to another repository (interfaces.md section 17.5)" % sub, argv)
+    _check_any(rest, argv)
+    if sub in ("clone", "ls-remote") and "-u" in rest:
+        raise _refuse("-u names an upload-pack program", argv)
+    if sub == "clone":
+        _check_clone(rest, argv)
+    if sub in _READ or sub in _LOCAL:
+        return
+    if sub not in _RESTRICTED:
+        raise _refuse("subcommand %r is not on the runner's read/local allowlist" % sub, argv)
+    _RESTRICTED_CHECKS[sub](rest, argv)
+
+
+def _check_any(rest: list[str], argv: Sequence[str]) -> None:
+    """Refused in every subcommand: an option that runs a program, a transport that runs a command, a password in
+    a URL."""
     for a in rest:
         if a.startswith(_EXEC_OPTS):
             raise _refuse("%s runs another program" % a.split("=")[0], argv)
@@ -174,68 +189,86 @@ def _check_subcommand(sub: str, rest: list[str], argv: Sequence[str]) -> None:
             raise _refuse("transport %s runs a command" % a.split("::")[0], argv)
         if _URL_PASSWORD.match(a):
             raise _refuse("a URL carries a password; credentials never go in an argv", argv)
-    if sub in ("clone", "ls-remote") and "-u" in rest:
-        raise _refuse("-u names an upload-pack program", argv)
-    if sub == "clone":
-        opts, _ = _split_options(rest, {"-c", "--config", "-o", "--origin", "-b", "--branch", "--depth",
-                                         "--filter", "--reference", "--separate-git-dir", "-j", "--jobs",
-                                         "--template", "--server-option", "--shallow-since", "--shallow-exclude"})
-        for i, a in enumerate(rest):
-            val = None
-            if a in ("-c", "--config") and i + 1 < len(rest):
-                val = rest[i + 1]
-            elif a.startswith("--config="):
-                val = a.split("=", 1)[1]
-            if val is not None and _FORBIDDEN_CONFIG_ARG.match(val.split("=", 1)[0]):
-                raise _refuse("clone config %s" % val.split("=", 1)[0], argv)
-        if _has(opts, "--template"):
-            raise _refuse("--template installs hooks", argv)
-    if sub in _READ or sub in _LOCAL:
-        return
-    if sub not in _RESTRICTED:
-        raise _refuse("subcommand %r is not on the runner's read/local allowlist" % sub, argv)
 
-    if sub == "tag":
-        opts, pos = _split_options(rest, _TAG_VALUE)
-        if _has(opts, *_TAG_WRITE):
-            raise _refuse("tag creation or deletion", argv)
-        if pos and not _has(opts, "-l", "--list"):
-            raise _refuse("tag creation (a tag name without --list)", argv)
-    elif sub == "branch":
-        opts, pos = _split_options(rest, _BRANCH_VALUE)
-        if _has(opts, *_BRANCH_WRITE):
-            raise _refuse("branch creation, deletion or change", argv)
-        if pos and not _has(opts, "-l", "--list"):
-            raise _refuse("branch creation (a branch name without --list)", argv)
-    elif sub == "remote":
-        opts, pos = _split_options(rest, set())
-        if pos and pos[0] not in ("show", "get-url"):
-            raise _refuse("remote %s changes a remote" % pos[0], argv)
-    elif sub == "reflog":
-        opts, pos = _split_options(rest, set())
-        if pos and pos[0] in ("expire", "delete", "drop"):
-            raise _refuse("reflog %s discards history (B3 REWRITTEN and B8 read it)" % pos[0], argv)
-    elif sub == "symbolic-ref":
-        opts, pos = _split_options(rest, {"-m"})
-        if _has(opts, "-d", "--delete") or len(pos) > 1:
-            raise _refuse("symbolic-ref change", argv)
-    elif sub == "submodule":
-        opts, pos = _split_options(rest, {"--reference", "--depth", "-j", "--jobs", "--filter"})
-        allowed = ("update", "init", "sync", "status", "summary")
-        if pos and pos[0] not in allowed:
-            raise _refuse("submodule %s is not one of %s" % (pos[0], ", ".join(allowed)), argv)
-        if pos and pos[0] == "update" and _has(opts, "--merge", "--rebase"):
-            raise _refuse("submodule update --merge/--rebase", argv)
-    elif sub == "config":
-        opts, pos = _split_options(rest, {"-f", "--file", "--blob", "--type", "--default", "--comment"})
-        if _has(opts, *_CONFIG_SCOPE):
-            raise _refuse("config outside the repo's own local file", argv)
-        reading = _has(opts, *_CONFIG_READ) or (len(pos) == 1 and not _has(opts, *_CONFIG_WRITE_FLAGS))
-        if not reading:
-            key = pos[0] if pos else ""
-            if _has(opts, "--rename-section", "--remove-section") or _FORBIDDEN_CONFIG_WRITE.match(key):
-                raise _refuse("config write to %r (remotes, URL rewrites, credentials, aliases and hooks are "
-                              "never written)" % (key or rest), argv)
+
+_CLONE_VALUE = {"-c", "--config", "-o", "--origin", "-b", "--branch", "--depth", "--filter", "--reference",
+                "--separate-git-dir", "-j", "--jobs", "--template", "--server-option", "--shallow-since",
+                "--shallow-exclude"}
+
+
+def _check_clone(rest: list[str], argv: Sequence[str]) -> None:
+    opts, _ = _split_options(rest, _CLONE_VALUE)
+    for i, a in enumerate(rest):
+        val = None
+        if a in ("-c", "--config") and i + 1 < len(rest):
+            val = rest[i + 1]
+        elif a.startswith("--config="):
+            val = a.split("=", 1)[1]
+        if val is not None and _FORBIDDEN_CONFIG_ARG.match(val.split("=", 1)[0]):
+            raise _refuse("clone config %s" % val.split("=", 1)[0], argv)
+    if _has(opts, "--template"):
+        raise _refuse("--template installs hooks", argv)
+
+
+def _check_tag(rest: list[str], argv: Sequence[str]) -> None:
+    opts, pos = _split_options(rest, _TAG_VALUE)
+    if _has(opts, *_TAG_WRITE):
+        raise _refuse("tag creation or deletion", argv)
+    if pos and not _has(opts, "-l", "--list"):
+        raise _refuse("tag creation (a tag name without --list)", argv)
+
+
+def _check_branch(rest: list[str], argv: Sequence[str]) -> None:
+    opts, pos = _split_options(rest, _BRANCH_VALUE)
+    if _has(opts, *_BRANCH_WRITE):
+        raise _refuse("branch creation, deletion or change", argv)
+    if pos and not _has(opts, "-l", "--list"):
+        raise _refuse("branch creation (a branch name without --list)", argv)
+
+
+def _check_remote(rest: list[str], argv: Sequence[str]) -> None:
+    _, pos = _split_options(rest, set())
+    if pos and pos[0] not in ("show", "get-url"):
+        raise _refuse("remote %s changes a remote" % pos[0], argv)
+
+
+def _check_reflog(rest: list[str], argv: Sequence[str]) -> None:
+    _, pos = _split_options(rest, set())
+    if pos and pos[0] in ("expire", "delete", "drop"):
+        raise _refuse("reflog %s discards history (B3 REWRITTEN and B8 read it)" % pos[0], argv)
+
+
+def _check_symbolic_ref(rest: list[str], argv: Sequence[str]) -> None:
+    opts, pos = _split_options(rest, {"-m"})
+    if _has(opts, "-d", "--delete") or len(pos) > 1:
+        raise _refuse("symbolic-ref change", argv)
+
+
+def _check_submodule(rest: list[str], argv: Sequence[str]) -> None:
+    opts, pos = _split_options(rest, {"--reference", "--depth", "-j", "--jobs", "--filter"})
+    allowed = ("update", "init", "sync", "status", "summary")
+    if pos and pos[0] not in allowed:
+        raise _refuse("submodule %s is not one of %s" % (pos[0], ", ".join(allowed)), argv)
+    if pos and pos[0] == "update" and _has(opts, "--merge", "--rebase"):
+        raise _refuse("submodule update --merge/--rebase", argv)
+
+
+def _check_config(rest: list[str], argv: Sequence[str]) -> None:
+    opts, pos = _split_options(rest, {"-f", "--file", "--blob", "--type", "--default", "--comment"})
+    if _has(opts, *_CONFIG_SCOPE):
+        raise _refuse("config outside the repo's own local file", argv)
+    reading = _has(opts, *_CONFIG_READ) or (len(pos) == 1 and not _has(opts, *_CONFIG_WRITE_FLAGS))
+    if reading:
+        return
+    key = pos[0] if pos else ""
+    if _has(opts, "--rename-section", "--remove-section") or _FORBIDDEN_CONFIG_WRITE.match(key):
+        raise _refuse("config write to %r (remotes, URL rewrites, credentials, aliases and hooks are never "
+                      "written)" % (key or rest), argv)
+
+
+_RESTRICTED_CHECKS = {"tag": _check_tag, "branch": _check_branch, "remote": _check_remote, "reflog": _check_reflog,
+                      "symbolic-ref": _check_symbolic_ref, "submodule": _check_submodule, "config": _check_config}
+assert set(_RESTRICTED_CHECKS) == _RESTRICTED
 
 
 def check_argv(args: Sequence[str]) -> None:
