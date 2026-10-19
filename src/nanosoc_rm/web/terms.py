@@ -38,9 +38,9 @@ TIER_WORDS = {"T0": "resolve check", "T1": "static and unit tests", "T2": "smoke
               "T3": "regression", "T4": "FPGA build", "T5": "hardware test", "T6": "ASIC flow"}
 # Requirement IDs that appeared as UI text (REQUIREMENTS.md headings).
 _REQ_WORDS = {
-    "B7": "pinned more than once", "C1": "release tags", "C2": "classed changelog", "C3": "change class",
-    "C5": "breaking-change notes", "C7": "build-affecting", "C9": "1.0.0 readiness", "C10": "tag scheme",
-    "C11": "manifest", "C12": "API.md", "D3": "compatibility matrix", "D4": "run inputs", "D5": "pinned run trigger",
+    "B7": "pinned more than once", "C1": "semantic versioning", "C2": "classed changelog", "C3": "change class",
+    "C5": "breaking-check rule", "C7": "build-affecting", "C9": "1.0.0 readiness", "C10": "tag scheme",
+    "C11": "manifest", "C12": "API.md", "D3": "compatibility matrix", "D4": "run inputs", "D5": "verified CI results",
     "D7": "infrastructure failure", "D8": "re-run and quarantine", "D9": "same-night comparison",
     "D11": "vendor content scan", "D12": "release store", "E2": "shadow mode", "E3": "auto-merge rules",
     "E5": "never on silicon or release branches", "F4": "errata document", "G1": "tool release", "G2": "SoC release",
