@@ -28,7 +28,7 @@ from jinja2 import Environment
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from nanosoc_rm.web.plugins import config_of, is_local, local_routes, renderer, template_env
+from nanosoc_rm.web.plugins import config_of, is_local, local_routes, public_text, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "CELL_CLASS"]
 
@@ -60,7 +60,7 @@ def _murl(configuration: str, page: str = "", **params: Any) -> str:
 def _error(request: Request, e: Exception) -> HTMLResponse:
     from nanosoc_rm.analysis.inputs import UsageProblem
     status = 404 if isinstance(e, (UsageProblem, LookupError)) else 503
-    return _page(request, "matrix_message.html", "Matrix", status=status, message=str(e))
+    return _page(request, "matrix_message.html", "Matrix", status=status, message=public_text(config_of(request), e))
 
 
 def _filters(request: Request) -> tuple[list[str], str | None]:

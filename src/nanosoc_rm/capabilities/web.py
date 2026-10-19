@@ -23,7 +23,7 @@ from fastapi import APIRouter
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 
-from nanosoc_rm.web.plugins import config_of, is_local, local_routes, renderer, template_env
+from nanosoc_rm.web.plugins import config_of, is_local, local_routes, public_text, renderer, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "POSTS", "bump_href"]
 
@@ -43,7 +43,8 @@ def bump_href(configuration: str, path: str, to: str | None = None) -> str:
 
 
 def _message(request: Request, message: str, status: int) -> HTMLResponse:
-    return _page(request, "caps_message.html", "Capabilities", status=status, message=message)
+    return _page(request, "caps_message.html", "Capabilities", status=status,
+                 message=public_text(config_of(request), message))
 
 
 def router(app: Any = None) -> APIRouter:

@@ -80,6 +80,12 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
   (`executor token new NAME --reader`). (CR-WG-integration)
 - Repository, line and submodule pin read differently on every page (`branch main @ sha`, `path @ sha`, PINNED ×N,
   HOSTS DIFFER, Tracks), and requirement codes read as words with the code in a tooltip. (CR-WG-subrepo-ui)
+- A simpler header: Projects, Matrix, Releases, Catalogue and the bell, with every other page under **More** in
+  three groups (Check, Repos, Release) and named as its page is titled. Home gains **What needs me?**: up to three
+  things to do now, each with one link. The header says when the page was updated and links its oldest fact; a
+  configuration names its Check and Freshness verdicts; empty pages say what to do next; spec codes, phase gates
+  and change-request ids no longer appear as page text; a tier this host cannot run is said in one sentence and
+  marked on the Run form; unknown addresses get the styled Not found page. (CR-WH-usability)
 
 ### fix
 - A rate-limited or unreadable host answer is "could not answer", never stored as a red pin state; a tree that

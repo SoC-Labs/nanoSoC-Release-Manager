@@ -21,6 +21,8 @@ The helpers every plug-in needs live here, so a new plug-in imports them instead
     login_of(request)         the signed-in login ("" when none)
     is_local(request)         True in a local deployment (local POST routes registered, section 13a)
     job_card(env, request, ...) one job's card (the app's _job.html), polling while the job runs
+    public_text(config, text) an error message as a page may show it: the service's own data and registry
+                              directories named, never printed as paths
 
 Every route a plug-in adds sits behind the same guard (sign-in, roles, CSRF on POST) because the guard is ASGI
 middleware in front of the whole router. A plug-in that is not installed is skipped; one that is installed but
@@ -39,7 +41,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse
 
 __all__ = ["PLUGINS", "load", "render_page", "local_routes", "template_env", "renderer", "config_of", "login_of",
-           "is_local", "job_card", "WEB_TEMPLATES"]
+           "is_local", "job_card", "public_text", "WEB_TEMPLATES"]
 
 WEB_TEMPLATES = Path(__file__).resolve().parent / "templates"
 
@@ -154,3 +156,19 @@ def job_card(environment: Environment, request: Request, config: Any, job: dict 
     return Markup(environment.get_template("_job.html").render(
         job=job, log=jobs.log_text(config, job["id"]), position=jobs.queue_position(config, job["id"]), csrf=csrf,
         fact=p.fact, page=p, stored=None))
+
+
+def public_text(config: Any, text: Any) -> str:
+    """`text` with the service's data directory and registry checkout written as words, so an error page never
+    shows the host's filesystem layout (the stored fact and the service log keep the real path)."""
+    out = str(text)
+    for key, word in ((("service", "data_dir"), "<data dir>"), (("registry", "path"), "<registry>")):
+        try:
+            path = (config.get(key[0]) or {}).get(key[1])
+        except Exception:                                            # noqa: BLE001 - no config: nothing to hide
+            path = None
+        if path:
+            for form in {str(path), str(Path(str(path)).expanduser().resolve())}:
+                if len(form) > 1:
+                    out = out.replace(form.rstrip("/"), word)
+    return out

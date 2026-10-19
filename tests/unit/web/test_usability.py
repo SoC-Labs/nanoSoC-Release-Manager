@@ -134,7 +134,8 @@ def test_the_strip_is_hidden_when_nothing_needs_anyone_and_a_broken_source_gives
 WORDS_PAGES = ("/", "/bumps/", "/bumps/ledger", "/matrix/", "/compat", "/configurations/eth-rc4",
                "/configurations/eth-rc4/history", "/configurations/eth-rc4/silicon", "/silicon-protection",
                "/notifications", "/inbox", "/releases/", "/releases/forks", "/versions/", "/alerts", "/catalogue/",
-               "/quality/", "/publish/", "/store/", "/capabilities/", "/mirrors", "/hosts", "/branches")
+               "/quality/", "/publish/", "/store/", "/capabilities/", "/mirrors", "/hosts", "/branches",
+               "/components/tidelink", "/configurations/eth-rc4/tree?path=tidelink")
 CODE = re.compile(r"Phase [2-5]|\bCR-[0-9A-Z][\w-]*|\((?:[A-HQ]\d{1,2}|PR\d)(?:,\s*[A-HQ]\d{1,2})*\)|\bT[0-6]\b|"
                   r"\b(?:PROTECTED_BY_TAG|BRANCH_ONLY|ON_DEFAULT|PR_ONLY|NO_GITLINK|LOCAL_URL)\b|David 20\d\d")
 
@@ -315,3 +316,14 @@ def test_a_what_if_for_a_component_the_tree_lacks_says_so(fp):
     text = fp["client"].get("/configurations/eth-rc4/whatif?component=nope").text
     assert "eth-rc4 has no component nope in its stored tree: pick one from the list below" in text
     assert "has no component" not in fp["client"].get("/configurations/eth-rc4/whatif?component=tidelink").text
+
+
+def test_an_error_page_names_the_service_directories_never_their_paths(fp):
+    from nanosoc_rm.web.plugins import public_text
+    data = str(fp["config"].get("service")["data_dir"])
+    reg = str(fp["config"].get("registry")["path"])
+    msg = "component x has no mirror at %s/mirrors/x.git; registry %s/catalogue.yaml" % (data, reg)
+    assert public_text(fp["config"], msg) == ("component x has no mirror at <data dir>/mirrors/x.git; registry "
+                                              "<registry>/catalogue.yaml")
+    r = fp["client"].get("/quality/tidelink")
+    assert data not in r.text and reg not in r.text

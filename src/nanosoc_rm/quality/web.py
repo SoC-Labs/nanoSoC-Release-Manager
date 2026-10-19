@@ -39,7 +39,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse, RedirectRespons
 
 from nanosoc_rm import quality as q
 from nanosoc_rm.web import plugins
-from nanosoc_rm.web.plugins import WEB_TEMPLATES, config_of, local_routes, login_of, template_env
+from nanosoc_rm.web.plugins import WEB_TEMPLATES, config_of, local_routes, login_of, public_text, template_env
 
 __all__ = ["router", "PREFIX", "NAV_LABEL", "NAV_PATH", "sparkline", "render_page", "selected_findings",
            "comments_view", "my_components", "overview_model"]
@@ -247,7 +247,8 @@ def _page(request: Request, template: str, title: str, status: int = 200, **ctx:
 
 def _error(request: Request, e: Exception) -> HTMLResponse:
     status = 404 if isinstance(e, q.UsageError) else 503
-    return _page(request, "quality_message.html", "Quality", status=status, message=str(e))
+    return _page(request, "quality_message.html", "Code and doc quality", status=status,
+                 message=public_text(config_of(request), e))
 
 
 def _pending(request: Request, target: str, ref: str | None, job: dict) -> HTMLResponse:
