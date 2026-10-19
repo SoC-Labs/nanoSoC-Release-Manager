@@ -158,6 +158,83 @@ def _pinned_state(fact: dict) -> str | None:
     return pinned["state"] if pinned else None
 
 
+def _checked_request(overrides: Mapping[str, str] | None, store: bool, tier: str | None,
+                     force_tier: bool) -> dict[str, str]:
+    overrides = dict(overrides or {})
+    for path, sha in overrides.items():
+        if not _SHA.match(sha):
+            raise CompatUsage("--pin %s: %r is not a full 40-hex commit id" % (path, sha))
+    if store and overrides:
+        raise CompatUsage("--store records real runs only: a run with --pin is a what-if, never stored")
+    if force_tier and not tier:
+        raise CompatUsage("--force-tier needs --tier")
+    return overrides
+
+
+def _local_request(req: dict, canonical_urls: dict, overrides: dict[str, str]) -> dict:
+    """The request the trigger would send, without schema and nonce, plus the walked tree's canonical URLs and
+    the overrides."""
+    request = {k: v for k, v in req.items() if k not in ("schema", "nonce")}
+    request["canonical_urls"] = dict(request.get("canonical_urls") or {}, **canonical_urls)
+    if overrides:
+        request["pin_overrides"] = dict(overrides)
+    return request
+
+
+def _what_if_verdict(verdict: str, gates: list[dict], items: dict, unjudged: list[str],
+                     why_not: list[str]) -> tuple[str, str | None]:
+    """(verdict, reason) of the what-if: the gates' verdict, unless they did not judge a moved commit. Then it is
+    UNVERIFIED, except that a FAIL the gates judged elsewhere stays a FAIL (the unjudged move cannot make it less
+    red)."""
+    if not unjudged:
+        return verdict, None
+    elsewhere = judged_failures(gates, items, unjudged) if verdict == "FAIL" else []
+    if elsewhere:
+        return verdict, ("FAIL judged outside the moved commit(s) (%s); the gates also did not judge: %s"
+                         % ("; ".join(elsewhere[:5]), "; ".join(why_not)))
+    return "UNVERIFIED", ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
+                          % "; ".join(why_not))
+
+
+def _tier_run(spec: dict, tier: str, gates_verdict: str, force_tier: bool, git, root, work: Path, nonce: str,
+              lock_dir) -> dict:
+    """The tier document: skipped after a T0 FAIL unless forced (then marked forced), none without a tree."""
+    from nanosoc_rm.analysis import tierrun
+    if gates_verdict == "FAIL" and not force_tier:
+        tier_doc = tierrun.skipped(spec, tier, "T0 is FAIL: the %s tier was skipped (--force-tier runs it "
+                                               "anyway, UNVERIFIED for release)" % tier)
+    elif root is None:
+        tier_doc = tierrun._doc(spec, tier, reason="no tree to check out: the T0 walk did not start")
+    else:
+        layout = tierrun.materialise(git, root, work / "tree", spec.get("pins"))
+        tier_doc = tierrun.run_tier(spec, tier, work / "tree", work, nonce, layout=layout, lock_dir=lock_dir)
+    if force_tier and gates_verdict == "FAIL":
+        tier_doc["forced"] = True
+        tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
+    return tier_doc
+
+
+def _pins(docs: list[dict], items: dict, overrides: dict[str, str], replaced: dict[str, str]) -> list[dict]:
+    """Per pin: the walker's facts and each gate's item at the pin's tree path."""
+    by_gate = {gid: {i["tree_path"]: i["result"] for i in its if i.get("tree_path")} for gid, its in items.items()}
+    pins = []
+    for d in docs:
+        f = d["fact"]
+        tps = f["tree_paths"]
+        results = {}
+        for gid, col in GATE_COLUMNS.items():
+            got = next((by_gate.get(gid, {})[tp] for tp in tps if tp in by_gate.get(gid, {})), None)
+            if got is not None:
+                results[col] = got
+        over = next((tp for tp in tps if tp in overrides), None)
+        pins.append({"tree_path": tps[0], "tree_paths": list(tps), "component": f["child"]["component"],
+                     "commit": f["child"]["commit"], "overridden": over is not None,
+                     "replaces": replaced.get(over) if over is not None else None,
+                     "url_kind": f["url_kind"], "state": _pinned_state(f), "split": bool(f["split"]),
+                     "items": results})
+    return pins
+
+
 def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, config=None, store: bool = False,
            keep_work: str | Path | None = None, url_map: Mapping[str, str] | None = None,
            nonce: str | None = None, argv: str | None = None, tier: str | None = None, force_tier: bool = False,
@@ -182,14 +259,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
     from nanosoc_rm.walker import walk
     from nanosoc_rm.analysis import tierrun
 
-    overrides = dict(overrides or {})
-    for path, sha in overrides.items():
-        if not _SHA.match(sha):
-            raise CompatUsage("--pin %s: %r is not a full 40-hex commit id" % (path, sha))
-    if store and overrides:
-        raise CompatUsage("--store records real runs only: a run with --pin is a what-if, never stored")
-    if force_tier and not tier:
-        raise CompatUsage("--force-tier needs --tier")
+    overrides = _checked_request(overrides, store, tier, force_tier)
     config = config if config is not None else load_config()
     spec = tierrun.check_spec(configs.tiers(configuration, config).get(tier), tier, configuration, environ) \
         if tier else None
@@ -203,10 +273,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
     # 2. the gates, locally, on the request the trigger would send plus the overrides
     nonce = nonce or secrets.token_hex(16)
     req, req_sources = build_request(configuration, nonce, config)
-    request = {k: v for k, v in req.items() if k not in ("schema", "nonce")}
-    request["canonical_urls"] = dict(request.get("canonical_urls") or {}, **canonical_urls_from(config, docs))
-    if overrides:
-        request["pin_overrides"] = dict(overrides)
+    request = _local_request(req, canonical_urls_from(config, docs), overrides)
     extra = {"t0.clone.upgrade-path": UPGRADE_NOT_RUN} if overrides and request.get("upgrade_from") else {}
     work, kept = _workdir(keep_work)
     try:
@@ -221,37 +288,15 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
         rolled = G.rollup(rows, "configuration", mode="local")
         waivers = configs.waivers(configuration, config)
         gates, unused = G.apply_waivers(rolled, items, waivers)
-        verdict, not_run = G.run_verdict(gates)
-        gates_verdict = verdict                   # the tier decision reads the gates, not the what-if verdict
+        gates_verdict, not_run = G.run_verdict(gates)
         unjudged, why_not = _unjudged(overrides, judged, items)
-        reason = None
-        if unjudged:
-            kept = judged_failures(gates, items, unjudged) if verdict == "FAIL" else []
-            if kept:
-                # a FAIL the gates judged elsewhere stays a FAIL: the unjudged move cannot make it less red
-                reason = ("FAIL judged outside the moved commit(s) (%s); the gates also did not judge: %s"
-                          % ("; ".join(kept[:5]), "; ".join(why_not)))
-            else:
-                verdict = "UNVERIFIED"
-                reason = ("the gates did not judge the moved commit(s): %s; the what-if was not judged"
-                          % "; ".join(why_not))
+        verdict, reason = _what_if_verdict(gates_verdict, gates, items, unjudged, why_not)
         t0_finished_at = clock.iso()
 
-        # 4. the tier (CR-12), in a sandbox checkout of the same tree
+        # 4. the tier (CR-12), in a sandbox checkout of the same tree; it reads the gates, not the what-if verdict
         tier_doc = None
         if spec is not None:
-            if gates_verdict == "FAIL" and not force_tier:
-                tier_doc = tierrun.skipped(spec, tier, "T0 is FAIL: the %s tier was skipped (--force-tier runs it "
-                                                       "anyway, UNVERIFIED for release)" % tier)
-            elif root is None:
-                tier_doc = tierrun._doc(spec, tier, reason="no tree to check out: the T0 walk did not start")
-            else:
-                layout = tierrun.materialise(ctx.git, root, work / "tree", spec.get("pins"))
-                tier_doc = tierrun.run_tier(spec, tier, work / "tree", work, nonce, layout=layout,
-                                            lock_dir=lock_dir)
-            if force_tier and gates_verdict == "FAIL":
-                tier_doc["forced"] = True
-                tier_doc["reason"] = FORCED_NOTE + ("; " + tier_doc["reason"] if tier_doc["reason"] else "")
+            tier_doc = _tier_run(spec, tier, gates_verdict, force_tier, ctx.git, root, work, nonce, lock_dir)
         if on_tree is not None:
             on_tree(ctx.git, root, work, verdict)
     finally:
@@ -259,23 +304,7 @@ def compat(configuration: str, overrides: Mapping[str, str] | None = None, *, co
             shutil.rmtree(work, ignore_errors=True)
     finished_at = clock.iso()
 
-    # per pin: walker facts + each gate's item at the pin's tree path
-    by_gate = {gid: {i["tree_path"]: i["result"] for i in its if i.get("tree_path")} for gid, its in items.items()}
-    pins = []
-    for d in docs:
-        f = d["fact"]
-        tps = f["tree_paths"]
-        results = {}
-        for gid, col in GATE_COLUMNS.items():
-            got = next((by_gate.get(gid, {})[tp] for tp in tps if tp in by_gate.get(gid, {})), None)
-            if got is not None:
-                results[col] = got
-        over = next((tp for tp in tps if tp in overrides), None)
-        pins.append({"tree_path": tps[0], "tree_paths": list(tps), "component": f["child"]["component"],
-                     "commit": f["child"]["commit"], "overridden": over is not None,
-                     "replaces": replaced.get(over) if over is not None else None,
-                     "url_kind": f["url_kind"], "state": _pinned_state(f), "split": bool(f["split"]),
-                     "items": results})
+    pins = _pins(docs, items, overrides, replaced)
     splits: dict[str, list[dict]] = {}
     for p in pins:
         if p["split"] and p["component"]:
