@@ -71,13 +71,11 @@ def read_makefile(source, path: str, mk: Makefile | None = None, depth: int = 0)
         mk.unresolved.append("%s: not found" % path)
         return mk
     mk.files.append(path)
-    base = posixpath.dirname(mk.path)
-    current: list[str] = []
+    current: list[str] = []                   # the targets the next recipe lines belong to
     for line in _logical_lines(text):
         if line.startswith("\t"):
-            if current:
-                for t in current:
-                    mk.targets.setdefault(t, []).append(line[1:])
+            for t in current:
+                mk.targets.setdefault(t, []).append(line[1:])
             continue
         stripped = line.split("#", 1)[0].rstrip() if "#" in line and "\\#" not in line else line.rstrip()
         if not stripped.strip():
@@ -85,19 +83,7 @@ def read_makefile(source, path: str, mk: Makefile | None = None, depth: int = 0)
         m = _INCLUDE.match(stripped)
         if m:
             current = []
-            for word in expand(m.group(2), mk.variables).split():
-                if "$" in word:
-                    mk.unresolved.append("include %s" % word)
-                    continue
-                inc = posixpath.normpath(posixpath.join(base, word))
-                hits = source.glob(inc) if any(c in inc for c in "*?[") else [inc]
-                for h in hits:
-                    if source.entry(h) is None:
-                        if m.group(1) == "include":
-                            mk.unresolved.append("include %s: not in the tree" % word)
-                        continue
-                    if h not in mk.files and depth < 6:
-                        read_makefile(source, h, mk, depth + 1)
+            _include(source, mk, m, depth)
             continue
         if re.match(r"^\s*(ifeq|ifneq|ifdef|ifndef|else|endif|define|endef|export|unexport|vpath)\b", stripped):
             if stripped.lstrip().startswith("define"):
@@ -109,42 +95,65 @@ def read_makefile(source, path: str, mk: Makefile | None = None, depth: int = 0)
             continue
         a = _ASSIGN.match(stripped.strip())
         if a:
-            name, op, value = a.group(1), a.group(2), a.group(3).strip()
-            if op == "?=" and name in mk.variables:
-                continue
-            if op == "+=":
-                mk.variables[name] = (mk.variables.get(name, "") + " " + value).strip()
-            elif op != "!=":
-                mk.variables[name] = value
+            _assign(mk, a.group(1), a.group(2), a.group(3).strip())
             current = []
             continue
         r = _RULE.match(stripped.strip())
-        if r:
-            names = expand(r.group(1), mk.variables).split()
-            current = []
-            for n in names:
-                if "$" in n:
-                    mk.unresolved.append("target %s in %s" % (n, path))
-                    continue
-                if n == ".PHONY":
-                    for p in expand(r.group(3), mk.variables).split():
-                        mk.targets.setdefault(p, [])
-                    continue
-                if n == ".ONESHELL":
-                    mk.oneshell = True
-                if n.startswith(".") and n.isupper():
-                    continue
-                if "%" in n:
-                    mk.patterns.append(n)
-                else:
-                    mk.targets.setdefault(n, [])
-                current.append(n)
-            rest = r.group(3)
-            if ";" in rest:
-                for t in current:
-                    mk.targets.setdefault(t, []).append(rest.split(";", 1)[1].strip())
-            continue
-        current = []
+        current = _rule(mk, r, path) if r else []
     if top:
         mk.variables.setdefault("MAKE", "make")
     return mk
+
+
+def _include(source, mk: Makefile, m: re.Match, depth: int) -> None:
+    """Read each included file once, up to six levels deep; `-include` and `sinclude` may name a missing one."""
+    base = posixpath.dirname(mk.path)
+    for word in expand(m.group(2), mk.variables).split():
+        if "$" in word:
+            mk.unresolved.append("include %s" % word)
+            continue
+        inc = posixpath.normpath(posixpath.join(base, word))
+        hits = source.glob(inc) if any(c in inc for c in "*?[") else [inc]
+        for h in hits:
+            if source.entry(h) is None:
+                if m.group(1) == "include":
+                    mk.unresolved.append("include %s: not in the tree" % word)
+                continue
+            if h not in mk.files and depth < 6:
+                read_makefile(source, h, mk, depth + 1)
+
+
+def _assign(mk: Makefile, name: str, op: str, value: str) -> None:
+    if op == "?=" and name in mk.variables:
+        return
+    if op == "+=":
+        mk.variables[name] = (mk.variables.get(name, "") + " " + value).strip()
+    elif op != "!=":
+        mk.variables[name] = value
+
+
+def _rule(mk: Makefile, r: re.Match, path: str) -> list[str]:
+    """Record one rule's targets (and its recipe after `;`). Returns the targets its recipe lines belong to."""
+    current = []
+    for n in expand(r.group(1), mk.variables).split():
+        if "$" in n:
+            mk.unresolved.append("target %s in %s" % (n, path))
+            continue
+        if n == ".PHONY":
+            for p in expand(r.group(3), mk.variables).split():
+                mk.targets.setdefault(p, [])
+            continue
+        if n == ".ONESHELL":
+            mk.oneshell = True
+        if n.startswith(".") and n.isupper():
+            continue
+        if "%" in n:
+            mk.patterns.append(n)
+        else:
+            mk.targets.setdefault(n, [])
+        current.append(n)
+    rest = r.group(3)
+    if ";" in rest:
+        for t in current:
+            mk.targets.setdefault(t, []).append(rest.split(";", 1)[1].strip())
+    return current

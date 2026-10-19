@@ -211,49 +211,72 @@ def is_code_line(language: str, text: str) -> tuple[bool, bool]:
             return False, False
         ok = _python_code(t)
         return ok, ok
+    if _reads_as_prose(language, t):
+        return False, False
+    judge = _CODE_JUDGES.get(language)
+    return judge(language, t) if judge else (False, False)
+
+
+def _reads_as_prose(language: str, t: str) -> bool:
+    """A non-Python comment line that reads as prose: a sentence, a usage line, a description of values."""
     if _prose(t) or re.search(r"[a-z]\.\s+[A-Z][a-z]", t):
-        return False, False                               # a sentence, or two of them
+        return True                                       # a sentence, or two of them
     if language not in ("verilog", "c"):
         if re.search(r"<[A-Za-z_][\w-]*>", t):
-            return False, False                           # `VAR=<path>`: a usage line with placeholders
+            return True                                   # `VAR=<path>`: a usage line with placeholders
         if t.rstrip().endswith(".") and ", " in t:
-            return False, False                           # "A=1, B=0, C=2." describes values
+            return True                                   # "A=1, B=0, C=2." describes values
         if "=" in t:
             value = t.split("=", 1)[1].strip()
             if len(value.split()) > 3 and not re.search(r"[$/\\\"'(){}\[\]]", value):
-                return False, False                       # "ROM_RUN_DIR= still wins over both"
-    if (language in ("verilog", "c") and (_c_prose(t) or _c_hyphen_prose(t)))\
-            or _sentence(t):
+                return True                               # "ROM_RUN_DIR= still wins over both"
+    if language in ("verilog", "c") and (_c_prose(t) or _c_hyphen_prose(t)):
+        return True
+    return bool(_sentence(t))
+
+
+def _hdl_code(language: str, t: str) -> tuple[bool, bool]:
+    strong = bool(_ASSIGN_STMT.match(t) or _CALL_STMT.match(t) or
+                  (t.rstrip().endswith(";") and re.search(r"[=()\[\]]", t) and len(t.split()) <= 12))
+    kw = bool((_HDL_KW if language == "verilog" else _C_KW).match(t))
+    if language == "verilog" and kw and len(t.split()) > 8 and not t.rstrip().endswith((";", "begin", ")")):
+        kw = False                                        # "output of the block is ..." prose
+    return strong or kw, strong
+
+
+def _script_code(language: str, t: str) -> tuple[bool, bool]:
+    if _script_prose(t):
         return False, False
-    if language in ("verilog", "c"):
-        strong = bool(_ASSIGN_STMT.match(t) or _CALL_STMT.match(t) or
-                      (t.rstrip().endswith(";") and re.search(r"[=()\[\]]", t) and len(t.split()) <= 12))
-        kw = bool((_HDL_KW if language == "verilog" else _C_KW).match(t))
-        if language == "verilog" and kw and len(t.split()) > 8 and not t.rstrip().endswith((";", "begin", ")")):
-            kw = False                                    # "output of the block is ..." prose
-        return strong or kw, strong
-    if language in ("shell", "make", "tcl") and _script_prose(t):
+    if re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s{2,}[A-Za-z(]\S*\s+\S", t):
+        return False, False                               # `QUIET=1    do not print...`: an option's help line
+    if language == "make" and (_MAKE_RULE.match(t) and "$" in t or re.match(r"^\s*[A-Z_][A-Z0-9_]*\s*[:?+]?=", t)):
+        return True, True
+    assign = bool(_SH_ASSIGN.match(t))
+    kw = bool(_SH_KW.match(t)) and bool(_CODE_CHARS.search(t) or len(t.split()) <= 3)
+    return assign or kw, assign or (kw and "$" in t)
+
+
+def _tcl_code(language: str, t: str) -> tuple[bool, bool]:
+    if _script_prose(t):
         return False, False
-    if language in ("shell", "make"):
-        if re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s{2,}[A-Za-z(]\S*\s+\S", t):
-            return False, False                           # `QUIET=1    do not print...`: an option's help line
-        if language == "make" and (_MAKE_RULE.match(t) and "$" in t or re.match(r"^\s*[A-Z_][A-Z0-9_]*\s*[:?+]?=", t)):
-            return True, True
-        assign = bool(_SH_ASSIGN.match(t))
-        kw = bool(_SH_KW.match(t)) and bool(_CODE_CHARS.search(t) or len(t.split()) <= 3)
-        return assign or kw, assign or (kw and "$" in t)
-    if language == "tcl":
-        kw = bool(_TCL_KW.match(t)) and bool(_CODE_CHARS.search(t))
-        return kw, kw and bool(re.search(r"[\$\[\]]|\s-\w", t))
-    if language == "yaml":
-        if _NOT_KEYS.match(t):
-            return False, False
-        ok = bool(_YAML_KV.match(t))
-        return ok, ok and (t.strip().endswith(":") or bool(re.search(r":\s*(\d|true|false|['\"\[{])", t)))
-    if language == "toml":
-        ok = bool(_TOML_KV.match(t))
-        return ok, ok
-    return False, False
+    kw = bool(_TCL_KW.match(t)) and bool(_CODE_CHARS.search(t))
+    return kw, kw and bool(re.search(r"[\$\[\]]|\s-\w", t))
+
+
+def _yaml_code(language: str, t: str) -> tuple[bool, bool]:
+    if _NOT_KEYS.match(t):
+        return False, False
+    ok = bool(_YAML_KV.match(t))
+    return ok, ok and (t.strip().endswith(":") or bool(re.search(r":\s*(\d|true|false|['\"\[{])", t)))
+
+
+def _toml_code(language: str, t: str) -> tuple[bool, bool]:
+    ok = bool(_TOML_KV.match(t))
+    return ok, ok
+
+
+_CODE_JUDGES = {"verilog": _hdl_code, "c": _hdl_code, "shell": _script_code, "make": _script_code,
+                "tcl": _tcl_code, "yaml": _yaml_code, "toml": _toml_code}
 
 
 _BIT_RANGE = re.compile(r"\[\s*(\d+)\s*:\s*(\d+)\s*\]")
@@ -354,61 +377,82 @@ def _annotation(doc: Doc, line: int, text: str) -> bool:
 def _commented_out(doc: Doc, b: _Block) -> list[dict]:
     if b.style == "doc":
         return []
+    flags = _code_flags(doc, b)
+    if b.style == "block":
+        return _commented_out_block(doc, b, flags)
     out = []
+    i = 0
+    while i < len(flags):
+        if not flags[i][0]:
+            i += 1
+            continue
+        j = _run_end(b, flags, i)
+        run = flags[i:j + 1]
+        if (j > i and any(s for _, s in run)) or (j == i and run[0][1]):
+            f = _run_finding(doc, b, flags, i, j)
+            if f is not None:
+                out.append(f)
+        i = j + 1
+    return out
+
+
+def _code_flags(doc: Doc, b: _Block) -> list[tuple[bool, bool]]:
+    """(code, strongly) per line; a Python block that parses whole as code is code on every non-blank line."""
     flags = [is_code_line(doc.language, t) for t in b.texts]
     if doc.language == "python" and len(b.texts) > 1:
         whole = textwrap.dedent("\n".join(b.texts))
         if _python_code(whole) and not all(f[0] for f in flags) and \
                 sum(1 for t in b.texts if t.strip()) >= 2:
             flags = [(bool(t.strip()), True) for t in b.texts]
-    if b.style == "block":
-        code = [f for f in flags if f[0]]
-        nonempty = [t for t in b.texts if t.strip()]
-        if nonempty and len(code) >= max(1, math.ceil(0.6 * len(nonempty))) and any(s for _, s in code):
-            out.append(_finding(doc, b.start, b.end, "commented_out_code", nonempty[0].strip(),
-                                "Delete the commented-out block: %d of %d lines read as %s code; git history keeps "
-                                "it." % (len(code), len(nonempty), doc.language),
-                                _delete(doc, b.start, b.end)))
-        return out
-    i = 0
-    while i < len(flags):
-        if not flags[i][0]:
-            i += 1
-            continue
-        j = i
-        while j + 1 < len(flags) and (flags[j + 1][0] or (not b.texts[j + 1].strip() and j + 2 < len(flags)
-                                                          and flags[j + 2][0])):
-            j += 1
-        run = flags[i:j + 1]
-        if (j > i and any(s for _, s in run)) or (j == i and run[0][1]):
-            start, end = b.start + i, b.start + j
-            before = i > 0 and _prose_line(b.texts[i - 1], flags[i - 1])
-            after = j + 1 < len(flags) and _prose_line(b.texts[j + 1], flags[j + 1])
-            if before and (after or b.texts[i - 1].rstrip().endswith(":") or _TODO.search(b.texts[i - 1])) \
-                    or _example(doc, b, flags, i, j):
-                i = j + 1
-                continue                                  # mid-paragraph, or an example the prose introduces
-            n = end - start + 1
-            if n == 1 and (before and not re.search(r"[.!?:;]\s*$", b.texts[i - 1].rstrip())
-                           or _annotation(doc, end, b.texts[i])):
-                i = j + 1
-                continue                                  # the end of an unfinished sentence, or a label
-            if n == 1:
-                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
-                                    "One line that reads as %s code: delete it by hand if it is dead (no patch "
-                                    "edit: a single line is as often a label, `# slot0 = 0x1`, as dead code)."
-                                    % doc.language, None))
-            elif before or after:
-                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
-                                    "Reads as %s code (%d line%s) next to prose in the same comment: delete it "
-                                    "by hand if it is dead code (no patch edit: the prose may refer to it)."
-                                    % (doc.language, n, "" if n == 1 else "s"), None))
-            else:
-                out.append(_finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
-                                    "Delete the commented-out code (%d line%s); git history keeps it."
-                                    % (n, "" if n == 1 else "s"), _delete(doc, start, end)))
-        i = j + 1
-    return out
+    return flags
+
+
+def _commented_out_block(doc: Doc, b: _Block, flags: list[tuple[bool, bool]]) -> list[dict]:
+    """A block comment is commented-out code when at least 60% of its lines read as code, one of them strongly."""
+    code = [f for f in flags if f[0]]
+    nonempty = [t for t in b.texts if t.strip()]
+    if nonempty and len(code) >= max(1, math.ceil(0.6 * len(nonempty))) and any(s for _, s in code):
+        return [_finding(doc, b.start, b.end, "commented_out_code", nonempty[0].strip(),
+                         "Delete the commented-out block: %d of %d lines read as %s code; git history keeps "
+                         "it." % (len(code), len(nonempty), doc.language),
+                         _delete(doc, b.start, b.end))]
+    return []
+
+
+def _run_end(b: _Block, flags: list[tuple[bool, bool]], i: int) -> int:
+    """The last line of the run of code lines starting at i; one blank line between code lines joins them."""
+    j = i
+    while j + 1 < len(flags) and (flags[j + 1][0] or (not b.texts[j + 1].strip() and j + 2 < len(flags)
+                                                      and flags[j + 2][0])):
+        j += 1
+    return j
+
+
+def _run_finding(doc: Doc, b: _Block, flags: list[tuple[bool, bool]], i: int, j: int) -> dict | None:
+    """The finding for the code run at lines i..j of a line-comment block, or None when prose explains it."""
+    start, end = b.start + i, b.start + j
+    before = i > 0 and _prose_line(b.texts[i - 1], flags[i - 1])
+    after = j + 1 < len(flags) and _prose_line(b.texts[j + 1], flags[j + 1])
+    if before and (after or b.texts[i - 1].rstrip().endswith(":") or _TODO.search(b.texts[i - 1])) \
+            or _example(doc, b, flags, i, j):
+        return None                                       # mid-paragraph, or an example the prose introduces
+    n = end - start + 1
+    if n == 1 and (before and not re.search(r"[.!?:;]\s*$", b.texts[i - 1].rstrip())
+                   or _annotation(doc, end, b.texts[i])):
+        return None                                       # the end of an unfinished sentence, or a label
+    if n == 1:
+        return _finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                        "One line that reads as %s code: delete it by hand if it is dead (no patch "
+                        "edit: a single line is as often a label, `# slot0 = 0x1`, as dead code)."
+                        % doc.language, None)
+    if before or after:
+        return _finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                        "Reads as %s code (%d line%s) next to prose in the same comment: delete it "
+                        "by hand if it is dead code (no patch edit: the prose may refer to it)."
+                        % (doc.language, n, "" if n == 1 else "s"), None)
+    return _finding(doc, start, end, "commented_out_code", b.texts[i].strip(),
+                    "Delete the commented-out code (%d line%s); git history keeps it."
+                    % (n, "" if n == 1 else "s"), _delete(doc, start, end))
 
 
 # ---------------------------------------------------------------------------------------------------------

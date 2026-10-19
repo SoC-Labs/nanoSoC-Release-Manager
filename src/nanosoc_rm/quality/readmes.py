@@ -637,59 +637,69 @@ def _check_one(ctx: _Ctx, readme: str, rows: list[dict]) -> None:
     text = ctx.source.text(readme) or ""
     base = posixpath.dirname(readme)
     named: list[tuple[str, str, Makefile]] = []
-    sub_lines: set[int] = set()
-    for n, kind, payload in _segments(text):
-        if kind == "prose" and re.search(r"\bsub-?modules?\b", payload, re.I):
-            sub_lines.add(n)
+    sub_lines = {n for n, kind, payload in _segments(text)
+                 if kind == "prose" and re.search(r"\bsub-?modules?\b", payload, re.I)}
     target_line: dict[str, int] = {}
+
+    def command(n: int, cmd: str) -> None:
+        before = len(named)
+        _check_command(ctx, readme, base, n, cmd, rows, named)
+        for t, _, _ in named[before:]:
+            target_line.setdefault(t, n)
+
     for n, kind, payload in _segments(text):
         if kind in ("heading", "prose", "tree"):
             continue
         if kind == "cmd":
-            before = len(named)
-            _check_command(ctx, readme, base, n, payload, rows, named)
-            for t, _, _ in named[before:]:
-                target_line.setdefault(t, n)
-            continue
-        if kind == "link":
-            if payload.startswith(("http:", "https:", "mailto:", "#", "<")) or "://" in payload:
-                continue
-            tgt = payload.split("#", 1)[0]
-            if not tgt or _PLACEHOLDER.search(tgt):
-                continue
-            resolved = posixpath.normpath(posixpath.join(base, tgt)) if not tgt.startswith("/") else tgt.lstrip("/")
-            hit = ctx.source.exists(resolved)
-            sub = next((g for g in ctx.gitlinks if resolved.startswith(g + "/")), None) if not hit else None
-            if sub:
-                rows.append(_row(readme, n, "path", tgt, "ignored", "inside submodule %s (not read)" % sub))
-                continue
-            rows.append(_row(readme, n, "path", tgt, "ok" if hit else "missing",
-                             "link target" if hit else "link target not in the tree at this commit"))
-            continue
-        tok = payload
-        if tok.startswith("./") and " " not in tok and _looks_like_script(tok):
-            _check_command(ctx, readme, base, n, tok, rows, named)
-            continue
-        if " " in tok.strip():
-            words = tok.split()
-            if words[0] in ("make", "gmake", "git", "cd") or words[0] in _INTERP or "/" in words[0] \
-                    or re.search(r"\.(sh|py|tcl)$", words[0]):
-                before = len(named)
-                _check_command(ctx, readme, base, n, tok, rows, named)
-                for t, _, _ in named[before:]:
-                    target_line.setdefault(t, n)
-            continue
-        if n in sub_lines and re.match(r"^[A-Za-z0-9_][\w.-]*(/[\w.-]+)*/?$", tok) and \
-                not (("." in tok.rsplit("/", 1)[-1]) and tok.rsplit(".", 1)[-1] in _FILE_EXT) \
-                and tok.lower() not in ("git", "submodule", "submodules", "init", "update", "recursive") \
-                and not re.match(r"^[A-Z][A-Z0-9_]+$", tok):
-            _check_submodule(ctx, readme, n, tok, rows)
-            continue
-        if _path_like(tok) and ("/" not in tok.rstrip("/") or tok.endswith("/") or "." in tok.rsplit("/", 1)[-1]
-                                or _first_component_exists(ctx, tok, base)):
-            _check_path(ctx, readme, base, n, tok, rows)
+            command(n, payload)
+        elif kind == "link":
+            _check_link(ctx, readme, base, n, payload, rows)
+        else:
+            _check_token(ctx, readme, base, n, payload, rows, named, command, n in sub_lines)
     _check_flows(ctx, readme, target_line, named, rows)
     _check_layout(ctx, readme, text, rows)
+
+
+def _check_link(ctx: _Ctx, readme: str, base: str, n: int, payload: str, rows: list[dict]) -> None:
+    """A relative Markdown link must name a path in the tree (one inside a submodule is not read)."""
+    if payload.startswith(("http:", "https:", "mailto:", "#", "<")) or "://" in payload:
+        return
+    tgt = payload.split("#", 1)[0]
+    if not tgt or _PLACEHOLDER.search(tgt):
+        return
+    resolved = posixpath.normpath(posixpath.join(base, tgt)) if not tgt.startswith("/") else tgt.lstrip("/")
+    hit = ctx.source.exists(resolved)
+    sub = next((g for g in ctx.gitlinks if resolved.startswith(g + "/")), None) if not hit else None
+    if sub:
+        rows.append(_row(readme, n, "path", tgt, "ignored", "inside submodule %s (not read)" % sub))
+        return
+    rows.append(_row(readme, n, "path", tgt, "ok" if hit else "missing",
+                     "link target" if hit else "link target not in the tree at this commit"))
+
+
+_SUBMODULE_WORDS = ("git", "submodule", "submodules", "init", "update", "recursive")
+
+
+def _check_token(ctx: _Ctx, readme: str, base: str, n: int, tok: str, rows: list[dict], named: list,
+                 command, near_submodules: bool) -> None:
+    """An inline code token: a script, a command, a submodule name (on a line about submodules) or a path."""
+    if tok.startswith("./") and " " not in tok and _looks_like_script(tok):
+        _check_command(ctx, readme, base, n, tok, rows, named)
+        return
+    if " " in tok.strip():
+        words = tok.split()
+        if words[0] in ("make", "gmake", "git", "cd") or words[0] in _INTERP or "/" in words[0] \
+                or re.search(r"\.(sh|py|tcl)$", words[0]):
+            command(n, tok)
+        return
+    if near_submodules and re.match(r"^[A-Za-z0-9_][\w.-]*(/[\w.-]+)*/?$", tok) and \
+            not (("." in tok.rsplit("/", 1)[-1]) and tok.rsplit(".", 1)[-1] in _FILE_EXT) \
+            and tok.lower() not in _SUBMODULE_WORDS and not re.match(r"^[A-Z][A-Z0-9_]+$", tok):
+        _check_submodule(ctx, readme, n, tok, rows)
+        return
+    if _path_like(tok) and ("/" not in tok.rstrip("/") or tok.endswith("/") or "." in tok.rsplit("/", 1)[-1]
+                            or _first_component_exists(ctx, tok, base)):
+        _check_path(ctx, readme, base, n, tok, rows)
 
 
 def check_readmes(source: Source, *, include_docs: bool = False) -> dict:
