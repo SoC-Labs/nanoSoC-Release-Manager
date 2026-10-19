@@ -182,10 +182,11 @@ manifests (the moved tree's own tests, or the ones its parent composes, plus eve
 `affected_by` names the moved path), reported as hygiene (T0) and functional (capabilities) side by side. Exit 0
 PASS or WARN (already red, still red), 1 FAIL (green to red), 2 UNVERIFIED, 3 usage. A bump proposal reads `would:
 hold` until a PASS or a WARN of exactly that move exists; with a WARN it notes "already red before
-the bump" and names the gates.
+the bump" and names the gates. A FAIL (green to red) for the same move in any other configuration of the same
+component holds it too, even when its own test passed; the proposal names that configuration and its command.
 
 A repository's CI asks the same question: `GET /api/v1/bump-check?component=&path=&to=&root=` answers from the
-same evidence, with a reader token (`nanosoc-rm executor token new NAME --out F --reader`). The eth chiplet and
+same evidence (a FAIL in any configuration answers FAIL and names it), with a reader token (`nanosoc-rm executor token new NAME --out F --reader`). The eth chiplet and
 TideLink carry the CI job and a warn-only pre-push hook on their `rm/capabilities` branches (not merged there yet).
 
 ## 4. Can I delete this branch?

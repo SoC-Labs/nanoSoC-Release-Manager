@@ -2502,7 +2502,7 @@ is met by the tool; `regen:`, `after:`, `lease:` and `siblings` are run-time nee
 `evidence(config, configuration, tree_paths, to, root_commit)`: the newest finished `test-bump` job whose result
 tested exactly this move (configuration, root commit = the walk's, moved commit, a superset of the tree paths;
 not `--plan`). A PASS or WARN document whose job exited non-zero counts as UNVERIFIED (never greener than the exit
-code). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional).
+code). `bump_proposal.fact.test_bump` records it (bump-proposal schema, optional), with `configuration`.
 
 `lands(ev)`: PASS and WARN land; FAIL, UNVERIFIED and no evidence hold (CR-WH-already-red, David 2026-10-19, D12).
 A WARN means every red block gate was red before the move and is still red after it (`same-red`), so the move
@@ -2514,6 +2514,17 @@ Now) is `new-red`, UNVERIFIED: an unknown baseline is never "already red". Anyth
 `decision.would` = hold with the second blocker "bump gate: ..." naming the `nanosoc-rm test-bump` command; the E2
 ledger then scores the proposal `held`, as for any held proposal. The proposal page shows a "Test this bump" row
 (hook `data-bumps="test-bump"`: verdict pill, job link, note) and `nanosoc-rm bumps show` a `test-bump` line.
+
+**Any configuration (D14, CR-WI-d14, David 2026-10-19).** A NEW red for the same move (FAIL: a block gate green
+before, red after) in ANY registered configuration of the component holds the bump, even when another
+configuration passes. `siblings(config, configuration)` is that configuration first, then every other registered
+configuration with the same `component`; `new_red(config, configurations, tree_paths, to, root_commit)` is the
+first (configuration, evidence) among them whose `evidence` is FAIL, else None. The bump engine reads its own
+configuration's evidence as above; unless that is already FAIL, it asks `new_red` of the siblings, and a hit
+replaces `test_bump` with `broke_in(...)`: the sibling's evidence, `configuration` = the sibling, `note` "a new red
+in configuration X holds the bump (D14) although <own> is <verdict>: ...". `blocker` then names the sibling's
+`nanosoc-rm test-bump X PATH TO`. Only FAIL counts: a WARN, UNVERIFIED or untested sibling changes nothing, so
+WARN in one and PASS in another lands, and the proposal's own UNVERIFIED or missing evidence holds as before.
 
 ### 26.5 The executor queue (`jobs`, section 13a)
 
@@ -2553,9 +2564,12 @@ blob the partial-clone mirror lacks reads `unreadable` until `capabilities show`
 
 Query `component` (catalogue id of the asking repository), `path` (the gitlink's tree path), `to` (40 hex),
 `root` (40 hex: the asking repository's commit BEFORE the move, a CI range's base), optional `from`. Answer 200
-`{verdict, url, command, configurations, note}`: for each registered configuration of `component`,
-`gate.evidence(config, configuration, [path], to, root)`; a PASS in any one answers PASS with its job page;
-otherwise a WARN (already red before the bump, section 26.4) answers WARN with its job page, `command` null and the
+`{verdict, url, command, configurations, configuration, note}` (`configuration`: the one whose evidence answers,
+null when none does): for each registered configuration of `component`,
+`gate.evidence(config, configuration, [path], to, root)`. A FAIL (new red) in ANY one answers FAIL, even when
+another passes (D14, section 26.4), with `configuration` that one, its job page, the `nanosoc-rm test-bump` command
+for it, and a `note` naming it and what each other configuration gave; otherwise a PASS in any one answers PASS
+with its job page; otherwise a WARN (already red before the bump, section 26.4) answers WARN with its job page, `command` null and the
 "already red before the bump" `note`; a caller lets the move land on PASS or WARN; otherwise the first other
 verdict found, or null with a `note` (none finished, other root commits, no configuration of that component). `command` is the `nanosoc-rm test-bump CONFIG PATH TO` to run. 400 a malformed
 parameter. Who may ask: a signed-in member (session), or a bearer READER token: `[[api.readers]]` in the service

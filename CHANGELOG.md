@@ -27,6 +27,9 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
 - A bump proposal reads `would: hold` until a `test-bump` of exactly that move passes, or is WARN because every
   red gate was already red before the bump (the proposal then says "already red before the bump"), so every
   current proposal holds at first. (CR-WG-capabilities, CR-WH-already-red)
+- A new red (green to red, FAIL) for the same move in ANY configuration of the component now holds a bump proposal
+  and makes `GET /api/v1/bump-check` answer FAIL, even when another configuration passes; both name the
+  configuration that broke (`configuration` in the answer and in the proposal's `test_bump`). (CR-WI-d14)
 - A what-if whose moved pin was walked but never fetched (an ssh or private URL) reads UNVERIFIED (exit 2), not
   FAIL, unless the gates judged a FAIL elsewhere. (CR-1016-quickfix, CR-WG-integration)
 - Opening a Quality page never starts an analysis: a page with nothing stored offers an **Analyse** button.
