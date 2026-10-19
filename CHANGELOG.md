@@ -124,6 +124,10 @@ change requests behind it, which are rows in `docs/CHANGES.md`. Check this file 
   `docs/GUI.md` into the user guide (section 10) and the install steps into the admin guide (`docs/DEPLOY.md`);
   finished plans and old upgrade notes moved to `docs/archive/history.md`; stale claims in the contracts fixed.
   (CR-1019-docs)
+- The module interfaces contract is split: sections 18 to 27 (matrix, bumps, regenerator, publishing, store
+  index, catalogue, freshness, front pages, capabilities, executor) each have a file in `docs/contracts/`;
+  sections 0 to 17 stay in `interfaces.md`, which links them. No wording or section number changes.
+  (CR-1019-interfaces-split)
 
 ## [0.1.0] - 2026-10-12
 

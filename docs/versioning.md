@@ -72,7 +72,7 @@ allowed. An unclassed entry makes `version next` FAIL: no class or draft rests o
 - **Class (C3):** the most severe of: `declared` (the Unreleased entries), `api` (API.md diff since the baseline:
   a removed or changed line is breaking, only additions feature), `consumers` (every registered consumer's
   regenerated output diffed: ports, instances, address and IRQ lines), plus `reexports` (C6) and `build` (C7).
-  The consumer regeneration is the regenerator (`nanosoc-rm regen class`, interfaces.md section 20): a
+  The consumer regeneration is the regenerator (`nanosoc-rm regen class`, [interfaces.md section 20](contracts/20-regen.md)): a
   configuration with a `regen` entry in the registry's tiers.yaml is regenerated in a sandbox at both commits and
   the outputs diffed by the table below; the stored measurement is what `version next` and the bump engine read.
   A move nobody measured stays unmeasured (`partial`, WARN) and names the command that would measure it;

@@ -269,7 +269,7 @@ EDA host instead; each repository declares its tests in `.nanosoc/capabilities.y
 `tiers.yaml` keeps only per-host paths and licence data (`hosts`). By default every fetch is anonymous and private
 repos stay unreadable (one `mirror_failed` alert group, "private repos cannot be mirrored anonymously").
 
-## Remote tier executor (optional; CR-WG-executor, interfaces.md section 27)
+## Remote tier executor (optional; CR-WG-executor, [interfaces.md section 27](contracts/27-executor.md))
 
 T1 and up need the EDA host (decision 1, 2026-10-16). A pull agent there claims tier work from this service over
 HTTPS, runs it sandboxed, and posts the result back. This service never connects to the agent. Nothing in the tool
@@ -314,13 +314,13 @@ ends INFRA after `max_attempts` claims; a job ends INFRA (also one left running 
 Never put `[executor] host` in the service config: a service config's host is ignored, and `nanosoc-rm test-bump
 --host` on the service host is refused, so tier commands never run here.
 
-Bump-check readers (the repositories' CI, interfaces.md section 26.7): for each repository whose CI asks
+Bump-check readers (the repositories' CI, [interfaces.md section 26.7](contracts/26-capabilities.md)): for each repository whose CI asks
 `GET /api/v1/bump-check`, `nanosoc-rm executor token new <repo>-ci --out <repo>-ci.token --reader`, paste the
 printed `[[api.readers]]` entry into the private config, and put the token into that repository's CI secret
 `NANOSOC_RM_TOKEN` (and the service's HTTPS URL into variable `NANOSOC_RM_URL`). A reader token opens that one
 route and nothing else; revoke with `revoked = true`. The route must be reachable from where the CI runs.
 
-What the sandbox gives (interfaces.md section 27.4):
+What the sandbox gives ([interfaces.md section 27.4](contracts/27-executor.md)):
 - **bwrap** (preferred): an empty root with only `/usr` and `/etc` read-only, the tool trees read-only, the mirror
   read-only and the task's work dir writable; the agent user's home (its `~/.ssh`, `~/.config`, the token) is not
   there; new user/pid/ipc namespaces; network shared for licence servers unless `network = false`. In a tier job,
@@ -364,7 +364,7 @@ private_read = { method = "token", token_file = "~/.config/nanosoc-rm/gitlab-rea
   `/alerts`.
 - The credential is never logged, stored or shown: not in commands, observations, alerts or pages.
 
-## Artefact store index (optional; interfaces.md section 22)
+## Artefact store index (optional; [interfaces.md section 22](contracts/22-store-index.md))
 
 Optional. The tool reads Artifactory (GET, HEAD and one AQL search; it never writes there except the publish
 service's manifests) and shows what it holds on `/store/`, the Silicon and History tabs, Versions and Releases.
@@ -419,7 +419,7 @@ What it writes, only on a confirmed Publish: new files under `asic-release/<proj
 promotion. It refuses when any of those paths already holds other bytes. Ledger: `rm.sqlite` (`release_publication`,
 `actions`) and `<data_dir>/publish/`.
 
-## Regenerator (optional; interfaces.md section 20)
+## Regenerator (optional; [interfaces.md section 20](contracts/20-regen.md))
 
 Optional. To class generator moves by regeneration on this host:
 
